@@ -8,16 +8,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -35,18 +26,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -55,25 +40,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -120,13 +100,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -135,25 +109,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -195,16 +164,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -222,18 +182,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -242,26 +196,21 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(259200))))
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))), equals(events.event, 'signup')), and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(259200)))))
      GROUP BY exposures.entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(864000))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(864000))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -308,13 +257,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -323,26 +266,21 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(259200))))
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(259200))), equals(events.event, 'signup')), and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(259200)))))
      GROUP BY exposures.entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(864000))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(864000))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -384,16 +322,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -411,18 +340,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -431,26 +354,21 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -497,13 +415,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -512,26 +424,21 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -573,16 +480,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -600,18 +498,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -620,26 +512,21 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -686,13 +573,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -701,26 +582,21 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id
      HAVING lessOrEquals(plus(min(toTimeZone(events.timestamp, 'UTC')), toIntervalSecond(604800)), parseDateTime64BestEffortOrNull('2020-01-25 12:00:00', 6, 'UTC'))),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-25 00:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -762,16 +638,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -789,18 +656,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -809,25 +670,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'first_action'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'first_action'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -874,13 +730,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -889,25 +739,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'first_action'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'first_action'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -949,16 +794,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -976,18 +812,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -996,25 +826,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1055,16 +880,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1082,18 +898,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             max(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1102,25 +912,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1161,16 +966,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1188,18 +984,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1208,25 +998,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1267,16 +1052,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1294,18 +1070,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             max(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1314,25 +1084,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1373,16 +1138,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1400,18 +1156,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'session_start'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1420,25 +1170,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'session_start')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'key_action'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'key_action'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1485,13 +1230,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'session_start'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1500,25 +1239,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'session_start')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'key_action'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'key_action'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1560,16 +1294,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1587,18 +1312,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1607,25 +1326,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1672,13 +1386,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1687,25 +1395,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1747,16 +1450,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment-3-variants'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test_a', 'test_b']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1774,18 +1468,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment-3-variants'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test_a', 'test_b']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'app_open'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1794,25 +1482,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'app_open')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'feature_used'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'feature_used'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1859,13 +1542,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'app_open'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1874,25 +1551,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'app_open')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'feature_used'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'feature_used'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1934,16 +1606,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1961,18 +1624,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -1981,25 +1638,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2046,13 +1698,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2061,25 +1707,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'purchase'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2121,16 +1762,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2148,18 +1780,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2168,25 +1794,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2227,16 +1848,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2254,18 +1866,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2274,25 +1880,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'login'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2333,16 +1934,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2360,18 +1952,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'action_performed'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2380,25 +1966,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'action_performed')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'action_performed'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'action_performed'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2445,13 +2026,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'action_performed'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2460,25 +2035,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'action_performed')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'action_performed'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC')), toIntervalSecond(604800))), equals(events.event, 'action_performed'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2520,16 +2090,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2547,18 +2108,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2567,25 +2122,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(1209600))), equals(events.event, 'return_visit'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(1209600))), equals(events.event, 'return_visit'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2632,13 +2182,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2647,25 +2191,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE greaterOrEquals(events.timestamp, exposures.first_exposure_time)
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(0))), equals(events.event, 'signup')), greaterOrEquals(events.timestamp, exposures.first_exposure_time))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(1209600))), equals(events.event, 'return_visit'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(1209600))), equals(events.event, 'return_visit'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2707,16 +2246,7 @@
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
             argMin(events.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
-     FROM
-       (SELECT events.`$session_id` AS `$session_id`,
-               events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               events.properties AS properties,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp,
-               events.uuid AS uuid
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2734,18 +2264,12 @@
                                                        WHERE equals(person.team_id, 99999)
                                                        GROUP BY person.id
                                                        HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-     WHERE ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(events__person.properties___email), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']))
      GROUP BY entity_id),
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(7200))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2754,25 +2278,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(7200))))
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(7200))), equals(events.event, 'signup')), and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(7200)))))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(266400))), equals(events.event, 'return_visit'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 12:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(266400))), equals(events.event, 'return_visit'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -2819,13 +2338,7 @@
        start_events AS
     (SELECT exposures.entity_id AS entity_id,
             min(toTimeZone(events.timestamp, 'UTC')) AS start_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(7200))), equals(events.event, 'signup'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
@@ -2834,25 +2347,20 @@
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
      INNER JOIN exposures ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), exposures.entity_id)
-     WHERE and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(7200))))
+     WHERE and(equals(events.team_id, 99999), and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(7200))), equals(events.event, 'signup')), and(greaterOrEquals(events.timestamp, exposures.first_exposure_time), lessOrEquals(events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(7200)))))
      GROUP BY exposures.entity_id),
        completion_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS completion_timestamp
-     FROM
-       (SELECT events.distinct_id AS distinct_id,
-               events.event AS event,
-               events.person_id AS person_id,
-               toTimeZone(events.timestamp, 'UTC') AS timestamp
-        FROM events
-        WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(266400))), equals(events.event, 'return_visit'))) AS events
+     FROM events
      LEFT OUTER JOIN
        (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                person_distinct_id_overrides.distinct_id AS distinct_id
         FROM person_distinct_id_overrides
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)),
+        HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-15 12:00:00', 'UTC')), toIntervalSecond(266400))), equals(events.event, 'return_visit'))),
        entity_metrics AS
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,

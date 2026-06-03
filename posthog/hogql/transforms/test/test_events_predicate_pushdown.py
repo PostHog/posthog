@@ -133,10 +133,13 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery_with_pushdown(self):
         """Subquery pushdown"""
+        # The inner subquery is nested (not outermost), so it needs its own explicit LIMIT to be pushed;
+        # the outer aggregate (avg + GROUP BY) is correctly left un-pushed.
         printed = self._print_select(
             "SELECT event, avg($session_duration) FROM ("
             "SELECT event, session.$session_duration FROM events "
-            "WHERE timestamp >= '2024-01-01' AND (event = '$pageview' OR event = '$pageleave')"
+            "WHERE timestamp >= '2024-01-01' AND (event = '$pageview' OR event = '$pageleave') "
+            "LIMIT 100"
             ") GROUP BY event"
         )
         assert printed == self.snapshot
@@ -200,12 +203,10 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     @parameterized.expand(_SAFE_JOINS)
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_safe_join_type_pushes_timestamp_down(self, _name: str, join_clause: str):
-        """Safe join types push the events.timestamp predicate into the subquery."""
+        """Safe join types push the events.timestamp predicate into the subquery (non-aggregate, so the
+        top-level LIMIT can short-circuit the events scan)."""
         printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            f"FROM events {join_clause} "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
+            f"SELECT sessions.session_id, uuid FROM events {join_clause} WHERE events.timestamp > '2021-01-01'"
         )
         assert printed == self.snapshot
 
@@ -214,10 +215,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     def test_unsafe_join_type_skips_pushdown(self, _name: str, join_clause: str):
         """RIGHT/FULL joins can synthesize null events rows, so pushing the predicate would change results."""
         printed = self._print_select(
-            "SELECT sessions.session_id, uniq(uuid) as uniq_uuid "
-            f"FROM events {join_clause} "
-            "WHERE events.timestamp > '2021-01-01' "
-            "GROUP BY sessions.session_id"
+            f"SELECT sessions.session_id, uuid FROM events {join_clause} WHERE events.timestamp > '2021-01-01'"
         )
         assert printed == self.snapshot
 
@@ -261,6 +259,53 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert "PREWHERE" not in compact.split(")ASeventsLEFTJOIN", 1)[1], (
             "no PREWHERE should remain on the subquery-based outer query:\n" + printed
+        )
+
+    # Gate: pushdown only helps when the LIMIT can short-circuit the events scan. Aggregate / GROUP BY /
+    # DISTINCT / window all consume the whole filtered set before the LIMIT applies, so the pre-filter
+    # subquery would be pure materialization overhead — decline (still correct, just not worth it).
+    _FORCES_FULL_READ_SHAPES = [
+        (
+            "aggregate_fn",
+            "SELECT count() AS c, max(session.$session_duration) AS d FROM events WHERE timestamp >= '2024-01-01'",
+        ),
+        (
+            "group_by",
+            "SELECT event, count() AS c FROM events WHERE timestamp >= '2024-01-01' AND session.$session_duration > 0 GROUP BY event",
+        ),
+        ("distinct", "SELECT DISTINCT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'"),
+        (
+            "window_fn",
+            "SELECT event, row_number() OVER (ORDER BY timestamp) AS rn, session.$session_duration FROM events WHERE timestamp >= '2024-01-01'",
+        ),
+    ]
+
+    @parameterized.expand(_FORCES_FULL_READ_SHAPES)
+    def test_full_event_read_shapes_are_not_pushed(self, _name: str, select: str):
+        printed = self._print_select(select)
+        assert ") AS events LEFT JOIN" not in printed, f"{_name} should not be pushed (full-read shape):\n{printed}"
+
+    def test_nested_subquery_without_limit_is_not_pushed(self):
+        # A nested events subquery gets no auto-limit, and without an explicit one its LIMIT can't
+        # short-circuit the events scan, so we decline.
+        printed = self._print_select(
+            "SELECT event, d FROM ("
+            "SELECT event, session.$session_duration AS d FROM events WHERE timestamp >= '2024-01-01'"
+            ") LIMIT 100"
+        )
+        assert ") AS events LEFT JOIN" not in printed, (
+            "nested subquery without a LIMIT should not be pushed:\n" + printed
+        )
+
+    def test_nested_subquery_with_explicit_limit_is_pushed(self):
+        # The same nested subquery with its own LIMIT can short-circuit, so it is pushed.
+        printed = self._print_select(
+            "SELECT event, d FROM ("
+            "SELECT event, session.$session_duration AS d FROM events WHERE timestamp >= '2024-01-01' LIMIT 100"
+            ")"
+        )
+        assert ") AS events LEFT JOIN" in printed, (
+            "nested subquery with an explicit LIMIT should be pushed:\n" + printed
         )
 
 
@@ -319,6 +364,9 @@ class TestEventsPredicatePushdownTransformUnit:
             select=[ast.Field(chain=["event"])],
             select_from=select_from,
             where=where_clause,
+            # The gate requires an effective LIMIT (so the LIMIT can short-circuit the events scan); give the
+            # node an explicit one. Tests asserting decline fail on their own check (no WHERE, SAMPLE, etc.).
+            limit=ast.Constant(value=100),
         )
 
     def test_should_apply_pushdown_with_valid_query(self):
@@ -1039,20 +1087,8 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             f"SELECT event, session.$session_duration FROM events WHERE timestamp > '2024-01-01' AND timestamp <= '2024-01-08' ORDER BY timestamp",
         ),
         (
-            "group_by_aggregation",
-            f"SELECT event, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY event ORDER BY event",
-        ),
-        (
-            "group_by_having",
-            f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY t HAVING count() > 0 ORDER BY t",
-        ),
-        (
             "limit",
             f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} ORDER BY timestamp, event LIMIT 2",
-        ),
-        (
-            "distinct",
-            f"SELECT DISTINCT properties.tier AS t, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY t, d",
         ),
         (
             "order_by_joined_column",
@@ -1078,6 +1114,41 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         printed = self._print_pushdown_sql(select)
         assert ") AS events LEFT JOIN" in printed or ") AS e LEFT JOIN" in printed, (
             f"{_name}: expected pushdown to wrap events in a subquery, but it bailed:\n{printed}"
+        )
+        with_pushdown = self._results(select, push_down=True)
+        without_pushdown = self._results(select, push_down=False)
+        assert with_pushdown == without_pushdown, (
+            f"{_name}: pushdown changed results: on={with_pushdown} off={without_pushdown}"
+        )
+
+    # Shapes that read every matching event before producing output: the LIMIT can't short-circuit the
+    # events scan, so the subquery-materialization barrier is pure overhead. The gate must decline these
+    # (treating GROUP BY, DISTINCT, and window functions as full-read), and results must be unchanged.
+    DECLINE_SHAPES = [
+        (
+            "group_by_aggregation",
+            f"SELECT event, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY event ORDER BY event",
+        ),
+        (
+            "group_by_having",
+            f"SELECT event, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY event HAVING count() > 0 ORDER BY event",
+        ),
+        (
+            "distinct",
+            f"SELECT DISTINCT properties.tier AS t, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY t, d",
+        ),
+        (
+            "window_function",
+            f"SELECT event, row_number() OVER (ORDER BY timestamp) AS rn, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY timestamp, event",
+        ),
+    ]
+
+    @parameterized.expand(DECLINE_SHAPES)
+    def test_exec_full_read_shapes_decline_but_stay_equivalent(self, _name: str, select: str):
+        self._create_data()
+        printed = self._print_pushdown_sql(select)
+        assert ") AS events LEFT JOIN" not in printed and ") AS e LEFT JOIN" not in printed, (
+            f"{_name}: expected pushdown to decline (no short-circuit possible), but it wrapped events:\n{printed}"
         )
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
@@ -1123,14 +1194,14 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
 
     _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
 
-    def test_exec_materialized_property_in_select_and_group_by(self):
-        # The CRITICAL repro: a materialized property in the outer SELECT/GROUP BY. The subquery must
-        # expose `mat_tier` or the outer `events.mat_tier` is an Unknown identifier.
+    def test_exec_materialized_property_in_outer_select(self):
+        # The CRITICAL repro: a materialized property in the outer SELECT. The subquery must expose
+        # `mat_tier` or the outer `events.mat_tier` is an Unknown identifier.
         with materialized("events", "tier") as mat_col:
             self._create_data()
             select = (
-                f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
-                f"WHERE {self._RANGE} GROUP BY t ORDER BY t"
+                f"SELECT properties.tier AS t, session.$session_duration AS d FROM events "
+                f"WHERE {self._RANGE} ORDER BY t, timestamp"
             )
             printed = self._print_pushdown_sql(select)
             subquery = self._events_subquery(printed)
@@ -1141,7 +1212,7 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             assert "properties AS properties" not in subquery, (
                 f"materialized property over-projected the blob:\n{printed}"
             )
-            self._assert_equivalent(select, expected_rows=2)
+            self._assert_equivalent(select, expected_rows=3)
 
     def test_exec_materialized_property_in_order_by(self):
         with materialized("events", "tier") as mat_col:
@@ -1150,17 +1221,6 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             printed = self._print_pushdown_sql(select)
             assert mat_col.name in self._events_subquery(printed)
             self._assert_equivalent(select, expected_rows=3)
-
-    def test_exec_materialized_property_in_having(self):
-        with materialized("events", "tier") as mat_col:
-            self._create_data()
-            select = (
-                f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
-                f"WHERE {self._RANGE} GROUP BY t HAVING max(properties.tier) != 'nope' ORDER BY t"
-            )
-            printed = self._print_pushdown_sql(select)
-            assert mat_col.name in self._events_subquery(printed)
-            self._assert_equivalent(select, expected_rows=2)
 
     def test_exec_materialized_property_filter_pushed_uses_mat_column(self):
         # Property in the pushed predicate: the subquery WHERE must use the materialized column, not the
@@ -1211,14 +1271,6 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             self._assert_equivalent(select, expected_rows=3)
 
     MATERIALIZED_SHAPES = [
-        (
-            "select_group_by",
-            f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE} GROUP BY t ORDER BY t",
-        ),
-        (
-            "distinct",
-            f"SELECT DISTINCT properties.tier AS t, session.$session_duration AS d FROM events WHERE {_RANGE} ORDER BY t, d",
-        ),
         (
             "property_equals",
             f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier = 'pro' ORDER BY timestamp",
@@ -1319,19 +1371,6 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         without_pushdown = self._results(select, push_down=False)
         assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
 
-    def test_exec_json_has_in_group_by_stays_equivalent(self):
-        self._create_data()
-        select = (
-            f"SELECT JSONHas(properties, 'tier') AS h, count() AS c, max(session.$session_duration) AS d FROM events "
-            f"WHERE {self._RANGE} GROUP BY h ORDER BY h"
-        )
-        printed = self._print_pushdown_sql(select)
-        assert "properties_group" in self._events_subquery(printed), printed
-        with_pushdown = self._results(select, push_down=True)
-        without_pushdown = self._results(select, push_down=False)
-        assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
-        assert len(with_pushdown or []) == 2  # one group with tier present, one without
-
     def test_exec_json_has_property_filter_pushed_stays_equivalent(self):
         # JSONHas in the pushed predicate (WHERE): goes into the subquery, which can reference the group
         # column directly. Must stay equivalent.
@@ -1351,15 +1390,15 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         # path from the JSONHas tests above (visit_field/_collect_materialized_column, not visit_call).
         self._create_data()
         select = (
-            f"SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
-            f"WHERE {self._RANGE} GROUP BY t ORDER BY t"
+            f"SELECT properties.tier AS t, session.$session_duration AS d FROM events "
+            f"WHERE {self._RANGE} ORDER BY t, timestamp"
         )
         printed = self._print_pushdown_sql(select)
         assert "properties_group" in self._events_subquery(printed), printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
-        assert len(with_pushdown or []) == 2  # tier='pro' group and the no-tier group
+        assert len(with_pushdown or []) == 3  # u1's two tier='pro' events and u2's no-tier event
 
     def test_exec_is_not_null_uses_property_group_column(self):
         # Under OPTIMIZED the printer rewrites isNull/isNotNull(properties.k) to the property-group has()
@@ -1367,15 +1406,15 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         # the group column is exposed by _collect_materialized_column — pin that equivalence here.
         self._create_data()
         select = (
-            f"SELECT isNotNull(properties.tier) AS has_tier, count() AS c, max(session.$session_duration) AS d "
-            f"FROM events WHERE {self._RANGE} GROUP BY has_tier ORDER BY has_tier"
+            f"SELECT isNotNull(properties.tier) AS has_tier, session.$session_duration AS d "
+            f"FROM events WHERE {self._RANGE} ORDER BY has_tier, timestamp"
         )
         printed = self._print_pushdown_sql(select)
         assert "properties_group" in self._events_subquery(printed), printed
         with_pushdown = self._results(select, push_down=True)
         without_pushdown = self._results(select, push_down=False)
         assert with_pushdown == without_pushdown, f"pushdown changed results: on={with_pushdown} off={without_pushdown}"
-        assert len(with_pushdown or []) == 2  # has-tier (u1) and no-tier (u2) groups
+        assert len(with_pushdown or []) == 3  # u1's two events (has tier) and u2's event (no tier)
 
 
 class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
@@ -1422,19 +1461,6 @@ class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
     def test_exec_dmat_property_in_select_stays_equivalent(self):
         self._setup_dmat_events()
         select = "SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE timestamp >= '2020-01-01' ORDER BY t"
-        printed = self._print_pushdown_sql(select)
-        assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
-        on = self._results(select, push_down=True)
-        off = self._results(select, push_down=False)
-        assert on == off, f"pushdown changed results: on={on} off={off}"
-        assert len(on or []) == 2
-
-    def test_exec_dmat_property_in_group_by_stays_equivalent(self):
-        self._setup_dmat_events()
-        select = (
-            "SELECT properties.tier AS t, count() AS c, max(session.$session_duration) AS d FROM events "
-            "WHERE timestamp >= '2020-01-01' GROUP BY t ORDER BY t"
-        )
         printed = self._print_pushdown_sql(select)
         assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
         on = self._results(select, push_down=True)

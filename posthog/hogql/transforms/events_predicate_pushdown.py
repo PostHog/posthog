@@ -11,7 +11,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FieldTraverser
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
+from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.printer.base import resolve_field_type
+from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
@@ -30,7 +32,19 @@ def apply_events_predicate_pushdown(
 
     The transform modifies the AST in place but also returns it for chaining.
     """
-    EventsPredicatePushdownTransform(context=context, dialect="clickhouse").visit(node)
+    # The outermost select queries always get a top-level LIMIT injected — the executor's _apply_limit
+    # default, or the printer's limit_top_select cap of MAX_SELECT_RETURNED_ROWS — even when the user wrote
+    # none. Both target exactly the extract_select_queries() set and cap at a value in the beneficial range,
+    # so the gate treats these as guaranteed-limited regardless of execution path. (limit_top_select runs
+    # after this transform, so the limit isn't on the AST here yet — hence the precomputed set.)
+    top_level_select_ids = (
+        {id(select) for select in extract_select_queries(node)}
+        if isinstance(node, (ast.SelectQuery, ast.SelectSetQuery))
+        else set()
+    )
+    EventsPredicatePushdownTransform(
+        context=context, dialect="clickhouse", top_level_select_ids=top_level_select_ids
+    ).visit(node)
     return node
 
 
@@ -325,6 +339,34 @@ class EventsFieldCollector(TraversingVisitor):
         return table_type is self.target_table or unwrapped is target  # identity fallback
 
 
+class _ShortCircuitBlockerFinder(TraversingVisitor):
+    """Finds aggregate or window functions in an expression — constructs that consume the whole result
+    before a LIMIT applies. Does not recurse into subqueries: only this query level's own SELECT/HAVING
+    expressions determine whether its own LIMIT can short-circuit the events scan.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.found = False
+
+    def visit(self, node):
+        if not self.found:
+            super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass  # a nested subquery's aggregation doesn't make this level read everything
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        self.found = True
+
+    def visit_call(self, node: ast.Call):
+        if find_hogql_aggregation(node.name):
+            self.found = True
+        else:
+            for arg in node.args:
+                self.visit(arg)
+
+
 class EventsPredicatePushdownTransform(TraversingVisitor):
     """Pushes events WHERE/PREWHERE predicates into a pre-filtering subquery:
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
@@ -337,10 +379,17 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     # pre-filtering events would turn matched rows into NULL-padded ones; exclude them.
     _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
 
-    def __init__(self, context: HogQLContext, dialect: HogQLDialect = "clickhouse"):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: HogQLDialect = "clickhouse",
+        top_level_select_ids: set[int] | None = None,
+    ):
         super().__init__()
         self.context = context
         self.dialect = dialect
+        # ids of the outermost select queries — guaranteed to get a top-level LIMIT injected later.
+        self.top_level_select_ids = top_level_select_ids or set()
 
     def visit_select_query(self, node: ast.SelectQuery):
         # Visit children (subqueries) first so pushdown is applied bottom-up.
@@ -447,10 +496,13 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     def _should_apply_pushdown(self, node: ast.SelectQuery) -> bool:
         """Check if this query is eligible for predicate pushdown.
 
-        Applies to any query where:
-        - FROM events (directly, not a subquery)
-        - Has WHERE or PREWHERE clause
-        - Has joins (lazy or explicit)
+        Applies to a query that:
+        - selects FROM events directly (not a subquery), with no SAMPLE clause
+        - has a WHERE or PREWHERE clause
+        - has joins (lazy or explicit)
+        - has an effective LIMIT (so pushing the predicate lets the LIMIT short-circuit the events scan), and
+        - does not aggregate / DISTINCT / window (those read the whole filtered set regardless of the LIMIT,
+          so the pre-filter subquery would be pure materialization overhead — a measured regression).
         """
         return (
             (self.context.modifiers.pushDownPredicates or (self.context.modifiers.pushDownPredicates is None and TEST))
@@ -459,7 +511,33 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             and self._from_is_events_table(node.select_from)
             and (node.where is not None or node.prewhere is not None)
             and node.select_from.next_join is not None  # Has joins
+            and self._has_effective_limit(node)
+            and not self._forces_full_event_read(node)
         )
+
+    def _has_effective_limit(self, node: ast.SelectQuery) -> bool:
+        """The LIMIT can bound the events scan, so the pushdown lets it short-circuit early.
+
+        An outermost select always gets a top-level LIMIT injected (<= MAX_SELECT_RETURNED_ROWS, in the
+        beneficial range), so it counts regardless of what's on the AST right now. A nested subquery only
+        counts if it carries an explicit LIMIT.
+        """
+        return id(node) in self.top_level_select_ids or node.limit is not None
+
+    def _forces_full_event_read(self, node: ast.SelectQuery) -> bool:
+        """True if the query consumes the whole filtered event set before its LIMIT applies.
+
+        GROUP BY, DISTINCT, and aggregate / window functions all read every matching row before the LIMIT
+        selects from the result, so the LIMIT can't short-circuit the events scan. The pushdown stays
+        correct, but with nothing to short-circuit the pre-filter subquery is pure materialization overhead.
+        """
+        if node.group_by or node.distinct:
+            return True
+        finder = _ShortCircuitBlockerFinder()
+        for expr in (*node.select, node.having):
+            if expr is not None:
+                finder.visit(expr)
+        return finder.found
 
     def _from_is_events_table(self, join_expr: ast.JoinExpr) -> bool:
         """True when the FROM resolves directly to the physical events table (not a subquery).

@@ -37,24 +37,15 @@
                   if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                   [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     e.properties AS properties,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -114,24 +105,15 @@
                   if(and(equals(e.event, 'buy'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', ''), 'xyz'), 0)), 1, 0) AS step_1,
                   [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
                   if(ifNull(equals(step_1, 1), 0), prop_basic, []) AS prop
-           FROM
-             (SELECT e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     e.properties AS properties,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -191,24 +173,15 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_1,
                   [ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$browser'), ''), 'null'), '^"|"$', '')), ''), ifNull(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, '$version'), ''), 'null'), '^"|"$', '')), '')] AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     e.properties AS properties,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -274,15 +247,7 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
                   ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$group_0` AS `$group_0`,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.event AS event,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT JOIN
              (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
                      groups.group_type_index AS index,
@@ -291,7 +256,7 @@
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
                        groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-           WHERE and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target)))
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -437,17 +402,7 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
                   ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$group_0` AS `$group_0`,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -462,7 +417,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key))
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      GROUP BY breakdown
@@ -518,17 +474,7 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
                   ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$group_0` AS `$group_0`,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -543,7 +489,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key))
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
@@ -597,17 +544,7 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
                   ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$group_0` AS `$group_0`,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -622,7 +559,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key))
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('finance'))), isNull(arrayFlatten(array(breakdown)))
@@ -676,17 +614,7 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
                   ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$group_0` AS `$group_0`,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -701,7 +629,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key))
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 0), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))
@@ -755,17 +684,7 @@
                   if(equals(e.event, 'buy'), 1, 0) AS step_2,
                   ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                   prop_basic AS prop
-           FROM
-             (SELECT e.`$group_0` AS `$group_0`,
-                     e.`$session_id` AS `$session_id`,
-                     e.`$window_id` AS `$window_id`,
-                     e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -780,7 +699,8 @@
               FROM groups
               WHERE and(equals(groups.team_id, 99999), equals(index, 0))
               GROUP BY groups.group_type_index,
-                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key))
+                       groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
+           WHERE and(equals(e.team_id, 99999), and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))))
         GROUP BY aggregation_target
         HAVING ifNull(greaterOrEquals(step_reached, 0), 0))
      WHERE and(bitTest(steps_bitfield, 1), ifNull(equals(arrayFlatten(array(breakdown)), arrayFlatten(array('technology'))), isNull(arrayFlatten(array(breakdown)))

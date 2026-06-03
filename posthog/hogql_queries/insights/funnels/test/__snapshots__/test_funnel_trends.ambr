@@ -21,14 +21,7 @@
                if(equals(e.event, 'step one'), 1, 0) AS step_0,
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
                if(equals(e.event, 'step three'), 1, 0) AS step_2
-        FROM
-          (SELECT e.distinct_id AS distinct_id,
-                  e.event AS event,
-                  e.person_id AS person_id,
-                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.uuid AS uuid
-           FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -36,7 +29,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))
+        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
      GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                           date_time_input_format='best_effort') AS data
   RIGHT OUTER JOIN
@@ -80,14 +73,7 @@
                if(equals(e.event, 'step one'), 1, 0) AS step_0,
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
                if(equals(e.event, 'step three'), 1, 0) AS step_2
-        FROM
-          (SELECT e.distinct_id AS distinct_id,
-                  e.event AS event,
-                  e.person_id AS person_id,
-                  toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
-                  e.uuid AS uuid
-           FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -95,7 +81,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))
+        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'US/Pacific'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
      GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                           date_time_input_format='best_effort') AS data
   RIGHT OUTER JOIN
@@ -139,14 +125,7 @@
                if(equals(e.event, 'step one'), 1, 0) AS step_0,
                if(equals(e.event, 'step two'), 1, 0) AS step_1,
                if(equals(e.event, 'step three'), 1, 0) AS step_2
-        FROM
-          (SELECT e.distinct_id AS distinct_id,
-                  e.event AS event,
-                  e.person_id AS person_id,
-                  toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                  e.uuid AS uuid
-           FROM events AS e
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
+        FROM events AS e
         LEFT OUTER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                   person_distinct_id_overrides.distinct_id AS distinct_id
@@ -154,7 +133,7 @@
            WHERE equals(person_distinct_id_overrides.team_id, 99999)
            GROUP BY person_distinct_id_overrides.distinct_id
            HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-        WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))
+        WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
      GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                           date_time_input_format='best_effort') AS data
   RIGHT OUTER JOIN
@@ -198,14 +177,7 @@
                   if(equals(e.event, 'step one'), 1, 0) AS step_0,
                   if(equals(e.event, 'step two'), 1, 0) AS step_1,
                   if(equals(e.event, 'step three'), 1, 0) AS step_2
-           FROM
-             (SELECT e.distinct_id AS distinct_id,
-                     e.event AS event,
-                     e.person_id AS person_id,
-                     toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                     e.uuid AS uuid
-              FROM events AS e
-              WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), in(e.event, tuple('step one', 'step three', 'step two')))) AS e
+           FROM events AS e
            LEFT OUTER JOIN
              (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                      person_distinct_id_overrides.distinct_id AS distinct_id
@@ -213,7 +185,7 @@
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
               HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           WHERE or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0)))
+           WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))), in(e.event, tuple('step one', 'step three', 'step two'))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))
         GROUP BY aggregation_target SETTINGS date_time_output_format='iso',
                                              date_time_input_format='best_effort')
      WHERE and(ifNull(equals(success_bool, 1), 0), ifNull(equals(entrance_period_start, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), 0))

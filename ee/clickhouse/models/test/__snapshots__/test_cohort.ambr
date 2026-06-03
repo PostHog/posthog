@@ -148,21 +148,15 @@
                          toTimeZone(e.timestamp, 'UTC') AS timestamp,
                          e.uuid AS uuid,
                          e.distinct_id AS distinct_id
-                  FROM
-                    (SELECT e.distinct_id AS distinct_id,
-                            e.event AS event,
-                            e.person_id AS person_id,
-                            toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                            e.uuid AS uuid
-                     FROM events AS e
-                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview'))) AS e
+                  FROM events AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
             LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -202,21 +196,15 @@
                          toTimeZone(e.timestamp, 'UTC') AS timestamp,
                          e.uuid AS uuid,
                          e.distinct_id AS distinct_id
-                  FROM
-                    (SELECT e.distinct_id AS distinct_id,
-                            e.event AS event,
-                            e.person_id AS person_id,
-                            toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                            e.uuid AS uuid
-                     FROM events AS e
-                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview'))) AS e
+                  FROM events AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
             LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -311,14 +299,7 @@
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                         argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
-                 FROM
-                   (SELECT e.distinct_id AS distinct_id,
-                           e.event AS event,
-                           e.person_id AS person_id,
-                           toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                           e.uuid AS uuid
-                    FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))) AS e
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -326,6 +307,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 WHERE and(equals(e.team_id, 99999), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                  HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
                                    and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
@@ -359,14 +341,7 @@
                         if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                         argMin(e.uuid, toTimeZone(e.timestamp, 'UTC')) AS uuid,
                         argMin(e.distinct_id, toTimeZone(e.timestamp, 'UTC')) AS distinct_id
-                 FROM
-                   (SELECT e.distinct_id AS distinct_id,
-                           e.event AS event,
-                           e.person_id AS person_id,
-                           toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                           e.uuid AS uuid
-                    FROM events AS e
-                    WHERE and(equals(e.team_id, 99999), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))) AS e
+                 FROM events AS e
                  LEFT OUTER JOIN
                    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                            person_distinct_id_overrides.distinct_id AS distinct_id
@@ -374,6 +349,7 @@
                     WHERE equals(person_distinct_id_overrides.team_id, 99999)
                     GROUP BY person_distinct_id_overrides.distinct_id
                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                 WHERE and(equals(e.team_id, 99999), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, 'signup'))
                  GROUP BY if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)
                  HAVING and(ifNull(equals(min_timestamp, min_timestamp_with_condition), isNull(min_timestamp)
                                    and isNull(min_timestamp_with_condition)), ifNull(notEquals(min_timestamp, fromUnixTimestamp(0)), isNotNull(min_timestamp)
@@ -407,21 +383,15 @@
                          toTimeZone(e.timestamp, 'UTC') AS timestamp,
                          e.uuid AS uuid,
                          e.distinct_id AS distinct_id
-                  FROM
-                    (SELECT e.distinct_id AS distinct_id,
-                            e.event AS event,
-                            e.person_id AS person_id,
-                            toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                            e.uuid AS uuid
-                     FROM events AS e
-                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview'))) AS e
+                  FROM events AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
             LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
@@ -461,21 +431,15 @@
                          toTimeZone(e.timestamp, 'UTC') AS timestamp,
                          e.uuid AS uuid,
                          e.distinct_id AS distinct_id
-                  FROM
-                    (SELECT e.distinct_id AS distinct_id,
-                            e.event AS event,
-                            e.person_id AS person_id,
-                            toTimeZone(e.timestamp, 'UTC') AS timestamp,
-                            e.uuid AS uuid
-                     FROM events AS e
-                     WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview'))) AS e
+                  FROM events AS e
                   LEFT OUTER JOIN
                     (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
                             person_distinct_id_overrides.distinct_id AS distinct_id
                      FROM person_distinct_id_overrides
                      WHERE equals(person_distinct_id_overrides.team_id, 99999)
                      GROUP BY person_distinct_id_overrides.distinct_id
-                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id))
+                     HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                  WHERE and(equals(e.team_id, 99999), greaterOrEquals(timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(timestamp, toDateTime64('today', 6, 'UTC')), equals(e.event, '$pageview')))
                GROUP BY actor_id) AS source
             ORDER BY source.id ASC
             LIMIT 1000000000 SETTINGS optimize_aggregation_in_order=1,
