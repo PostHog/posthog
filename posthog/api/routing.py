@@ -144,6 +144,8 @@ class RouterRegistry:
         already-shipped dual-route surfaces — NOT for new endpoints, which should
         register directly under ``routers.projects``. Returns (project, environment).
         """
+        if not parents_query_lookups:
+            raise ValueError("parents_query_lookups must be non-empty, with team_id as the first lookup")
         if parents_query_lookups[0] != "team_id":
             raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
         if basename.startswith("project_"):

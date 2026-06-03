@@ -308,3 +308,35 @@ def test_router_registry_get_unknown_name_lists_known():
     registry.add("things", DefaultRouterPlusPlus().register(r"things", FooViewSet, "things"))
     with pytest.raises(KeyError, match="things"):
         registry.get("missing")
+
+
+def _registry_with_parents():
+    registry = RouterRegistry()
+    root = DefaultRouterPlusPlus()
+    registry.set_root(root)
+    registry.add("projects", root.register(r"projects", FooViewSet, "projects"))
+    registry.add("environments", root.register(r"environments", FooViewSet, "environments"))
+    return registry
+
+
+def test_register_legacy_dual_route_registers_both_surfaces():
+    registry = _registry_with_parents()
+    project_item, environment_item = registry.register_legacy_dual_route(
+        r"things", FooViewSet, "project_things", ["team_id"]
+    )
+    assert project_item is not None
+    assert environment_item is not None
+
+
+@pytest.mark.parametrize(
+    "basename,lookups,match",
+    [
+        ("project_things", [], "non-empty"),
+        ("project_things", ["project_id"], "team_id"),
+        ("things", ["team_id"], "must start with"),
+    ],
+)
+def test_register_legacy_dual_route_rejects_bad_input(basename, lookups, match):
+    registry = _registry_with_parents()
+    with pytest.raises(ValueError, match=match):
+        registry.register_legacy_dual_route(r"things", FooViewSet, basename, lookups)
