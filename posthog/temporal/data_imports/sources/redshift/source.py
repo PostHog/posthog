@@ -122,9 +122,8 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             ),
         )
 
-    def get_non_retryable_errors(self) -> dict[str, str | None]:
+    def source_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            **self.default_non_retryable_errors(),
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "could not translate host name": None,

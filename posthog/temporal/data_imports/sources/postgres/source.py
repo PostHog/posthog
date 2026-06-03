@@ -147,9 +147,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             featured=True,
         )
 
-    def get_non_retryable_errors(self) -> dict[str, str | None]:
+    def source_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            **self.default_non_retryable_errors(),
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "Tenant or user not found connection to server": None,
@@ -179,17 +178,6 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "Could not establish session to SSH gateway": None,
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
-            # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
-            # decimal type — the pipeline falls back through the best-fit decimal and
-            # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
-            # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
-            # help because the value shape is fixed in the source.
-            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
-            # Raised when an integer column's source type was widened (e.g. `integer` → `bigint`)
-            # after the destination table was created with the narrower type. Delta Lake can't widen
-            # an existing column in place, so retrying won't help — the table must be reset and
-            # fully re-synced to adopt the new type.
-            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def reconcile_schema_metadata(

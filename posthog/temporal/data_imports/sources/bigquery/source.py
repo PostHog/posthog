@@ -37,17 +37,10 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BIGQUERY
 
-    def get_non_retryable_errors(self) -> dict[str, str | None]:
+    def source_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            **self.default_non_retryable_errors(),
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
-            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
-            # when an integer column's source type was widened (e.g. `INT64` widened from a
-            # narrower numeric type) after the destination table was created with the narrower
-            # type. Delta Lake can't widen an existing column in place, so retrying won't help —
-            # the table must be reset and fully re-synced to adopt the new type.
-            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
 
     def validate_credentials(

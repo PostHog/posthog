@@ -62,22 +62,19 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
 
     @classmethod
     def default_non_retryable_errors(cls) -> dict[str, str | None]:
-        """Non-retryable error patterns shared by multiple SQL sources.
+        """Non-retryable error patterns shared by every SQL source.
 
-        Subclasses opt in by merging this into their own
-        `get_non_retryable_errors` return dict, e.g.
-        `return {**self.default_non_retryable_errors(), ...}`. The base
-        `SQLSource` itself does not call this — every existing source's
-        behavior is preserved until it explicitly opts in.
+        Applied automatically by `get_non_retryable_errors`, which merges
+        these under each source's own `source_non_retryable_errors`. All
+        are raised in shared pipeline/delta code, so they can occur for
+        any SQL source and the fix is always a reset + re-sync:
 
-        The entries here are the ones shared across ≥2 SQL sources today:
-
-        - "Source column type changed" (MySQL, MSSQL, Snowflake,
-          BigQuery, Redshift)
-        - "Cannot build decimal array from values" (MySQL, MSSQL)
-        - "rows failed validation check" (any SQL source — raised in the
-          shared delta-write layer when the incoming data no longer
-          matches the stored columns)
+        - "Source column type changed" — an integer column was widened
+          upstream past its stored type
+        - "Cannot build decimal array from values" — a value exceeds the
+          Delta decimal budget
+        - "rows failed validation check" — incoming rows no longer match
+          the stored columns (schema drift)
         """
         return {
             "Source column type changed": (
@@ -98,6 +95,18 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                 "its type changed since the last sync. Please delete and resync the table to resolve the issue."
             ),
         }
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        """Shared SQL defaults merged under this source's own errors.
+
+        Subclasses override `source_non_retryable_errors` to add their own
+        patterns; on key collision the source's entry wins.
+        """
+        return {**self.default_non_retryable_errors(), **self.source_non_retryable_errors()}
+
+    def source_non_retryable_errors(self) -> dict[str, str | None]:
+        """Source-specific non-retryable errors. Override in subclasses."""
+        return {}
 
     def _default_primary_key_from_columns(self, columns: list[tuple[str, str, bool]]) -> list[str] | None:
         """Fallback: use `id` when the driver didn't detect a PK but one is present.
