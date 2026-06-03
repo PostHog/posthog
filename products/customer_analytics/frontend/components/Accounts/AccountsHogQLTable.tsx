@@ -245,6 +245,7 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     return useMemo(
         () => ({
             noIndent: true,
+            expandedRowClassName: '[&>td]:overflow-visible!',
             expandedRowRender: ({ result }) => {
                 const accountId = getNameCell(result, visibleColumnNames)?.id
                 return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null

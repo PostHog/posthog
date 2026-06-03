@@ -75,7 +75,7 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
     ]
 
     return (
-        <div className="max-w-[100cqw] p-3 bg-bg-light">
+        <div className="sticky left-0 w-[100cqw] p-3 bg-bg-light">
             <LemonTable<AccountNotebookApi>
                 size="small"
                 embedded
