@@ -9,7 +9,6 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    environmentVisionQuotaRetrieve,
     visionScannersCreate,
     visionScannersDestroy,
     visionScannersList,
@@ -22,7 +21,6 @@ import {
     SCANNER_TYPE_OPTIONS,
     ScannerType,
     ReplayScanner,
-    VisionQuota,
     scannerFromApi,
     scannerToApiBody,
     scannersFromApi,
@@ -55,17 +53,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadScanners: true,
         loadScannersSuccess: (scanners: ReplayScanner[]) => ({ scanners }),
         loadScannersFailure: (error: string) => ({ error }),
-        loadQuota: true,
-        loadQuotaSuccess: (quota: VisionQuota | null) => ({ quota }),
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         duplicateScanner: (id: string) => ({ id }),
         duplicateScannerSuccess: (scanner: ReplayScanner) => ({ scanner }),
         toggleScannerEnabled: (id: string) => ({ id }),
-        toggleScannerEnabledSuccess: (id: string) => ({ id }),
+        toggleScannerEnabledDone: (id: string) => ({ id }),
+        revertScannerEnabled: (id: string) => ({ id }),
         setSearch: (search: string) => ({ search }),
         setEnabledFilter: (values: EnabledFilter[]) => ({ values }),
         setScannerTypeFilter: (scannerTypes: ScannerType[]) => ({ scannerTypes }),
+        setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         clearFilters: true,
     }),
 
@@ -76,8 +74,18 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScannersSuccess: (_, { scanners }) => scanners,
                 deleteScannerSuccess: (state, { id }) => state.filter((l) => l.id !== id),
                 duplicateScannerSuccess: (state, { scanner }) => [...state, scanner],
-                toggleScannerEnabledSuccess: (state, { id }) =>
+                toggleScannerEnabled: (state, { id }) =>
                     state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
+                revertScannerEnabled: (state, { id }) =>
+                    state.map((l) => (l.id === id ? { ...l, enabled: !l.enabled } : l)),
+            },
+        ],
+        togglingIds: [
+            [] as string[],
+            {
+                toggleScannerEnabled: (state, { id }) => [...state, id],
+                toggleScannerEnabledDone: (state, { id }) => state.filter((i) => i !== id),
+                revertScannerEnabled: (state, { id }) => state.filter((i) => i !== id),
             },
         ],
         scannersLoading: [
@@ -86,12 +94,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScanners: () => true,
                 loadScannersSuccess: () => false,
                 loadScannersFailure: () => false,
-            },
-        ],
-        quota: [
-            null as VisionQuota | null,
-            {
-                loadQuotaSuccess: (_, { quota }) => quota,
             },
         ],
         search: [
@@ -115,6 +117,18 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 clearFilters: () => [],
             },
         ],
+        chartDateFrom: [
+            '-30d' as string | null,
+            {
+                setChartDateRange: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        chartDateTo: [
+            null as string | null,
+            {
+                setChartDateRange: (_, { dateTo }) => dateTo,
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -129,19 +143,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             } catch (error) {
                 lemonToast.error(`Failed to load scanners: ${String(error)}`)
                 actions.loadScannersFailure(String(error))
-            }
-        },
-
-        loadQuota: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await environmentVisionQuotaRetrieve(String(teamId))
-                actions.loadQuotaSuccess(response)
-            } catch {
-                actions.loadQuotaSuccess(null)
             }
         },
 
@@ -191,19 +192,22 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         },
 
         toggleScannerEnabled: async ({ id }) => {
+            // The reducer has already flipped `enabled` optimistically, so this reflects the new target state.
             const scanner = values.scanners.find((l) => l.id === id)
             if (!scanner) {
                 return
             }
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.revertScannerEnabled(id)
                 return
             }
             try {
-                await visionScannersPartialUpdate(String(teamId), id, { enabled: !scanner.enabled })
-                actions.toggleScannerEnabledSuccess(id)
+                await visionScannersPartialUpdate(String(teamId), id, { enabled: scanner.enabled })
+                actions.toggleScannerEnabledDone(id)
             } catch (error) {
-                lemonToast.error(`Failed to ${scanner.enabled ? 'disable' : 'enable'} scanner: ${String(error)}`)
+                lemonToast.error(`Failed to ${scanner.enabled ? 'enable' : 'disable'} scanner: ${String(error)}`)
+                actions.revertScannerEnabled(id)
             }
         },
     })),
@@ -284,6 +288,5 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadScanners()
-        actions.loadQuota()
     }),
 ])

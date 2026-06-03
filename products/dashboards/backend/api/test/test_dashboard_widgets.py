@@ -653,6 +653,14 @@ class TestDashboardWidgets(APIBaseTest):
             team=ANY,
             request=ANY,
         )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
@@ -682,6 +690,14 @@ class TestDashboardWidgets(APIBaseTest):
             team=ANY,
             request=ANY,
         )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
@@ -753,6 +769,7 @@ class TestDashboardWidgets(APIBaseTest):
 
         for call in mock_report_user_action.call_args_list:
             assert call[0][1] != "dashboard tile added"
+            assert call[0][1] != "dashboard widget added"
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("posthog.resource_limits.evaluator.report_user_action")

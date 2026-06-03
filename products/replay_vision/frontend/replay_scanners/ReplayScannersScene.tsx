@@ -19,9 +19,17 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
-import { VisionQuotaMeter } from './components/VisionQuotaMeter'
+import { VisionMetrics } from './components/VisionMetrics'
 import { replayScannersLogic } from './replayScannersLogic'
-import { ENABLED_OPTIONS, EnabledFilter, SCANNER_TYPE_OPTIONS, ScannerType, ReplayScanner } from './types'
+import {
+    ENABLED_OPTIONS,
+    EnabledFilter,
+    SCANNER_TYPE_OPTIONS,
+    SCANNER_TYPE_TAG_TYPE,
+    ScannerType,
+    ReplayScanner,
+    scannerTypeLabel,
+} from './types'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -35,8 +43,16 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannersScene(): JSX.Element {
-    const { filteredScanners, scanners, scannersLoading, search, enabledFilter, scannerTypeFilter, hasActiveFilters } =
-        useValues(replayScannersLogic)
+    const {
+        filteredScanners,
+        scanners,
+        scannersLoading,
+        togglingIds,
+        search,
+        enabledFilter,
+        scannerTypeFilter,
+        hasActiveFilters,
+    } = useValues(replayScannersLogic)
     const {
         loadScanners,
         deleteScanner,
@@ -75,10 +91,11 @@ export function ReplayScannersScene(): JSX.Element {
                         <LemonSwitch
                             checked={scanner.enabled}
                             onChange={() => toggleScannerEnabled(scanner.id)}
+                            disabled={togglingIds.includes(scanner.id)}
                             size="small"
                         />
                     </AccessControlAction>
-                    <span className={scanner.enabled ? 'text-success' : 'text-muted'}>
+                    <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
                         {scanner.enabled ? 'Enabled' : 'Disabled'}
                     </span>
                 </div>
@@ -88,7 +105,11 @@ export function ReplayScannersScene(): JSX.Element {
         {
             title: 'Type',
             key: 'scanner_type',
-            render: (_, scanner) => <LemonTag type="option">{scanner.scanner_type}</LemonTag>,
+            render: (_, scanner) => (
+                <LemonTag type={SCANNER_TYPE_TAG_TYPE[scanner.scanner_type]}>
+                    {scannerTypeLabel(scanner.scanner_type)}
+                </LemonTag>
+            ),
             sorter: (a, b) => a.scanner_type.localeCompare(b.scanner_type),
         },
         {
@@ -172,21 +193,21 @@ export function ReplayScannersScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Replay vision"
-                description="Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events."
+                description="Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event."
                 resourceType={{ type: 'replay_vision' }}
             />
-
-            <VisionQuotaMeter />
 
             <ProductIntroduction
                 productName="Replay vision"
                 productKey={ProductKey.REPLAY_VISION}
                 thingName="scanner"
-                description="Replay vision runs scanners over completed sessions on a schedule or on demand, using session recordings and events to do anything you can describe — categorize sessions, monitor user behavior, surface frustration or confusion, flag bugs, score intent, or detect any custom pattern. Results land as queryable events you can build insights, alerts, and cohorts on."
-                secondaryDescription="You can get started using a template, or create a fully custom scanner yourself."
+                description="Replay vision runs scanners over your completed sessions on a schedule or on demand. Describe what you want to look for and the model watches each recording for it — categorizing sessions, scoring intent, flagging bugs, or detecting any pattern you can put into a prompt. Each result lands as a queryable event you can build insights, alerts, and cohorts on."
+                secondaryDescription="Start from a template or build a fully custom scanner."
                 customHog={XRayHog}
                 action={() => push(urls.replayVisionTemplates())}
             />
+
+            {scanners.length > 0 && <VisionMetrics />}
 
             <SceneSection
                 title="Scanners"

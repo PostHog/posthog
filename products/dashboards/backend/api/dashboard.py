@@ -937,6 +937,7 @@ def _report_dashboard_tile_added(
     tile_type: str,
     request: Request | None = None,
     widget_type: str | None = None,
+    tile: DashboardTile | None = None,
 ) -> None:
     properties: dict[str, Any] = {
         "tile_type": tile_type,
@@ -950,6 +951,26 @@ def _report_dashboard_tile_added(
         user,
         "dashboard tile added",
         properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+    if widget_type is None:
+        return
+
+    widget_properties: dict[str, Any] = {
+        "widget_type": widget_type,
+        "dashboard_id": dashboard.id,
+    }
+    if tile is not None:
+        widget_properties["tile_id"] = tile.id
+        if tile.widget_id is not None:
+            widget_properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget added",
+        widget_properties,
         team=dashboard.team,
         request=request,
     )
@@ -1288,6 +1309,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     tile_type=tile_type,
                     widget_type=widget_type,
                     request=self.context["request"],
+                    tile=tile,
                 )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
@@ -1636,7 +1658,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             fs_data = insight.get_file_system_representation()
             try:
                 if fs_data.should_delete:
-                    delete_file(team=insight.team, file_type=fs_data.type, ref=fs_data.ref)
+                    delete_file(team=insight.team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
                 else:
                     create_or_update_file(
                         team=insight.team,
@@ -1648,6 +1670,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         meta=fs_data.meta,
                         created_at=fs_data.meta.get("created_at") or insight.created_at,
                         created_by_id=fs_data.meta.get("created_by") or insight.created_by_id,
+                        surface=fs_data.surface,
                     )
             except Exception as exc:
                 # Mirror the signal-handler stance: never raise from sync, but surface it.
@@ -2695,6 +2718,7 @@ class DashboardsViewSet(
                 tile_type="widget",
                 widget_type=tile.widget.widget_type,
                 request=request,
+                tile=tile,
             )
 
         return Response(

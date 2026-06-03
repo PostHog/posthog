@@ -2402,7 +2402,6 @@ class FileSystemIconType(StrEnum):
     LLM_PROMPTS = "llm_prompts"
     LLM_CLUSTERS = "llm_clusters"
     EXPORTS = "exports"
-    DEPLOYMENTS = "deployments"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -3735,7 +3734,6 @@ class NodeKind(StrEnum):
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
-    WEB_TRENDS_QUERY = "WebTrendsQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
@@ -3994,6 +3992,7 @@ class ProductIntentContext(StrEnum):
     TASK_CREATED = "task_created"
     TOOLBAR_LAUNCHED = "toolbar_launched"
     VERCEL_INTEGRATION = "vercel_integration"
+    ENDPOINTS_VIEWED = "endpoints_viewed"
     ENDPOINT_CREATED = "endpoint_created"
     ENDPOINT_CREATED_FROM_INSIGHT = "endpoint_created_from_insight"
     ENDPOINT_CREATED_FROM_SQL_EDITOR = "endpoint_created_from_sql_editor"
@@ -4024,7 +4023,6 @@ class ProductKey(StrEnum):
     CUSTOMER_ANALYTICS = "customer_analytics"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"
-    DEPLOYMENTS = "deployments"
     EARLY_ACCESS_FEATURES = "early_access_features"
     ENDPOINTS = "endpoints"
     ERROR_TRACKING = "error_tracking"
@@ -5419,35 +5417,6 @@ class WebStatsBreakdown(StrEnum):
     FRUSTRATION_METRICS = "FrustrationMetrics"
 
 
-class Metrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    Bounces: float | None = None
-    PageViews: float | None = None
-    SessionDuration: float | None = None
-    Sessions: float | None = None
-    TotalSessions: float | None = None
-    UniqueUsers: float | None = None
-
-
-class WebTrendsItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket: str
-    metrics: Metrics
-
-
-class WebTrendsMetric(StrEnum):
-    UNIQUE_USERS = "UniqueUsers"
-    PAGE_VIEWS = "PageViews"
-    SESSIONS = "Sessions"
-    BOUNCES = "Bounces"
-    SESSION_DURATION = "SessionDuration"
-    TOTAL_SESSIONS = "TotalSessions"
-
-
 class WebVitalsMetric(StrEnum):
     INP = "INP"
     LCP = "LCP"
@@ -6249,6 +6218,26 @@ class AssistantPathsFilter(BaseModel):
             " Filters out low-traffic paths to reduce visual noise."
         ),
     )
+    pathDropoffKey: str | None = Field(
+        default=None,
+        description=(
+            "Actors drilldown only. Restrict the returned persons to those who"
+            " **dropped off** at a specific node (reached it but did not continue)."
+            " Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` /"
+            " `pathEndKey`. Ignored by non-actors paths queries."
+        ),
+    )
+    pathEndKey: str | None = Field(
+        default=None,
+        description=(
+            "Actors drilldown only. Restrict the returned persons to those who"
+            " **arrived at** a specific node in the path graph. Format is"
+            ' `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`. Take the'
+            " value verbatim from a `target` field of a `query-paths` result row."
+            " Combine with `pathStartKey` to pin a single edge. Leave unset to return"
+            " every actor on the path. Ignored by non-actors paths queries."
+        ),
+    )
     pathGroupings: list[str] | None = Field(
         default=[],
         description=(
@@ -6256,6 +6245,18 @@ class AssistantPathsFilter(BaseModel):
             " `*` as a wildcard. The patterns are auto-escaped, so only `*` has special"
             " meaning. For example, `/product/*` to group all product pages into one"
             " node."
+        ),
+    )
+    pathStartKey: str | None = Field(
+        default=None,
+        description=(
+            "Actors drilldown only. Restrict the returned persons to those who"
+            " **departed from** a specific node in the path graph. Format is"
+            ' `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`. Take the'
+            " value verbatim from a `source` field of a `query-paths` result row."
+            " Combine with `pathEndKey` to pin a single edge (source → target). Leave"
+            " unset to return every actor on the path (constrained only by `startPoint`"
+            " / `endPoint`). Ignored by non-actors paths queries."
         ),
     )
     pathsHogQLExpression: str | None = Field(
@@ -10067,6 +10068,10 @@ class AccountsQueryResponse(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -11467,6 +11472,10 @@ class CachedAccountsQueryResponse(BaseModel):
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     last_refresh: AwareDatetime
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
@@ -15469,6 +15478,10 @@ class Response27(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -19836,6 +19849,10 @@ class QueryResponseAlternative66(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -20622,6 +20639,10 @@ class QueryResponseAlternative91(BaseModel):
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int
+    metricsResults: list[float | None] | None = Field(
+        default=None,
+        description=("When `metrics` is set on the query, the aggregated values in the same order."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
     query_status: QueryStatus | None = Field(
@@ -21772,54 +21793,6 @@ class WebStatsTableQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query: str | None = Field(default=None, description="Input query string")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    samplingRate: SamplingRate | None = None
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = Field(default=None, description="Types of returned columns")
-    usedPreAggregatedTables: bool | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
 class WebVitalsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -21912,8 +21885,24 @@ class AccountsQuery(BaseModel):
     accountOwner: str | int | None = None
     allRolesUnassigned: bool | None = None
     csm: str | int | None = None
+    filterExpression: str | None = Field(
+        default=None,
+        description=(
+            "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by"
+            " the overview tile click-to-filter affordance."
+        ),
+    )
     kind: Literal["AccountsQuery"] = "AccountsQuery"
     limit: int | None = None
+    metrics: list[str] | None = Field(
+        default=None,
+        description=(
+            "Aggregation expressions evaluated against the filtered account set; one"
+            " value per metric is returned in `metricsResults`. When `metrics` is set"
+            " without a `select`, the runner skips the regular row fetch and returns"
+            " only the aggregated values."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
     orderBy: list[str] | None = None
@@ -22148,6 +22137,18 @@ class AssistantLifecycleQuery(BaseModel):
     )
 
 
+class AssistantPathsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    includeRecordings: bool | None = Field(
+        default=True,
+        description="Whether to include matched session recordings for each actor.",
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    source: AssistantPathsQuery = Field(..., description="The source paths insight query whose actors we are listing.")
+
+
 class AssistantTrendsActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22352,65 +22353,6 @@ class CachedNewExperimentQueryResponse(BaseModel):
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class CachedWebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    limit: int | None = None
-    metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    offset: int | None = None
-    query: str | None = Field(default=None, description="Input query string")
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    samplingRate: SamplingRate | None = None
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = Field(default=None, description="Types of returned columns")
-    usedPreAggregatedTables: bool | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
     )
 
 
@@ -23539,45 +23481,6 @@ class VectorSearchQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: VectorSearchQueryResponse | None = None
     tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebTrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType = Field(
-        ...,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
-    limit: int | None = None
-    metrics: list[WebTrendsMetric]
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebTrendsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -26640,7 +26543,6 @@ class HogQLAutocomplete(BaseModel):
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
-        | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
         | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
@@ -26729,7 +26631,6 @@ class HogQLMetadata(BaseModel):
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
-        | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
         | WebNotableChangesQuery
         | SessionAttributionExplorerQuery

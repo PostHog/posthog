@@ -35,6 +35,7 @@ const TRIGGERED_BY_OPTIONS: { value: ObservationTriggeredByValue; label: string 
 const VERDICT_OPTIONS: { value: ObservationVerdictValue; label: string }[] = [
     { value: 'yes', label: 'Yes' },
     { value: 'no', label: 'No' },
+    { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
 // Nulls (no model output) sort last regardless of direction.
@@ -306,7 +307,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     <div className="p-6 text-center text-muted">
                         {hasActiveObservationFilters
                             ? 'No observations match your filters.'
-                            : 'No observations yet. Observations appear here once the scanner runs on a schedule, or when you observe a recording from the session replay page.'}
+                            : "No observations yet. They'll appear here once the scanner fires on its schedule, or when you manually trigger one from a session recording."}
                     </div>
                 }
             />
