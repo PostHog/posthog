@@ -1889,6 +1889,9 @@ importers:
       '@floating-ui/react':
         specifier: ^0.27.19
         version: 0.27.19(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@testing-library/dom':
+        specifier: '>=9.3.4'
+        version: 9.3.4
       d3-array:
         specifier: ^3.2.4
         version: 3.2.4
@@ -1917,9 +1920,6 @@ importers:
       '@storybook/react':
         specifier: 'catalog:'
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)
-      '@testing-library/dom':
-        specifier: '>=9.3.4'
-        version: 9.3.4
       '@testing-library/react':
         specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
