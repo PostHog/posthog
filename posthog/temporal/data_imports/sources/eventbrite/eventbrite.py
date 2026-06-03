@@ -93,24 +93,31 @@ def _iter_pages(
     logger: FilteringBoundLogger,
     start_continuation: Optional[str] = None,
 ) -> Iterator[tuple[dict[str, Any], Optional[str]]]:
-    """Yield (record, next_continuation) across continuation-token pages of a single list endpoint.
+    """Yield (record, resume_continuation) across continuation-token pages of a single list endpoint.
 
-    `next_continuation` is the token that fetches the page *after* the one the record came from
-    (or None on the last page) — callers persisting resume state save it right after yielding.
+    `resume_continuation` is the token a caller should persist right after yielding the record so a
+    crash resumes without skipping any records. For every item except the last on its page it is the
+    *current* page's token, so resume re-fetches the current page and replays its remaining items
+    (merge dedupes already-persisted ones). Only for the final item of a page — once the whole page is
+    accounted for — is it the *next* page's token (or None on the last page). Saving the next-page
+    token mid-page would skip the current page's remaining records on resume.
     """
     continuation = start_continuation
     while True:
+        current_continuation = continuation
         params = dict(base_params)
-        if continuation:
-            params["continuation"] = continuation
+        if current_continuation:
+            params["continuation"] = current_continuation
 
         data = _fetch_page(session, url, params, logger)
         items = data.get(data_key, []) or []
         pagination = data.get("pagination") or {}
         next_continuation = pagination.get("continuation") if pagination.get("has_more_items") else None
 
-        for item in items:
-            yield item, next_continuation
+        last_index = len(items) - 1
+        for index, item in enumerate(items):
+            resume_continuation = next_continuation if index == last_index else current_continuation
+            yield item, resume_continuation
 
         if not next_continuation:
             break
@@ -192,15 +199,15 @@ def get_rows(
     if resume is not None:
         logger.debug(f"Eventbrite: resuming {endpoint} from continuation token")
 
-    for record, next_continuation in _iter_records(session, config, logger, changed_since, resume):
+    for record, resume_continuation in _iter_records(session, config, logger, changed_since, resume):
         batcher.batch(record)
 
         if batcher.should_yield():
             yield batcher.get_table()
 
             # Save state after yielding so a crash re-yields the last batch (merge dedupes on PK).
-            if next_continuation:
-                resumable_source_manager.save_state(EventbriteResumeConfig(continuation=next_continuation))
+            if resume_continuation:
+                resumable_source_manager.save_state(EventbriteResumeConfig(continuation=resume_continuation))
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()

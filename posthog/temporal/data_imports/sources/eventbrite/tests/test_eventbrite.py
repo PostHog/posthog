@@ -1,8 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any
+from unittest import mock
 
 import pytest
-from unittest import mock
 
 from posthog.temporal.data_imports.sources.eventbrite import eventbrite as eb
 from posthog.temporal.data_imports.sources.eventbrite.eventbrite import (
@@ -56,8 +56,9 @@ class TestIterPages:
         results = list(_iter_pages(SESSION, "https://x/events/", {}, "events", LOGGER))
 
         assert [record["id"] for record, _ in results] == ["1", "2", "3"]
-        # The next-continuation accompanying each record points at the page after its own.
-        assert [token for _, token in results] == ["tok2", "tok2", None]
+        # Resume token: mid-page items carry the current page's token (None for the first page, which
+        # restarts from the start); only the last item of a page advances to the next page's token.
+        assert [token for _, token in results] == [None, "tok2", None]
         assert mock_fetch.call_count == 2
 
     @mock.patch.object(eb, "_fetch_page")
@@ -68,6 +69,22 @@ class TestIterPages:
 
         _, _, params, _ = mock_fetch.call_args[0]
         assert params["continuation"] == "resume-tok"
+
+    @mock.patch.object(eb, "_fetch_page")
+    def test_mid_page_records_carry_current_page_token(self, mock_fetch: mock.MagicMock) -> None:
+        # Resuming from a mid-page record must re-fetch the page it came from, not the next one,
+        # otherwise the rest of that page is skipped. Non-final items therefore carry the token that
+        # fetched their own (here second) page rather than the next page's token.
+        mock_fetch.side_effect = [
+            _page("events", [{"id": "1"}], "tok2"),
+            _page("events", [{"id": "2"}, {"id": "3"}], "tok3"),
+            _page("events", [{"id": "4"}], None),
+        ]
+
+        results = list(_iter_pages(SESSION, "https://x/events/", {}, "events", LOGGER))
+
+        assert [record["id"] for record, _ in results] == ["1", "2", "3", "4"]
+        assert [token for _, token in results] == ["tok2", "tok2", "tok3", None]
 
     @mock.patch.object(eb, "_fetch_page")
     def test_handles_empty_page(self, mock_fetch: mock.MagicMock) -> None:

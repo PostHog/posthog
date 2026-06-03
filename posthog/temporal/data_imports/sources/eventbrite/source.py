@@ -78,7 +78,7 @@ The token needs read access to your organizations, events, orders, and attendees
                 supports_append=endpoint in INCREMENTAL_ENDPOINTS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:
