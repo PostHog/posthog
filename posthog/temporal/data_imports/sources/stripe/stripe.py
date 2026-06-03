@@ -29,6 +29,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -44,7 +45,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS, WEBHOOK_ONLY_ENDPOINTS
 
 from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
@@ -139,8 +140,17 @@ def _build_resources(
         PRICE_RESOURCE_NAME: StripeResource(method=client.prices.list, params={"expand[]": "data.tiers"}),
         PRODUCT_RESOURCE_NAME: StripeResource(method=client.products.list),
         REFUND_RESOURCE_NAME: StripeResource(method=client.refunds.list),
-        SUBSCRIPTION_RESOURCE_NAME: StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+        SUBSCRIPTION_RESOURCE_NAME: StripeResource(
+            method=client.subscriptions.list,
+            params={
+                "status": "all",
+                # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
+                # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
+                "expand[]": ["data.discounts", "data.items.data.discounts"],
+            },
+        ),
         CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
             method=client.customers.balance_transactions.list,
             nested_parent_param="customer",
@@ -180,6 +190,15 @@ def get_rows(
     resources = _build_resources(client, logger=logger)
 
     batcher = Batcher(logger=logger)
+
+    if endpoint in WEBHOOK_ONLY_ENDPOINTS:
+        # Webhook-only resources (e.g. Discount) have no Stripe list endpoint — Discount
+        # can only be retrieved in the context of a customer/subscription/invoice. These
+        # tables are populated exclusively by their corresponding webhook events. Yield
+        # nothing so the initial "sync" completes immediately, allowing the webhook source
+        # manager to take over (it requires schema.initial_sync_complete=True before activating).
+        logger.debug(f"Stripe: {endpoint} endpoint is webhook-only, skipping API list")
+        return
 
     resource = resources.get(endpoint, None)
     if not resource:
@@ -462,6 +481,9 @@ def validate_credentials(
         # "not available for OAuth" reason instead since it feeds the UI.
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
             continue
+        # Webhook-only resources (e.g. Discount) have no list API to probe.
+        if name in WEBHOOK_ONLY_ENDPOINTS:
+            continue
         if name not in all_resources:
             raise StripePermissionError({name: f"{name} does not exist"})
         resources_to_check.append(_resolve_to_flat(name, all_resources))
@@ -498,6 +520,10 @@ def check_endpoint_permissions(
     for name in endpoints:
         if auth_method == "oauth" and name == ACCOUNT_RESOURCE_NAME:
             results[name] = "Account is not available for OAuth-connected Stripe sources"
+            continue
+        # Webhook-only resources (e.g. Discount) have no list API — treat as reachable.
+        if name in WEBHOOK_ONLY_ENDPOINTS:
+            results[name] = None
             continue
         if name not in all_resources:
             results[name] = f"{name} is not a known Stripe resource"

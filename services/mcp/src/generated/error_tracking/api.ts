@@ -29,67 +29,28 @@ export const ErrorTrackingAssignmentRulesCreateParams = /* @__PURE__ */ zod.obje
         ),
 })
 
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwoLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwoValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemThreeLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemThreeTypeDefault = `person`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemThreeValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFourLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFourTypeDefault = `element`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFourValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFiveLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFiveTypeDefault = `event_metadata`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFiveValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSixLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSixTypeDefault = `session`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSixValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenCohortNameDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenKeyDefault = `id`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenOperatorDefault = `in`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenTypeDefault = `cohort`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemEightLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemEightTypeDefault = `recording`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemEightValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemNineLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemNineTypeDefault = `log_entry`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemNineValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroTypeDefault = `group`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneoneLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneoneTypeDefault = `feature`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneoneValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault = `flag`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnethreeLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnethreeTypeDefault = `hogql`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnethreeValueDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnefourTypeDefault = `empty`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnefiveLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnefiveTypeDefault = `data_warehouse`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnefiveValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesixLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesixValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightLabelDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnenineLabelDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnenineValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroValueDefault = null
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwooneLabelDefault = null
 export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwooneTypeDefault = `workflow_variable`
-export const errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwooneValueDefault = null
 
 export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -100,9 +61,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                     zod.unknown(),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -156,13 +115,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwoValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemThreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -211,13 +168,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemThreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFourLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -265,13 +220,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFourValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -319,13 +272,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemFiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -373,18 +324,14 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        cohort_name: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenCohortNameDefault),
+                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenKeyDefault),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemSevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -433,9 +380,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemEightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -483,13 +428,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemEightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemNineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -537,23 +480,13 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemNineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        group_key_names: zod
-                            .union([zod.record(zod.string(), zod.string()), zod.null()])
-                            .default(
-                                errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault
-                            ),
-                        group_type_index: zod
-                            .union([zod.number(), zod.null()])
-                            .default(
-                                errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault
-                            ),
+                        group_key_names: zod.union([zod.record(zod.string(), zod.string()), zod.null()]).optional(),
+                        group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -601,13 +534,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnezeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneoneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -656,13 +587,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneoneValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string().describe('The key should be the flag ID'),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .literal('flag_evaluates_to')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnetwoOperatorDefault)
@@ -677,9 +606,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnethreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         type: zod
                             .literal('hogql')
                             .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnethreeTypeDefault),
@@ -691,7 +618,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnethreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         type: zod
@@ -700,9 +627,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnefiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -750,13 +675,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnefiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -804,13 +727,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -858,13 +779,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnesevenValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -910,13 +829,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOneeightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnenineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -962,13 +879,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemOnenineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1016,13 +931,11 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwozeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwooneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1070,7 +983,7 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingAssignmentRulesCreateBodyFiltersOneValuesItemTwooneValueDefault),
+                            .optional(),
                     }),
                 ])
             ),
@@ -1107,67 +1020,28 @@ export const ErrorTrackingGroupingRulesCreateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwoLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwoValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemThreeLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemThreeTypeDefault = `person`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemThreeValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFourLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFourTypeDefault = `element`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFourValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFiveLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFiveTypeDefault = `event_metadata`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFiveValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSixLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSixTypeDefault = `session`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSixValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenCohortNameDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenKeyDefault = `id`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenOperatorDefault = `in`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenTypeDefault = `cohort`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemEightLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemEightTypeDefault = `recording`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemEightValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemNineLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemNineTypeDefault = `log_entry`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemNineValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroTypeDefault = `group`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneoneLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneoneTypeDefault = `feature`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneoneValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault = `flag`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnethreeLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnethreeTypeDefault = `hogql`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnethreeValueDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnefourTypeDefault = `empty`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnefiveLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnefiveTypeDefault = `data_warehouse`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnefiveValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesixLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesixValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightLabelDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnenineLabelDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnenineValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroValueDefault = null
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwooneLabelDefault = null
 export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwooneTypeDefault = `workflow_variable`
-export const errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwooneValueDefault = null
 
 export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -1178,9 +1052,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                     zod.unknown(),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -1234,13 +1106,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwoValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemThreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1289,13 +1159,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemThreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFourLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1343,13 +1211,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFourValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1397,13 +1263,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemFiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1451,18 +1315,14 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        cohort_name: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenCohortNameDefault),
+                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenKeyDefault),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemSevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -1511,9 +1371,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemEightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1561,13 +1419,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemEightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemNineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1615,23 +1471,13 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemNineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        group_key_names: zod
-                            .union([zod.record(zod.string(), zod.string()), zod.null()])
-                            .default(
-                                errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault
-                            ),
-                        group_type_index: zod
-                            .union([zod.number(), zod.null()])
-                            .default(
-                                errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault
-                            ),
+                        group_key_names: zod.union([zod.record(zod.string(), zod.string()), zod.null()]).optional(),
+                        group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1679,13 +1525,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnezeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneoneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1734,13 +1578,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneoneValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string().describe('The key should be the flag ID'),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .literal('flag_evaluates_to')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnetwoOperatorDefault)
@@ -1755,9 +1597,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnethreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         type: zod
                             .literal('hogql')
                             .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnethreeTypeDefault),
@@ -1769,7 +1609,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnethreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         type: zod
@@ -1778,9 +1618,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnefiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1828,13 +1666,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnefiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1882,13 +1718,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1936,13 +1770,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnesevenValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -1988,13 +1820,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOneeightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnenineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -2040,13 +1870,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemOnenineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -2094,13 +1922,11 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwozeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwooneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -2148,7 +1974,7 @@ export const ErrorTrackingGroupingRulesCreateBody = /* @__PURE__ */ zod.object({
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingGroupingRulesCreateBodyFiltersOneValuesItemTwooneValueDefault),
+                            .optional(),
                     }),
                 ])
             ),
@@ -2186,67 +2012,28 @@ export const ErrorTrackingGroupingRulesUpdateParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwoLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwoTypeDefault = `event`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwoValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemThreeLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemThreeTypeDefault = `person`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemThreeValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFourLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFourTypeDefault = `element`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFourValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFiveLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFiveTypeDefault = `event_metadata`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFiveValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSixLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSixTypeDefault = `session`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSixValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenCohortNameDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenKeyDefault = `id`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenOperatorDefault = `in`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenTypeDefault = `cohort`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemEightLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemEightTypeDefault = `recording`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemEightValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemNineLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemNineTypeDefault = `log_entry`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemNineValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroTypeDefault = `group`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneoneLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneoneTypeDefault = `feature`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneoneValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault = `flag`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnethreeLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnethreeTypeDefault = `hogql`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnethreeValueDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnefourTypeDefault = `empty`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnefiveLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnefiveTypeDefault = `data_warehouse`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnefiveValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesixLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesixValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightLabelDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnenineLabelDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnenineValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroValueDefault = null
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwooneLabelDefault = null
 export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwooneTypeDefault = `workflow_variable`
-export const errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwooneValueDefault = null
 
 export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
     filters: zod
@@ -2258,9 +2045,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                         zod.unknown(),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwoLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod
                                 .union([
                                     zod.enum([
@@ -2314,13 +2099,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwoValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemThreeLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2369,13 +2152,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemThreeValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFourLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2423,13 +2204,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFourValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFiveLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2477,13 +2256,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemFiveValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSixLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2531,20 +2308,14 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSixValueDefault),
+                                .optional(),
                         }),
                         zod.object({
-                            cohort_name: zod
-                                .union([zod.string(), zod.null()])
-                                .default(
-                                    errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenCohortNameDefault
-                                ),
+                            cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                             key: zod
                                 .literal('id')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenKeyDefault),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemSevenLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod
                                 .union([
                                     zod.enum([
@@ -2596,9 +2367,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                 zod.enum(['duration', 'active_seconds', 'inactive_seconds']),
                                 zod.string(),
                             ]),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemEightLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2646,13 +2415,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemEightValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemNineLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2700,23 +2467,13 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemNineValueDefault),
+                                .optional(),
                         }),
                         zod.object({
-                            group_key_names: zod
-                                .union([zod.record(zod.string(), zod.string()), zod.null()])
-                                .default(
-                                    errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault
-                                ),
-                            group_type_index: zod
-                                .union([zod.number(), zod.null()])
-                                .default(
-                                    errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault
-                                ),
+                            group_key_names: zod.union([zod.record(zod.string(), zod.string()), zod.null()]).optional(),
+                            group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2764,13 +2521,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnezeroValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneoneLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2819,13 +2574,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneoneValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string().describe('The key should be the flag ID'),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod
                                 .literal('flag_evaluates_to')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnetwoOperatorDefault)
@@ -2840,9 +2593,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnethreeLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             type: zod
                                 .literal('hogql')
                                 .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnethreeTypeDefault),
@@ -2854,7 +2605,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnethreeValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             type: zod
@@ -2863,9 +2614,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnefiveLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2913,13 +2662,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnefiveValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesixLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -2967,13 +2714,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesixValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -3021,13 +2766,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnesevenValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -3073,13 +2816,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOneeightValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnenineLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -3125,13 +2866,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemOnenineValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -3179,13 +2918,11 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwozeroValueDefault),
+                                .optional(),
                         }),
                         zod.object({
                             key: zod.string(),
-                            label: zod
-                                .union([zod.string(), zod.null()])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwooneLabelDefault),
+                            label: zod.union([zod.string(), zod.null()]).optional(),
                             operator: zod.enum([
                                 'exact',
                                 'is_not',
@@ -3233,7 +2970,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
                                     zod.boolean(),
                                     zod.null(),
                                 ])
-                                .default(errorTrackingGroupingRulesUpdateBodyFiltersOneValuesItemTwooneValueDefault),
+                                .optional(),
                         }),
                     ])
                 ),
@@ -3804,67 +3541,28 @@ export const ErrorTrackingSuppressionRulesCreateParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwoLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwoTypeDefault = `event`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwoValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemThreeLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemThreeTypeDefault = `person`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemThreeValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFourLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFourTypeDefault = `element`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFourValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFiveLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFiveTypeDefault = `event_metadata`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFiveValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSixLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSixTypeDefault = `session`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSixValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenCohortNameDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenKeyDefault = `id`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenOperatorDefault = `in`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenTypeDefault = `cohort`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemEightLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemEightTypeDefault = `recording`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemEightValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemNineLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemNineTypeDefault = `log_entry`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemNineValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroTypeDefault = `group`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneoneLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneoneTypeDefault = `feature`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneoneValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoTypeDefault = `flag`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnethreeLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnethreeTypeDefault = `hogql`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnethreeValueDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnefourTypeDefault = `empty`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnefiveLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnefiveTypeDefault = `data_warehouse`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnefiveValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesixLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesixValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesevenLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesevenValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightLabelDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnenineLabelDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnenineValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroValueDefault = null
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwooneLabelDefault = null
 export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwooneTypeDefault = `workflow_variable`
-export const errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwooneValueDefault = null
 export const errorTrackingSuppressionRulesCreateBodySamplingRateDefault = 1
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesCreateBodySamplingRateMax = 1
@@ -3878,9 +3576,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                     zod.unknown(),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -3934,13 +3630,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwoValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemThreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -3989,13 +3683,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemThreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFourLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4043,13 +3735,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFourValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4097,13 +3787,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemFiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4151,18 +3839,14 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        cohort_name: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenCohortNameDefault),
+                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenKeyDefault),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemSevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -4211,9 +3895,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemEightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4261,13 +3943,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemEightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemNineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4315,23 +3995,13 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemNineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        group_key_names: zod
-                            .union([zod.record(zod.string(), zod.string()), zod.null()])
-                            .default(
-                                errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault
-                            ),
-                        group_type_index: zod
-                            .union([zod.number(), zod.null()])
-                            .default(
-                                errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault
-                            ),
+                        group_key_names: zod.union([zod.record(zod.string(), zod.string()), zod.null()]).optional(),
+                        group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4379,13 +4049,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnezeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneoneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4434,13 +4102,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneoneValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string().describe('The key should be the flag ID'),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .literal('flag_evaluates_to')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnetwoOperatorDefault)
@@ -4455,9 +4121,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnethreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         type: zod
                             .literal('hogql')
                             .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnethreeTypeDefault),
@@ -4469,7 +4133,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnethreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         type: zod
@@ -4478,9 +4142,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnefiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4528,13 +4190,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnefiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4582,13 +4242,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4636,13 +4294,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnesevenValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4688,13 +4344,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOneeightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnenineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4740,13 +4394,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemOnenineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4794,13 +4446,11 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwozeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwooneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -4848,7 +4498,7 @@ export const ErrorTrackingSuppressionRulesCreateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesCreateBodyFiltersOneValuesItemTwooneValueDefault),
+                            .optional(),
                     }),
                 ])
             ),
@@ -4876,67 +4526,28 @@ export const ErrorTrackingSuppressionRulesUpdateParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwoLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwoOperatorDefault = `exact`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwoTypeDefault = `event`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwoValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemThreeLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemThreeTypeDefault = `person`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemThreeValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFourLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFourTypeDefault = `element`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFourValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFiveLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFiveTypeDefault = `event_metadata`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFiveValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSixLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSixTypeDefault = `session`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSixValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenCohortNameDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenKeyDefault = `id`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenOperatorDefault = `in`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenTypeDefault = `cohort`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemEightLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemEightTypeDefault = `recording`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemEightValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemNineLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemNineTypeDefault = `log_entry`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemNineValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroTypeDefault = `group`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneoneLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneoneTypeDefault = `feature`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneoneValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoOperatorDefault = `flag_evaluates_to`
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoTypeDefault = `flag`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnethreeLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnethreeTypeDefault = `hogql`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnethreeValueDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnefourTypeDefault = `empty`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnefiveLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnefiveTypeDefault = `data_warehouse`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnefiveValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesixLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesixTypeDefault = `data_warehouse_person_property`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesixValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesevenLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesevenTypeDefault = `error_tracking_issue`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesevenValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightLabelDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnenineLabelDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnenineValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroTypeDefault = `revenue_analytics`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroValueDefault = null
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwooneLabelDefault = null
 export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwooneTypeDefault = `workflow_variable`
-export const errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwooneValueDefault = null
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMin = 0
 export const errorTrackingSuppressionRulesUpdateBodySamplingRateMax = 1
 
@@ -4949,9 +4560,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                     zod.unknown(),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -5005,13 +4614,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwoValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemThreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5060,13 +4667,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemThreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.enum(['tag_name', 'text', 'href', 'selector']),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFourLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5114,13 +4719,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFourValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5168,13 +4771,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemFiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5222,18 +4823,14 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        cohort_name: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenCohortNameDefault),
+                        cohort_name: zod.union([zod.string(), zod.null()]).optional(),
                         key: zod
                             .literal('id')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenKeyDefault),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemSevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .union([
                                 zod.enum([
@@ -5282,9 +4879,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                     }),
                     zod.object({
                         key: zod.union([zod.enum(['duration', 'active_seconds', 'inactive_seconds']), zod.string()]),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemEightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5332,13 +4927,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemEightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemNineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5386,23 +4979,13 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemNineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
-                        group_key_names: zod
-                            .union([zod.record(zod.string(), zod.string()), zod.null()])
-                            .default(
-                                errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroGroupKeyNamesDefault
-                            ),
-                        group_type_index: zod
-                            .union([zod.number(), zod.null()])
-                            .default(
-                                errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroGroupTypeIndexDefault
-                            ),
+                        group_key_names: zod.union([zod.record(zod.string(), zod.string()), zod.null()]).optional(),
+                        group_type_index: zod.union([zod.number(), zod.null()]).optional(),
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5450,13 +5033,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnezeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneoneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5505,13 +5086,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneoneValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string().describe('The key should be the flag ID'),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod
                             .literal('flag_evaluates_to')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnetwoOperatorDefault)
@@ -5526,9 +5105,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnethreeLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         type: zod
                             .literal('hogql')
                             .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnethreeTypeDefault),
@@ -5540,7 +5117,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnethreeValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         type: zod
@@ -5549,9 +5126,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnefiveLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5599,13 +5174,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnefiveValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesixLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5653,13 +5226,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesixValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesevenLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5707,13 +5278,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnesevenValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5759,13 +5328,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOneeightValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnenineLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5811,13 +5378,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemOnenineValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5865,13 +5430,11 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwozeroValueDefault),
+                            .optional(),
                     }),
                     zod.object({
                         key: zod.string(),
-                        label: zod
-                            .union([zod.string(), zod.null()])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwooneLabelDefault),
+                        label: zod.union([zod.string(), zod.null()]).optional(),
                         operator: zod.enum([
                             'exact',
                             'is_not',
@@ -5919,7 +5482,7 @@ export const ErrorTrackingSuppressionRulesUpdateBody = /* @__PURE__ */ zod.objec
                                 zod.boolean(),
                                 zod.null(),
                             ])
-                            .default(errorTrackingSuppressionRulesUpdateBodyFiltersOneValuesItemTwooneValueDefault),
+                            .optional(),
                     }),
                 ])
             ),
