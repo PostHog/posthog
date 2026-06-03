@@ -36,7 +36,6 @@ class LeverSource(ResumableSource[LeverSourceConfig, LeverResumeConfig]):
             name=SchemaExternalDataSourceType.LEVER,
             label="Lever",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Lever API key to automatically pull your Lever recruiting data into the PostHog Data warehouse.
 
 You can generate an API key in your Lever account under **Settings → Integrations and API → API Credentials**.

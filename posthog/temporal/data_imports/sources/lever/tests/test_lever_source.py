@@ -28,7 +28,7 @@ class TestLeverSource:
         assert config.name.value == "Lever"
         assert config.label == "Lever"
         assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/lever.png"
         assert len(config.fields) == 1
 
