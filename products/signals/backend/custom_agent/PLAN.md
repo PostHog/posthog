@@ -82,6 +82,41 @@ Both are fire-and-forget module-level functions defined in `temporal/custom_agen
 
 The base class itself does not know about Temporal. Other framework wrappers (in-process runners for tests/scripts, Temporal schedules for periodic runs) can be added next to `run_agent` / `arun_agent` without changing the SDK.
 
+### Scheduling an agent (recurring, Temporal-backed)
+
+```python
+from products.signals.backend.custom_agent import AgentScheduleSpec, ScheduleAgentResult
+from products.signals.backend.temporal.custom_agent import (
+    schedule_agent, aschedule_agent, unschedule_agent, aunschedule_agent,
+)
+
+result = schedule_agent(
+    MyAgent, team, initial_prompt,
+    AgentScheduleSpec(hour=9, minute=0, timezone="UTC"),  # daily at 09:00 UTC
+    *, repository=None, model=None, paused=False,
+)  # -> ScheduleAgentResult.CREATED | UPDATED | ALREADY_PRESENT
+
+removed: bool = unschedule_agent(MyAgent, team)  # True if a schedule existed
+```
+
+`schedule_agent` / `aschedule_agent` register a recurring Temporal **schedule** keyed by
+`(team_id, product, type)` — schedule id `signals-custom-agent:{team_id}:{product}:{type}`,
+so each agent has at most one schedule per team. The extra argument vs `run_agent` is the
+structured-calendar `AgentScheduleSpec` (`minute` / `hour` / `day_of_month` / `month` /
+`day_of_week`, each `int | list[int] | None`, plus `timezone`), mapped to a Temporal
+`ScheduleCalendarSpec`; unset fields match every value. There is no `id` argument — the
+schedule is the single recurring entity, not a one-off run.
+
+The call is **idempotent**: it hashes the desired config into the schedule's `ScheduleState.note`
+and compares on subsequent calls. Identical arguments → `ALREADY_PRESENT` (no-op); a changed
+`schedule` or run argument → `UPDATED`; a fresh agent → `CREATED`. Each tick starts the shared
+`signals-custom-agent` workflow with `CustomAgentWorkflowInput.scheduled=True` (so `run()` can read
+`self.scheduled`) and a static `run_id="scheduled"` — per-tick workflow-id uniqueness comes from
+Temporal appending the scheduled time. Overlap policy is `SKIP`: an in-flight run is left to finish
+and an overlapping tick is dropped. Like `run_agent`, both refuse to launch without org-level AI
+data-processing consent. They are **not** re-exported from `custom_agent/__init__.py` (same
+circular-import reason as `run_agent`); import them from `temporal.custom_agent`.
+
 ### `send()`
 
 ```python
@@ -223,7 +258,7 @@ To skip all default resolution, register everything in `run()` (and before each 
 - Activity: `run_custom_signal_agent_activity`, registered in `products/signals/backend/temporal/__init__.py`.
 - Task queue: `settings.VIDEO_EXPORT_TASK_QUEUE` (shared Signals worker).
 - Workflow ID: `signals-custom-agent:{team_id}:{product}:{type}-{run_id}`, where `run_id` is the caller-provided `id` or a UUID.
-- Input: `CustomAgentWorkflowInput(team_id, agent_path, product, type, run_id, initial_prompt, repository, model)`.
+- Input: `CustomAgentWorkflowInput(team_id, agent_path, product, type, run_id, initial_prompt, repository, model, scheduled)`. `scheduled` is `True` only for schedule-launched runs.
 - Output: `CustomAgentWorkflowOutput(report_ids: list[str], repository, task_id)`.
 
 ## Auto-start (shared with the signals pipeline)
@@ -279,4 +314,4 @@ Deliberately kept:
 - Whether custom-agent reports should emit synthetic signals to participate in source-product filters.
 - Whether to support updating an existing custom-agent report vs always creating a new one.
 - Whether to expose `posthog_mcp_scopes` and sandbox env choice on the public API. Currently locked to `read_only` + `SIGNALS_REPORT_RESEARCH`.
-- Whether to add Temporal-schedule and in-process runners next to `arun_agent` / `run_agent` (the base SDK is already Temporal-free in anticipation of this).
+- ~~**Temporal-schedule runner.**~~ Done. `schedule_agent` / `aschedule_agent` / `unschedule_agent` / `aunschedule_agent` live next to `run_agent` in `temporal/custom_agent.py`; see "Scheduling an agent" above. An in-process runner is still open.

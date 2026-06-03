@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field, field_validator
@@ -52,6 +53,64 @@ def validated_identifier(agent_class: type[CustomSignalAgent]) -> tuple[str, str
     return validate_identifier(identifier[0], identifier[1])
 
 
+class ScheduleAgentResult(StrEnum):
+    """Outcome of an idempotent ``schedule_agent`` call."""
+
+    CREATED = "created"
+    UPDATED = "updated"
+    ALREADY_PRESENT = "already_present"
+
+
+# Inclusive (min, max) bounds for each calendar field. day_of_week is 0=Sunday..6=Saturday,
+# matching Temporal's ScheduleRange convention.
+_CALENDAR_FIELD_BOUNDS: dict[str, tuple[int, int]] = {
+    "minute": (0, 59),
+    "hour": (0, 23),
+    "day_of_month": (1, 31),
+    "month": (1, 12),
+    "day_of_week": (0, 6),
+}
+
+
+class AgentScheduleError(ValueError):
+    """Raised when an ``AgentScheduleSpec`` is empty or has out-of-range fields."""
+
+
+@dataclass(frozen=True)
+class AgentScheduleSpec:
+    """Temporal-free structured calendar for recurring custom-agent runs.
+
+    Each set field narrows when the schedule fires; unset (``None``) fields match
+    every value (so ``AgentScheduleSpec(hour=9, minute=0)`` fires daily at 09:00).
+    Mapped to a Temporal ``ScheduleCalendarSpec`` by the launcher in
+    ``temporal/custom_agent.py``. At least one calendar field must be set.
+    """
+
+    minute: int | list[int] | None = None
+    hour: int | list[int] | None = None
+    day_of_month: int | list[int] | None = None
+    month: int | list[int] | None = None
+    day_of_week: int | list[int] | None = None
+    timezone: str = "UTC"
+
+    def __post_init__(self) -> None:
+        if all(getattr(self, name) is None for name in _CALENDAR_FIELD_BOUNDS):
+            raise AgentScheduleError("AgentScheduleSpec must set at least one calendar field")
+        if not self.timezone.strip():
+            raise AgentScheduleError("timezone must not be empty")
+        for name, (low, high) in _CALENDAR_FIELD_BOUNDS.items():
+            for value in self.values_for(name):
+                if value < low or value > high:
+                    raise AgentScheduleError(f"{name} value {value} out of range [{low}, {high}]")
+
+    def values_for(self, name: str) -> list[int]:
+        """Return the set values for a calendar field as a list (empty when unset)."""
+        raw = getattr(self, name)
+        if raw is None:
+            return []
+        return [raw] if isinstance(raw, int) else list(raw)
+
+
 class CustomAgentAssignee(BaseModel):
     github_login: str = Field(description="GitHub username/login to suggest as reviewer or assignee.")
     github_name: str | None = Field(default=None, description="Optional display name from GitHub.")
@@ -87,6 +146,8 @@ class CustomAgentWorkflowInput:
     initial_prompt: str
     repository: str | None
     model: str | None = None
+    scheduled: bool = False
+    """True when this run was launched by a Temporal schedule rather than a one-off `run_agent` call."""
 
 
 @dataclass

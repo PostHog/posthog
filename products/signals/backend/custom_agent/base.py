@@ -164,6 +164,7 @@ class CustomSignalAgent:
         repository: str | None,
         user_id: int | None = None,
         model: str | None = None,
+        scheduled: bool = False,
     ) -> None:
         """Construct an agent.
 
@@ -175,6 +176,10 @@ class CustomSignalAgent:
         ``None``, :py:meth:`start` resolves the team's GitHub-integration
         owner via :func:`resolve_user_id_for_team` (which requires a GitHub
         integration on the team).
+
+        ``scheduled``: ``True`` when launched by a Temporal schedule rather than
+        a one-off ``run_agent`` call. Read ``self.scheduled`` in ``run()`` to
+        branch on it; defaults to ``False``.
         """
         if not initial_prompt.strip():
             raise ValueError("initial_prompt must not be empty")
@@ -183,6 +188,7 @@ class CustomSignalAgent:
         self.initial_prompt: str = initial_prompt
         self.user_id: int | None = user_id
         self.model: str | None = model
+        self.scheduled: bool = scheduled
         # Raw caller input; resolved into self._resolved_repository by start().
         # self.repository is a @property that reads from _resolved_repository.
         self._repository_input: str | None = repository
