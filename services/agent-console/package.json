@@ -28,7 +28,7 @@
     },
     "devDependencies": {
         "@storybook/addon-docs": "^7.6.4",
-        "@storybook/react": "catalog:",
+        "@storybook/react": "^7.6.21",
         "@storybook/react-vite": "^7.6.4",
         "@storybook/theming": "^7.6.20",
         "@tailwindcss/postcss": "^4.1.17",
