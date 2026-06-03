@@ -1598,3 +1598,59 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == expected_status
         if expected_detail:
             assert expected_detail in response.json()["detail"]
+
+
+class TestTicketPersonalAPIKeyScopes(APIBaseTest):
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.NEW,
+        )
+
+    @parameterized.expand(
+        [
+            ("list_with_read", "list", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("list_with_write", "list", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("retrieve_with_read", "retrieve", "get", True, ["ticket:read"], status.HTTP_200_OK),
+            ("retrieve_with_write", "retrieve", "get", True, ["ticket:write"], status.HTTP_200_OK),
+            ("unread_count_with_read", "unread_count", "get", None, ["ticket:read"], status.HTTP_200_OK),
+            ("unread_count_with_write", "unread_count", "get", None, ["ticket:write"], status.HTTP_200_OK),
+            ("list_wrong_scope", "list", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+            ("unread_count_wrong_scope", "unread_count", "get", None, ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_read_actions(self, _name, action, method, use_detail, scopes, expected_status):
+        self._auth_with_pak(scopes)
+
+        base = f"/api/projects/{self.team.id}/conversations/tickets/"
+        if use_detail:
+            url = f"{base}{self.ticket.id}/"
+        elif action in ("list",):
+            url = base
+        else:
+            url = f"{base}{action}/"
+
+        response = getattr(self.client, method)(url)
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
+            ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_write_actions(self, _name, action, scopes, expected_status):
+        self._auth_with_pak(scopes)
+        url = f"/api/projects/{self.team.id}/conversations/tickets/{action}/"
+        response = self.client.post(url, {}, format="json")
+        assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
