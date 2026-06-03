@@ -62,7 +62,6 @@ Your **domain** is the subdomain in your Freshdesk URL — e.g. `acme` for `acme
 Your **API key** is on your Freshdesk profile settings page (click your profile picture → **Profile settings**; the API key is shown in the right sidebar).""",
             iconPath="/static/services/freshdesk.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshdesk",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],

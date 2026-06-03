@@ -51,7 +51,7 @@ class TestFreshdeskSource:
         assert config.name.value == "Freshdesk"
         assert config.label == "Freshdesk"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is None
         assert config.iconPath == "/static/services/freshdesk.png"
 
         fields = config.fields
