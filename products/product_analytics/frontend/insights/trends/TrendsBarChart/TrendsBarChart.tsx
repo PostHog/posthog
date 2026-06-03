@@ -79,7 +79,7 @@ const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
 export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight, isInDashboardContext } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -242,9 +242,8 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
             // so they don't grow the margin and push the plot off screen. Full value shows on hover.
             maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
-            // On a dashboard the tile is a fixed height: fit the rows that fit instead of growing
-            // the tile and scrolling. On the full insight page, keep the grow-to-fit-all behavior.
-            bars: { fitToHeight: isInDashboardContext },
+            // Always render every breakdown row — grow the chart and let the tile scroll rather than
+            // dropping rows. This keeps dashboard tiles consistent with the full insight view.
         }
     }, [
         yAxisScaleType,
@@ -253,7 +252,6 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
-        isInDashboardContext,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
