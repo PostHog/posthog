@@ -304,6 +304,59 @@ the agent cannot bypass them through proxy settings or DNS tricks.
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Code settings UI.
 
+## Tabular memory
+
+For agents that need deterministic structured state — skip-sets, append-logs, deduplication, key lookups — use tabular memory instead of markdown files. Table data stays out of the model's context (no token overhead) and supports concurrent writes with automatic conflict resolution.
+
+### When to use tables vs. markdown memory
+
+| Use case                                     | Storage                     |
+| -------------------------------------------- | --------------------------- |
+| Narrative notes, summaries, freeform context | Markdown memory files       |
+| Tracking seen items (e.g., processed PR IDs) | Tables (skip-set pattern)   |
+| Audit logs, append-only records              | Tables (append-log pattern) |
+| Deduplication by key                         | Tables with `dedupe_on`     |
+| Querying/filtering structured data           | Tables                      |
+
+### Available tools
+
+Agents access tabular state through the `@posthog/table-*` native tools:
+
+| Tool                        | Description                                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `@posthog/table-membership` | Partition values into those already present in a table column (`known`) and those not yet seen (`new`). The seen-set workhorse. |
+| `@posthog/table-append`     | Append rows to a table, creating it on first write. Supports `dedupe_on` to skip duplicates by key column.                      |
+| `@posthog/table-query`      | Filter rows with `where` predicates (`eq`, `in`, `gt`, `gte`, `lt`, `lte`), project to `columns`, `order_by`, and `limit`.      |
+| `@posthog/table-count`      | Count rows, optionally filtered by `where`.                                                                                     |
+| `@posthog/table-delete`     | Delete rows matching a `where` clause.                                                                                          |
+| `@posthog/table-truncate`   | Remove all rows from a table.                                                                                                   |
+
+Add the tools your agent needs to `spec.tools[]` as native refs:
+
+```json
+{ "kind": "native", "id": "@posthog/table-membership" },
+{ "kind": "native", "id": "@posthog/table-append" },
+{ "kind": "native", "id": "@posthog/table-query" }
+```
+
+### Common patterns
+
+**Skip-set (don't reprocess):** List candidates → `table-membership(table, key_column, ids)` → act only on `.new` → `table-append(table, rows, dedupe_on: key_column)` to record what was handled.
+
+**Append-log + digest:** `table-append` one row per event (include a `date`/`ts` column), then later `table-query(table, where: { date })` to summarize a specific period.
+
+**Dedupe before a side effect:** Before sending or escalating, call `table-membership(table, "id", [id])` — if it's in `.known`, skip; otherwise proceed and `table-append` to record it.
+
+### Storage details
+
+Tables are stored as JSONL objects in S3 (prefix: `agent_tables`), one object per table. Concurrent writes use ETag optimistic concurrency with automatic retries (up to 5 attempts). If a tool call returns `code: "conflict"`, retry — it means retries were exhausted on an optimistic-concurrency miss.
+
+Table names must be lowercase alphanumeric with `_` or `-` (max 128 characters). Tables are created automatically on first append. Individual tables are capped at 5 MB — past that, consider a DB-backed store.
+
+### Viewing tables in the console
+
+Agent tables appear in the console's memory tab under a **Tables** folder in the sidebar tree. Selecting a table shows its rows in a read-only grid (up to 500 rows per page).
+
 ## Local development
 
 To set up sandboxed agents for local development:
