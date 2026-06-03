@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { listSessionsForAgentFixture, weeklyDigest } from '@posthog/agent-chat/fixtures'
 
@@ -9,7 +9,7 @@ const meta: Meta<typeof SessionsList> = {
     component: SessionsList,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="w-[860px]">
                 <Story />
             </div>
@@ -40,7 +40,7 @@ export const Selected: Story = {
 }
 
 export const NarrowColumn: Story = {
-    decorators: [(Story) => <div className="w-[340px]">{Story()}</div>],
+    decorators: [(Story: StoryFn) => <div className="w-[340px]">{Story()}</div>],
     args: {
         sessions: weeklyDigestSessions,
         selectedSessionId: weeklyDigestSessions[0]?.id ?? null,

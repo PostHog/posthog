@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { fleetLiveSessions } from '@posthog/agent-chat/fixtures'
 
@@ -9,7 +9,7 @@ const meta: Meta<typeof LiveNowPanel> = {
     component: LiveNowPanel,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="h-[420px] w-[320px]">
                 <Story />
             </div>

@@ -1,4 +1,4 @@
-import type { Decorator, Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import {
     getAgentStatsFixture,
@@ -14,11 +14,11 @@ const meta: Meta<typeof AgentOverview> = {
     component: AgentOverview,
     parameters: { layout: 'centered' },
     decorators: [
-        ((Story) => (
+        (Story: StoryFn) => (
             <div className="w-[860px]">
                 <Story />
             </div>
-        )) as Decorator,
+        ),
     ],
 }
 
@@ -33,7 +33,7 @@ export const Default: Story = {
         liveRevision: weeklyDigestLiveRevision,
         stats: getAgentStatsFixture(weeklyDigest.id),
         recentSessions: listSessionsForAgentFixture(weeklyDigest.id),
-        onOpenSession: (id) => console.info('[mock] openSession', id),
+        onOpenSession: (id: string) => console.info('[mock] openSession', id),
         onOpenConfiguration: noop,
         onOpenSessions: noop,
     },

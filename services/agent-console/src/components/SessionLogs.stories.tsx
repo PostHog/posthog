@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { listLogsForSessionFixture } from '@posthog/agent-chat/fixtures'
 
@@ -9,7 +9,7 @@ const meta: Meta<typeof SessionLogs> = {
     component: SessionLogs,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="h-[520px] w-[640px]">
                 <Story />
             </div>

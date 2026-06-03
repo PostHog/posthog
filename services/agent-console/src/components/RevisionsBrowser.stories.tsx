@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import { weeklyDigest, weeklyDigestRevisions } from '@posthog/agent-chat/fixtures'
@@ -10,7 +10,7 @@ const meta: Meta<typeof RevisionsBrowser> = {
     component: RevisionsBrowser,
     parameters: { layout: 'fullscreen' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="p-6">
                 <Story />
             </div>

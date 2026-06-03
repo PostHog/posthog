@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { weeklyDigestBundle } from '@posthog/agent-chat/fixtures'
 
@@ -9,7 +9,7 @@ const meta: Meta<typeof BundleTree> = {
     component: BundleTree,
     parameters: { layout: 'fullscreen' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="h-screen p-6">
                 <Story />
             </div>

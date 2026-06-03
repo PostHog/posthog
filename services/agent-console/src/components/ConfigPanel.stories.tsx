@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { weeklyDigestDraftRevision, weeklyDigestLiveRevision } from '@posthog/agent-chat/fixtures'
 
@@ -9,7 +9,7 @@ const meta: Meta<typeof ConfigPanel> = {
     component: ConfigPanel,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="w-[640px] p-4">
                 <Story />
             </div>

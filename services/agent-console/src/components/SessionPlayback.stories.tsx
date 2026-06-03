@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import {
     listSessionsForAgentFixture,
@@ -14,7 +14,7 @@ const meta: Meta<typeof SessionPlayback> = {
     component: SessionPlayback,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="h-[600px] w-[700px]">
                 <Story />
             </div>

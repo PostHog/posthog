@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { StatStrip } from './StatStrip'
 
@@ -7,7 +7,7 @@ const meta: Meta<typeof StatStrip> = {
     component: StatStrip,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="w-[860px]">
                 <Story />
             </div>

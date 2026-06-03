@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import {
     listLogsForSessionFixture,
@@ -14,7 +14,7 @@ const meta: Meta<typeof SessionDetail> = {
     component: SessionDetail,
     parameters: { layout: 'fullscreen' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="h-screen">
                 <Story />
             </div>

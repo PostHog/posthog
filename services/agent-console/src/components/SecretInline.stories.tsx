@@ -1,14 +1,14 @@
-import type { Meta, StoryObj } from '@storybook/react'
+import type { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { SecretInline } from './SecretInline'
+import { SecretInline, type SecretInlineProps } from './SecretInline'
 
 const meta: Meta<typeof SecretInline> = {
     title: 'Agent console components/SecretInline',
     component: SecretInline,
     parameters: { layout: 'centered' },
     decorators: [
-        (Story) => (
+        (Story: StoryFn) => (
             <div className="w-[420px] rounded-md border border-border bg-card p-3">
                 <Story />
             </div>
@@ -36,8 +36,8 @@ export const Idle: Story = {
         onSetSecret: async () => {
             await new Promise((r) => setTimeout(r, 300))
         },
-        onResolve: (body) => console.info('[mock] resolve', body),
-        onReject: (reason) => console.info('[mock] reject', reason),
+        onResolve: (body: { key: string; action: 'set' }) => console.info('[mock] resolve', body),
+        onReject: (reason: string) => console.info('[mock] reject', reason),
     },
 }
 
@@ -62,7 +62,7 @@ export const Rotate: Story = {
  * reflows in.
  */
 export const Saved: Story = {
-    render: (args) => {
+    render: (args: SecretInlineProps) => {
         // Start with a setter that resolves instantly so the success
         // state is what's on screen as soon as the story mounts.
         const [submitted, setSubmitted] = useState(false)
@@ -85,7 +85,7 @@ export const Saved: Story = {
         onResolve: noop,
         onReject: noop,
     },
-    play: async ({ canvasElement }) => {
+    play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
         // Drive the form to the saved state so the screenshot matches.
         const root = canvasElement
         const input = root.querySelector('input[type="password"]') as HTMLInputElement | null
@@ -111,7 +111,7 @@ export const ApiError: Story = {
             throw new Error('400 Bad Request: value too short')
         },
     },
-    play: async ({ canvasElement }) => {
+    play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
         const root = canvasElement
         const input = root.querySelector('input[type="password"]') as HTMLInputElement | null
         const button = root.querySelector('button[type="submit"]') as HTMLButtonElement | null
