@@ -120,7 +120,7 @@ export const workflowsRunBatch = (): ToolBase<typeof RunBatchSchema, unknown> =>
 })
 
 const ScheduleCreateSchema = z.object({
-    workflow_id: z.string().describe('ID of the batch or schedule workflow to attach the schedule to.'),
+    workflow_id: z.string().describe('ID of the batch workflow to attach the recurring schedule to.'),
     rrule: z
         .string()
         .describe("iCalendar RRULE (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour."),
@@ -129,12 +129,10 @@ const ScheduleCreateSchema = z.object({
     acknowledged_affected_count: z
         .number()
         .int()
-        .optional()
         .describe(
-            'Required for a batch (audience) workflow: the affected-user count from workflows-blast-radius that you ' +
-                'showed the user AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the ' +
-                "audience at that time; rejected if it no longer matches. Not needed for a 'schedule' trigger " +
-                '(person-less — no audience).'
+            'The affected-user count from workflows-blast-radius that you showed the user AND they explicitly ' +
+                'confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it ' +
+                'no longer matches.'
         ),
     variables: z
         .record(z.string(), z.unknown())
@@ -147,27 +145,28 @@ export const workflowsScheduleCreate = (): ToolBase<typeof ScheduleCreateSchema,
     schema: ScheduleCreateSchema,
     handler: async (context, params) => {
         const projectId = await context.stateManager.getProjectId()
-        const { trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
+        const { status, trigger } = await fetchWorkflow(context, projectId, params.workflow_id)
 
-        if (trigger.type !== 'batch' && trigger.type !== 'schedule') {
+        if (trigger.type !== 'batch') {
             throw new Error(
-                `workflows-schedule-create only applies to workflows with a 'batch' or 'schedule' trigger (this one ` +
-                    `is '${trigger.type ?? 'unknown'}').`
+                `workflows-schedule-create only applies to workflows with a 'batch' trigger (this one is ` +
+                    `'${trigger.type ?? 'unknown'}').`
             )
         }
 
-        // Only a 'batch' trigger has an audience that each firing broadcasts to, so only it needs the
-        // blast-radius echo-back. A 'schedule' trigger is person-less — no audience to size or acknowledge.
-        if (trigger.type === 'batch') {
-            if (params.acknowledged_affected_count === undefined) {
-                throw new Error(
-                    'acknowledged_affected_count is required for a batch (audience) workflow — size the audience with ' +
-                        'workflows-blast-radius and confirm the count with the user first.'
-                )
-            }
-            const { affected } = await sizeAudience(context, projectId, triggerFilters(trigger))
-            assertAcknowledged(affected, params.acknowledged_affected_count)
+        // Require the workflow to be active before scheduling. A draft's trigger can still be edited, so
+        // scheduling a draft would let the audience be broadened after you acknowledged it (the scheduler
+        // uses the trigger's filters at fire time). An active workflow's trigger can't be edited via MCP,
+        // so the acknowledged audience is locked in.
+        if (status !== 'active') {
+            throw new Error(
+                `Workflow is not active (status '${status ?? 'unknown'}') — enable it with workflows-enable before ` +
+                    `scheduling. Scheduling a draft would let the audience change after you sized it.`
+            )
         }
+
+        const { affected } = await sizeAudience(context, projectId, triggerFilters(trigger))
+        assertAcknowledged(affected, params.acknowledged_affected_count)
 
         return await context.api.request({
             method: 'POST',

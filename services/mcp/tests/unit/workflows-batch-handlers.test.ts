@@ -218,10 +218,11 @@ describe('workflows batch handlers', () => {
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
         })
 
-        it('requires an acknowledged count for a batch trigger', async () => {
+        it('rejects scheduling a draft (non-active) workflow without creating the schedule', async () => {
             const { context, request } = createMockContext({
                 trigger: { type: 'batch', filters: BATCH_FILTERS },
                 blastRadius: { affected: 3, total: 100 },
+                status: 'draft',
             })
 
             await expect(
@@ -229,27 +230,27 @@ describe('workflows batch handlers', () => {
                     workflow_id: 'wf-1',
                     rrule: 'FREQ=DAILY;INTERVAL=1',
                     starts_at: '2026-06-01T00:00:00Z',
+                    acknowledged_affected_count: 3,
                 })
-            ).rejects.toThrow(/acknowledged_affected_count/)
+            ).rejects.toThrow(/active/i)
             expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
         })
 
-        it('creates a schedule for a person-less schedule trigger without sizing the audience', async () => {
+        it('rejects a non-batch trigger (schedule trigger no longer supported)', async () => {
             const { context, request } = createMockContext({
                 trigger: { type: 'schedule' },
-                blastRadius: { affected: 999, total: 999 },
+                blastRadius: { affected: 1, total: 1 },
             })
 
-            const result = await scheduleCreateTool.handler(context, {
-                workflow_id: 'wf-1',
-                rrule: 'FREQ=DAILY;INTERVAL=1',
-                starts_at: '2026-06-01T00:00:00Z',
-            })
-
-            // No audience for a schedule trigger — must not call blast radius or require a count.
-            expect(calls(request).some((c) => c.path.endsWith('/user_blast_radius/'))).toBe(false)
-            expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(true)
-            expect(result).toMatchObject({ id: 'sched-1' })
+            await expect(
+                scheduleCreateTool.handler(context, {
+                    workflow_id: 'wf-1',
+                    rrule: 'FREQ=DAILY;INTERVAL=1',
+                    starts_at: '2026-06-01T00:00:00Z',
+                    acknowledged_affected_count: 1,
+                })
+            ).rejects.toThrow(/batch/)
+            expect(calls(request).some((c) => c.path.endsWith('/schedules/'))).toBe(false)
         })
     })
 })

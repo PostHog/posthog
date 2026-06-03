@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "acknowledged_affected_count": {
-            "description": "Required for a batch (audience) workflow: the affected-user count from workflows-blast-radius that you showed the user AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it no longer matches. Not needed for a 'schedule' trigger (person-less — no audience).",
+            "description": "The affected-user count from workflows-blast-radius that you showed the user AND they explicitly confirmed before scheduling. Each firing re-broadcasts to the audience at that time; rejected if it no longer matches.",
             "maximum": 9007199254740991,
             "minimum": -9007199254740991,
             "type": "integer"
@@ -28,10 +28,10 @@
             "type": "object"
         },
         "workflow_id": {
-            "description": "ID of the batch or schedule workflow to attach the schedule to.",
+            "description": "ID of the batch workflow to attach the recurring schedule to.",
             "type": "string"
         }
     },
-    "required": ["workflow_id", "rrule", "starts_at"],
+    "required": ["workflow_id", "rrule", "starts_at", "acknowledged_affected_count"],
     "type": "object"
 }

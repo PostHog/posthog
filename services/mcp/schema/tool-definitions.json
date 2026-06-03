@@ -509,7 +509,7 @@
         }
     },
     "workflows-schedule-create": {
-        "description": "Create a recurring RRULE schedule for a workflow; fires only once enabled. For batch (audience) workflows each run broadcasts real messages to the audience — STOP and get the user's explicit confirmation first, then pass acknowledged_affected_count from workflows-blast-radius. Schedule-trigger workflows are person-less and don't need it.",
+        "description": "Attach a recurring RRULE schedule to a batch workflow. The workflow must already be active (enable it first). Each run broadcasts real messages to the trigger audience — STOP and get the user's explicit confirmation first, then pass acknowledged_affected_count from workflows-blast-radius.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Schedule workflow runs",

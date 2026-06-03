@@ -493,6 +493,7 @@ describe('Workflows', { concurrent: false }, () => {
         it('creates a schedule, surfaces it on workflows-get, and updates it', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
             createdWorkflowIds.push(created.id)
+            await enableTool.handler(context, { id: created.id })
 
             const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
 
@@ -526,6 +527,7 @@ describe('Workflows', { concurrent: false }, () => {
         it('rejects schedule creation when the acknowledged count is stale', async () => {
             const created = parseToolResponse(await createTool.handler(context, makeBatchWorkflowParams()))
             createdWorkflowIds.push(created.id)
+            await enableTool.handler(context, { id: created.id })
 
             const { affected } = parseToolResponse(await blastRadiusTool.handler(context, { workflow_id: created.id }))
 
