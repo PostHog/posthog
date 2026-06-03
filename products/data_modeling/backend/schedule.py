@@ -17,7 +17,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
-from temporalio.client import ScheduleCalendarSpec, ScheduleRange, ScheduleSpec
+from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
 
 from posthog.temporal.common.client import async_connect
 
@@ -41,8 +41,15 @@ async def get_v2_scheduled_dag_ids() -> set[str]:
     """
     temporal = await async_connect()
     dag_ids: set[str] = set()
-    async for listing in await temporal.list_schedules():
-        if listing.schedule.action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW:
+    # Pre-filter server-side so we don't page through every v1 `data-modeling-run` schedule;
+    # keep the client-side check as a safety net since visibility data is eventually consistent.
+    query = f"WorkflowType = '{DATA_MODELING_EXECUTE_DAG_WORKFLOW}'"
+    async for listing in await temporal.list_schedules(query=query):
+        action = listing.schedule.action if listing.schedule else None
+        if (
+            isinstance(action, ScheduleListActionStartWorkflow)
+            and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
+        ):
             dag_ids.add(listing.id)
     return dag_ids
 

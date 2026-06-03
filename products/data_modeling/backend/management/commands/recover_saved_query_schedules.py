@@ -115,7 +115,11 @@ class Command(BaseCommand):
         # get queries for the target team
         queries = base_qs.filter(team_id=target_team_id).order_by("created_at", "id")
         if start_after_saved_query_id:
-            cursor = DataWarehouseSavedQuery.objects.filter(id=start_after_saved_query_id).values("created_at").first()
+            cursor = (
+                DataWarehouseSavedQuery.objects.filter(id=start_after_saved_query_id, team_id=target_team_id)
+                .values("created_at")
+                .first()
+            )
             if cursor is None:
                 raise CommandError(f"No saved query found with id={start_after_saved_query_id}")
             cursor_created_at = cursor["created_at"]
