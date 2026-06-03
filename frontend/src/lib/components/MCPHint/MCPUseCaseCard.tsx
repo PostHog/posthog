@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 
@@ -41,18 +41,21 @@ export function MCPUseCaseCard({
     expiresAfterMs?: number
     forceDisplay?: boolean
 }): JSX.Element | null {
-    const { effectiveOptOut, featureEnabled, userRole, topEvents, topEventsLoading } = useValues(mcpHintLogic)
+    const { effectiveOptOut, featureEnabled, userRole, topEvents } = useValues(mcpHintLogic)
     const { loadTopEvents } = useActions(mcpHintLogic)
     const [expired] = useState(() => (expiresAfterMs ? getExpiryState(surfaceKey, expiresAfterMs).expired : false))
+    const triedLoadingEvents = useRef(false)
 
     const willRender = forceDisplay || (featureEnabled && !effectiveOptOut && !expired)
 
     useEffect(() => {
         // Only the SQL editor surface benefits from the team's real event names — keep the call narrow.
-        if (willRender && surfaceKey === 'sql.execute' && topEvents.length === 0 && !topEventsLoading) {
+        // Fetch at most once per mount; a failed call returns [] and must not retry on re-render.
+        if (willRender && surfaceKey === 'sql.execute' && !triedLoadingEvents.current) {
+            triedLoadingEvents.current = true
             loadTopEvents()
         }
-    }, [willRender, surfaceKey]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [willRender, surfaceKey, loadTopEvents])
 
     if (!willRender) {
         return null
