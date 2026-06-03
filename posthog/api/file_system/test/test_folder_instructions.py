@@ -28,12 +28,38 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
     def _instructions_url(self, folder_id: str) -> str:
         return f"/api/projects/{self.team.id}/desktop_file_system/{folder_id}/instructions/"
 
-    def test_get_instructions_when_none_exist_returns_404(self):
+    def _folder_id_for_path(self, path: str) -> str:
+        return str(FileSystem.objects.unscoped().get(team=self.team, surface="desktop", path=path, type="folder").id)
+
+    def test_new_channel_gets_blank_instructions_automatically(self):
         folder_id = self._create_desktop_folder()
         response = self.client.get(self._instructions_url(folder_id))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["version"], 1)
+        self.assertEqual(response.json()["content"], "")
+        self.assertEqual(response.json()["is_latest"], True)
 
-    def test_publish_first_version_then_get(self):
+    def test_nested_folder_creation_backfills_ancestor_instructions(self):
+        self._create_desktop_folder("A/B/C")
+        for path in ["A", "A/B", "A/B/C"]:
+            folder_id = self._folder_id_for_path(path)
+            response = self.client.get(self._instructions_url(folder_id))
+            self.assertEqual(response.status_code, status.HTTP_200_OK, (path, response.json()))
+            self.assertEqual(response.json()["content"], "")
+
+    def test_creating_item_gives_parent_folder_blank_instructions(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_file_system/",
+            {"path": "Parent/MyInsight", "type": "insight", "ref": "abc"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        parent_id = self._folder_id_for_path("Parent")
+        get = self.client.get(self._instructions_url(parent_id))
+        self.assertEqual(get.status_code, status.HTTP_200_OK, get.json())
+        self.assertEqual(get.json()["content"], "")
+
+    def test_publish_supersedes_blank_initial_version(self):
         folder_id = self._create_desktop_folder()
 
         publish = self.client.patch(
@@ -41,38 +67,40 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
             {"content": "# Campaigns\n\nQ1 marketing assets."},
         )
         self.assertEqual(publish.status_code, status.HTTP_200_OK, publish.json())
-        self.assertEqual(publish.json()["version"], 1)
-        self.assertEqual(publish.json()["is_latest"], True)
+        # The auto-created blank version is 1, so the first real edit publishes version 2.
+        self.assertEqual(publish.json()["version"], 2)
         self.assertEqual(publish.json()["content"], "# Campaigns\n\nQ1 marketing assets.")
 
         get = self.client.get(self._instructions_url(folder_id))
-        self.assertEqual(get.status_code, status.HTTP_200_OK, get.json())
         self.assertEqual(get.json()["content"], "# Campaigns\n\nQ1 marketing assets.")
+        self.assertEqual(get.json()["version"], 2)
 
-    def test_publish_second_version_increments_and_supersedes(self):
+    def test_publish_increments_and_supersedes(self):
         folder_id = self._create_desktop_folder()
         self.client.patch(self._instructions_url(folder_id), {"content": "first"})
-        second = self.client.patch(self._instructions_url(folder_id), {"content": "second"})
+        third = self.client.patch(self._instructions_url(folder_id), {"content": "second"})
 
-        self.assertEqual(second.status_code, status.HTTP_200_OK, second.json())
-        self.assertEqual(second.json()["version"], 2)
+        self.assertEqual(third.status_code, status.HTTP_200_OK, third.json())
+        self.assertEqual(third.json()["version"], 3)
 
         get = self.client.get(self._instructions_url(folder_id))
         self.assertEqual(get.json()["content"], "second")
-        self.assertEqual(get.json()["version"], 2)
 
         rows = FileSystemFolderInstructions.objects.unscoped().filter(folder_id=folder_id).order_by("version")
-        self.assertEqual([(r.version, r.is_latest) for r in rows], [(1, False), (2, True)])
+        self.assertEqual(
+            [(r.version, r.content, r.is_latest) for r in rows],
+            [(1, "", False), (2, "first", False), (3, "second", True)],
+        )
 
     def test_versions_list_returns_history_newest_first(self):
         folder_id = self._create_desktop_folder()
-        self.client.patch(self._instructions_url(folder_id), {"content": "v1"})
         self.client.patch(self._instructions_url(folder_id), {"content": "v2"})
+        self.client.patch(self._instructions_url(folder_id), {"content": "v3"})
 
         response = self.client.get(self._instructions_url(folder_id) + "versions/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         versions = response.json()
-        self.assertEqual([v["version"] for v in versions], [2, 1])
+        self.assertEqual([v["version"] for v in versions], [3, 2, 1])
         # Version-history entries omit the markdown content (progressive disclosure).
         self.assertNotIn("content", versions[0])
 
@@ -83,11 +111,9 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
 
     def test_optimistic_concurrency_conflict(self):
-        folder_id = self._create_desktop_folder()
-        self.client.patch(self._instructions_url(folder_id), {"content": "first"})
+        folder_id = self._create_desktop_folder()  # auto-creates blank version 1
 
-        # base_version 0 implies "no instructions yet", but version 1 already exists → 409.
-        response = self.client.patch(self._instructions_url(folder_id), {"content": "stale", "base_version": 0})
+        response = self.client.patch(self._instructions_url(folder_id), {"content": "stale", "base_version": 99})
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.json())
         self.assertEqual(response.json()["current_version"], 1)
 
@@ -118,8 +144,15 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         self.assertEqual(republish.json()["version"], 1)
 
     def test_delete_when_none_exist_returns_404(self):
-        folder_id = self._create_desktop_folder()
-        response = self.client.delete(self._instructions_url(folder_id))
+        # Folder created directly (not via the desktop API) has no auto-created instructions.
+        folder = FileSystem.objects.create(
+            team=self.team,
+            path="OrphanFolder",
+            depth=1,
+            type="folder",
+            surface="desktop",
+        )
+        response = self.client.delete(self._instructions_url(str(folder.id)))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
 
     def test_cannot_access_folder_from_another_team(self):

@@ -64,7 +64,25 @@ tools:
         enabled: false
     desktop-file-system-create:
         operation: desktop_file_system_create
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create desktop channel
+        description: >
+            Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path`
+            (parent folders are created automatically) and `type: folder`. A blank instruction set
+            is created for the channel automatically; use the update-instructions tool to fill it in.
+        param_overrides:
+            path:
+                description: >
+                    Slash-delimited location of the channel, e.g. "Marketing/Q1 Campaigns".
+                    Intermediate folders are created automatically.
+            type:
+                description: 'Use "folder" to create a channel.'
     desktop-file-system-destroy:
         operation: desktop_file_system_destroy
         enabled: false
@@ -73,22 +91,76 @@ tools:
         enabled: false
     desktop-file-system-instructions-partial-update:
         operation: desktop_file_system_instructions_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a new version of a channel's markdown instructions, describing what the channel
+            contains. The `id` is the channel (folder) id. Each call creates a new version. To erase
+            a channel's instructions, publish empty `content` — this clears the text while keeping the
+            instruction set in place (the instruction set itself cannot be deleted).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instructions to update.
+            content:
+                description: >
+                    Full markdown instructions to publish. Pass an empty string to erase the
+                    channel's instructions while keeping the instruction set.
     desktop-file-system-instructions-retrieve:
         operation: desktop_file_system_instructions_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get channel instructions
+        description: >
+            Get the latest markdown instructions for a channel (desktop folder).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instructions to fetch.
     desktop-file-system-instructions-update:
         operation: desktop_file_system_instructions_update
         enabled: false
-    desktop-file-system-instructions-versions-list:
-        operation: desktop_file_system_instructions_versions_list
-        enabled: false
+    desktop-file-system-instructions-versions-retrieve:
+        operation: desktop_file_system_instructions_versions_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List channel instruction versions
+        description: >
+            List the version history of a channel's instructions, newest first (metadata only,
+            without the markdown content).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instruction history to list.
     desktop-file-system-link-create:
         operation: desktop_file_system_link_create
         enabled: false
     desktop-file-system-list:
         operation: desktop_file_system_list
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List desktop channels
+        description: >
+            List channels and items on the desktop surface. Filter with query params such as
+            `type` (e.g. "folder"), `parent`, `path`, `depth`, or `search`.
     desktop-file-system-log-view-create:
         operation: desktop_file_system_log_view_create
         enabled: false
@@ -103,7 +175,16 @@ tools:
         enabled: false
     desktop-file-system-retrieve:
         operation: desktop_file_system_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get desktop channel
+        description: >
+            Retrieve a single channel or item on the desktop surface by id.
     desktop-file-system-shortcut-create:
         operation: desktop_file_system_shortcut_create
         enabled: false

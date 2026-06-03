@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 from posthog.models.file_system.file_system import FileSystem
@@ -85,6 +85,32 @@ def publish_folder_instructions(
             is_latest=True,
             created_by=user,
         )
+
+
+def ensure_blank_folder_instructions(
+    folder: FileSystem,
+    *,
+    user: User | None,
+) -> FileSystemFolderInstructions | None:
+    """Create a blank version-1 instructions row for a folder if it has none.
+
+    Idempotent: returns None when instructions already exist (so every folder ends up with an
+    instruction set, even an empty one, without ever clobbering existing content).
+    """
+    if FileSystemFolderInstructions.objects.filter(folder=folder, deleted=False).exists():
+        return None
+    try:
+        return FileSystemFolderInstructions.objects.create(
+            team=folder.team,
+            folder=folder,
+            content="",
+            version=1,
+            is_latest=True,
+            created_by=user,
+        )
+    except IntegrityError:
+        # A concurrent create won the race; the folder now has instructions.
+        return None
 
 
 def delete_folder_instructions(folder: FileSystem) -> int:

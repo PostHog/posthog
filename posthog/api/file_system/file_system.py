@@ -28,6 +28,7 @@ from posthog.api.file_system.folder_instructions_service import (
     FolderInstructionsVersionConflictError,
     FolderInstructionsVersionLimitError,
     delete_folder_instructions,
+    ensure_blank_folder_instructions,
     get_folder_instructions_versions,
     get_latest_folder_instructions,
     publish_folder_instructions,
@@ -931,6 +932,29 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     """
 
     file_system_surface = "desktop"
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        super().perform_create(serializer)
+        instance = cast(FileSystem, serializer.instance)
+        self._ensure_blank_instructions_for_created_path(instance)
+
+    def _ensure_blank_instructions_for_created_path(self, instance: FileSystem) -> None:
+        """Give every desktop folder along the created path a blank instruction set.
+
+        Covers the created folder itself plus any parent folders auto-created by the serializer,
+        so a "channel" always has instructions from the moment it exists.
+        """
+        segments = split_path(instance.path)
+        candidate_paths = [join_path(segments[:depth_index]) for depth_index in range(1, len(segments))]
+        if instance.type == "folder":
+            candidate_paths.append(instance.path)
+        if not candidate_paths:
+            return
+
+        folders = self._scope_by_project(FileSystem.objects.filter(path__in=candidate_paths, type="folder"))
+        user = self.request.user if isinstance(self.request.user, User) else None
+        for folder in folders:
+            ensure_blank_folder_instructions(folder, user=user)
 
     def _get_folder_or_400(self) -> FileSystem | Response:
         instance = self.get_object()
