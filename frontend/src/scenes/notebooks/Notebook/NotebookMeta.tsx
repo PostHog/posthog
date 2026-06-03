@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useState } from 'react'
 
-import { IconBook, IconTerminal, IconWarning } from '@posthog/icons'
+import { IconBook, IconCode, IconMarkdownFilled, IconTerminal, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -108,6 +108,55 @@ export const NotebookCollabStatus = (props: NotebookLogicProps): JSX.Element | n
         <Tooltip title={tooltip} placement="left">
             <LemonButton size="small" icon={<IconWarning className="text-warning" />} type="tertiary" />
         </Tooltip>
+    )
+}
+
+function shouldShowNotebookStorageDebug(): boolean {
+    return ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname)
+}
+
+export const NotebookStorageDebugControls = (props: NotebookLogicProps): JSX.Element | null => {
+    const { notebook, contentStorage, debugConversionLoading, isLocalOnly } = useValues(notebookLogic(props))
+    const { debugConvertNotebook, exportMarkdown } = useActions(notebookLogic(props))
+
+    if (!shouldShowNotebookStorageDebug() || !notebook) {
+        return null
+    }
+
+    const isMarkdown = contentStorage === 'markdown'
+    const disabledReason = isLocalOnly ? 'Local notebooks are not saved in the API' : undefined
+
+    return (
+        <div className="flex items-center gap-1">
+            <LemonTag type={isMarkdown ? 'success' : 'default'} className="uppercase select-none">
+                {contentStorage}
+            </LemonTag>
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconMarkdownFilled />}
+                tooltip="Export markdown"
+                onClick={exportMarkdown}
+            />
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={isMarkdown ? <IconCode /> : <IconMarkdownFilled />}
+                tooltip={isMarkdown ? 'Preview JSON conversion' : 'Preview markdown conversion'}
+                loading={debugConversionLoading}
+                disabledReason={disabledReason}
+                onClick={() => debugConvertNotebook(isMarkdown ? 'markdown_to_json' : 'json_to_markdown', false)}
+            />
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={isMarkdown ? <IconCode /> : <IconMarkdownFilled />}
+                tooltip={isMarkdown ? 'Convert to JSON storage' : 'Convert to markdown storage'}
+                loading={debugConversionLoading}
+                disabledReason={disabledReason}
+                onClick={() => debugConvertNotebook(isMarkdown ? 'markdown_to_json' : 'json_to_markdown', true)}
+            />
+        </div>
     )
 }
 

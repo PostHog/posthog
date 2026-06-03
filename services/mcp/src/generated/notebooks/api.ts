@@ -61,7 +61,20 @@ export const notebooksCreateBodyVersionMax = 2147483647
 
 export const NotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksCreateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`.'
+        ),
+    content_storage: zod
+        .enum(['json', 'markdown'])
+        .describe('* `json` - json\n* `markdown` - markdown')
+        .optional()
+        .describe(
+            'Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.\n\n* `json` - json\n* `markdown` - markdown'
+        ),
+    markdown_content: zod.string().nullish().describe('Canonical markdown document for markdown-backed notebooks.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()
@@ -105,7 +118,20 @@ export const notebooksPartialUpdateBodyVersionMax = 2147483647
 
 export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(notebooksPartialUpdateBodyTitleMax).nullish().describe('Title of the notebook.'),
-    content: zod.unknown().optional().describe('Notebook content as a ProseMirror JSON document structure.'),
+    content: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`.'
+        ),
+    content_storage: zod
+        .enum(['json', 'markdown'])
+        .describe('* `json` - json\n* `markdown` - markdown')
+        .optional()
+        .describe(
+            'Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.\n\n* `json` - json\n* `markdown` - markdown'
+        ),
+    markdown_content: zod.string().nullish().describe('Canonical markdown document for markdown-backed notebooks.'),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
     version: zod
         .number()

@@ -119,3 +119,6 @@ class TestSaveNotebookToDb(BaseTest):
         stored_query = ph_queries[0]["attrs"]["query"]
         self.assertEqual(stored_query["kind"], expected_kind)
         self.assertEqual(stored_query["source"]["kind"], expected_source_kind)
+        self.assertEqual(notebook.content_storage, Notebook.ContentStorage.MARKDOWN)
+        self.assertIn("<Query", notebook.markdown_content or "")
+        self.assertIn(expected_source_kind, notebook.markdown_content or "")

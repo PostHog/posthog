@@ -14,7 +14,12 @@ import { SchemaPropertyGroup } from 'scenes/data-management/schema/schemaManagem
 import { SignalNode } from 'scenes/debug/signals/types'
 import { SignalReport, SignalReportArtefactResponse, SignalSourceConfig } from 'scenes/inbox/types'
 import { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
-import { NotebookListItemType, NotebookNodeResource, NotebookType } from 'scenes/notebooks/types'
+import {
+    NotebookContentStorage,
+    NotebookListItemType,
+    NotebookNodeResource,
+    NotebookType,
+} from 'scenes/notebooks/types'
 import { RecordingComment } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { SessionSummaryContent } from 'scenes/session-recordings/player/player-meta/types'
 import { LINK_PAGE_SIZE, SURVEY_PAGE_SIZE } from 'scenes/surveys/constants'
@@ -4635,7 +4640,18 @@ const api = {
         },
         async update(
             notebookId: NotebookType['short_id'],
-            data: Partial<Pick<NotebookType, 'version' | 'content' | 'text_content' | 'title' | '_create_in_folder'>>
+            data: Partial<
+                Pick<
+                    NotebookType,
+                    | 'version'
+                    | 'content'
+                    | 'content_storage'
+                    | 'markdown_content'
+                    | 'text_content'
+                    | 'title'
+                    | '_create_in_folder'
+                >
+            >
         ): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).update({ data })
         },
@@ -4679,11 +4695,41 @@ const api = {
                 .get()
         },
         async create(
-            data?: Pick<NotebookType, 'content' | 'text_content' | 'title' | '_create_in_folder'> & {
-                short_id?: string
-            }
+            data?: Partial<
+                Pick<
+                    NotebookType,
+                    'content' | 'content_storage' | 'markdown_content' | 'text_content' | 'title' | '_create_in_folder'
+                >
+            > & { short_id?: string }
         ): Promise<NotebookType> {
             return await new ApiRequest().notebooks().create({ data })
+        },
+        async markdownSave(
+            notebookId: NotebookType['short_id'],
+            data: {
+                version: NotebookType['version']
+                markdown_content: string
+                text_content?: string
+                title?: string
+            }
+        ): Promise<NotebookType> {
+            return await new ApiRequest().notebook(notebookId).withAction('markdown/save').create({ data })
+        },
+        async debugConvert(
+            notebookId: NotebookType['short_id'],
+            data: {
+                direction: 'json_to_markdown' | 'markdown_to_json'
+                content?: NotebookType['content']
+                markdown_content?: string
+                persist?: boolean
+            }
+        ): Promise<{
+            content_storage: NotebookContentStorage
+            content: NotebookType['content']
+            markdown_content: string
+            text_content: string
+        }> {
+            return await new ApiRequest().notebook(notebookId).withAction('debug/convert').create({ data })
         },
         async delete(notebookId: NotebookType['short_id']): Promise<NotebookType> {
             return await new ApiRequest().notebook(notebookId).delete()

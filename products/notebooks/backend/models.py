@@ -21,10 +21,21 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         INTERNAL = "internal", "internal"
         DEFAULT = "default", "default"
 
+    class ContentStorage(models.TextChoices):
+        JSON = "json", "json"
+        MARKDOWN = "markdown", "markdown"
+
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     title = models.CharField(max_length=256, blank=True, null=True)
     content: JSONField = JSONField(default=None, null=True, blank=True)
+    content_storage = models.CharField(
+        choices=ContentStorage,
+        default=ContentStorage.JSON,
+        db_default=ContentStorage.JSON,
+        max_length=20,
+    )
+    markdown_content = models.TextField(blank=True, null=True)
     text_content = models.TextField(blank=True, null=True)
     deleted = models.BooleanField(default=False)
     visibility = models.CharField(choices=Visibility, default=Visibility.DEFAULT, max_length=20)

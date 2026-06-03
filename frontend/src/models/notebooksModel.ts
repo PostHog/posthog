@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { notebookContentToMarkdown } from 'scenes/notebooks/markdown'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -112,9 +113,12 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
+                    const initialContent = defaultNotebookContent(title, content)
                     const notebook = await api.notebooks.create({
                         title,
-                        content: defaultNotebookContent(title, content),
+                        content: initialContent,
+                        content_storage: 'markdown',
+                        markdown_content: notebookContentToMarkdown(initialContent),
                         _create_in_folder: getLastNewFolder(),
                         ...(shortId ? { short_id: shortId } : {}),
                     })

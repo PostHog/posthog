@@ -130,6 +130,10 @@ class TestCreateNotebookTool(BaseTest):
         assert notebook.title == "Saved Notebook"
         assert notebook.content is not None
         assert notebook.content["type"] == "doc"
+        assert notebook.content_storage == Notebook.ContentStorage.MARKDOWN
+        assert notebook.markdown_content is not None
+        assert notebook.markdown_content.startswith("# Saved Notebook")
+        assert "Hello World" in notebook.markdown_content
 
     def test_save_to_notebook_uses_artifact_short_id(self):
         result, artifact = async_to_sync(self.tool._arun_impl)(
@@ -169,3 +173,7 @@ class TestCreateNotebookTool(BaseTest):
 
         notebook = Notebook.objects.get(team=self.team, short_id=short_id)
         assert notebook.title == "Updated"
+        assert notebook.content_storage == Notebook.ContentStorage.MARKDOWN
+        assert notebook.markdown_content is not None
+        assert notebook.markdown_content.startswith("# Updated")
+        assert "Updated Content" in notebook.markdown_content

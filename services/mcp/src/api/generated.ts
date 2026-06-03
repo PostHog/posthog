@@ -11110,6 +11110,18 @@ export namespace Schemas {
       Base64: 'base64',
     } as const;
 
+    /**
+     * * `json` - json
+    * `markdown` - markdown
+     */
+    export type ContentStorageEnum = typeof ContentStorageEnum[keyof typeof ContentStorageEnum];
+
+
+    export const ContentStorageEnum = {
+      Json: 'json',
+      Markdown: 'markdown',
+    } as const;
+
     export type ConversationMessagesItem = { [key: string]: unknown };
 
     export type ConversationPendingApprovalsItem = { [key: string]: unknown };
@@ -13397,18 +13409,6 @@ export namespace Schemas {
       checks: DiagnosticCheckResult[];
     }
 
-    /**
-     * * `Up` - Up
-    * `Down` - Down
-     */
-    export type DirectionEnum = typeof DirectionEnum[keyof typeof DirectionEnum];
-
-
-    export const DirectionEnum = {
-      Up: 'Up',
-      Down: 'Down',
-    } as const;
-
     export type DistanceFunc = typeof DistanceFunc[keyof typeof DistanceFunc];
 
 
@@ -13522,6 +13522,18 @@ export namespace Schemas {
       has_draft: boolean;
     }
 
+    /**
+     * * `Up` - Up
+    * `Down` - Down
+     */
+    export type WoWChangeDirectionEnum = typeof WoWChangeDirectionEnum[keyof typeof WoWChangeDirectionEnum];
+
+
+    export const WoWChangeDirectionEnum = {
+      Up: 'Up',
+      Down: 'Down',
+    } as const;
+
     export interface WoWChange {
       /** Absolute percentage change, rounded to nearest integer. */
       percent: number;
@@ -13529,7 +13541,7 @@ export namespace Schemas {
 
       * `Up` - Up
       * `Down` - Down */
-      direction: DirectionEnum;
+      direction: WoWChangeDirectionEnum;
       /** Hex color indicating whether the change is a positive or negative signal. */
       color: string;
       /** Short label, e.g. 'Up 12%'. */
@@ -22056,8 +22068,18 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`. */
       content?: unknown;
+      /** Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.
+
+      * `json` - json
+      * `markdown` - markdown */
+      content_storage?: ContentStorageEnum;
+      /**
+         * Canonical markdown document for markdown-backed notebooks.
+         * @nullable
+         */
+      markdown_content?: string | null;
       /**
          * Plain text representation of the notebook content for search.
          * @nullable
@@ -22108,6 +22130,57 @@ export namespace Schemas {
       cursor_head?: number | null;
     }
 
+    /**
+     * * `json_to_markdown` - json_to_markdown
+    * `markdown_to_json` - markdown_to_json
+     */
+    export type NotebookDebugConvertDirectionEnum = typeof NotebookDebugConvertDirectionEnum[keyof typeof NotebookDebugConvertDirectionEnum];
+
+
+    export const NotebookDebugConvertDirectionEnum = {
+      JsonToMarkdown: 'json_to_markdown',
+      MarkdownToJson: 'markdown_to_json',
+    } as const;
+
+    export interface NotebookDebugConvert {
+      /** Conversion direction to run.
+
+      * `json_to_markdown` - json_to_markdown
+      * `markdown_to_json` - markdown_to_json */
+      direction: NotebookDebugConvertDirectionEnum;
+      /** Optional ProseMirror JSON document to convert instead of the saved notebook content. */
+      content?: unknown;
+      /** Optional markdown document to convert instead of the saved notebook markdown_content. */
+      markdown_content?: string;
+      /** When true, persist the conversion result to the notebook and bump the version. */
+      persist?: boolean;
+    }
+
+    export interface NotebookDebugConvertResponse {
+      /** Storage format represented by the conversion result.
+
+      * `json` - json
+      * `markdown` - markdown */
+      content_storage: ContentStorageEnum;
+      /** Converted ProseMirror JSON document. */
+      content: unknown;
+      /** Converted markdown document. */
+      markdown_content: string;
+      /** Plain text derived from the converted document. */
+      text_content: string;
+    }
+
+    export interface NotebookMarkdownSave {
+      /** The notebook version this markdown update is based on. */
+      version: number;
+      /** Canonical markdown document to save for a markdown-backed notebook. */
+      markdown_content: string;
+      /** Plain text for search indexing. If omitted, the server derives it from markdown_content. */
+      text_content?: string;
+      /** Updated notebook title. */
+      title?: string;
+    }
+
     export interface NotebookMinimal {
       /** UUID of the notebook. */
       readonly id: string;
@@ -22118,6 +22191,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.
+
+      * `json` - json
+      * `markdown` - markdown */
+      readonly content_storage: ContentStorageEnum;
       /** Whether the notebook has been soft-deleted. */
       readonly deleted: boolean;
       readonly created_at: string;
@@ -29315,8 +29393,18 @@ export namespace Schemas {
          * @nullable
          */
       title?: string | null;
-      /** Notebook content as a ProseMirror JSON document structure. */
+      /** Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`. */
       content?: unknown;
+      /** Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.
+
+      * `json` - json
+      * `markdown` - markdown */
+      content_storage?: ContentStorageEnum;
+      /**
+         * Canonical markdown document for markdown-backed notebooks.
+         * @nullable
+         */
+      markdown_content?: string | null;
       /**
          * Plain text representation of the notebook content for search.
          * @nullable

@@ -3708,7 +3708,7 @@
         }
     },
     "notebooks-create": {
-        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
+        "description": "Create a new notebook. Prefer markdown-backed notebooks by providing `markdown_content` and `content_storage: \"markdown\"`; the server derives the rich ProseMirror `content`. Markdown prose can embed query blocks with `<Query>...</Query>` where the body is query JSON, plus resource tags such as `<FeatureFlag id=\"...\" />`, `<Experiment id=\"...\" />`, `<Survey id=\"...\" />`, `<Cohort id=\"...\" />`, and `<SessionReplay id=\"...\" />`. Legacy JSON-backed creation may still provide `content` directly as a ProseMirror document. Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Create notebook",
@@ -3750,7 +3750,7 @@
         }
     },
     "notebooks-partial-update": {
-        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "description": "Update an existing notebook by short_id. Can update title, deleted status, legacy JSON `content`, or markdown-backed `markdown_content`. IMPORTANT: when updating either content field, provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version. For markdown-backed notebooks, prefer `notebook-edit` for targeted edits or `notebooks-create-from-markdown` for new notebooks.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update notebook",
@@ -3766,7 +3766,7 @@
         "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
-        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
+        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content_storage, markdown_content for markdown-backed notebooks, derived rich content, version, and creation/modification metadata.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",

@@ -44,6 +44,7 @@ from posthog.utils import relative_date_parse
 from products.notebooks.backend import collab
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
+from products.notebooks.backend.markdown import markdown_to_text_content, markdown_to_tiptap_doc, tiptap_doc_to_markdown
 from products.notebooks.backend.models import KernelRuntime, Notebook
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
@@ -90,11 +91,21 @@ def log_notebook_activity(
     )
 
 
+def _normalize_notebook_content_or_raise(content: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return normalize_notebook_query_nodes(content)
+    except InvalidNotebookQueryError as err:
+        raise serializers.ValidationError(str(err))
+
+
 _NOTEBOOK_FIELD_HELP_TEXTS = {
     "id": {"help_text": "UUID of the notebook."},
     "short_id": {"help_text": "Short alphanumeric identifier used in URLs and API lookups."},
     "title": {"help_text": "Title of the notebook."},
     "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
+    "content_storage": {
+        "help_text": "Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively."
+    },
 }
 
 _PARENT_RESOURCE_SCHEMA = {
@@ -124,6 +135,7 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "id",
             "short_id",
             "title",
+            "content_storage",
             "deleted",
             "created_at",
             "created_by",
@@ -137,6 +149,13 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    markdown_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        trim_whitespace=False,
+        help_text="Canonical markdown document for markdown-backed notebooks.",
+    )
     parent_resource = serializers.SerializerMethodField(
         help_text=(
             "Parent resource this notebook is attached to, or `null`. Returns "
@@ -152,6 +171,8 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "short_id",
             "title",
             "content",
+            "content_storage",
+            "markdown_content",
             "text_content",
             "version",
             "deleted",
@@ -175,7 +196,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ]
         extra_kwargs = {
             **_NOTEBOOK_FIELD_HELP_TEXTS,
-            "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
+            "content": {
+                "help_text": "Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`."
+            },
+            "markdown_content": {"help_text": "Canonical markdown document for markdown-backed notebooks."},
             "text_content": {"help_text": "Plain text representation of the notebook content for search."},
             "version": {
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
@@ -204,6 +228,22 @@ class NotebookSerializer(NotebookMinimalSerializer):
             validated_data["short_id"] = short_id
 
         created_by = validated_data.pop("created_by", request.user)
+        content = validated_data.get("content")
+        markdown_content = validated_data.get("markdown_content")
+        if isinstance(markdown_content, str):
+            validated_data["content_storage"] = Notebook.ContentStorage.MARKDOWN
+            validated_data["content"] = _normalize_notebook_content_or_raise(
+                markdown_to_tiptap_doc(markdown_content, title=validated_data.get("title"))
+            )
+            validated_data["text_content"] = markdown_to_text_content(
+                markdown_content, title=validated_data.get("title")
+            )
+        elif validated_data.get("content_storage") == Notebook.ContentStorage.MARKDOWN and isinstance(content, dict):
+            validated_data["markdown_content"] = tiptap_doc_to_markdown(content)
+            validated_data["text_content"] = validated_data.get("text_content") or markdown_to_text_content(
+                validated_data["markdown_content"], title=validated_data.get("title")
+            )
+
         content = validated_data.get("content")
         if isinstance(content, dict):
             validated_data["content"] = annotate_python_nodes(content)
@@ -239,7 +279,24 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 locked_instance.last_modified_at = now()
                 locked_instance.last_modified_by = self.context["request"].user
 
-                if validated_data.get("content"):
+                if "markdown_content" in validated_data:
+                    if validated_data.get("version") != locked_instance.version:
+                        raise Conflict("Someone else edited the Notebook")
+
+                    markdown_content = validated_data.get("markdown_content") or ""
+                    validated_data["content_storage"] = Notebook.ContentStorage.MARKDOWN
+                    validated_data["content"] = _normalize_notebook_content_or_raise(
+                        markdown_to_tiptap_doc(
+                            markdown_content,
+                            title=validated_data.get("title", locked_instance.title),
+                        )
+                    )
+                    validated_data["text_content"] = markdown_to_text_content(
+                        markdown_content, title=validated_data.get("title", locked_instance.title)
+                    )
+                    validated_data["version"] = locked_instance.version + 1
+
+                elif "content" in validated_data:
                     if validated_data.get("version") != locked_instance.version:
                         raise Conflict("Someone else edited the Notebook")
 
@@ -247,6 +304,15 @@ class NotebookSerializer(NotebookMinimalSerializer):
                     content = validated_data.get("content")
                     if isinstance(content, dict):
                         validated_data["content"] = annotate_python_nodes(content)
+                        if locked_instance.content_storage == Notebook.ContentStorage.MARKDOWN:
+                            validated_data["content_storage"] = Notebook.ContentStorage.MARKDOWN
+                            validated_data["markdown_content"] = tiptap_doc_to_markdown(content)
+                            validated_data["text_content"] = validated_data.get(
+                                "text_content"
+                            ) or markdown_to_text_content(
+                                validated_data["markdown_content"],
+                                title=validated_data.get("title", locked_instance.title),
+                            )
 
                 updated_notebook = super().update(locked_instance, validated_data)
 
@@ -274,7 +340,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         if not isinstance(value, dict):
             return value
         try:
-            return normalize_notebook_query_nodes(value)
+            return _normalize_notebook_content_or_raise(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
 
@@ -356,6 +422,54 @@ class NotebookCollabSaveSerializer(serializers.Serializer):
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
             raise serializers.ValidationError(str(err))
+
+
+class NotebookMarkdownSaveSerializer(serializers.Serializer):
+    version = serializers.IntegerField(help_text="The notebook version this markdown update is based on.")
+    markdown_content = serializers.CharField(
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Canonical markdown document to save for a markdown-backed notebook.",
+    )
+    text_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Plain text for search indexing. If omitted, the server derives it from markdown_content.",
+    )
+    title = serializers.CharField(required=False, allow_blank=True, help_text="Updated notebook title.")
+
+
+class NotebookDebugConvertSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=[("json_to_markdown", "json_to_markdown"), ("markdown_to_json", "markdown_to_json")],
+        help_text="Conversion direction to run.",
+    )
+    content = serializers.JSONField(
+        required=False,
+        help_text="Optional ProseMirror JSON document to convert instead of the saved notebook content.",
+    )
+    markdown_content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Optional markdown document to convert instead of the saved notebook markdown_content.",
+    )
+    persist = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, persist the conversion result to the notebook and bump the version.",
+    )
+
+
+class NotebookDebugConvertResponseSerializer(serializers.Serializer):
+    content_storage = serializers.ChoiceField(
+        choices=Notebook.ContentStorage.choices,
+        help_text="Storage format represented by the conversion result.",
+    )
+    content = serializers.JSONField(help_text="Converted ProseMirror JSON document.")
+    markdown_content = serializers.CharField(allow_blank=True, help_text="Converted markdown document.")
+    text_content = serializers.CharField(allow_blank=True, help_text="Plain text derived from the converted document.")
 
 
 def _format_hogql_response_payload(response: Any) -> dict[str, Any]:
@@ -825,14 +939,19 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         if result.status == "accepted":
             notebook_before = Notebook.objects.get(pk=notebook.pk)
-            Notebook.objects.filter(pk=notebook.pk).update(
-                content=annotate_python_nodes(content) if isinstance(content, dict) else content,
-                text_content=data.get("text_content", ""),
-                title=data.get("title", notebook.title),
-                version=result.version,
-                last_modified_at=now(),
-                last_modified_by=request.user,
-            )
+            update_values: dict[str, Any] = {
+                "content": annotate_python_nodes(content) if isinstance(content, dict) else content,
+                "text_content": data.get("text_content", ""),
+                "title": data.get("title", notebook.title),
+                "version": result.version,
+                "last_modified_at": now(),
+                "last_modified_by": request.user,
+            }
+            if notebook.content_storage == Notebook.ContentStorage.MARKDOWN and isinstance(content, dict):
+                markdown_content = tiptap_doc_to_markdown(content)
+                update_values["markdown_content"] = markdown_content
+                update_values["text_content"] = markdown_to_text_content(markdown_content, title=update_values["title"])
+            Notebook.objects.filter(pk=notebook.pk).update(**update_values)
             notebook.refresh_from_db()
 
             # Snapshot diffs into the activity logs for history
@@ -882,6 +1001,138 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 "version": result.version,
             },
             status=409,
+        )
+
+    @extend_schema(request=NotebookMarkdownSaveSerializer, responses=NotebookSerializer)
+    @action(methods=["POST"], url_path="markdown/save", detail=True, required_scopes=["notebook:write"])
+    def markdown_save(self, request: Request, **kwargs):
+        serializer = NotebookMarkdownSaveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = cast(User, request.user)
+
+        with transaction.atomic():
+            notebook = Notebook.objects.select_for_update().get(pk=self.get_object().pk)
+            if data["version"] != notebook.version:
+                log_notebook_activity(
+                    activity="save_rejected_conflict",
+                    notebook=notebook,
+                    organization_id=cast(UUIDT, user.current_organization_id),
+                    team_id=notebook.team_id,
+                    user=user,
+                    was_impersonated=is_impersonated_session(request),
+                    changes=[
+                        Change(
+                            type="Notebook",
+                            field="markdown_content",
+                            action="changed",
+                            before=notebook.markdown_content,
+                            after=data["markdown_content"],
+                        ),
+                    ],
+                )
+                return Response(
+                    {
+                        "code": "conflict",
+                        "version": notebook.version,
+                        "markdown_content": notebook.markdown_content or "",
+                        "content": notebook.content,
+                    },
+                    status=409,
+                )
+
+            notebook_before = Notebook.objects.get(pk=notebook.pk)
+            title = data.get("title", notebook.title)
+            markdown_content = data["markdown_content"]
+            content = _normalize_notebook_content_or_raise(markdown_to_tiptap_doc(markdown_content, title=title))
+            notebook.content_storage = Notebook.ContentStorage.MARKDOWN
+            notebook.markdown_content = markdown_content
+            notebook.content = annotate_python_nodes(content)
+            notebook.text_content = data.get("text_content") or markdown_to_text_content(markdown_content, title=title)
+            notebook.title = title
+            notebook.version += 1
+            notebook.last_modified_at = now()
+            notebook.last_modified_by = request.user
+            notebook.save(
+                update_fields=[
+                    "content_storage",
+                    "markdown_content",
+                    "content",
+                    "text_content",
+                    "title",
+                    "version",
+                    "last_modified_at",
+                    "last_modified_by",
+                ]
+            )
+
+        changes = changes_between("Notebook", previous=notebook_before, current=notebook)
+        log_notebook_activity(
+            activity="updated",
+            notebook=notebook,
+            organization_id=cast(UUIDT, user.current_organization_id),
+            team_id=notebook.team_id,
+            user=user,
+            was_impersonated=is_impersonated_session(request),
+            changes=changes,
+        )
+        return Response(NotebookSerializer(notebook, context=self.get_serializer_context()).data)
+
+    @extend_schema(request=NotebookDebugConvertSerializer, responses=NotebookDebugConvertResponseSerializer)
+    @action(methods=["POST"], url_path="debug/convert", detail=True, required_scopes=["notebook:write"])
+    def debug_convert(self, request: Request, **kwargs):
+        serializer = NotebookDebugConvertSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        notebook = self.get_object()
+
+        if data["direction"] == "json_to_markdown":
+            source_content = data.get("content") if "content" in data else notebook.content
+            markdown_content = tiptap_doc_to_markdown(source_content if isinstance(source_content, dict) else None)
+            content = _normalize_notebook_content_or_raise(
+                markdown_to_tiptap_doc(markdown_content, title=notebook.title)
+            )
+            content_storage = Notebook.ContentStorage.MARKDOWN
+        else:
+            markdown_content = data.get("markdown_content")
+            if markdown_content is None:
+                markdown_content = notebook.markdown_content or ""
+            content = _normalize_notebook_content_or_raise(
+                markdown_to_tiptap_doc(markdown_content, title=notebook.title)
+            )
+            content_storage = Notebook.ContentStorage.JSON
+
+        text_content = markdown_to_text_content(markdown_content, title=notebook.title)
+
+        if data.get("persist"):
+            notebook.content_storage = content_storage
+            notebook.content = annotate_python_nodes(content)
+            notebook.markdown_content = (
+                markdown_content if content_storage == Notebook.ContentStorage.MARKDOWN else notebook.markdown_content
+            )
+            notebook.text_content = text_content
+            notebook.version += 1
+            notebook.last_modified_at = now()
+            notebook.last_modified_by = request.user
+            notebook.save(
+                update_fields=[
+                    "content_storage",
+                    "content",
+                    "markdown_content",
+                    "text_content",
+                    "version",
+                    "last_modified_at",
+                    "last_modified_by",
+                ]
+            )
+
+        return Response(
+            {
+                "content_storage": content_storage,
+                "content": content,
+                "markdown_content": markdown_content,
+                "text_content": text_content,
+            }
         )
 
     @action(

@@ -21,6 +21,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { uuid } from 'lib/utils'
 
 import { MentionsExtension } from '../../../lib/components/RichContentEditor/MentionsExtension'
+import { notebookContentToMarkdown } from '../markdown'
 import { NotebookMarkComment } from '../Marks/NotebookMarkComment'
 import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
@@ -211,6 +212,7 @@ export function Editor(): JSX.Element {
                     findCommentPosition: (markId: string) => findCommentPosition(editor, markId),
                     getAllCommentTexts: () => getAllCommentTexts(editor),
                     removeComment: (pos: number) => removeCommentMark(editor, pos),
+                    getMarkdown: () => notebookContentToMarkdown(editor.getJSON()),
                     getText: () => textContent(editor.state.doc),
                 }
 

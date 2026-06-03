@@ -27,6 +27,12 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
         if (params.content !== undefined) {
             body['content'] = params.content
         }
+        if (params.content_storage !== undefined) {
+            body['content_storage'] = params.content_storage
+        }
+        if (params.markdown_content !== undefined) {
+            body['markdown_content'] = params.markdown_content
+        }
         if (params.text_content !== undefined) {
             body['text_content'] = params.text_content
         }
@@ -103,6 +109,12 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
         }
         if (params.content !== undefined) {
             body['content'] = params.content
+        }
+        if (params.content_storage !== undefined) {
+            body['content_storage'] = params.content_storage
+        }
+        if (params.markdown_content !== undefined) {
+            body['markdown_content'] = params.markdown_content
         }
         if (params.text_content !== undefined) {
             body['text_content'] = params.text_content

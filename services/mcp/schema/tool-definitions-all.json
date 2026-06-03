@@ -3962,13 +3962,12 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's canonical content. Call `notebooks-retrieve` first.\n\nFor markdown-backed notebooks (`content_storage: \"markdown\"`), pass exact markdown string snippets from `markdown_content` as `old_value` and replacement markdown as `new_value`. Matching is exact, including whitespace.\n\nFor JSON-backed notebooks, pass JSON objects or arrays copied from `content`; matching is by deep equality and the tool writes through the legacy collab save path.\n\nOn success, returns the updated notebook with bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
-        "feature_flag": "notebooks-collaboration",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -3977,11 +3976,25 @@
         }
     },
     "notebooks-create": {
-        "description": "Create a new notebook. Provide a title and content. Content is a JSON object representing the notebook's rich text document structure (ProseMirror-based). Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
+        "description": "Create a new notebook. Prefer markdown-backed notebooks by providing `markdown_content` and `content_storage: \"markdown\"`; the server derives the rich ProseMirror `content`. Markdown prose can embed query blocks with `<Query>...</Query>` where the body is query JSON, plus resource tags such as `<FeatureFlag id=\"...\" />`, `<Experiment id=\"...\" />`, `<Survey id=\"...\" />`, `<Cohort id=\"...\" />`, and `<SessionReplay id=\"...\" />`. Legacy JSON-backed creation may still provide `content` directly as a ProseMirror document. Returns the created notebook with its short_id.\nEmbedded charts use `{type: \"ph-query\", attrs: {nodeId, query}}` nodes. The `query` object must be one of: (a) `{kind: \"DataVisualizationNode\", source: {kind: \"HogQLQuery\", query: \"SELECT ...\"}, display: \"ActionsBar\", chartSettings: {...}}` for SQL charts — do NOT wrap this in an InsightVizNode; (b) `{kind: \"InsightVizNode\", source: <TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery>}` for product-analytics insights; or (c) `{kind: \"SavedInsightNode\", shortId: \"...\"}` to embed a saved insight. The server rejects other shapes and auto-corrects the common `InsightVizNode` wrapping a SQL chart.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Create notebook",
         "title": "Create notebook",
+        "required_scopes": ["notebook:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "notebooks-create-from-markdown": {
+        "description": "Create a markdown-backed notebook. Prefer this over `notebooks-create` when writing a new notebook from prose.\n\nUse normal markdown for text. Embed executable query blocks as `<Query>...</Query>` with the query JSON as the body. Embed PostHog resources with self-closing tags such as `<FeatureFlag id=\"12\" />`, `<Experiment id=\"34\" />`, `<Survey id=\"uuid\" />`, `<Cohort id=\"12\" />`, `<Person id=\"uuid\" />`, `<Group id=\"12\" />`, and `<SessionReplay id=\"session-id\" />`.\n\nReturns the created notebook with `content_storage: \"markdown\"`, canonical `markdown_content`, derived rich `content`, and a PostHog URL.",
+        "category": "Notebooks",
+        "feature": "notebooks",
+        "summary": "Create markdown-backed notebook.",
+        "title": "Create markdown notebook",
         "required_scopes": ["notebook:write"],
         "annotations": {
             "destructiveHint": false,
@@ -4019,7 +4032,7 @@
         }
     },
     "notebooks-partial-update": {
-        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "description": "Update an existing notebook by short_id. Can update title, deleted status, legacy JSON `content`, or markdown-backed `markdown_content`. IMPORTANT: when updating either content field, provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version. For markdown-backed notebooks, prefer `notebook-edit` for targeted edits or `notebooks-create-from-markdown` for new notebooks.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update notebook",
@@ -4035,7 +4048,7 @@
         "feature_flag_behavior": "disable"
     },
     "notebooks-retrieve": {
-        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content, version, and creation/modification metadata.",
+        "description": "Get a specific notebook by its short_id. Returns the full notebook including title, content_storage, markdown_content for markdown-backed notebooks, derived rich content, version, and creation/modification metadata.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Get notebook",

@@ -27,6 +27,7 @@ import {
     useSyncedAttributes,
 } from './utils'
 import { KNOWN_NODES } from '../utils'
+import { notebookNodeToMarkdown } from '../markdown'
 import { SharedNodeErrorBoundary, UnsupportedNodePlaceholder, isNodeSupportedInSharedNotebook } from './sharedNodeSupport'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { DuckSqlRunMenu } from './components/DuckSqlRunMenu'
@@ -531,6 +532,9 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
         draggable: true,
 
         serializedText: serializedText,
+        renderMarkdown(node) {
+            return notebookNodeToMarkdown(wrapperProps.nodeType, node.attrs)
+        },
 
         extendNodeSchema(extension) {
             const context = {

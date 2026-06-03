@@ -21,6 +21,7 @@ import {
     NotebookCollabStatus,
     NotebookExpandButton,
     NotebookKernelInfoButton,
+    NotebookStorageDebugControls,
     NotebookSyncInfo,
     NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
@@ -127,6 +128,7 @@ export function NotebookScene(): JSX.Element {
                 <div className="flex gap-2 items-center">
                     <NotebookCollabStatus shortId={notebookId} />
                     <NotebookSyncInfo shortId={notebookId} />
+                    <NotebookStorageDebugControls shortId={notebookId} />
 
                     <NotebookMenu shortId={notebookId} />
 

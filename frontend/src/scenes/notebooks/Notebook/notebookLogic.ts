@@ -51,6 +51,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { notebookContentToMarkdown } from '../markdown'
 import {
     buildNotebookDependencyGraph,
     collectDuckSqlNodes,
@@ -192,6 +193,12 @@ export const notebookLogic = kea<notebookLogicType>([
         renameNotebook: (title: string) => ({ title }),
         setEditingNodeEditing: (nodeId: string, editing: boolean) => ({ nodeId, editing }),
         exportJSON: true,
+        exportMarkdown: true,
+        debugConvertNotebook: (direction: 'json_to_markdown' | 'markdown_to_json', persist = false) => ({
+            direction,
+            persist,
+        }),
+        setDebugConversionLoading: (loading: boolean) => ({ loading }),
         showConflictWarning: true,
         onUpdateEditor: true,
         registerNodeLogic: (nodeId: string, nodeLogic: BuiltLogic<notebookNodeLogicType>) => ({ nodeId, nodeLogic }),
@@ -357,6 +364,12 @@ export const notebookLogic = kea<notebookLogicType>([
                 setContainerSize: (_, { containerSize }) => containerSize,
             },
         ],
+        debugConversionLoading: [
+            false,
+            {
+                setDebugConversionLoading: (_, { loading }) => loading,
+            },
+        ],
     })),
     loaders(({ values, props, actions }) => ({
         notebook: [
@@ -375,6 +388,8 @@ export const notebookLogic = kea<notebookLogicType>([
                         response = {
                             ...values.scratchpadNotebook,
                             content: null,
+                            content_storage: 'json',
+                            markdown_content: null,
                             text_content: null,
                             version: 0,
                             user_access_level: AccessControlLevel.Editor,
@@ -428,6 +443,37 @@ export const notebookLogic = kea<notebookLogicType>([
                     // they choose to discard or force-save — otherwise we'd loop on 410s.
                     if (values.collabConflict) {
                         return values.notebook
+                    }
+
+                    if (values.isMarkdownBacked) {
+                        const localContent = values.editor?.getJSON() ?? notebook.content ?? values.notebook.content
+                        const markdownContent = values.editor?.getMarkdown() || notebookContentToMarkdown(localContent)
+
+                        try {
+                            const response = await api.notebooks.markdownSave(values.notebook.short_id, {
+                                version: values.notebook.version,
+                                markdown_content: markdownContent,
+                                text_content: values.editor?.getText() || '',
+                                title: notebook.title,
+                            })
+
+                            if (notebook.content === values.localContent) {
+                                actions.clearLocalContent()
+                            }
+                            refreshTreeItem('notebook', String(values.notebook.short_id))
+                            return response
+                        } catch (error: any) {
+                            if (error.code === 'conflict' || error.status === 409) {
+                                actions.showCollabConflict({
+                                    serverContent:
+                                        (error.data?.content as JSONContent) ?? values.notebook.content ?? {},
+                                    localContent: localContent ?? {},
+                                    localText: values.editor?.getText() ?? '',
+                                })
+                                return values.notebook
+                            }
+                            throw error
+                        }
                     }
 
                     if (values.collabEnabled && values.ttEditor) {
@@ -572,6 +618,12 @@ export const notebookLogic = kea<notebookLogicType>([
 
                     const response = await api.notebooks.create({
                         content,
+                        ...(values.isMarkdownBacked
+                            ? {
+                                  content_storage: 'markdown' as const,
+                                  markdown_content: values.editor?.getMarkdown() || notebookContentToMarkdown(content),
+                              }
+                            : {}),
                         text_content: textContent,
                         title,
                     })
@@ -601,6 +653,9 @@ export const notebookLogic = kea<notebookLogicType>([
         shortId: [(_, p) => [p.shortId], (shortId) => shortId],
         mode: [() => [(_, props) => props], (props): NotebookLogicMode => props.mode ?? 'notebook'],
         isTemplate: [(s) => [s.shortId], (shortId): boolean => shortId.startsWith('template-')],
+        contentStorage: [(s) => [s.notebook], (notebook) => notebook?.content_storage ?? 'json'],
+        isMarkdownBacked: [(s) => [s.contentStorage], (contentStorage): boolean => contentStorage === 'markdown'],
+        markdownContent: [(s) => [s.notebook], (notebook): string => notebook?.markdown_content || ''],
         isLocalOnly: [
             (s) => [(_, props) => props, s.isTemplate],
             (props, isTemplate): boolean => {
@@ -608,9 +663,12 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly],
-            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean): boolean =>
-                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly,
+            (s) => [s.featureFlags, s.isLocalOnly, s.isMarkdownBacked],
+            (
+                featureFlags: Record<string, string | boolean>,
+                isLocalOnly: boolean,
+                isMarkdownBacked: boolean
+            ): boolean => !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly && !isMarkdownBacked,
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -1090,6 +1148,73 @@ export const notebookLogic = kea<notebookLogicType>([
             downloadFile(file)
         },
 
+        exportMarkdown: () => {
+            const markdownContent =
+                values.editor?.getMarkdown() || values.markdownContent || notebookContentToMarkdown(values.content)
+            const file = new File([markdownContent], `${slugify(values.title ?? 'untitled')}.md`, {
+                type: 'text/markdown',
+            })
+
+            downloadFile(file)
+        },
+
+        debugConvertNotebook: async ({ direction, persist }) => {
+            if (!values.notebook) {
+                return
+            }
+
+            actions.setDebugConversionLoading(true)
+
+            try {
+                const currentContent = values.editor?.getJSON() ?? values.notebook.content
+                const currentMarkdown =
+                    values.editor?.getMarkdown() ||
+                    values.notebook.markdown_content ||
+                    notebookContentToMarkdown(currentContent)
+                const response = await api.notebooks.debugConvert(values.notebook.short_id, {
+                    direction,
+                    content: currentContent,
+                    markdown_content: currentMarkdown,
+                    persist,
+                })
+
+                if (persist) {
+                    lemonToast.success(
+                        direction === 'json_to_markdown'
+                            ? 'Notebook converted to markdown storage'
+                            : 'Notebook converted to JSON storage'
+                    )
+                    actions.clearLocalContent()
+                    actions.loadNotebook()
+                    return
+                }
+
+                if (direction === 'json_to_markdown') {
+                    downloadFile(
+                        new File([response.markdown_content], `${slugify(values.title ?? 'untitled')}.md`, {
+                            type: 'text/markdown',
+                        })
+                    )
+                    return
+                }
+
+                downloadFile(
+                    new File(
+                        [JSON.stringify(response.content, null, 2)],
+                        `${slugify(values.title ?? 'untitled')}.json`,
+                        {
+                            type: 'application/json',
+                        }
+                    )
+                )
+            } catch (error) {
+                posthog.captureException(error as Error, { action: 'notebook debug convert' })
+                lemonToast.error('Could not convert notebook')
+            } finally {
+                actions.setDebugConversionLoading(false)
+            }
+        },
+
         discardLocalChanges: () => {
             // Reload remounts the editor so it re-initialises with the server's content.
             actions.clearLocalContent()
@@ -1121,8 +1246,15 @@ export const notebookLogic = kea<notebookLogicType>([
             try {
                 const sourceTitle = values.notebook.title || 'Untitled'
                 const newTitle = `${sourceTitle} (copy)`
+                const copiedContent = updateContentHeading(values.collabConflict.localContent, newTitle)
                 const created = await api.notebooks.create({
-                    content: updateContentHeading(values.collabConflict.localContent, newTitle),
+                    content: copiedContent,
+                    ...(values.isMarkdownBacked
+                        ? {
+                              content_storage: 'markdown' as const,
+                              markdown_content: notebookContentToMarkdown(copiedContent),
+                          }
+                        : {}),
                     text_content: values.collabConflict.localText,
                     title: newTitle,
                 })

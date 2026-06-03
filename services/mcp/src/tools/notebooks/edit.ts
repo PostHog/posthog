@@ -1,12 +1,9 @@
 /**
  * `notebook-edit` tool.
  *
- * Subtree replacement against the notebook's content tree. The caller supplies
- * `{ short_id, old_value, new_value, replace_all? }` where `old_value` and
- * `new_value` are JSON values describing the subtree to find and the subtree
- * to put in its place. Match is by deep equality of the parsed values, so
- * whitespace, key order, and indentation do not matter — the agent never has
- * to imagine the tool's serialization format.
+ * Replacement against the notebook's canonical storage. JSON-backed notebooks
+ * replace a JSON subtree in `content`; markdown-backed notebooks replace a
+ * string inside `markdown_content`.
  *
  * The diff is expressed as a single ProseMirror ReplaceStep and POSTed to
  * `/collab/save` so the edit streams live to other connected clients over SSE.
@@ -27,25 +24,21 @@ import type { Schemas } from '@/api/generated'
 import { buildSchemaForDoc, packDocAttrs, type ProseMirrorNodeJSON, unpackDocAttrs } from '@/lib/prosemirror/schema'
 import type { Context, ToolBase } from '@/tools/types'
 
-const Subtree = z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
+const EditValue = z.union([z.string(), z.record(z.string(), z.unknown()), z.array(z.unknown())])
 
 export const NotebookEditSchema = z
     .object({
         short_id: z.string().describe('The notebook short_id (the public id in the URL, e.g. `aBcD1234`).'),
-        old_value: Subtree.describe(
-            'The piece of content to find. Copy it straight out of the response from ' +
-                '`notebooks-retrieve` — typically a single node like a text node or a whole ' +
-                'paragraph. Must be a JSON object or array, not a primitive. Must match exactly ' +
-                'one place in the notebook unless `replace_all` is true; if it appears in more ' +
-                'than one place, include more surrounding structure (e.g. pass the parent ' +
-                'paragraph instead of just the text node) to make it unique. To append to the ' +
-                'end of a notebook, pass the last paragraph with content — trailing empty ' +
-                'paragraphs are often identical and will cause an ambiguity error.'
+        old_value: EditValue.describe(
+            'The piece of content to find. For markdown-backed notebooks, pass the exact markdown text ' +
+                'substring to replace. For JSON-backed notebooks, copy the JSON object or array straight ' +
+                'out of `notebooks-retrieve` — typically a single node like a text node or a whole paragraph. ' +
+                'Must match exactly one place unless `replace_all` is true.'
         ),
-        new_value: Subtree.describe(
-            'What to put in place of `old_value`. Pass a JSON value of the same shape — the whole ' +
-                'matched piece is replaced, so include every key you want preserved. Must be a JSON ' +
-                'object or array, not a primitive. Must differ from `old_value`.'
+        new_value: EditValue.describe(
+            'What to put in place of `old_value`. For markdown-backed notebooks, pass replacement markdown text. ' +
+                'For JSON-backed notebooks, pass a JSON value of the same shape — the whole matched piece is ' +
+                'replaced, so include every key you want preserved. Must differ from `old_value`.'
         ),
         replace_all: z
             .boolean()
@@ -59,6 +52,10 @@ export const NotebookEditSchema = z
     .refine((v) => !isDeepStrictEqual(v.old_value, v.new_value), {
         message: 'old_value and new_value must differ',
         path: ['new_value'],
+    })
+    .refine((v) => typeof v.old_value !== 'string' || v.old_value.length > 0, {
+        message: 'old_value must not be an empty string',
+        path: ['old_value'],
     })
 
 type Params = z.infer<typeof NotebookEditSchema>
@@ -79,6 +76,20 @@ function countMatches(tree: unknown, target: unknown): number {
     }
     walk(tree)
     return count
+}
+
+function countStringMatches(source: string, target: string): number {
+    let count = 0
+    let index = source.indexOf(target)
+    while (index !== -1) {
+        count++
+        index = source.indexOf(target, index + target.length)
+    }
+    return count
+}
+
+function replaceMarkdown(source: string, oldValue: string, newValue: string, replaceAll: boolean): string {
+    return replaceAll ? source.split(oldValue).join(newValue) : source.replace(oldValue, newValue)
 }
 
 /**
@@ -186,15 +197,66 @@ export const editHandler: ToolBase<typeof NotebookEditSchema, Schemas.Notebook>[
     // Load current notebook.
     const notebook = await context.api.request<Schemas.Notebook>({ method: 'GET', path: notebookPath })
 
+    if (typeof notebook.version !== 'number') {
+        throw new Error(`Notebook ${params.short_id} has no numeric version — required for optimistic concurrency.`)
+    }
+
+    if ((notebook as { content_storage?: string }).content_storage === 'markdown') {
+        if (typeof params.old_value !== 'string' || typeof params.new_value !== 'string') {
+            throw new Error(
+                'Notebook is markdown-backed. `old_value` and `new_value` must be markdown strings. ' +
+                    'Call `notebooks-retrieve` and use the `markdown_content` field as the source.'
+            )
+        }
+
+        const markdownContent = (notebook as { markdown_content?: unknown }).markdown_content
+        if (typeof markdownContent !== 'string') {
+            throw new Error(`Notebook ${params.short_id} is markdown-backed but has no markdown_content string.`)
+        }
+
+        const matches = countStringMatches(markdownContent, params.old_value)
+        if (matches === 0) {
+            throw new Error(
+                'old_value was not found in markdown_content. Matching is exact, including whitespace. ' +
+                    'Call `notebooks-retrieve` to refresh the latest markdown.\n\nCurrent markdown_content:\n' +
+                    markdownContent
+            )
+        }
+        if (matches > 1 && params.replace_all !== true) {
+            throw new Error(
+                `old_value matches ${matches} places in markdown_content. Include more surrounding markdown to make it unique, ` +
+                    'or set `replace_all: true`.'
+            )
+        }
+
+        return await context.api.request<Schemas.Notebook>({
+            method: 'POST',
+            path: `${notebookPath}markdown/save/`,
+            body: {
+                version: notebook.version,
+                markdown_content: replaceMarkdown(
+                    markdownContent,
+                    params.old_value,
+                    params.new_value,
+                    params.replace_all === true
+                ),
+                title: notebook.title,
+            },
+        })
+    }
+
+    if (typeof params.old_value === 'string' || typeof params.new_value === 'string') {
+        throw new Error(
+            'Notebook is JSON-backed. `old_value` and `new_value` must be JSON objects or arrays copied from `content`. ' +
+                'Use string replacements only for markdown-backed notebooks.'
+        )
+    }
+
     if (notebook.content === null || typeof notebook.content !== 'object' || Array.isArray(notebook.content)) {
         throw new Error(
             `Notebook ${params.short_id} has no editable content. ` +
                 'Create one with `notebooks-create` or initialise its content first.'
         )
-    }
-
-    if (typeof notebook.version !== 'number') {
-        throw new Error(`Notebook ${params.short_id} has no numeric version — required for optimistic concurrency.`)
     }
 
     // Find target subtree(s) and apply the replacement.

@@ -3,6 +3,7 @@ from enum import Enum
 
 from posthog.models import Team, User
 
+from products.notebooks.backend.markdown import tiptap_doc_to_markdown, tiptap_doc_to_text
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
@@ -91,6 +92,8 @@ async def save_notebook_to_db(
         return viz_lookup.get(artifact_id)
 
     tiptap_doc = blocks_to_tiptap_doc(blocks, title=title, resolve_visualization=resolve_visualization)
+    markdown_content = tiptap_doc_to_markdown(tiptap_doc)
+    text_content = tiptap_doc_to_text(tiptap_doc)
 
     notebook, created = await Notebook.objects.aget_or_create(
         team=team,
@@ -100,13 +103,29 @@ async def save_notebook_to_db(
             "last_modified_by": user,
             "title": title,
             "content": tiptap_doc,
+            "content_storage": Notebook.ContentStorage.MARKDOWN,
+            "markdown_content": markdown_content,
+            "text_content": text_content,
         },
     )
     if not created:
         notebook.content = tiptap_doc
+        notebook.content_storage = Notebook.ContentStorage.MARKDOWN
+        notebook.markdown_content = markdown_content
+        notebook.text_content = text_content
         notebook.title = title
         notebook.last_modified_by = user
-        await notebook.asave(update_fields=["content", "title", "last_modified_by", "last_modified_at"])
+        await notebook.asave(
+            update_fields=[
+                "content",
+                "content_storage",
+                "markdown_content",
+                "text_content",
+                "title",
+                "last_modified_by",
+                "last_modified_at",
+            ]
+        )
 
     return notebook
 

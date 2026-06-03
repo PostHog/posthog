@@ -8,6 +8,17 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `json` - json
+ * `markdown` - markdown
+ */
+export type ContentStorageEnumApi = (typeof ContentStorageEnumApi)[keyof typeof ContentStorageEnumApi]
+
+export const ContentStorageEnumApi = {
+    Json: 'json',
+    Markdown: 'markdown',
+} as const
+
+/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -72,6 +83,11 @@ export interface NotebookMinimalApi {
      * @nullable
      */
     readonly title: string | null
+    /** Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.
+
+  * `json` - json
+  * `markdown` - markdown */
+    readonly content_storage: ContentStorageEnumApi
     /** Whether the notebook has been soft-deleted. */
     readonly deleted: boolean
     readonly created_at: string
@@ -115,8 +131,18 @@ export interface NotebookApi {
      * @nullable
      */
     title?: string | null
-    /** Notebook content as a ProseMirror JSON document structure. */
+    /** Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`. */
     content?: unknown
+    /** Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.
+
+  * `json` - json
+  * `markdown` - markdown */
+    content_storage?: ContentStorageEnumApi
+    /**
+     * Canonical markdown document for markdown-backed notebooks.
+     * @nullable
+     */
+    markdown_content?: string | null
     /**
      * Plain text representation of the notebook content for search.
      * @nullable
@@ -167,8 +193,18 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     title?: string | null
-    /** Notebook content as a ProseMirror JSON document structure. */
+    /** Notebook content as a ProseMirror JSON document structure. For markdown notebooks this is a rendered cache of `markdown_content`. */
     content?: unknown
+    /** Canonical storage format for the notebook body. `json` is the legacy ProseMirror format; `markdown` stores markdown natively.
+
+  * `json` - json
+  * `markdown` - markdown */
+    content_storage?: ContentStorageEnumApi
+    /**
+     * Canonical markdown document for markdown-backed notebooks.
+     * @nullable
+     */
+    markdown_content?: string | null
     /**
      * Plain text representation of the notebook content for search.
      * @nullable
@@ -217,6 +253,57 @@ export interface NotebookCollabSaveApi {
      * @nullable
      */
     cursor_head?: number | null
+}
+
+/**
+ * * `json_to_markdown` - json_to_markdown
+ * `markdown_to_json` - markdown_to_json
+ */
+export type NotebookDebugConvertDirectionEnumApi =
+    (typeof NotebookDebugConvertDirectionEnumApi)[keyof typeof NotebookDebugConvertDirectionEnumApi]
+
+export const NotebookDebugConvertDirectionEnumApi = {
+    JsonToMarkdown: 'json_to_markdown',
+    MarkdownToJson: 'markdown_to_json',
+} as const
+
+export interface NotebookDebugConvertApi {
+    /** Conversion direction to run.
+
+  * `json_to_markdown` - json_to_markdown
+  * `markdown_to_json` - markdown_to_json */
+    direction: NotebookDebugConvertDirectionEnumApi
+    /** Optional ProseMirror JSON document to convert instead of the saved notebook content. */
+    content?: unknown
+    /** Optional markdown document to convert instead of the saved notebook markdown_content. */
+    markdown_content?: string
+    /** When true, persist the conversion result to the notebook and bump the version. */
+    persist?: boolean
+}
+
+export interface NotebookDebugConvertResponseApi {
+    /** Storage format represented by the conversion result.
+
+  * `json` - json
+  * `markdown` - markdown */
+    content_storage: ContentStorageEnumApi
+    /** Converted ProseMirror JSON document. */
+    content: unknown
+    /** Converted markdown document. */
+    markdown_content: string
+    /** Plain text derived from the converted document. */
+    text_content: string
+}
+
+export interface NotebookMarkdownSaveApi {
+    /** The notebook version this markdown update is based on. */
+    version: number
+    /** Canonical markdown document to save for a markdown-backed notebook. */
+    markdown_content: string
+    /** Plain text for search indexing. If omitted, the server derives it from markdown_content. */
+    text_content?: string
+    /** Updated notebook title. */
+    title?: string
 }
 
 export type NotebooksListParams = {

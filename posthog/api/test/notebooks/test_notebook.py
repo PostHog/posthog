@@ -91,6 +91,8 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
             "id": response.json()["id"],
             "short_id": response.json()["short_id"],
             "content": content,
+            "content_storage": "json",
+            "markdown_content": None,
             "text_content": text_content,
             "title": None,
             "version": 0,
@@ -108,6 +110,122 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
                 self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
             ],
         )
+
+    def test_create_markdown_backed_notebook(self) -> None:
+        markdown_content = """# Weekly report
+
+Here is a trend.
+
+<Query title="Weekly signups">
+{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}
+</Query>
+
+<FeatureFlag id="12" />
+"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"title": "Weekly report", "markdown_content": markdown_content},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        data = response.json()
+        assert data["content_storage"] == "markdown"
+        assert data["markdown_content"] == markdown_content
+        assert data["content"]["content"][0]["type"] == "heading"
+        assert data["content"]["content"][2]["type"] == "ph-query"
+        assert data["content"]["content"][3]["type"] == "ph-feature-flag"
+        assert data["text_content"] == "Weekly report\nHere is a trend.\nWeekly signups\nFeatureFlag 12"
+
+    def test_markdown_save_updates_markdown_notebook(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"title": "Markdown", "markdown_content": "# Markdown\n\nOriginal"},
+            format="json",
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create.json()
+        short_id = create.json()["short_id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown/save/",
+            data={
+                "version": create.json()["version"],
+                "title": "Markdown",
+                "markdown_content": "# Markdown\n\nUpdated",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["content_storage"] == "markdown"
+        assert data["markdown_content"] == "# Markdown\n\nUpdated"
+        assert data["version"] == 1
+        assert data["content"]["content"][1]["content"][0]["text"] == "Updated"
+
+    def test_markdown_save_conflict_returns_current_markdown(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={"title": "Markdown", "markdown_content": "# Markdown\n\nOriginal"},
+            format="json",
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create.json()
+        short_id = create.json()["short_id"]
+
+        ok_response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown/save/",
+            data={
+                "version": 0,
+                "markdown_content": "# Markdown\n\nOther edit",
+            },
+            format="json",
+        )
+        assert ok_response.status_code == status.HTTP_200_OK, ok_response.json()
+
+        conflict_response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{short_id}/markdown/save/",
+            data={
+                "version": 0,
+                "markdown_content": "# Markdown\n\nStale edit",
+            },
+            format="json",
+        )
+
+        assert conflict_response.status_code == status.HTTP_409_CONFLICT
+        assert conflict_response.json()["code"] == "conflict"
+        assert conflict_response.json()["version"] == 1
+        assert conflict_response.json()["markdown_content"] == "# Markdown\n\nOther edit"
+
+    def test_debug_convert_persists_legacy_json_as_markdown(self) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            data={
+                "title": "Legacy",
+                "content": {
+                    "type": "doc",
+                    "content": [
+                        {"type": "heading", "attrs": {"level": 1}, "content": [{"type": "text", "text": "Legacy"}]},
+                        {"type": "paragraph", "content": [{"type": "text", "text": "Body"}]},
+                    ],
+                },
+            },
+            format="json",
+        )
+        assert create.status_code == status.HTTP_201_CREATED, create.json()
+        short_id = create.json()["short_id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{short_id}/debug/convert/",
+            data={"direction": "json_to_markdown", "persist": True},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["content_storage"] == "markdown"
+        assert response.json()["markdown_content"] == "# Legacy\n\nBody"
+        notebook = Notebook.objects.get(short_id=short_id)
+        assert notebook.content_storage == Notebook.ContentStorage.MARKDOWN
+        assert notebook.markdown_content == "# Legacy\n\nBody"
 
     def test_gets_individual_notebook_by_shortid(self) -> None:
         create_response = self.client.post(f"/api/projects/{self.team.id}/notebooks", data={})

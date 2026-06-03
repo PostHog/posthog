@@ -14,6 +14,7 @@ import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
+import notebookCreateFromMarkdown from './notebooks/createFromMarkdown'
 import notebookEdit from './notebooks/edit'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
@@ -64,6 +65,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'get-llm-total-costs-for-project': getLLMCosts,
 
     // Notebooks
+    'notebooks-create-from-markdown': notebookCreateFromMarkdown,
     'notebook-edit': notebookEdit,
 
     // Debug
