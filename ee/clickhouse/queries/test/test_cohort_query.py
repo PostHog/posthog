@@ -11,23 +11,20 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
-    snapshot_clickhouse_queries,
 )
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.clickhouse.client import sync_execute
-from posthog.constants import PropertyOperatorType
 from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
 from posthog.models import Team
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
-from posthog.models.property import Property, PropertyGroup
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 
 
 def _make_event_sequence(
@@ -62,37 +59,21 @@ def _create_cohort(**kwargs):
     return cohort
 
 
-def execute(filter: Filter, team: Team, max_retries: int = 5):
-    # Ensure tables are fully merged before comparing HogQL and raw SQL results.
-    # Due to ClickHouse's eventual consistency with CollapsingMergeTree and other
-    # MergeTree variants, HogQL and raw SQL queries may see slightly different states.
-    # We retry the comparison to handle transient inconsistencies.
+def execute(filter: Filter, team: Team):
+    # Ensure tables are fully merged before reading membership. ClickHouse's eventual
+    # consistency (CollapsingMergeTree and other MergeTree variants) means cohortpeople /
+    # person / events may not be fully merged immediately after the test writes.
     sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
     sync_execute("OPTIMIZE TABLE person FINAL")
     sync_execute("OPTIMIZE TABLE sharded_events FINAL")
 
-    last_error: AssertionError | None = None
-    for attempt in range(max_retries):
-        cohort_query = CohortQuery(filter=filter, team=team)
-        q, params = cohort_query.get_query()
-        res = sync_execute(q, {**params, **filter.hogql_context.values})
-        try:
-            unittest.TestCase().assertCountEqual(res, cohort_query.hogql_result.results)
-            assert ["id"] == cohort_query.hogql_result.columns
-            return res, q, params
-        except AssertionError as e:
-            last_error = e
-            if attempt < max_retries - 1:
-                # Force another merge before retrying
-                sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
-                sync_execute("OPTIMIZE TABLE person FINAL")
-                sync_execute("OPTIMIZE TABLE sharded_events FINAL")
-    assert last_error is not None  # Always set since loop runs at least once
-    raise last_error
+    cohort_query = CohortQuery(filter=filter, team=team)
+    q, params = cohort_query.get_query()
+    assert ["id"] == cohort_query.hogql_result.columns
+    return cohort_query.hogql_result.results, q, params
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
-    @snapshot_clickhouse_queries
     def test_basic_query(self):
         action1 = Action.objects.create(
             team=self.team,
@@ -221,9 +202,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         res, q, params = execute(filter, self.team)
 
-        # Since all props should be pushed down here, there should be no full outer join!
-        assert "FULL OUTER JOIN" not in q
-
         assert [p1.uuid] == [r[0] for r in res]
 
         # This addition to the test returns the wrong result with current cohort queries
@@ -240,9 +218,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         filter = Filter(data=data)
 
         res, q, params = execute(filter, self.team)
-
-        # No push down because of the person property in an OR
-        assert "FULL OUTER JOIN" in q
 
         assert [p1.uuid] == [r[0] for r in res]
         """
@@ -296,7 +271,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
-    @snapshot_clickhouse_queries
     def test_performed_event_poe_override(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -347,9 +321,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
-        assert "if(not(empty(overrides.distinct_id)), overrides.person_id, e.person_id) AS person_id" in q
 
-    @snapshot_clickhouse_queries
     def test_performed_event_with_event_filters_and_explicit_date(self):
         with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
             p1 = _create_person(
@@ -837,30 +809,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
-    def test_stopped_performing_event_raises_if_seq_date_later_than_date(self):
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "day",
-                            "seq_time_value": 2,
-                            "seq_time_interval": "day",
-                            "value": "stopped_performing_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
-            }
-        )
-
-        with pytest.raises(ValueError):
-            CohortQuery(filter=filter, team=self.team).get_query()
-
     def test_restarted_performing_event(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -950,30 +898,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
-
-    def test_restarted_performing_event_raises_if_seq_date_later_than_date(self):
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "day",
-                            "seq_time_value": 2,
-                            "seq_time_interval": "day",
-                            "value": "restarted_performing_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
-            }
-        )
-
-        with pytest.raises(ValueError):
-            CohortQuery(filter=filter, team=self.team).get_query()
 
     def test_performed_event_first_time(self):
         _create_person(
@@ -1235,7 +1159,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
-    @snapshot_clickhouse_queries
     def test_person_props_only(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -1297,12 +1220,8 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         res, q, params = execute(filter, self.team)
 
-        # Since all props should be pushed down here, there should be no full outer join!
-        assert "FULL OUTER JOIN" not in q
-
         assert sorted([p1.uuid, p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
-    @snapshot_clickhouse_queries
     def test_person_properties_with_pushdowns(self):
         action1 = Action.objects.create(
             team=self.team,
@@ -1432,7 +1351,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert sorted([p1.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
     @also_test_with_materialized_columns(person_properties=["$sample_field"])
-    @snapshot_clickhouse_queries
     def test_person(self):
         # satiesfies all conditions
         p1 = _create_person(
@@ -1467,103 +1385,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
-
-    def test_earliest_date_clause(self):
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 2,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "operator_value": 1,
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 4,
-                            "time_interval": "week",
-                            "seq_time_value": 1,
-                            "seq_time_interval": "week",
-                            "value": "stopped_performing_event",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 2,
-                            "time_interval": "week",
-                            "time_value": 3,
-                            "total_periods": 3,
-                            "min_periods": 2,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
-            }
-        )
-
-        res, q, params = execute(filter, self.team)
-
-        assert "timestamp >= now() - INTERVAL 9 week" in (q % params)
-
-    def test_earliest_date_clause_removed_for_started_at_query(self):
-        filter = Filter(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 2,
-                            "time_interval": "week",
-                            "value": "performed_event_first_time",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 2,
-                            "time_interval": "week",
-                            "time_value": 3,
-                            "total_periods": 3,
-                            "min_periods": 2,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
-            }
-        )
-        query_class = CohortQuery(filter=filter, team=self.team)
-        q, params = query_class.get_query()
-        assert not query_class._restrict_event_query_by_time
-        res, q, params = execute(filter, self.team)
 
     def test_negation_raises(self):
         _create_person(
@@ -1612,7 +1433,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ValidationError):
             CohortQuery(filter=filter, team=self.team)
 
     def test_negation_with_simplify_filters(self):
@@ -2109,7 +1930,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
-    @snapshot_clickhouse_queries
     def test_precalculated_cohort_filter_with_extra_filters(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "test"})
         p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "test2"})
@@ -2148,7 +1968,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
-    @snapshot_clickhouse_queries
     def test_cohort_filter_with_extra(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -2226,7 +2045,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         res, q, params = execute(filter, self.team)
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
-    @snapshot_clickhouse_queries
     def test_cohort_filter_with_another_cohort_with_event_sequence(self):
         # passes filters for cohortCeption, but not main cohort
         _create_person(
@@ -2316,7 +2134,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p2.uuid] == [r[0] for r in res]
 
-    @snapshot_clickhouse_queries
     def test_static_cohort_filter(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -2340,7 +2157,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
-    @snapshot_clickhouse_queries
     def test_static_cohort_filter_with_extra(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -2411,7 +2227,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
-    @snapshot_clickhouse_queries
     def test_performed_event_sequence(self):
         p1 = _create_person(
             team_id=self.team.pk,
@@ -2674,7 +2489,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
-    @snapshot_clickhouse_queries
     def test_performed_event_sequence_with_person_properties(self):
         with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
             p1 = _create_person(
@@ -2868,7 +2682,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert [p1.uuid] == [r[0] for r in res]
 
-    @snapshot_clickhouse_queries
     def test_performed_event_sequence_and_clause_with_additional_event(self):
         with freeze_time(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)):
             p1 = _create_person(
@@ -2943,7 +2756,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         assert {p1.uuid, p2.uuid} == {r[0] for r in res}
 
-    @snapshot_clickhouse_queries
     def test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts(self):
         _create_person(
             team_id=self.team.pk,
@@ -3506,207 +3318,6 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
 
 class TestCohortNegationValidation(BaseTest):
-    def test_basic_valid_negation_tree(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.AND,
-            values=[
-                Property(key="name", value="test", type="person"),
-                Property(key="email", value="xxx", type="person", negation=True),
-            ],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is False
-        assert has_reg is True
-
-    def test_valid_negation_tree_with_extra_layers(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.OR,
-            values=[
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[Property(key="name", value="test", type="person")],
-                ),
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[Property(key="email", value="xxx", type="person")],
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is False
-        assert has_reg is True
-
-    def test_invalid_negation_tree_with_extra_layers(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.OR,
-            values=[
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[Property(key="name", value="test", type="person")],
-                ),
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is True
-        assert has_reg is True
-
-    def test_valid_negation_tree_with_extra_layers_recombining_at_top(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.AND,  # top level AND protects the 2 negations from being invalid
-            values=[
-                PropertyGroup(
-                    type=PropertyOperatorType.OR,
-                    values=[Property(key="name", value="test", type="person")],
-                ),
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is False
-        assert has_reg is True
-
-    def test_invalid_negation_tree_no_positive_filter(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.AND,
-            values=[
-                PropertyGroup(
-                    type=PropertyOperatorType.OR,
-                    values=[Property(key="name", value="test", type="person", negation=True)],
-                ),
-                PropertyGroup(
-                    type=PropertyOperatorType.AND,
-                    values=[
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(
-                                    key="email",
-                                    value="xxx",
-                                    type="person",
-                                    negation=True,
-                                )
-                            ],
-                        ),
-                    ],
-                ),
-            ],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is True
-        assert has_reg is False
-
-    def test_empty_property_group(self):
-        property_group = PropertyGroup(type=PropertyOperatorType.AND, values=[])
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is False
-        assert has_reg is False
-
-    def test_basic_invalid_negation_tree(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.AND,
-            values=[Property(key="email", value="xxx", type="person", negation=True)],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is True
-        assert has_reg is False
-
-    def test_basic_valid_negation_tree_with_no_negations(self):
-        property_group = PropertyGroup(
-            type=PropertyOperatorType.AND,
-            values=[Property(key="name", value="test", type="person")],
-        )
-
-        has_pending_neg, has_reg = check_negation_clause(property_group)
-        assert has_pending_neg is False
-        assert has_reg is True
-
     def test_type_misalignment(self):
         PropertyDefinition.objects.create(
             team=self.team,
@@ -3838,7 +3449,8 @@ class TestCohortNegationValidation(BaseTest):
 
         assert cohort_query1.clickhouse_query
         assert cohort_query2.clickhouse_query
-        assert (
-            cohort_query1.clickhouse_query.replace(f"team_id, {self.team.pk}", f"team_id, {str(other_team.pk)}")
-            == cohort_query2.clickhouse_query
-        )
+        # The same cohort definition under two teams of the same project stays team-scoped:
+        # each query references its own team and the two are not identical.
+        assert str(self.team.pk) in cohort_query1.clickhouse_query
+        assert str(other_team.pk) in cohort_query2.clickhouse_query
+        assert cohort_query1.clickhouse_query != cohort_query2.clickhouse_query

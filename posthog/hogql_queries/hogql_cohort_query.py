@@ -2,7 +2,7 @@ from collections import defaultdict, namedtuple
 from copy import deepcopy
 from datetime import datetime
 from numbers import Number
-from typing import Literal, Optional, Union, cast
+from typing import Any, Literal, Optional, Union, cast
 
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
@@ -48,24 +48,150 @@ from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Cohort, Filter, Property, Team
-from posthog.models.property import PropertyGroup
-from posthog.queries.cohort_query import CohortQuery
-from posthog.queries.foss_cohort_query import (
-    INTERVAL_TO_SECONDS,
-    FOSSCohortQuery,
-    parse_and_validate_positive_integer,
-    validate_interval,
-)
+from posthog.models.property import OperatorInterval, PropertyGroup
 from posthog.types import AnyPropertyFilter
 
+INTERVAL_TO_SECONDS = {
+    "minute": 60,
+    "hour": 3600,
+    "day": 86400,
+    "week": 604800,
+    "month": 2592000,
+    "year": 31536000,
+}
 
-class TestWrapperCohortQuery(CohortQuery):
+
+def validate_interval(interval: Optional[OperatorInterval]) -> OperatorInterval:
+    if interval is None or interval not in INTERVAL_TO_SECONDS.keys():
+        raise ValueError(f"Invalid interval: {interval}")
+    else:
+        return interval
+
+
+def parse_and_validate_positive_integer(value: Optional[int], value_name: str) -> int:
+    if value is None:
+        raise ValueError(f"{value_name} cannot be None")
+    try:
+        parsed_value = int(value)
+    except ValueError:
+        raise ValueError(f"{value_name} must be an integer, got {value}")
+    if parsed_value <= 0:
+        raise ValueError(f"{value_name} must be greater than 0, got {value}")
+    return parsed_value
+
+
+def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, cohort: Optional[Cohort] = None) -> Filter:
+    """Flatten cohort-typed properties into nested static/dynamic-cohort PropertyGroups.
+
+    Each ``cohort``/``precalculated-cohort`` property is replaced by an AND group holding a
+    single ``static-cohort``/``dynamic-cohort`` property, while sibling properties are wrapped
+    into AND groups too, propagating negation per De Morgan's law.
+    """
+
+    def _unwrap(property_group: PropertyGroup, negate_group: bool = False) -> PropertyGroup:
+        nonlocal team
+        if len(property_group.values):
+            if isinstance(property_group.values[0], PropertyGroup):
+                # dealing with a list of property groups, so unwrap each one
+                # Propogate the negation to the children and handle as necessary with respect to deMorgan's law
+                if not negate_group:
+                    return PropertyGroup(
+                        type=property_group.type,
+                        values=[_unwrap(v) for v in cast(list[PropertyGroup], property_group.values)],
+                    )
+                else:
+                    return PropertyGroup(
+                        type=(
+                            PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR
+                        ),
+                        values=[_unwrap(v, True) for v in cast(list[PropertyGroup], property_group.values)],
+                    )
+
+            elif isinstance(property_group.values[0], Property):
+                # dealing with a list of properties
+                # if any single one is a cohort property, unwrap it into a property group
+                # which implies converting everything else in the list into a property group too
+
+                new_property_group_list: list[PropertyGroup] = []
+                for prop in property_group.values:
+                    prop = cast(Property, prop)
+                    current_negation = prop.negation or False
+                    negation_value = not current_negation if negate_group else current_negation
+                    if prop.type in ["cohort", "precalculated-cohort"]:
+                        try:
+                            # Use passed cohort object if it matches the requested cohort ID
+                            if cohort is not None and str(cohort.pk) == str(prop.value):
+                                prop_cohort = cohort
+                            else:
+                                # Use passed team object if available, otherwise fetch from database
+                                if team is None:
+                                    team = Team.objects.get(pk=team_id)
+                                prop_cohort = Cohort.objects.get(
+                                    pk=cast(str | int, prop.value), team__project_id=team.project_id
+                                )
+                            new_property_group_list.append(
+                                PropertyGroup(
+                                    type=PropertyOperatorType.AND,
+                                    values=[
+                                        Property(
+                                            type="static-cohort" if prop_cohort.is_static else "dynamic-cohort",
+                                            key="id",
+                                            value=prop_cohort.pk,
+                                            negation=negation_value,
+                                        )
+                                    ],
+                                )
+                            )
+                        except Cohort.DoesNotExist:
+                            new_property_group_list.append(
+                                PropertyGroup(
+                                    type=PropertyOperatorType.AND,
+                                    values=[
+                                        Property(
+                                            key="fake_key_01r2ho",
+                                            value="0",
+                                            type="person",
+                                        )
+                                    ],
+                                )
+                            )
+                    else:
+                        prop.negation = negation_value
+                        new_property_group_list.append(PropertyGroup(type=PropertyOperatorType.AND, values=[prop]))
+                if not negate_group:
+                    return PropertyGroup(type=property_group.type, values=new_property_group_list)
+                else:
+                    return PropertyGroup(
+                        type=(
+                            PropertyOperatorType.AND
+                            if property_group.type == PropertyOperatorType.OR
+                            else PropertyOperatorType.OR
+                        ),
+                        values=new_property_group_list,
+                    )
+
+        return property_group
+
+    new_props = _unwrap(filter.property_groups)
+    return filter.shallow_clone({"properties": new_props.to_dict()})
+
+
+class TestWrapperCohortQuery:
+    """Runs a filter through HogQLCohortQuery for the cohort-query test suite.
+
+    ``hogql_result`` holds the executed result the tests assert membership against;
+    ``clickhouse_query`` / ``get_query`` expose the generated SQL.
+    """
+
     def __init__(self, filter: Filter, team: Team):
-        cohort_query = CohortQuery(filter=filter, team=team)
-        executor = HogQLCohortQuery(cohort_query=cohort_query).get_query_executor()
+        executor = HogQLCohortQuery(filter=filter, team=team).get_query_executor()
         self.hogql_result = executor.execute()
         self.clickhouse_query = executor.clickhouse_sql
-        super().__init__(filter=filter, team=team)
+
+    def get_query(self) -> tuple[str, dict[str, Any]]:
+        return self.clickhouse_query or "", {}
 
 
 def convert_property(prop: Property) -> PersonPropertyFilter:
@@ -97,14 +223,14 @@ def convert(prop: PropertyGroup) -> PropertyGroupFilterValue:
 class HogQLCohortQuery:
     def __init__(
         self,
-        cohort_query: Optional[CohortQuery] = None,
+        filter: Optional[Filter] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.team = team or cohort.team
-            filter = FOSSCohortQuery.unwrap_cohort(
+            unwrapped = unwrap_cohort(
                 Filter(
                     data={"properties": cohort.properties},
                     team=cohort.team,
@@ -114,13 +240,15 @@ class HogQLCohortQuery:
                 self.team,
                 cohort,
             )
-            self.property_groups = filter.property_groups
-        elif cohort_query is not None:
-            self.hogql_context = HogQLContext(team_id=cohort_query._team_id, enable_select_queries=True)
-            self.property_groups = cohort_query._filter.property_groups
-            self.team = team or cohort_query._team
+            self.property_groups = unwrapped.property_groups
+        elif filter is not None:
+            if team is None:
+                raise ValueError("HogQLCohortQuery requires a team when constructed from a filter")
+            self.hogql_context = HogQLContext(team_id=team.pk, enable_select_queries=True)
+            self.team = team
+            self.property_groups = unwrap_cohort(filter, team.pk, team).property_groups
         else:
-            raise
+            raise ValueError("HogQLCohortQuery requires either a cohort or a filter")
 
     def get_query_executor(self) -> HogQLQueryExecutor:
         return HogQLQueryExecutor(
@@ -628,11 +756,11 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
 
     def __init__(
         self,
-        cohort_query: Optional[CohortQuery] = None,
+        filter: Optional[Filter] = None,
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
-        super().__init__(cohort_query=cohort_query, cohort=cohort, team=team)
+        super().__init__(filter=filter, cohort=cohort, team=team)
         self.cohort = cohort
         # Preprocess to merge properties with same key and operator
         self.property_groups = self._preprocess_property_groups(self.property_groups)  # type: ignore[assignment]
@@ -694,7 +822,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """
         Unwrap PropertyGroups that contain only a single child.
 
-        FOSSCohortQuery.unwrap_cohort creates nested PropertyGroups like:
+        unwrap_cohort creates nested PropertyGroups like:
         PropertyGroup(AND) -> PropertyGroup(AND) -> Property
 
         This unwraps them to just: Property

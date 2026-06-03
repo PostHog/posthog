@@ -285,22 +285,20 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
         # No person can match an empty cohort
         return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
 
-    from posthog.queries.cohort_query import CohortQuery
+    # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id
+    # subquery. HogQLCohortQuery builds its own HogQLContext, so its %(hogql_val_N)s placeholders
+    # would collide with the parent query's context (and with other cohort subqueries embedded in
+    # the same query). Prefix them per cohort+index to keep them unique.
+    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
 
-    query_builder = CohortQuery(
-        Filter(
-            data={"properties": cohort.properties},
-            team=cohort.team,
-            hogql_context=hogql_context,
-        ),
-        cohort.team,
-        cohort_pk=cohort.pk,
-        persons_on_events_mode=cohort.team.person_on_events_mode,
-    )
+    prefix = f"cohort_{cohort.pk}_{index}_"
+    params: dict[str, Any] = {}
+    for key, value in cohort_context.values.items():
+        prefixed_key = f"{prefix}{key}"
+        cohort_query = cohort_query.replace(f"%({key})s", f"%({prefixed_key})s")
+        params[prefixed_key] = value
 
-    query, params = query_builder.get_query()
-
-    return query, params
+    return cohort_query, params
 
 
 def _sanitize_query_for_cohort(query_dict: dict) -> dict:
