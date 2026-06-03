@@ -49,10 +49,20 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
     [key: `preset-${number}`]: string
 }
 
+// During initial mount a chart can render before the theme CSS is applied to
+// `document.body`, so every `--data-color-*` lookup briefly resolves to empty.
+// Reporting each miss would spam one exception per variable per render — capture
+// each missing variable at most once so a genuine misconfiguration still surfaces
+// without drowning error tracking in transient timing noise.
+const reportedMissingColorVars = new Set<string>()
+
 export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
-        posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
+        if (!reportedMissingColorVars.has(variable)) {
+            reportedMissingColorVars.add(variable)
+            posthog.captureException(new Error(`Couldn't find color variable --${variable}`))
+        }
         // Fall back to black or white depending on the theme
         return document.body.getAttribute('theme') === 'light' ? '#000' : '#fff'
     }
