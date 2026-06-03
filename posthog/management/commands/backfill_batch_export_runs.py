@@ -7,9 +7,9 @@ from django.utils import timezone
 
 import temporalio.client
 
-from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.temporal.common.client import connect
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import align_timestamp_to_interval
 
 # Statuses that count as "covered" — the run either succeeded or is still in progress
