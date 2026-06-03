@@ -150,7 +150,7 @@ jobs:
               if: steps.check-changes.outputs.committed == 'true'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  commit_message: 'chore(cli): release v${{ steps.prepare-release.outputs.new-version }} [skip ci]'
+                  commit_message: 'chore(cli): release v${{ steps.prepare-release.outputs.new-version }}'
                   repo: ${{ github.repository }}
                   branch: master
               env:
