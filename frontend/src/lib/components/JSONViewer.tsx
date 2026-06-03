@@ -19,6 +19,10 @@ export function JSONViewerInner({
     name = null, // Don't label the root node as "root" by default
     displayDataTypes = false, // Reduce visual clutter
     displayObjectSize = false, // Reduce visual clutter
+    // Truncate very long strings by default — they stay one click away from full expansion. Without
+    // this, pathologically long values (LLM prompts/completions, tool args, base64 image blobs in
+    // AI traces) render inline in full, which thrashes layout and makes expand/collapse clicks lag.
+    collapseStringsAfterLength = 10000,
     ...props
 }: ReactJsonViewProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -33,6 +37,7 @@ export function JSONViewerInner({
             name={name}
             displayDataTypes={displayDataTypes}
             displayObjectSize={displayObjectSize}
+            collapseStringsAfterLength={collapseStringsAfterLength}
             enableClipboard={(copy) => {
                 // The library wraps string values in quotes.
                 // Re-copy with raw string value so users get the actual content.
