@@ -226,6 +226,7 @@ class TestDefaultNonRetryableErrors:
         [
             ("Source column type changed", "reset and fully re-sync"),
             ("Cannot build decimal array from values", "decimal storage limits"),
+            ("rows failed validation check", "reset and fully re-sync"),
         ],
     )
     def test_includes_expected_entry(self, key: str, expected_substring: str) -> None:
@@ -237,7 +238,7 @@ class TestDefaultNonRetryableErrors:
         assert message is not None
         assert expected_substring in message
 
-    def test_returns_exactly_the_two_shared_entries(self) -> None:
+    def test_returns_exactly_the_shared_entries(self) -> None:
         errors = SQLSource.default_non_retryable_errors()
         assert isinstance(errors, dict)
-        assert len(errors) == 2
+        assert len(errors) == 3

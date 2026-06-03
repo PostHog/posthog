@@ -39,6 +39,7 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **self.default_non_retryable_errors(),
             "PermissionDenied: 403 request failed": "BigQuery permission denied. Please check that your service account has the necessary permissions.",
             "NotFound: 404": "BigQuery dataset or table not found. Please verify your project, dataset, and table names.",
             # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`

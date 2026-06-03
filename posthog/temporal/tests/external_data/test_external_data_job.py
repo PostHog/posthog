@@ -28,6 +28,7 @@ from posthog.temporal.data_imports.external_data_job import (
 )
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT
 from posthog.temporal.data_imports.settings import import_data_activity_sync
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -55,6 +56,8 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 
 BUCKET_NAME = "test-pipeline"
 SESSION = boto3.Session()
+
+_SCHEMA_DRIFT_KEY = "rows failed validation check"
 create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 
@@ -515,16 +518,27 @@ async def test_update_external_job_activity_with_not_source_sepecific_non_retrya
     assert schema.should_sync is False
 
 
+@pytest.mark.parametrize(
+    "source_type,expected_error",
+    [
+        # Non-SQL source falls back to the generic catch-all message.
+        ("Stripe", Any_Source_Errors[_SCHEMA_DRIFT_KEY]),
+        # SQL sources override the same key with the sharper family-specific message.
+        ("Postgres", SQLSource.default_non_retryable_errors()[_SCHEMA_DRIFT_KEY]),
+    ],
+)
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_update_external_job_activity_with_schema_drift_error(activity_environment, team, **kwargs):
+async def test_update_external_job_activity_with_schema_drift_error(
+    activity_environment, team, source_type, expected_error, **kwargs
+):
     new_source = await sync_to_async(ExternalDataSource.objects.create)(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
         team=team,
         status="running",
-        source_type="Postgres",
+        source_type=source_type,
     )
 
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
@@ -562,7 +576,7 @@ async def test_update_external_job_activity_with_schema_drift_error(activity_env
 
     assert new_job.status == ExternalDataJob.Status.FAILED
     assert schema.should_sync is False
-    assert schema.latest_error == Any_Source_Errors["rows failed validation check"]
+    assert schema.latest_error == expected_error
     assert "Preview of invalid data" not in (schema.latest_error or "")
 
 

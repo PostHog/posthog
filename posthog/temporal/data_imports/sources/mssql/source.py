@@ -41,6 +41,7 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            **self.default_non_retryable_errors(),
             "Adaptive Server connection failed": None,
             "Login failed for user": None,
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",

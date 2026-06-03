@@ -70,12 +70,14 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         `SQLSource` itself does not call this — every existing source's
         behavior is preserved until it explicitly opts in.
 
-        The two entries here are the ones currently duplicated across
-        ≥2 SQL sources today:
+        The entries here are the ones shared across ≥2 SQL sources today:
 
         - "Source column type changed" (MySQL, MSSQL, Snowflake,
           BigQuery, Redshift)
         - "Cannot build decimal array from values" (MySQL, MSSQL)
+        - "rows failed validation check" (any SQL source — raised in the
+          shared delta-write layer when the incoming data no longer
+          matches the stored columns)
         """
         return {
             "Source column type changed": (
@@ -87,6 +89,14 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                 "One of your numeric columns contains values that exceed our decimal storage limits "
                 "(max precision 76, max scale 32). Please constrain the column with a lower precision/scale, "
                 "cast it to text in a view, or round the values at the source."
+            ),
+            # Raised in the shared delta-write/merge layer when the incoming rows no longer match the
+            # stored table columns — typically a column added or its type changed in the source after
+            # the table was first synced. Retrying never repairs the divergent files.
+            "rows failed validation check": (
+                "The table's data no longer matches the columns we stored — usually because a column was added or "
+                "its type changed in your source database after this table was first synced. We can't reconcile the "
+                "change in place — please reset and fully re-sync this table to fix."
             ),
         }
 

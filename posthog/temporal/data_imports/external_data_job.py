@@ -66,9 +66,12 @@ Any_Source_Errors: dict[str, str | None] = {
     "Primary key required for incremental syncs": None,
     "The primary keys for this table are not unique": None,
     "Integration matching query does not exist": None,
-    # delta-rs raises this when an incremental batch's schema no longer matches the existing delta
-    # table (e.g. a column was added to the source table). Retrying never repairs the divergent files.
-    "rows failed validation check": "Schema drift detected — the table's columns changed since it was first synced. Delete the table data and resync to fix.",
+    # Generic catch for the delta-write validation failure (source-agnostic — it's raised in the
+    # shared delta layer, so even non-SQL sources hit it). SQL sources override this key with
+    # sharper wording via `SQLSource.default_non_retryable_errors`. Hedged because the same error
+    # can also come from a constraint/type issue, not only a schema change; either way the fix is a
+    # reset + re-sync.
+    "rows failed validation check": "Sync failed validation while writing to the warehouse — usually a column or type change at the source since this table was first synced. Reset and re-sync the table to fix.",
 }
 
 
