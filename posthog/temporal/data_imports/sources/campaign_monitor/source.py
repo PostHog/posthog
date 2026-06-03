@@ -30,6 +30,13 @@ class CampaignMonitorSource(ResumableSource[CampaignMonitorSourceConfig, Campaig
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CAMPAIGNMONITOR
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `client_id` selects which Campaign Monitor client the stored API key is used against.
+        # Editing it on an existing source must force the API key to be re-entered — otherwise an
+        # editor could retarget the preserved key at another client it can access.
+        return ["client_id"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Your Campaign Monitor API key is invalid or expired. Please generate a new key and reconnect.",

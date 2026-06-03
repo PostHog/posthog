@@ -45,6 +45,10 @@ class TestCampaignMonitorSource:
         assert client_id_field.type == SourceFieldInputConfigType.TEXT
         assert client_id_field.required is True
 
+    def test_client_id_is_a_connection_host_field(self):
+        # Changing the targeted client must force the API key to be re-entered.
+        assert "client_id" in self.source.connection_host_fields
+
     @pytest.mark.parametrize(
         "expected_key",
         [
