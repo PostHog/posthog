@@ -17,7 +17,7 @@ Confidence calibration:
 
 <events_format>
 Each event is an object with these fields:
-- event_id: 16-char hex hash; the only identifier you may use to refer to a specific event
+- event_uuid: PostHog event UUID; the only identifier you may use to refer to a specific event
 - event: type of event (e.g. `$pageview`, `$autocapture`, `$exception`)
 - timestamp: when it occurred (ISO 8601)
 - elements_chain_href / elements_chain_texts / elements_chain_elements / elements_chain_ids: what was interacted with

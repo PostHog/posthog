@@ -212,6 +212,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a3a1fd6f75306b68087b831f025c712524bcb19aad54e557b1129cfa0a2b207"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2630,6 +2639,8 @@ dependencies = [
  "common-metrics",
  "common-redis",
  "common-types",
+ "cymbal-proto",
+ "cymbal-resolution",
  "envconfig",
  "futures",
  "health",
@@ -2642,6 +2653,7 @@ dependencies = [
  "posthog-rs 0.3.7",
  "posthog-symbol-data",
  "proguard",
+ "rand 0.8.5",
  "rdkafka",
  "regex",
  "reqwest 0.12.28",
@@ -2655,11 +2667,48 @@ dependencies = [
  "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
  "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
  "uuid",
  "zip 4.6.1",
+]
+
+[[package]]
+name = "cymbal-proto"
+version = "0.1.0"
+dependencies = [
+ "prost 0.13.5",
+ "tonic 0.12.3",
+ "tonic-build 0.12.3",
+]
+
+[[package]]
+name = "cymbal-resolution"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum 0.7.9",
+ "common-alloc",
+ "common-metrics",
+ "cymbal",
+ "cymbal-proto",
+ "envconfig",
+ "futures",
+ "metrics",
+ "personhog-common",
+ "posthog-rs 0.3.7",
+ "serde_json",
+ "subtle",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]
@@ -3336,6 +3385,7 @@ version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "anyhow",
+ "arc-swap",
  "assert-json-diff",
  "async-trait",
  "aws-config",
@@ -4142,7 +4192,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.75"
+version = "1.3.82"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -6642,10 +6692,15 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 name = "personhog-common"
 version = "0.1.0"
 dependencies = [
+ "bytes",
+ "flate2",
  "futures",
  "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
  "metrics",
  "pin-project",
+ "rstest",
  "sqlx",
  "tokio",
  "tonic 0.12.3",
@@ -6759,6 +6814,7 @@ dependencies = [
  "common-alloc",
  "dashmap 6.1.0",
  "envconfig",
+ "flate2",
  "futures",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -7348,6 +7404,7 @@ dependencies = [
  "lifecycle",
  "metrics",
  "proptest",
+ "quick_cache",
  "rdkafka",
  "serde",
  "serde_json",
@@ -10429,7 +10486,6 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
- "flate2",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",

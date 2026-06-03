@@ -15,6 +15,8 @@ permissions:
     pull-requests: read
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -126,6 +128,7 @@ jobs:
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
+                        - 'products/ai_observability/backend/**/*.py'
                         - 'products/llm_analytics/backend/**/*.py'
                         - 'products/posthog_ai/backend/**/*.py'
                         - 'products/revenue_analytics/backend/**/*.py'
@@ -153,6 +156,10 @@ jobs:
                         - pytest.ini
                         - pyproject.toml
                         - uv.lock
+                        # hogli db commands used for test database setup
+                        - 'tools/hogli-commands/hogli_commands/**'
+                        - 'tools/hogli/**'
+                        - hogli.yaml
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
@@ -233,13 +240,17 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image }}
-                  # Retry transient image-pull failures (TLS handshake timeouts,
-                  # registry-1.docker.io / docker.redpanda.com flakes) so a single
-                  # blip doesn't sink the whole shard. Matches ci-backend/ci-nodejs/ci-rust.
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |

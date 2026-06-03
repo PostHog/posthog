@@ -23,12 +23,14 @@ pub trait GroupStorage: Send + Sync {
         team_id: i64,
         identifiers: &[GroupIdentifier],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<Group>>;
 
     async fn get_groups_batch(
         &self,
         keys: &[GroupKey],
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<Vec<(GroupKey, Group)>>;
 
     async fn list_groups(
@@ -41,6 +43,7 @@ pub trait GroupStorage: Send + Sync {
         cursor_id: i64,
         limit: i32,
         consistency: ConsistencyLevel,
+        include_properties: bool,
     ) -> StorageResult<(Vec<Group>, bool)>;
 
     // Group writes

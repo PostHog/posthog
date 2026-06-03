@@ -13,7 +13,6 @@ import temporalio.common
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExportBackfill
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -21,6 +20,7 @@ from posthog.temporal.tests.utils.models import (
     afetch_batch_export_backfills,
 )
 
+from products.batch_exports.backend.models.batch_export import BatchExportBackfill
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,

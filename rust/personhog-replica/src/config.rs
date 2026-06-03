@@ -100,6 +100,21 @@ pub struct Config {
     /// so the router retries on another pod. 0 = disabled.
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
+
+    /// Enable gzip response compression via AsyncGzipLayer. When enabled,
+    /// responses to clients that send `grpc-accept-encoding: gzip` are
+    /// compressed on a blocking thread pool instead of the tokio runtime.
+    #[envconfig(default = "false")]
+    pub gzip_response_compression: bool,
+
+    /// Gzip compression level (1–9). Lower is faster, higher compresses more.
+    #[envconfig(default = "6")]
+    pub gzip_compression_level: u32,
+
+    /// Minimum response payload size (bytes) to compress. Responses smaller
+    /// than this pass through uncompressed.
+    #[envconfig(default = "256")]
+    pub gzip_min_payload_size: usize,
 }
 
 impl Config {

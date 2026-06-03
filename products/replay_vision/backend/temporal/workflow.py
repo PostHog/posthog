@@ -14,11 +14,12 @@ from posthog.temporal.session_replay.rasterize_recording.types import RasterizeR
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.temporal.activities import (
     call_scanner_provider_activity,
     cleanup_gemini_file_activity,
     create_observation_activity,
-    embed_indexer_observation_activity,
+    embed_summarizer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
     ensure_session_asset_activity,
@@ -37,14 +38,14 @@ from products.replay_vision.backend.temporal.errors import (
     ScannerFailureError,
 )
 from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
-from products.replay_vision.backend.temporal.scanners.indexer import IndexerOutput
+from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput
 from products.replay_vision.backend.temporal.types import (
     ApplyScannerInputs,
     CallScannerProviderInputs,
     CleanupGeminiFileInputs,
     CreateObservationInputs,
     CreateObservationOutput,
-    EmbedIndexerObservationInputs,
+    EmbedSummarizerObservationInputs,
     EmitClassifierTagsInputs,
     EmitObservationEventInputs,
     EnsureSessionAssetInputs,
@@ -152,10 +153,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_CREATE_OBSERVATION_RETRY,
         )
-        if not create_result.was_created:
-            return  # Existing observation owns this (scanner, session_id); its workflow drives it.
+        if not create_result.was_created or create_result.observation_id is None:
+            return  # Either an existing observation owns this (scanner, session_id), or the org's monthly quota is exhausted.
 
         observation_id = create_result.observation_id
+        scanner_type = create_result.scanner_type
         await wf.execute_activity(
             mark_observation_running_activity,
             MarkObservationRunningInputs(observation_id=observation_id),
@@ -195,10 +197,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 mark_observation_succeeded_activity,
                 MarkObservationSucceededInputs(
                     observation_id=observation_id,
-                    scanner_result=ScannerResult(
-                        model_output=call_output.model_output,
-                        event_id_mapping=call_output.event_id_mapping,
-                    ),
+                    scanner_type=scanner_type,
+                    scanner_result=ScannerResult(model_output=call_output.model_output),
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_STATE_ACTIVITY_RETRY,
@@ -206,10 +206,10 @@ class ApplyScannerWorkflow(PostHogWorkflow):
         except Exception as e:
             ineligible_kind = _extract_kind_for_type(e, INELIGIBLE_SESSION_ERROR_TYPE)
             if ineligible_kind is not None:
-                await self._mark_ineligible(observation_id, ineligible_kind, _root_cause_message(e))
+                await self._mark_ineligible(observation_id, scanner_type, ineligible_kind, _root_cause_message(e))
             else:
                 failure_kind = _extract_kind_for_type(e, SCANNER_FAILURE_ERROR_TYPE) or FailureKind.INTERNAL_ERROR.value
-                await self._mark_failed(observation_id, failure_kind, _root_cause_message(e))
+                await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
             raise
         finally:
             if uploaded is not None:
@@ -268,34 +268,45 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 
-    async def _mark_failed(self, observation_id: UUID, kind: str, message: str) -> None:
+    async def _mark_failed(self, observation_id: UUID, scanner_type: ScannerType, kind: str, message: str) -> None:
         await wf.execute_activity(
             mark_observation_failed_activity,
-            MarkObservationFailedInputs(observation_id=observation_id, error_reason=_encode_reason(kind, message)),
+            MarkObservationFailedInputs(
+                observation_id=observation_id,
+                scanner_type=scanner_type,
+                error_reason=_encode_reason(kind, message),
+            ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
 
-    async def _mark_ineligible(self, observation_id: UUID, kind: str, message: str) -> None:
+    async def _mark_ineligible(self, observation_id: UUID, scanner_type: ScannerType, kind: str, message: str) -> None:
         await wf.execute_activity(
             mark_observation_ineligible_activity,
-            MarkObservationIneligibleInputs(observation_id=observation_id, error_reason=_encode_reason(kind, message)),
+            MarkObservationIneligibleInputs(
+                observation_id=observation_id,
+                scanner_type=scanner_type,
+                error_reason=_encode_reason(kind, message),
+            ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_ACTIVITY_RETRY,
         )
 
     async def _apply_scanner_side_effects(
-        self, inputs: ApplyScannerInputs, observation_id: UUID, model_output: object
+        self,
+        inputs: ApplyScannerInputs,
+        observation_id: UUID,
+        model_output: object,
     ) -> None:
         """Dispatch scanner-type-specific side-effects after the LLM call; failure aborts the workflow."""
-        if isinstance(model_output, IndexerOutput):
+        if isinstance(model_output, SummarizerOutput) and model_output.has_any_facet():
             await wf.execute_activity(
-                embed_indexer_observation_activity,
-                EmbedIndexerObservationInputs(
+                embed_summarizer_observation_activity,
+                EmbedSummarizerObservationInputs(
                     team_id=inputs.team_id,
                     session_id=inputs.session_id,
                     observation_id=observation_id,
-                    indexer_output=model_output,
+                    summarizer_output=model_output,
                 ),
                 start_to_close_timeout=dt.timedelta(seconds=30),
                 retry_policy=_SIDE_EFFECT_RETRY,

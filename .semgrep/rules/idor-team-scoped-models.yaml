@@ -81,6 +81,7 @@ rules:
                               |DAG
                               |Dashboard
                               |DashboardTemplate
+                              |DashboardWidget
                               |DataColorTheme
                               |DataModelingJob
                               |Dataset
@@ -166,6 +167,7 @@ rules:
                               |MessageTemplate
                               |MCPAnalyticsSubmission
                               |MCPIntentClusterSnapshot
+                              |MCPIntentEmbeddingCache
                               |MCPSession
                               |OptOutSyncConfig
                               |Node
@@ -198,6 +200,10 @@ rules:
                               |SignalReportTask
                               |SignalTeamConfig
                               |SignalSourceConfig
+                              |SignalScoutConfig
+                              |SignalScoutRun
+                              |SignalScratchpad
+                              |SignalProjectProfile
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
@@ -308,6 +314,7 @@ rules:
                         |DAG
                         |Dashboard
                         |DashboardTemplate
+                        |DashboardWidget
                         |DataColorTheme
                         |DataModelingJob
                         |Dataset
@@ -389,6 +396,7 @@ rules:
                         |MessageRecipientPreference
                         |MessageTemplate
                         |MCPIntentClusterSnapshot
+                        |MCPIntentEmbeddingCache
                         |MCPSession
                         |OptOutSyncConfig
                         |Node
@@ -421,6 +429,10 @@ rules:
                         |SignalReportTask
                         |SignalTeamConfig
                         |SignalSourceConfig
+                        |SignalScoutConfig
+                        |SignalScoutRun
+                        |SignalScratchpad
+                        |SignalProjectProfile
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch

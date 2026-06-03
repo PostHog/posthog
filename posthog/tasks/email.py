@@ -14,7 +14,6 @@ from celery import shared_task
 from posthoganalytics import new_context, tag
 
 from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS
-from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, INVITE_DAYS_VALIDITY
@@ -22,26 +21,19 @@ from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
-from posthog.models import (
-    Organization,
-    OrganizationInvite,
-    OrganizationMembership,
-    PersonalAPIKey,
-    Plugin,
-    PluginConfig,
-    Team,
-    User,
-)
+from posthog.models import Organization, OrganizationInvite, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.utils import UUIDT
 from posthog.ph_client import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.error_tracking.backend.facade import api as error_tracking_api
 
@@ -1314,7 +1306,8 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
     """
     from posthog.clickhouse.client import sync_execute
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-    from posthog.models.hog_functions.hog_function import HogFunction
+
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     logger.info(f"Processing HogFunctions digest for team {team_id}")
 

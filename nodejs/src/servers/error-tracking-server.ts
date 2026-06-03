@@ -9,7 +9,7 @@ import {
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { createIngestionRedisConnectionConfig } from '../config/redis-pools'
+import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
 import {
     KafkaIngestionProducerEnvConfig,
     KafkaProducerEnvConfig,
@@ -27,6 +27,7 @@ import {
     PersonHogConfig,
     RedisConnectionsConfig,
 } from '../ingestion/config'
+import { CookielessManager, CookielessServerConfig } from '../ingestion/cookieless/cookieless-manager'
 import {
     ErrorTrackingConsumerConfig,
     ErrorTrackingOutputsConfig,
@@ -72,6 +73,7 @@ export type ErrorTrackingServerConfig = BaseServerConfig &
     RedisConnectionsConfig &
     KafkaConsumerBaseConfig &
     PersonHogConfig &
+    CookielessServerConfig &
     Pick<
         CommonConfig,
         | 'LOG_LEVEL'
@@ -90,6 +92,8 @@ export class ErrorTrackingServer implements NodeServer {
     private postgres?: PostgresRouter
     private producerRegistry?: KafkaProducerRegistry<ProducerName>
     private redisPool?: RedisPool
+    private cookielessRedisPool?: RedisPool
+    private cookielessManager?: CookielessManager
     private pubsub?: PubSub
 
     constructor(config: Partial<ErrorTrackingServerConfig> = {}) {
@@ -139,6 +143,16 @@ export class ErrorTrackingServer implements NodeServer {
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
         logger.info('👍', 'Ingestion Redis ready')
+
+        logger.info('🤔', 'Connecting to cookieless Redis...')
+        this.cookielessRedisPool = createRedisPoolFromConfig({
+            connection: createCookielessRedisConnectionConfig(this.config),
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
+        })
+        logger.info('👍', 'Cookieless Redis ready')
+
+        this.cookielessManager = new CookielessManager(this.config, this.cookielessRedisPool)
 
         this.pubsub = new PubSub(this.redisPool)
         await this.pubsub.start()
@@ -214,6 +228,9 @@ export class ErrorTrackingServer implements NodeServer {
                     rateLimiterRedisPort: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_PORT,
                     rateLimiterRedisTls: this.config.ERROR_TRACKING_RATE_LIMITER_REDIS_TLS,
                     rateLimiterTtlSeconds: this.config.ERROR_TRACKING_RATE_LIMITER_TTL_SECONDS,
+                    perIssueGuardThreshold: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_THRESHOLD,
+                    perIssueGuardWindowTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_WINDOW_TTL_SECONDS,
+                    perIssueGuardCooldownTtlSeconds: this.config.ERROR_TRACKING_PER_ISSUE_GUARD_COOLDOWN_TTL_SECONDS,
                     fallbackRedisUrl: this.config.REDIS_URL,
                     rateLimiterRedisPoolMinSize: this.config.REDIS_POOL_MIN_SIZE,
                     rateLimiterRedisPoolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
@@ -224,6 +241,7 @@ export class ErrorTrackingServer implements NodeServer {
                     errorTrackingSettingsManager,
                     hogTransformer: createHogTransformerService(this.config, hogTransformerDeps),
                     groupTypeManager: new GroupTypeManager(groupRepository, teamManager),
+                    cookielessManager: this.cookielessManager!,
                     redisPool: this.redisPool!,
                     personRepository,
                 }
@@ -245,11 +263,12 @@ export class ErrorTrackingServer implements NodeServer {
     private getCleanupResources(): CleanupResources {
         return {
             kafkaProducers: [],
-            redisPools: [this.redisPool].filter(Boolean) as RedisPool[],
+            redisPools: [this.redisPool, this.cookielessRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
                 await this.producerRegistry?.disconnectAll()
+                this.cookielessManager?.shutdown()
             },
         }
     }

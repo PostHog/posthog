@@ -187,10 +187,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("monitor", ScannerType.MONITOR, {"prompt": "p"}),
+            ("monitor-allow-inconclusive", ScannerType.MONITOR, {"prompt": "p", "allow_inconclusive": True}),
             ("classifier", ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
             ("scorer", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
             ("summarizer", ScannerType.SUMMARIZER, {"prompt": "p"}),
-            ("indexer", ScannerType.INDEXER, {}),
         ]
     )
     def test_create_accepts_valid_scanner_config_per_type(
@@ -337,6 +337,33 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
 
+    def _patch_deny_session_recording(self):
+        return patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, **_: resource != "session_recording",
+        )
+
+    def test_create_rejected_without_session_recording_read(self) -> None:
+        with self._patch_deny_session_recording():
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "needs-recording-read",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_FLASH,
+                },
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertIn("session_recording", resp.json()["detail"])
+
+    def test_patch_rejected_without_session_recording_read(self) -> None:
+        scanner = self._create_scanner()
+        with self._patch_deny_session_recording():
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+        self.assertEqual(resp.status_code, 403, resp.json())
+
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property
@@ -431,7 +458,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             scanner_result={
                 "model_output": {
                     "scanner_type": "monitor",
-                    "verdict": True,
+                    "verdict": "yes",
                     "reasoning": "user completed checkout",
                     "confidence": 0.9,
                 },
@@ -442,7 +469,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["scanner_result"]["signals_count"], 0)
-        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], True)
+        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], "yes")
         self.assertEqual(body["scanner_result"]["model_output"]["confidence"], 0.9)
 
     @parameterized.expand(

@@ -37,13 +37,14 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.alerts",
+    "products.cdp",
     "products.dashboards",
     "products.data_modeling",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.notebooks",
     "products.posthog_ai",
@@ -52,8 +53,10 @@ depends_on = [
     "products.revenue_analytics",
     "products.surveys",
     "products.tasks",
+    "products.business_knowledge",
     "products.user_interviews",
     "products.warehouse_sources",
+    "products.exports",
 ]
 layer = "modules"
 
@@ -65,12 +68,12 @@ depends_on = [
     "products.analytics_platform",
     "products.batch_exports",
     "products.business_knowledge",
+    "products.cdp",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
-    "products.deployments",
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
@@ -82,11 +85,12 @@ depends_on = [
     "products.legal_documents",
     "products.links",
     "products.live_debugger",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
     "products.marketing_analytics",
     "products.mcp_store",
     "products.messaging",
+    "products.metrics",
     "products.notebooks",
     "products.notifications",
     "products.posthog_ai",
@@ -107,7 +111,7 @@ depends_on = [
     "products.wizard",
     "products.workflows",
     "products.actions",
-    "products.alerts", "products.warehouse_sources", "products.data_tools",
+    "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
 ]
 layer = "modules"
 
@@ -115,6 +119,7 @@ layer = "modules"
 path = "products.actions"
 depends_on = [
     "posthog",
+    "products.cdp",
     "products.experiments",
     "products.feature_flags",
     "products.product_analytics",
@@ -126,6 +131,7 @@ path = "products.alerts"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.product_analytics",
 ]
 layer = "modules"
@@ -151,6 +157,8 @@ path = "products.cdp"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
+    "products.batch_exports",
 ]
 layer = "modules"
 
@@ -168,9 +176,11 @@ depends_on = [
     "ee",
     "posthog",
     "products.alerts",
-    "products.llm_analytics",
+    "products.ai_observability",
+    "products.error_tracking",
     "products.mcp_analytics",
     "products.product_analytics",
+    "products.annotations",
 ]
 layer = "modules"
 
@@ -205,22 +215,10 @@ path = "products.data_warehouse"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.dashboards",
     "products.data_modeling",
-    "products.revenue_analytics", "products.warehouse_sources", "products.data_tools",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.deployments"
-depends_on = [
-    "ee",
-    "posthog",
-    # `error_tracking` is not isolated (no contract-check script), so we
-    # import its model directly to upsert an ErrorTrackingRelease row on
-    # successful deploys. If error_tracking later isolates, replace this
-    # raw dep with a facade call (`upsert_release(...)`).
-    "products.error_tracking",
+    "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
 ]
 layer = "modules"
 
@@ -255,6 +253,7 @@ path = "products.error_tracking"
 depends_on = [
     "ee",
     "posthog",
+    "products.cdp",
     "products.notifications",
 ]
 layer = "modules"
@@ -317,7 +316,7 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
-path = "products.llm_analytics"
+path = "products.ai_observability"
 depends_on = [
     "ee",
     "posthog",
@@ -327,9 +326,21 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+# Vestigial app — only retains the migration history under the llm_analytics
+# Django app label. All models and code live under products.ai_observability now.
+# Historical migration files reference posthog.models.utils etc.; allowed because
+# they're frozen history, not new code.
+path = "products.llm_analytics"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
 path = "products.logs"
 depends_on = [
     "posthog",
+    "products.cdp",
+    "products.exports",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -363,9 +374,17 @@ layer = "modules"
 
 [[modules]]
 path = "products.metrics"
-depends_on = [
-]
+depends_on = ["posthog"]
 layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.api.*",
+]
+from = [
+    "products.metrics",
+]
 
 [[modules]]
 path = "products.notebooks"
@@ -407,7 +426,7 @@ depends_on = [
     "posthog",
     "products.error_tracking",
     "products.event_definitions",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.logs",
 ]
 layer = "modules"
@@ -422,6 +441,7 @@ depends_on = [
     "products.dashboards",
     "products.data_warehouse",
     "products.event_definitions",
+    "products.annotations",
 ]
 layer = "modules"
 
@@ -431,12 +451,6 @@ depends_on = [
     "posthog",
     "products.feature_flags",
     "products.surveys",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.query_performance_ai"
-depends_on = ["products.tasks",
 ]
 layer = "modules"
 
@@ -451,7 +465,9 @@ layer = "modules"
 [[modules]]
 path = "products.replay_vision"
 depends_on = [
+    "ee",
     "posthog",
+    "products.exports",
 ]
 layer = "modules"
 
@@ -468,9 +484,21 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.actions",
+    "products.ai_observability",
+    "products.alerts",
+    "products.cdp",
+    "products.dashboards",
     "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks", "products.warehouse_sources",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notebooks",
+    "products.product_analytics",
+    "products.surveys",
+    "products.tasks",
+    "products.warehouse_sources",
+    "products.workflows",
 ]
 layer = "modules"
 
@@ -509,6 +537,7 @@ layer = "modules"
 [[modules]]
 path = "products.marketing_analytics"
 depends_on = [
+    "ee",
     "posthog",
     "products.access_control",
     "products.actions",
@@ -525,7 +554,7 @@ depends_on = [
     "products.error_tracking",
     "products.event_definitions",
     "products.feature_flags",
-    "products.llm_analytics",
+    "products.ai_observability",
     "products.mcp_store",
     "products.posthog_ai",
     "products.signals",
@@ -545,6 +574,7 @@ path = "products.user_interviews"
 depends_on = [
     "ee",
     "posthog",
+    "products.exports",
 ]
 layer = "modules"
 
@@ -577,6 +607,9 @@ path = "products.workflows"
 depends_on = [
     "ee",
     "posthog",
+    "products.actions",
+    "products.cdp",
+    "products.feature_flags",
 ]
 layer = "modules"
 
@@ -730,3 +763,27 @@ expose = [
 from = [
     "products.wizard",
 ]
+
+[[modules]]
+path = "products.engineering_analytics"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.engineering_analytics",
+]
+
+[[modules]]
+path = "products.exports"
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.product_analytics"]
+layer = "modules"
+
+[[modules]]
+path = "products.annotations"
+depends_on = ["posthog", "products.product_analytics", "products.dashboards"]
+layer = "modules"

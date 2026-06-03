@@ -29,11 +29,15 @@ export type LogsRateLimiterConfig = Pick<
     | 'LOGS_LIMITER_TTL_SECONDS'
 >
 
-const LIMITER_NAME = 'logs-rate-limiter'
+const DEFAULT_LIMITER_NAME = 'logs-rate-limiter'
+
+/** Redis key prefix for a given limiter name. Each ingestion type (logs, traces) gets its own
+ * namespace so their token buckets don't share — and deplete — the same per-team state. */
+export const buildBaseRedisKey = (limiterName: string = DEFAULT_LIMITER_NAME): string =>
+    process.env.NODE_ENV == 'test' ? `@posthog-test/${limiterName}` : `@posthog/${limiterName}`
 
 /** Re-exported for the consumer test which needs to clean up keys between runs. */
-export const BASE_REDIS_KEY =
-    process.env.NODE_ENV == 'test' ? `@posthog-test/${LIMITER_NAME}` : `@posthog/${LIMITER_NAME}`
+export const BASE_REDIS_KEY = buildBaseRedisKey()
 
 export type LogsRateLimit = {
     tokensBefore: number
@@ -60,7 +64,8 @@ export class LogsRateLimiterService {
 
     constructor(
         private config: LogsRateLimiterConfig,
-        redis: RedisV2
+        redis: RedisV2,
+        limiterName: string = DEFAULT_LIMITER_NAME
     ) {
         this.teamBucketSizes = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_BUCKET_SIZE_KB)
         this.teamRefillRates = this.parseTeamConfig(config.LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND)
@@ -70,7 +75,7 @@ export class LogsRateLimiterService {
             // Bucket params are passed per-request so live `this.config` mutations
             // (used in tests) take effect. failOpen=false preserves the legacy
             // throw-on-Redis-outage behaviour.
-            { name: LIMITER_NAME, failOpen: false },
+            { name: limiterName, failOpen: false },
             redis
         )
     }

@@ -163,6 +163,9 @@ services:
             CDP_REDIS_HOST: redis7
             # Encryption keys default is only set when NODE_ENV=dev, but the image uses production
             ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
+            # PersonHog is required for CDP — point at the local gRPC router
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
@@ -170,6 +173,8 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+            personhog-router:
+                condition: service_started
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
             interval: 5s
@@ -465,7 +470,24 @@ services:
                         exit 1
                     fi
                 done
-                for topic in document_embeddings_input; do
+                # The combined analytics ingestion consumer checks topic existence at
+                # startup for every output it produces to (see analytics/outputs/registry.ts).
+                # Auto-create only fires on producer-first writes, so pre-create them here.
+                TOPICS="document_embeddings_input \
+                    clickhouse_events_json \
+                    clickhouse_ai_events_json \
+                    clickhouse_heatmap_events \
+                    clickhouse_ingestion_warnings \
+                    events_plugin_ingestion_dlq \
+                    events_plugin_ingestion_overflow \
+                    events_plugin_ingestion_async \
+                    clickhouse_groups \
+                    clickhouse_person \
+                    clickhouse_person_distinct_id \
+                    clickhouse_app_metrics2 \
+                    log_entries \
+                    clickhouse_tophog"
+                for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"
                     elif rpk topic list --brokers kafka:9092 | grep -q "$$topic"; then
@@ -521,6 +543,28 @@ services:
         environment:
             - AUTO_CREATE_SESSIONS=true
 
+    personhog-replica:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-replica
+        environment:
+            PRIMARY_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+        depends_on:
+            db:
+                condition: service_healthy
+        profiles:
+            - ingestion
+
+    personhog-router:
+        extends:
+            file: docker-compose.base.yml
+            service: personhog-router
+        depends_on:
+            personhog-replica:
+                condition: service_started
+        profiles:
+            - ingestion
+
     feature-flags:
         extends:
             file: docker-compose.base.yml
@@ -567,7 +611,7 @@ services:
                 condition: service_healthy
         restart: 'no'
         volumes:
-            - ./products/llm_analytics/opensearch:/work:ro
+            - ./products/ai_observability/opensearch:/work:ro
         entrypoint: ['sh', '/work/init.sh']
         profiles: [opensearch]
 

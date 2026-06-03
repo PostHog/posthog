@@ -22,6 +22,8 @@ from psycopg import sql
 from psycopg.adapt import Loader
 from structlog.types import FilteringBoundLogger
 
+from posthog.hogql.database.schema.duckdb_table_functions import is_dangerous_table_function
+
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.helpers import (
@@ -41,7 +43,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_iterator,
 )
 from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import Column, Table, compute_projected_columns
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
@@ -56,7 +58,6 @@ from posthog.temporal.data_imports.sources.postgres.partitioned_tables import (
     iterate_partitions,
     list_child_partitions,
 )
-from posthog.temporal.data_imports.sources.postgres.query_builders import build_select_clause
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -93,6 +94,55 @@ class SSLRequiredError(Exception):
     """Raised when SSL/TLS is required but the database does not support it."""
 
     pass
+
+
+# Substrings PgBouncer / libpq use when the upstream backend connection died
+# mid-stream. We hit these when a long-running sync holds a server-side cursor
+# (and thus an open transaction) idle across the slow delta-merge phase and the
+# source's idle_in_transaction_session_timeout / PgBouncer server_idle_timeout
+# culls the backend. They're transient — recover by reconnecting and resuming.
+_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
+    "server conn crashed",
+    "server closed the connection unexpectedly",
+    # Narrow "connection to server …" variants only — a bare "connection to server"
+    # would also match initial-connect failures like "connection to server at
+    # \"host\" failed: FATAL: password authentication failed", which are permanent
+    # and must not be retried.
+    "connection to server was lost",
+    "connection to server was closed",
+    "consuming input failed",
+    "no connection to the server",
+    "terminating connection due to",
+)
+
+
+def _safe_close_connection(connection: psycopg.Connection) -> None:
+    """Close a connection without raising.
+
+    Prefer this over Connection.__exit__ for teardown in exception handlers:
+    __exit__ attempts a commit/rollback first, which can itself raise on a
+    broken connection and mask the original error. close() just releases the
+    socket.
+    """
+    if connection.closed:
+        return
+    try:
+        connection.close()
+    except Exception:
+        pass
+
+
+def _is_connection_dropped_error(error: BaseException) -> bool:
+    """True if the error indicates the upstream connection was dropped mid-stream.
+
+    psycopg surfaces these as ProtocolViolation (PgBouncer's synthetic error
+    packet) or OperationalError (libpq detecting the dead socket), so we match on
+    type and message rather than a single SQLSTATE.
+    """
+    if isinstance(error, psycopg.errors.ProtocolViolation | psycopg.OperationalError):
+        message = " ".join(str(arg) for arg in error.args).lower()
+        return any(substring in message for substring in _CONNECTION_DROPPED_ERROR_SUBSTRINGS)
+    return False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -414,7 +464,16 @@ def _get_discovered_tables(
     if names is None:
         return all_tables, qualify_with_schema
 
-    return {name: all_tables[name] for name in names if name in all_tables}, qualify_with_schema
+    # Match qualified (`schema.table`) and bare `table` names — keys may differ after multi-schema migration.
+    filtered: dict[str, tuple[str | None, str, str]] = {}
+    for name in names:
+        if name in all_tables:
+            filtered[name] = all_tables[name]
+        elif "." in name:
+            _, _, unqualified = name.partition(".")
+            if unqualified in all_tables:
+                filtered[name] = all_tables[unqualified]
+    return filtered, qualify_with_schema
 
 
 def _row_counts_from_conn(
@@ -721,6 +780,9 @@ def get_connection_metadata(
             except Exception as error:
                 capture_exception(error)
 
+            available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
+            available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
+
             return {
                 "database": current_database,
                 "version": version,
@@ -813,7 +875,10 @@ def _build_query(
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
-    select_clause = build_select_clause(enabled_columns, primary_keys, incremental_field)
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    select_clause: sql.Composable = (
+        sql.SQL("*") if projected is None else sql.SQL(", ").join(sql.Identifier(c) for c in projected)
+    )
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -1627,8 +1692,7 @@ def postgres_source(
                         if incremental_field:
                             retained_set.add(incremental_field)
                         retained_columns = [column.name for column in full_table.columns if column.name in retained_set]
-                        # Mirror build_select_clause's fallback: when nothing remains after projection
-                        # the SQL emits `SELECT *`, so the Arrow schema must stay full-table to match.
+                        # Mirror `compute_projected_columns` fallback to `SELECT *` so Arrow stays full-table.
                         if not retained_columns:
                             retained_columns = None
 
@@ -1796,7 +1860,9 @@ def postgres_source(
                 # wide/partitioned scans the source's default (often 30-60s)
                 # kills the fetch before rows come back.
                 try:
-                    with connection.cursor() as setup_cursor:
+                    # Use psycopg.Cursor directly to bypass cursor_factory (which may be
+                    # ServerCursor and requires a `name` arg, breaking an unnamed cursor()).
+                    with psycopg.Cursor(connection) as setup_cursor:
                         setup_cursor.execute(
                             sql.SQL("SET statement_timeout = {timeout}").format(
                                 timeout=sql.Literal(SYNC_STATEMENT_TIMEOUT_MS)
@@ -1804,6 +1870,13 @@ def postgres_source(
                         )
                 except Exception as e:
                     logger.debug(f"Failed to set statement_timeout on sync connection: {e}")
+                # The SET above opens an implicit transaction in psycopg's default
+                # non-autocommit mode, leaving the connection INTRANS. Commit so the
+                # connection is returned IDLE: callers that flip on autocommit (offset
+                # chunking) would otherwise hit "can't change autocommit state:
+                # connection in transaction". SET statement_timeout has session scope,
+                # so committing preserves it.
+                connection.commit()
                 return connection
 
             def offset_chunking(offset: int, chunk_size: int):
@@ -1827,12 +1900,20 @@ def postgres_source(
                 )
 
                 successive_errors = 0
+                successive_conn_errors = 0
                 connection = get_connection()
+                # Autocommit so each LIMIT/OFFSET query runs as its own statement
+                # and no transaction stays open across the slow delta-merge that
+                # happens between yields. A held transaction is what gets the
+                # backend culled by idle_in_transaction_session_timeout, producing
+                # the "server conn crashed?" ProtocolViolation on the next fetch.
+                connection.autocommit = True
                 while True:
                     try:
                         if connection.closed:
                             logger.debug("Postgres connection was closed, reopening...")
                             connection = get_connection()
+                            connection.autocommit = True
 
                         with connection.cursor() as cursor:
                             query_with_limit = cast(
@@ -1854,6 +1935,7 @@ def postgres_source(
                             yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                             successive_errors = 0
+                            successive_conn_errors = 0
                     except psycopg.errors.SerializationFailure as e:
                         if "due to conflict with recovery" not in "".join(e.args):
                             raise
@@ -1864,8 +1946,7 @@ def postgres_source(
                         successive_errors += 1
                         if successive_errors >= 30:
                             # The connection should be closed here, but want to double check to make sure
-                            if connection.closed is False:
-                                connection.__exit__(type(e), e, None)
+                            _safe_close_connection(connection)
 
                             raise Exception(
                                 f"Hit {successive_errors} successive SerializationFailure errors. Aborting."
@@ -1877,13 +1958,32 @@ def postgres_source(
                         else:
                             # Linear backoff on successive errors to make sure we give the read replica time to catch up
                             time.sleep(2 * successive_errors)
-                    except Exception as e:
-                        if connection.closed is False:
-                            connection.__exit__(type(e), e, None)
+                    except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+                        if not _is_connection_dropped_error(e):
+                            _safe_close_connection(connection)
+                            raise
+
+                        # The upstream connection died (idle cull, failover, etc.).
+                        # offset only advances after a fully fetched+yielded chunk,
+                        # so reopening and retrying the same offset resumes cleanly.
+                        successive_conn_errors += 1
+                        _safe_close_connection(connection)
+                        if successive_conn_errors >= 10:
+                            raise Exception(
+                                f"Hit {successive_conn_errors} successive connection-dropped errors. Aborting."
+                            ) from e
+                        logger.debug(
+                            f"Connection dropped ({e}). Reconnecting and retrying chunk at offset {offset} "
+                            f"(attempt {successive_conn_errors})"
+                        )
+                        time.sleep(min(2 * successive_conn_errors, 30))
+                        connection = get_connection()
+                        connection.autocommit = True
+                    except Exception:
+                        _safe_close_connection(connection)
                         raise
 
-                if connection.closed is False:
-                    connection.__exit__(None, None, None)
+                _safe_close_connection(connection)
 
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 
@@ -1984,6 +2084,25 @@ def postgres_source(
                     return
 
                 raise
+            except (psycopg.errors.ProtocolViolation, psycopg.OperationalError) as e:
+                # The server cursor holds a transaction open across the slow
+                # delta-merge between yields; the source can cull the backend
+                # (idle_in_transaction_session_timeout / PgBouncer) and the next
+                # fetch fails with "server conn crashed?". Resume from the current
+                # offset via offset_chunking, which runs in autocommit so it never
+                # holds a transaction open across the merge.
+                if not _is_connection_dropped_error(e):
+                    raise
+                # Offset-based resume is only safe when the query has a stable
+                # ORDER BY (added by _build_query for incremental syncs). A
+                # full-table scan has no ORDER BY, so Postgres may return rows in
+                # a different order on the resumed query and OFFSET would skip or
+                # duplicate rows. In that case re-raise and let the sync restart.
+                if not should_use_incremental_field:
+                    raise
+                logger.debug(f"Connection dropped ({e}). Falling back to offset chunking at offset {offset}.")
+                yield from offset_chunking(offset, chunk_size)
+                return
 
     name = NamingConvention.normalize_identifier(table_name)
 

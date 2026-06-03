@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 import pytest
@@ -5,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import structlog
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
@@ -172,6 +174,35 @@ class TestProcessGroup:
         mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_halts_group_when_batch_does_not_succeed(self):
+        consumer = _make_consumer(max_attempts=3)
+        processed: list[int] = []
+
+        async def fail_on_one(batch):
+            processed.append(batch.batch_index)
+            if batch.batch_index == 1:
+                raise RuntimeError("boom")
+
+        consumer._process_batch = fail_on_one
+
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        # batch 2 must not be processed once batch 1 enters waiting_retry
+        assert processed == [0, 1]
+
+    @pytest.mark.asyncio
     async def test_stops_on_shutdown(self):
         consumer = _make_consumer()
         processed: list[int] = []
@@ -224,6 +255,7 @@ class TestRecoverySweep:
             batch_id=stale_batch.id,
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
+            error_response={"error": "executing timed out — pod restart or OOM"},
         )
 
     @pytest.mark.asyncio
@@ -310,7 +342,7 @@ class TestLogContextBinding:
         assert seen.get("workflow_run_id") == "wf-run-id-456"
         assert seen.get("team_id") == batch.team_id
         assert seen.get("log_source_id") == batch.schema_id
-        assert seen.get("schema_id") == batch.schema_id
+        assert seen.get("external_data_schema_id") == batch.schema_id
         assert seen.get("attempt") == 1
 
         # Cleared after the batch returns so context doesn't leak across batches.
@@ -369,3 +401,43 @@ class TestLogContextBinding:
 
         assert "batch_id" not in structlog.contextvars.get_contextvars()
         assert "workflow_run_id" not in structlog.contextvars.get_contextvars()
+
+
+class TestHeartbeatLoop:
+    @pytest.mark.asyncio
+    async def test_reports_until_shutdown(self):
+        consumer = _make_consumer(heartbeat_interval_seconds=0.01)
+        calls = 0
+
+        def reporter():
+            nonlocal calls
+            calls += 1
+
+        consumer._health_reporter = reporter
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.05)
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert calls >= 2
+
+    @pytest.mark.asyncio
+    async def test_keeps_liveness_healthy_through_long_batch(self):
+        # A poll cycle (large final-batch compaction) can run far longer than the
+        # health timeout; the dedicated heartbeat must keep liveness green so
+        # kubelet doesn't SIGTERM the pod mid-batch.
+        health = HealthState(timeout_seconds=0.1)
+        consumer = _make_consumer(heartbeat_interval_seconds=0.02)
+        consumer._health_reporter = health.report_healthy
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.3)  # simulate a batch ~3x the health timeout
+        assert health.is_healthy() is True
+
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        # Once the heartbeat stops, liveness correctly goes stale again.
+        await asyncio.sleep(0.2)
+        assert health.is_healthy() is False

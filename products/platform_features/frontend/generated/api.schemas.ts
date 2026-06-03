@@ -7,189 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-/**
- * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
- */
-export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
-
-export const RoleAtOrganizationEnumApi = {
-    Engineering: 'engineering',
-    Data: 'data',
-    Product: 'product',
-    Founder: 'founder',
-    Leadership: 'leadership',
-    Marketing: 'marketing',
-    Sales: 'sales',
-    Other: 'other',
-} as const
-
-export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
-
-export const BlankEnumApi = {
-    '': '',
-} as const
-
-/**
- * @nullable
- */
-export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
-
-export interface UserBasicApi {
-    readonly id: number
-    readonly uuid: string
-    /**
-     * @maxLength 200
-     * @nullable
-     */
-    distinct_id?: string | null
-    /** @maxLength 150 */
-    first_name?: string
-    /** @maxLength 150 */
-    last_name?: string
-    /** @maxLength 254 */
-    email: string
-    /** @nullable */
-    is_email_verified?: boolean | null
-    /** @nullable */
-    readonly hedgehog_config: UserBasicApiHedgehogConfig
-    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
-}
-
-export interface ApprovalPolicyApi {
-    readonly id: string
-    /** @maxLength 128 */
-    action_key: string
-    conditions?: unknown
-    approver_config: unknown
-    allow_self_approve?: boolean
-    bypass_org_membership_levels?: unknown
-    bypass_roles?: string[]
-    /** Auto-expire change requests after this duration */
-    expires_after?: string
-    enabled?: boolean
-    readonly created_by: UserBasicApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-}
-
-export interface PaginatedApprovalPolicyListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ApprovalPolicyApi[]
-}
-
-export interface PatchedApprovalPolicyApi {
-    readonly id?: string
-    /** @maxLength 128 */
-    action_key?: string
-    conditions?: unknown
-    approver_config?: unknown
-    allow_self_approve?: boolean
-    bypass_org_membership_levels?: unknown
-    bypass_roles?: string[]
-    /** Auto-expire change requests after this duration */
-    expires_after?: string
-    enabled?: boolean
-    readonly created_by?: UserBasicApi
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-}
-
-/**
- * * `valid` - Valid
- * `invalid` - Invalid
- * `expired` - Expired
- * `stale` - Stale (resource changed)
- */
-export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
-
-export const ValidationStatusEnumApi = {
-    Valid: 'valid',
-    Invalid: 'invalid',
-    Expired: 'expired',
-    Stale: 'stale',
-} as const
-
-/**
- * * `pending` - Pending
- * `approved` - Approved (awaiting application)
- * `applied` - Applied
- * `rejected` - Rejected
- * `expired` - Expired
- * `failed` - Failed to apply
- */
-export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
-
-export const ChangeRequestStateEnumApi = {
-    Pending: 'pending',
-    Approved: 'approved',
-    Applied: 'applied',
-    Rejected: 'rejected',
-    Expired: 'expired',
-    Failed: 'failed',
-} as const
-
-export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
-
-export interface ChangeRequestApi {
-    readonly id: string
-    readonly action_key: string
-    readonly action_version: number
-    readonly resource_type: string
-    /** @nullable */
-    readonly resource_id: string | null
-    readonly intent: unknown
-    readonly intent_display: unknown
-    readonly policy_snapshot: unknown
-    readonly validation_status: ValidationStatusEnumApi
-    readonly validation_errors: unknown
-    /** @nullable */
-    readonly validated_at: string | null
-    readonly state: ChangeRequestStateEnumApi
-    readonly created_by: UserBasicApi
-    readonly applied_by: UserBasicApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    readonly expires_at: string
-    /** @nullable */
-    readonly applied_at: string | null
-    readonly apply_error: string
-    readonly result_data: unknown
-    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
-    /** Check if current user can approve this change request. */
-    readonly can_approve: boolean
-    readonly can_cancel: boolean
-    /** Check if current user is the requester. */
-    readonly is_requester: boolean
-    /**
-     * Get the current user's approval decision if they have voted.
-     * @nullable
-     */
-    readonly user_decision: string | null
-}
-
-export interface PaginatedChangeRequestListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ChangeRequestApi[]
-}
-
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -224,6 +41,12 @@ export type DefaultExperimentStatsMethodEnumApi =
 export const DefaultExperimentStatsMethodEnumApi = {
     Bayesian: 'bayesian',
     Frequentist: 'frequentist',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
 } as const
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
@@ -397,6 +220,55 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+}
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
 /**
@@ -586,6 +458,8 @@ export interface ActivityLogApi {
      * @nullable
      */
     client?: string | null
+    /** @nullable */
+    ip_address?: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -637,6 +511,134 @@ export interface AvailableFiltersResponseApi {
     static_filters: StaticFiltersApi
     /** Discovered detail fields and their value distributions. */
     detail_fields: AvailableFiltersResponseApiDetailFields
+}
+
+export interface ApprovalPolicyApi {
+    readonly id: string
+    /** @maxLength 128 */
+    action_key: string
+    conditions?: unknown
+    approver_config: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedApprovalPolicyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ApprovalPolicyApi[]
+}
+
+export interface PatchedApprovalPolicyApi {
+    readonly id?: string
+    /** @maxLength 128 */
+    action_key?: string
+    conditions?: unknown
+    approver_config?: unknown
+    allow_self_approve?: boolean
+    bypass_org_membership_levels?: unknown
+    bypass_roles?: string[]
+    /** Auto-expire change requests after this duration */
+    expires_after?: string
+    enabled?: boolean
+    readonly created_by?: UserBasicApi
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `valid` - Valid
+ * `invalid` - Invalid
+ * `expired` - Expired
+ * `stale` - Stale (resource changed)
+ */
+export type ValidationStatusEnumApi = (typeof ValidationStatusEnumApi)[keyof typeof ValidationStatusEnumApi]
+
+export const ValidationStatusEnumApi = {
+    Valid: 'valid',
+    Invalid: 'invalid',
+    Expired: 'expired',
+    Stale: 'stale',
+} as const
+
+/**
+ * * `pending` - Pending
+ * `approved` - Approved (awaiting application)
+ * `applied` - Applied
+ * `rejected` - Rejected
+ * `expired` - Expired
+ * `failed` - Failed to apply
+ */
+export type ChangeRequestStateEnumApi = (typeof ChangeRequestStateEnumApi)[keyof typeof ChangeRequestStateEnumApi]
+
+export const ChangeRequestStateEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Applied: 'applied',
+    Rejected: 'rejected',
+    Expired: 'expired',
+    Failed: 'failed',
+} as const
+
+export type ChangeRequestApiApprovalsItem = { [key: string]: unknown }
+
+export interface ChangeRequestApi {
+    readonly id: string
+    readonly action_key: string
+    readonly action_version: number
+    readonly resource_type: string
+    /** @nullable */
+    readonly resource_id: string | null
+    readonly intent: unknown
+    readonly intent_display: unknown
+    readonly policy_snapshot: unknown
+    readonly validation_status: ValidationStatusEnumApi
+    readonly validation_errors: unknown
+    /** @nullable */
+    readonly validated_at: string | null
+    readonly state: ChangeRequestStateEnumApi
+    readonly created_by: UserBasicApi
+    readonly applied_by: UserBasicApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly expires_at: string
+    /** @nullable */
+    readonly applied_at: string | null
+    readonly apply_error: string
+    readonly result_data: unknown
+    readonly approvals: readonly ChangeRequestApiApprovalsItem[]
+    /** Check if current user can approve this change request. */
+    readonly can_approve: boolean
+    readonly can_cancel: boolean
+    /** Check if current user is the requester. */
+    readonly is_requester: boolean
+    /**
+     * Get the current user's approval decision if they have voted.
+     * @nullable
+     */
+    readonly user_decision: string | null
+}
+
+export interface PaginatedChangeRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ChangeRequestApi[]
 }
 
 export interface CommentApi {
@@ -713,6 +715,14 @@ export interface PatchedCommentApi {
     source_comment?: string | null
 }
 
+export interface PromotedProductIntentApi {
+    /**
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
+     * @nullable
+     */
+    product_key: string | null
+}
+
 export interface PinnedSceneTabApi {
     /** Stable identifier for the tab. Generated client-side; safe to omit on create. */
     id?: string
@@ -759,36 +769,6 @@ export interface PatchedPinnedSceneTabsApi {
     tabs?: PinnedSceneTabApi[]
     /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
     homepage?: PinnedSceneTabApi | null
-}
-
-export type ApprovalPoliciesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type ChangeRequestsListParams = {
-    action_key?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-    requester?: number
-    resource_id?: string
-    resource_type?: string
-    /**
-     * Multiple values may be separated by commas.
-     */
-    state?: string[]
 }
 
 export type ListParams = {
@@ -920,6 +900,7 @@ export type ActivityLogListParams = {
 * `Log` - Log
 * `LogsAlertConfiguration` - LogsAlertConfiguration
 * `LogsExclusionRule` - LogsExclusionRule
+* `DashboardWidget` - DashboardWidget
 * `ProductTour` - ProductTour
 * `Ticket` - Ticket
 * `InstanceSetting` - InstanceSetting
@@ -996,6 +977,7 @@ export const ActivityLogListScope = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
@@ -1059,6 +1041,7 @@ export const ActivityLogListScope = {
  * `Log` - Log
  * `LogsAlertConfiguration` - LogsAlertConfiguration
  * `LogsExclusionRule` - LogsExclusionRule
+ * `DashboardWidget` - DashboardWidget
  * `ProductTour` - ProductTour
  * `Ticket` - Ticket
  * `InstanceSetting` - InstanceSetting
@@ -1123,6 +1106,7 @@ export const ActivityLogListScopesItem = {
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
+    DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
@@ -1149,6 +1133,10 @@ export type AdvancedActivityLogsListParams = {
      * Reserved for future HogQL-based filtering.
      */
     hogql_filter?: string
+    /**
+     * Filter by client IP addresses. Accepts exact IPv4/IPv6 values or wildcard patterns using `*` (e.g. `203.0.113.*`). Multiple entries are OR-combined.
+     */
+    ip_addresses?: string[]
     /**
      * When set, filters rows authored by the system (no user).
      * @nullable
@@ -1194,6 +1182,36 @@ export type AdvancedActivityLogsListParams = {
      * @nullable
      */
     was_impersonated?: boolean | null
+}
+
+export type ApprovalPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ChangeRequestsListParams = {
+    action_key?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    requester?: number
+    resource_id?: string
+    resource_type?: string
+    /**
+     * Multiple values may be separated by commas.
+     */
+    state?: string[]
 }
 
 export type CommentsListParams = {

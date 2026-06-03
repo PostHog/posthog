@@ -1,5 +1,6 @@
 import { bisector } from 'd3'
 
+import { barColorAt } from './color-utils'
 import type {
     ChartDimensions,
     PointClickData,
@@ -98,7 +99,11 @@ export function buildTooltipContext<Meta = unknown>(
         // `resolveValue` is the value shown to the user (the segment); `resolvePositionValue`
         // is where to anchor (the stacked top). They diverge only for stacked charts.
         if (s.visibility?.tooltip !== false) {
-            seriesData.push({ series: s, value: resolveValue(s, dataIndex), color: s.color })
+            // A per-bar series carries each bar's identity in `bars[i]` — surface it so the tooltip
+            // reads the right color/meta/label rather than the shared series-level ones.
+            const bar = s.bars?.[dataIndex]
+            const entrySeries = bar ? { ...s, meta: bar.meta ?? s.meta, label: bar.label ?? s.label } : s
+            seriesData.push({ series: entrySeries, value: resolveValue(s, dataIndex), color: barColorAt(s, dataIndex) })
         }
         const seriesValueScale = yAxes?.[s.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? yScale
         const px = seriesValueScale(resolvePositionValue(s, dataIndex))
@@ -135,7 +140,10 @@ export function buildPointClickData<Meta = unknown>(
     dataIndex: number,
     series: ResolvedSeries<Meta>[],
     labels: string[],
-    resolveValue: ResolveValueFn
+    resolveValue: ResolveValueFn,
+    // Required — callers pass `null` explicitly when cursor isn't available. No implicit default
+    // because losing the cursor silently breaks downstream click routing.
+    cursor: { x: number; y: number } | null
 ): PointClickData<Meta> | null {
     if (dataIndex < 0 || dataIndex >= labels.length) {
         return null
@@ -158,5 +166,6 @@ export function buildPointClickData<Meta = unknown>(
             series: s,
             value: resolveValue(s, dataIndex),
         })),
+        cursor,
     }
 }

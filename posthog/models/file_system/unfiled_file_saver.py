@@ -5,14 +5,15 @@ from typing import Optional
 from django.utils import timezone
 
 from posthog.models.cohort import Cohort
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system import FileSystem, escape_path, split_path
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.actions.backend.models.action import Action
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -22,7 +23,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
 
-MIXIN_MODELS = {
+MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "action": Action,
     "feature_flag": FeatureFlag,
     "experiment": Experiment,
@@ -37,6 +38,12 @@ MIXIN_MODELS = {
     "survey": Survey,
 }
 
+# Which models feed each surface's tree. New product surfaces register their own models here so
+# they are never swept into the default ("web") tree, and vice versa.
+MIXIN_MODELS_BY_SURFACE: dict[str, dict[str, type[FileSystemSyncMixin]]] = {
+    DEFAULT_SURFACE: MIXIN_MODELS,
+}
+
 
 class UnfiledFileSaver:
     """
@@ -44,13 +51,14 @@ class UnfiledFileSaver:
     haven't been put into FileSystem. Creates them with unique paths.
     """
 
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User, surface: str = DEFAULT_SURFACE):
         self.team = team
         self.user = user
+        self.surface = surface
         self._in_memory_paths: set[str] = set()
 
     def save_unfiled_for_model(self, model_cls: type[FileSystemSyncMixin]) -> list[FileSystem]:
-        unfiled_qs = model_cls.get_file_system_unfiled(self.team)
+        unfiled_qs = model_cls.get_file_system_unfiled(self.team, surface=self.surface)
         new_files: list[FileSystem] = []
         users_by_id: dict[int, User] = {}
         for obj in unfiled_qs:
@@ -85,6 +93,7 @@ class UnfiledFileSaver:
                     created_by=user,
                     created_at=created_at,
                     shortcut=False,
+                    surface=rep.surface,
                 )
             )
         FileSystem.objects.bulk_create(new_files)
@@ -92,17 +101,19 @@ class UnfiledFileSaver:
 
     def save_all_unfiled(self) -> list[FileSystem]:
         created_all = []
-        for model_cls in MIXIN_MODELS.values():
-            created_all.extend(self.save_unfiled_for_model(model_cls))  # type: ignore
+        for model_cls in MIXIN_MODELS_BY_SURFACE.get(self.surface, {}).values():
+            created_all.extend(self.save_unfiled_for_model(model_cls))
         return created_all
 
 
-def save_unfiled_files(team: Team, user: User, file_type: Optional[str] = None) -> list[FileSystem]:
-    saver = UnfiledFileSaver(team, user)
+def save_unfiled_files(
+    team: Team, user: User, file_type: Optional[str] = None, surface: str = DEFAULT_SURFACE
+) -> list[FileSystem]:
+    saver = UnfiledFileSaver(team, user, surface)
     if file_type is None:
         return saver.save_all_unfiled()
 
-    found_cls = MIXIN_MODELS.get(file_type)
+    found_cls = MIXIN_MODELS_BY_SURFACE.get(surface, {}).get(file_type)
     if not found_cls:
         return []
-    return saver.save_unfiled_for_model(found_cls)  # type: ignore
+    return saver.save_unfiled_for_model(found_cls)
