@@ -27,7 +27,10 @@
         { "kind": "native", "id": "@posthog/slack-post-message" },
         { "kind": "native", "id": "@posthog/slack-read-channel" },
         { "kind": "native", "id": "@posthog/slack-read-thread" },
-        { "kind": "native", "id": "@posthog/slack-react" }
+        { "kind": "native", "id": "@posthog/slack-react" },
+        { "kind": "native", "id": "@posthog/table-membership" },
+        { "kind": "native", "id": "@posthog/table-append" },
+        { "kind": "native", "id": "@posthog/table-query" }
     ],
     "skills": [
         {

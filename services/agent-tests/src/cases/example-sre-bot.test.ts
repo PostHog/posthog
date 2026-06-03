@@ -96,38 +96,62 @@ describe('example: sre-slack-bot bundle', () => {
             'runbooks.internal/ingestion-500s': '# Runbook: ingest 500s\nCheck kafka consumer lag.',
         })
 
-        // The faux model's script — a realistic six-call investigation.
+        // The faux model's script — a realistic eight-call investigation that
+        // also exercises tabular memory: check the incidents table for prior
+        // hits on this alert signature, then record the resolved outcome.
         c.setScript([
-            // Phase 1: load the skill before doing anything.
-            fauxCallTool('@posthog/load-skill', { id: 'triage-playbook' }),
-            // Phase 2: react to acknowledge.
+            // Phase 1: react to acknowledge.
             fauxCallTool('@posthog/slack-react', {
                 team_integration_id: 'slack:T01TEST',
                 channel: 'C-incidents',
                 ts: '1700000099.000000',
                 name: 'eyes',
             }),
-            // Phase 3: read the channel for context.
+            // Phase 2: check prior incidents for this alert signature.
+            fauxCallTool('@posthog/table-query', {
+                table: 'incidents',
+                where: { alert_signature: 'ingestion-500s' },
+                limit: 5,
+            }),
+            // Phase 3: load the triage skill.
+            fauxCallTool('@posthog/load-skill', { id: 'triage-playbook' }),
+            // Phase 4: read the channel for context.
             fauxCallTool('@posthog/slack-read-channel', {
                 team_integration_id: 'slack:T01TEST',
                 channel: 'C-incidents',
                 limit: 20,
             }),
-            // Phase 4: fetch the runbook.
+            // Phase 5: fetch the runbook.
             fauxCallTool('@posthog/web-fetch', {
                 url: 'https://runbooks.internal/ingestion-500s',
             }),
-            // Phase 5: load the reply-protocol skill.
+            // Phase 6: load the reply-protocol skill.
             fauxCallTool('@posthog/load-skill', { id: 'slack-thread-protocol' }),
-            // Phase 6: post the final analysis.
+            // Phase 7: post the final analysis.
             fauxCallTool('@posthog/slack-post-message', {
                 team_integration_id: 'slack:T01TEST',
                 channel: 'C-incidents',
                 thread_ts: '1700000099.000000',
                 text: ':mag: *TL;DR:* ingest 500s correlate with kafka consumer lag.\n\n*Suggested next step* cc oncall',
             }),
+            // Phase 8: record the resolved outcome so future alerts can
+            // short-circuit. Dedupe on thread_url.
+            fauxCallTool('@posthog/table-append', {
+                table: 'incidents',
+                rows: [
+                    {
+                        alert_signature: 'ingestion-500s',
+                        symptom: 'ingest 500s spike',
+                        root_cause: 'kafka consumer lag',
+                        mitigation: 'scaled consumer group, lag drained in 4m',
+                        thread_url: 'https://slack.com/archives/C-incidents/p1700000099000000',
+                        resolved_at: '2026-05-29T15:10:00Z',
+                    },
+                ],
+                dedupe_on: 'thread_url',
+            }),
             // Close the turn.
-            fauxText('Triage posted, ending session.'),
+            fauxText('Triage posted, outcome recorded, ending session.'),
         ])
 
         await c.deployAgent({ slug: 'sre-slack-bot', spec, files })
@@ -152,12 +176,27 @@ describe('example: sre-slack-bot bundle', () => {
             .filter((m) => m.role === 'toolResult')
             .map((m) => (m as { toolName?: string }).toolName)
         expect(calledTools).toEqual([
-            '@posthog/load-skill',
             '@posthog/slack-react',
+            '@posthog/table-query',
+            '@posthog/load-skill',
             '@posthog/slack-read-channel',
             '@posthog/web-fetch',
             '@posthog/load-skill',
             '@posthog/slack-post-message',
+            '@posthog/table-append',
         ])
+
+        // Confirm the row actually landed in the tabular store — proves the
+        // tool wired through to a real S3 backend, not just executed in a vacuum.
+        const rows = await c.tabularStore.query(
+            { teamId: session!.team_id, applicationId: session!.application_id },
+            'incidents',
+            { where: { alert_signature: 'ingestion-500s' } }
+        )
+        expect(rows).toHaveLength(1)
+        expect(rows[0]).toMatchObject({
+            alert_signature: 'ingestion-500s',
+            mitigation: 'scaled consumer group, lag drained in 4m',
+        })
     })
 })

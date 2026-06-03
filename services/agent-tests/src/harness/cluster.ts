@@ -49,8 +49,10 @@ import {
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
+    S3JsonlTabularStore,
     S3MemoryStore,
     SecretBroker,
+    TEST_S3_BUCKET,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
@@ -89,6 +91,12 @@ export interface Cluster {
      * tests; teardown wipes the prefix.
      */
     memoryStore: S3MemoryStore
+    /**
+     * Real S3JsonlTabularStore (SeaweedFS in dev) wired through to ToolContext
+     * for the `@posthog/table-*` tools. Shares the memory store's bucket prefix
+     * so teardown wipes both at once.
+     */
+    tabularStore: S3JsonlTabularStore
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
     ingress: Express
@@ -214,6 +222,13 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // stack rather than mocking around it.
     const memoryStorePrefix = newMemoryTestPrefix('agent_memory_harness')
     const { client: memoryStoreClient, store: memoryStore } = buildMemoryTestStore(memoryStorePrefix)
+    // Tabular store shares the bucket + S3 client; the prefix scopes it under
+    // the same harness root so teardown wipes both stores in one sweep.
+    const tabularStore = new S3JsonlTabularStore({
+        client: memoryStoreClient,
+        bucket: TEST_S3_BUCKET,
+        bucketPrefix: `${memoryStorePrefix}/tables`,
+    })
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
     // resolveModel ignores spec.model and always returns the harness's Model —
@@ -248,6 +263,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
         isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
+        tabularStore,
         mcpTransportFactory: opts.mcpTransportFactory,
         agentMcpResolver: opts.agentMcpResolver,
         // Permissive default so the common e2e suite doesn't have to know
@@ -297,6 +313,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         broker,
         credentialBroker,
         memoryStore,
+        tabularStore,
         model,
         ingress,
         janitor,
