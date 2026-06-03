@@ -10,11 +10,62 @@ import {
     SessionRecordingPlaylistsRetrieveParams,
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
+    SingleSessionSummariesListQueryParams,
+    SingleSessionSummariesRetrieveParams,
 } from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const SingleSessionSummariesListSchema = SingleSessionSummariesListQueryParams
+
+const singleSessionSummariesList = (): ToolBase<
+    typeof SingleSessionSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSingleSessionSummaryMinimalList>
+> => ({
+    name: 'single-session-summaries-list',
+    schema: SingleSessionSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SingleSessionSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSingleSessionSummaryMinimalList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/`,
+            query: {
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                distinct_id: params.distinct_id,
+                has_exceptions: params.has_exceptions,
+                has_visual_confirmation: params.has_visual_confirmation,
+                limit: params.limit,
+                offset: params.offset,
+                order: params.order,
+                outcome: params.outcome,
+                session_ids: params.session_ids,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SingleSessionSummariesGetSchema = SingleSessionSummariesRetrieveParams.omit({ project_id: true })
+
+const singleSessionSummariesGet = (): ToolBase<
+    typeof SingleSessionSummariesGetSchema,
+    WithPostHogUrl<Schemas.SingleSessionSummary>
+> => ({
+    name: 'single-session-summaries-get',
+    schema: SingleSessionSummariesGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SingleSessionSummariesGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SingleSessionSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/${encodeURIComponent(String(params.session_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
+    },
+})
 
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 
@@ -611,6 +662,8 @@ const AssistantRecordingsQuery = z.object({
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'single-session-summaries-list': singleSessionSummariesList,
+    'single-session-summaries-get': singleSessionSummariesGet,
     'session-recording-delete': sessionRecordingDelete,
     'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
