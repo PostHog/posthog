@@ -345,6 +345,49 @@ describe('toolbar toolbarConfigLogic', () => {
         })
     })
 
+    describe('reachability check auth handling', () => {
+        function mockHeadCheckStatus(status: number): void {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? Promise.resolve({ ok: status >= 200 && status < 300, status })
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            )
+        }
+
+        it.each([403, 401])(
+            'routes a %s from the HEAD check through tokenExpired and returns to idle',
+            async (status) => {
+                mockHeadCheckStatus(status)
+                const logic = toolbarConfigLogic.build({
+                    uiHost: 'https://selfhosted.example.com',
+                    accessToken: 'pha_stale',
+                    refreshToken: 'phr_stale',
+                    clientId: 'client',
+                } as any)
+                // Mounting with a token would skip the probe, so simulate a pending code
+                // exchange (which keeps the probe running even when authenticated).
+                window.history.pushState({}, '', '/#__posthog_toolbar=code:abc,client_id:xyz')
+                logic.mount()
+                window.history.pushState({}, '', '/')
+
+                // tokenExpired clears the stored token; status returns to idle so the
+                // user can re-authenticate via OAuth (not the unreachable-host config modal).
+                await expectLogic(logic)
+                    .delay(0)
+                    .toMatchValues({ authStatus: 'idle', isAuthenticated: false, uiHostConfigModalVisible: false })
+            }
+        )
+
+        it('flips to error without re-authenticating on an unexpected non-2xx status', async () => {
+            mockHeadCheckStatus(500)
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            await expectLogic(logic).toNotHaveDispatchedActions(['tokenExpired'])
+        })
+    })
+
     describe('canonicalizeUiHost', () => {
         it.each([
             // valid

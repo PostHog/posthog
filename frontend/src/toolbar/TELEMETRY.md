@@ -31,8 +31,9 @@ Fired after the CORS reachability check to the PostHog app.
 | `api_host`         | `string`          | API host for reference                                               |
 | `ui_host_source`   | `string`          | How the UI host was resolved                                         |
 | `is_authenticated` | `boolean`         | Auth state at time of check                                          |
-| `status`           | `'ok' \| 'error'` | Check result                                                         |
-| `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
+| `status`           | `'ok' \| 'error' \| 'auth_expired'` | Check result (`auth_expired` for an expected 401/403 routed to re-auth) |
+| `error_type`       | `string`          | Only on `error`: `timeout`, `network_or_cors`, `http_error`, `unknown` |
+| `http_status`      | `number`          | Only on `auth_expired`: the 401/403 status code                     |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
 **File:** `toolbarConfigLogic.ts`

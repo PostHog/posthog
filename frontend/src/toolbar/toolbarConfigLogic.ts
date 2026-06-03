@@ -463,6 +463,7 @@ type TokenActions = {
 }
 type CheckActions = TokenActions & {
     openUiHostConfigModal: () => void
+    tokenExpired: () => void
 }
 
 /** Restore OAuth tokens from a separate localStorage key that survives posthog-js overwrites. */
@@ -643,19 +644,42 @@ function verifyUiHostReachability(
         signal: AbortSignal.timeout(5000),
     })
         .then((response) => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
-            }
-            actions.setAuthStatus('idle')
-            toolbarPosthogJS.capture('toolbar ui host check', {
-                ...checkBaseProps,
-                status: 'ok',
-                duration_ms: Date.now() - checkStart,
-            })
+            if (response.ok) {
+                actions.setAuthStatus('idle')
+                toolbarPosthogJS.capture('toolbar ui host check', {
+                    ...checkBaseProps,
+                    status: 'ok',
+                    duration_ms: Date.now() - checkStart,
+                })
 
-            if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                if (authParams) {
+                    startCodeExchange(values.uiHost, authParams, actions)
+                }
+                return
             }
+
+            // A 401/403 here is an expected auth condition — a stale OAuth token or a
+            // project switch (denials raised server-side), the same case toolbarFetch
+            // already handles via tokenExpired(). The init-time probe used to surface it
+            // as a generic `throw new Error('HTTP 403')` that captureToolbarException
+            // reported as an uncaught-looking exception, creating error-tracking noise.
+            // Route it through the existing re-auth flow instead: clear any stale token
+            // and return to 'idle' so the user can cleanly re-authenticate via OAuth.
+            if (response.status === 401 || response.status === 403) {
+                actions.tokenExpired()
+                actions.setAuthStatus('idle')
+                toolbarPosthogJS.capture('toolbar ui host check', {
+                    ...checkBaseProps,
+                    status: 'auth_expired',
+                    http_status: response.status,
+                    duration_ms: Date.now() - checkStart,
+                })
+                return
+            }
+
+            // Any other non-2xx is genuinely unexpected — let it fall through to the
+            // catch so it's reported and the config modal surfaces.
+            throw new Error(`HTTP ${response.status}`)
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
