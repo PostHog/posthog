@@ -1,14 +1,9 @@
-import posthog from 'posthog-js'
+import posthog, { JsonType } from 'posthog-js'
 
 import { CompatMessage } from './types'
 
 const mockRecipeNormalizeMessage = jest.fn()
 const mockRecipeNormalizeMessages = jest.fn()
-
-jest.mock('posthog-js', () => ({
-    __esModule: true,
-    default: { isFeatureEnabled: jest.fn(), capture: jest.fn() },
-}))
 
 jest.mock('./normalizer', () => ({
     RecipeNormalizer: jest.fn().mockImplementation(() => ({
@@ -30,8 +25,12 @@ const RECIPE: CompatMessage[] = [{ role: 'user', content: 'recipe' }]
 
 const legacy = jest.mocked(legacyNormalizeMessages)
 const legacyOne = jest.mocked(legacyNormalizeMessage)
-const isFeatureEnabled = jest.mocked(posthog.isFeatureEnabled)
+const getFeatureFlagResult = jest.mocked(posthog.getFeatureFlagResult)
 const capture = jest.mocked(posthog.capture)
+
+function mockFlag(enabled: boolean, payload?: JsonType): void {
+    getFeatureFlagResult.mockReturnValue({ key: 'recipe-normalizer', enabled, variant: undefined, payload })
+}
 
 beforeEach(() => {
     jest.clearAllMocks()
@@ -45,19 +44,19 @@ describe('messageNormalization — switch (unsampled) path', () => {
     beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0.5))
 
     it('runs only the legacy implementation when the flag is off', () => {
-        isFeatureEnabled.mockReturnValue(false)
+        mockFlag(false)
         expect(normalizeMessages({ role: 'user' }, 'user')).toBe(LEGACY)
         expect(mockRecipeNormalizeMessages).not.toHaveBeenCalled()
     })
 
     it('runs only the recipe implementation when the flag is on', () => {
-        isFeatureEnabled.mockReturnValue(true)
+        mockFlag(true)
         expect(normalizeMessages({ role: 'user' }, 'user')).toBe(RECIPE)
         expect(legacy).not.toHaveBeenCalled()
     })
 
     it('falls back to legacy and reports when the recipe implementation throws', () => {
-        isFeatureEnabled.mockReturnValue(true)
+        mockFlag(true)
         mockRecipeNormalizeMessages.mockImplementation(() => {
             throw new Error('no recipe matched')
         })
@@ -68,9 +67,15 @@ describe('messageNormalization — switch (unsampled) path', () => {
     })
 
     it('does not emit a timing event off the sampled path', () => {
-        isFeatureEnabled.mockReturnValue(false)
+        mockFlag(false)
         normalizeMessages({ role: 'user' }, 'user')
         expect(capture).not.toHaveBeenCalledWith('llma normalization timed', expect.anything())
+    })
+
+    it('honors a higher sample_rate from the flag payload to force the sampled path', () => {
+        mockFlag(true, { sample_rate: 1 })
+        normalizeMessages({ role: 'user' }, 'user')
+        expect(capture).toHaveBeenCalledWith('llma normalization timed', expect.anything())
     })
 })
 
@@ -78,7 +83,7 @@ describe('messageNormalization — shadow (sampled) path', () => {
     beforeEach(() => jest.spyOn(Math, 'random').mockReturnValue(0))
 
     it('runs both implementations and captures a timing comparison', () => {
-        isFeatureEnabled.mockReturnValue(false)
+        mockFlag(false)
         normalizeMessages({ role: 'user' }, 'user', [{ name: 'search' }])
         expect(legacy).toHaveBeenCalledTimes(1)
         expect(mockRecipeNormalizeMessages).toHaveBeenCalledTimes(1)
@@ -99,7 +104,7 @@ describe('messageNormalization — shadow (sampled) path', () => {
     })
 
     it('reports outputs_match true when both implementations agree', () => {
-        isFeatureEnabled.mockReturnValue(true)
+        mockFlag(true)
         mockRecipeNormalizeMessages.mockReturnValue([{ role: 'user', content: 'legacy' }])
         normalizeMessages({ role: 'user' }, 'user')
         expect(capture).toHaveBeenCalledWith(
@@ -109,12 +114,12 @@ describe('messageNormalization — shadow (sampled) path', () => {
     })
 
     it('returns the flag-selected recipe result while still timing legacy', () => {
-        isFeatureEnabled.mockReturnValue(true)
+        mockFlag(true)
         expect(normalizeMessages({ role: 'user' }, 'user')).toBe(RECIPE)
     })
 
     it('records recipe_errored and returns legacy when the recipe throws', () => {
-        isFeatureEnabled.mockReturnValue(true)
+        mockFlag(true)
         mockRecipeNormalizeMessages.mockImplementation(() => {
             throw new Error('boom')
         })
@@ -126,11 +131,17 @@ describe('messageNormalization — shadow (sampled) path', () => {
     })
 
     it('tags the singular normalizeMessage path with its op', () => {
-        isFeatureEnabled.mockReturnValue(false)
+        mockFlag(false)
         normalizeMessage({ role: 'user' }, 'user')
         expect(capture).toHaveBeenCalledWith(
             'llma normalization timed',
             expect.objectContaining({ op: 'normalizeMessage' })
         )
+    })
+
+    it('honors a lower sample_rate from the flag payload to suppress timing', () => {
+        mockFlag(true, { sample_rate: 0 })
+        normalizeMessages({ role: 'user' }, 'user')
+        expect(capture).not.toHaveBeenCalledWith('llma normalization timed', expect.anything())
     })
 })

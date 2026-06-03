@@ -218,8 +218,8 @@ function createEntry(entry) {
                     loader: 'babel-loader',
                 },
                 {
-                    // Apply rule for .sql files
-                    test: /\.sql$/,
+                    // Load .sql and .yaml files
+                    test: /\.(sql|yaml)$/,
                     type: 'asset/source',
                 },
             ],

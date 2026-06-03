@@ -1,4 +1,4 @@
-import posthog from 'posthog-js'
+import posthog, { JsonType } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { objectsEqual, removeUndefinedAndNull } from 'lib/utils'
@@ -12,7 +12,17 @@ import { normalizeMessage as legacyNormalizeMessage, normalizeMessages as legacy
 const recipeNormalizer = new RecipeNormalizer()
 
 // Normalization runs once per rendered message; sample so timing doesn't flood ingestion.
-const TIMING_SAMPLE_RATE = 0.01
+const DEFAULT_TIMING_SAMPLE_RATE = 0.01
+
+function timingSampleRate(payload: JsonType | undefined): number {
+    if (payload && typeof payload === 'object' && 'sample_rate' in payload) {
+        const rate = Number(payload.sample_rate)
+        if (Number.isFinite(rate) && rate >= 0 && rate <= 1) {
+            return rate
+        }
+    }
+    return DEFAULT_TIMING_SAMPLE_RATE
+}
 
 export function normalizeMessage(input: unknown, defaultRole: string): CompatMessage[] {
     return dispatch(
@@ -35,9 +45,10 @@ function dispatch(
     recipe: () => CompatMessage[],
     context: Record<string, unknown>
 ): CompatMessage[] {
-    const useRecipe = !!posthog.isFeatureEnabled(FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER)
+    const flag = posthog.getFeatureFlagResult(FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER)
+    const useRecipe = !!flag?.enabled
 
-    if (Math.random() >= TIMING_SAMPLE_RATE) {
+    if (Math.random() >= timingSampleRate(flag?.payload)) {
         return useRecipe ? runRecipe(recipe, legacy) : legacy()
     }
     return shadow(legacy, recipe, useRecipe, context)
@@ -89,7 +100,7 @@ interface TimedRun {
     durationMs: number
 }
 
-type SafeRun = (TimedRun & { ok: true }) | { ok: false; durationMs: number }
+type SafeRun = (TimedRun & { ok: true }) | { ok: false }
 
 function time(fn: () => CompatMessage[]): TimedRun {
     const start = performance.now()
@@ -103,7 +114,7 @@ function timeSafe(fn: () => CompatMessage[]): SafeRun {
         const result = fn()
         return { ok: true, result, durationMs: roundMs(performance.now() - start) }
     } catch {
-        return { ok: false, durationMs: roundMs(performance.now() - start) }
+        return { ok: false }
     }
 }
 
