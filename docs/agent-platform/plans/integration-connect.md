@@ -134,6 +134,21 @@ Failure modes the design must handle:
   doesn't support.** Tool returns an error result with the supported
   set (`slack`, `salesforce`, `hubspot`, ...) so the concierge can fix
   the spec without a roundtrip through the user.
+- **OAuth state mapping expires before the user completes the flow.**
+  The mint endpoint stores `(state → session_id)` in Redis with a TTL
+  (§4.3). If the user opens the link, walks away, and returns the
+  next morning past TTL, naive design has the callback fail to
+  resume — the session would sit until the 24h sweep marks it
+  `failed`, with no signal that OAuth actually succeeded. The
+  callback handler **always writes the integration row first**, then
+  attempts the resume publish; an expired-state lookup is a no-op
+  on the resume side, not an OAuth failure. The "Check now" dock
+  affordance becomes the recovery path: it re-runs the tool, which
+  finds the row via `PgIntegrationStore.list`, hits the
+  `already_connected` branch, and resumes the session normally.
+  The TTL is sized to comfortably exceed the OAuth happy path
+  (default: 30 minutes) but not so long that stale state mappings
+  accumulate.
 
 ## 4. What we'd build
 
@@ -205,16 +220,26 @@ Two pieces:
 team_id, session_id, return_url }` and returns `{ oauth_url, state }`.
 Auth: `x-internal-secret` (`AGENT_JANITOR_SECRET` /
 `INTERNAL_SECRET`) — same channel the janitor uses. Implementation:
-generate the OAuth state, store the (state → session_id) mapping in
-Redis with a short TTL, return the OAuth URL.
+generate the OAuth state, store the `(state → session_id)` mapping in
+Redis with a TTL longer than the OAuth happy path (default: 30
+minutes) but short enough that abandoned flows expire on their own.
+The mapping's expiry is a recovery hint, **not** an authoritative
+deadline — see §3 for the late-completion path.
 
-**Callback hook.** PostHog's existing Slack OAuth callback writes the
-integration row and redirects the user. Extend it to:
+**Callback hook.** PostHog's existing Slack OAuth callback already
+writes the integration row and redirects the user. Extend it to:
 
-1. Read the state, look up the originating `session_id`.
-2. Publish `{ event: 'integration_connected', session_id,
-integration_id, kind, scopes_granted }` on the same Redis channel
-   the runner already consumes for lifecycle events.
+1. **Always write the integration row first**, regardless of whether
+   the state mapping is still resolvable. The user consented and
+   PostHog now has a valid token; that fact persists even if the
+   waiting session has since timed out or the mapping expired.
+2. Attempt to read the state from Redis. If found, publish
+   `{ event: 'integration_connected', session_id, integration_id,
+kind, scopes_granted }` on the same Redis channel the runner
+   already consumes for lifecycle events. If the mapping expired or
+   was never set, log it and **no-op the publish** — the dock's
+   "Check now" affordance is the recovery path; the session can
+   resume from the now-persisted integration row.
 3. Redirect the user back to the dock's `return_url` (the agent
    console, which auto-refreshes from SSE).
 
@@ -223,18 +248,41 @@ else is one process reaching into existing infrastructure.
 
 ### 4.4 Runner-side resume
 
-Worker subscribes to `integration_connected` events on the same Redis
-channel that drives session events. When one arrives:
+Worker reads `integration_connected` events from a **Redis Stream**
+(`agent:integration_connected`), not pubsub. Streams persist events
+and support consumer-group acknowledgment; pubsub is fire-and-forget,
+so a worker restart between Django's publish and the worker's consume
+would silently drop the wake. Each runner replica is a consumer in
+the same group, so events are delivered at-least-once across the
+fleet. Idempotency is provided by the session's state check (step 1
+below) — re-processing the same event for an already-resumed session
+is a no-op.
 
-1. Find the session (must be in `waiting_for_integration` state,
-   matching `session_id`, matching `kind`).
+When an event arrives:
+
+1. Look up the session. If it's not in `waiting_for_integration`,
+   or the `kind` / `integration_id` don't match, ack the event and
+   skip — already resumed, or the message belongs to a different
+   wake path.
 2. Pull the integration row via `PgIntegrationStore.get(...)` to
    capture `integration_id` + actual granted scopes.
 3. Inject a synthetic `tool_result` with the `connected` shape into
    the session's pending tool-call.
 4. Re-queue the session via the existing wake path
    (`approval-gated-tools.md` already pioneers this — reuse the same
-   helper).
+   helper). Ack the stream entry.
+
+**Backstop: durable PG state.** The session's `waiting_for_integration`
+state lives in the `agent_session` row (same row that holds
+`agent_session.state`), so worker restarts don't lose the fact that
+the session is waiting. If the stream wake is missed entirely (Redis
+flushed, consumer-group offset reset, stream evicted by retention),
+the dock's "Check now" affordance is the manual recovery: it calls
+the ingress recheck endpoint (§4.5), which finds the
+now-persisted integration row and re-queues the session through the
+same dispatch path the stream consumer would have taken. Belt and
+braces — the stream is the fast path, PG state + manual recheck is
+the always-correct fallback.
 
 ### 4.5 Dock surface
 
@@ -257,18 +305,31 @@ Defenses, layered:
   kinds in a fixed registry (the same set Settings → Integrations
   supports). An unknown `kind` returns `status: 'unsupported_kind'`
   with the supported set; never mints a URL.
-- **Scope minimization.** The OAuth URL only requests the scopes
-  passed by the tool call. The concierge derives these from the spec's
-  declared tools' `requires.scopes` set (already declared per-tool in
-  e.g. [`slack.v1.ts:87`](../../../services/agent-tools/src/tools/slack.v1.ts)),
-  so a bundle can't request scopes it doesn't have a tool for.
+- **Scope minimization, dispatch-time-enforced.** The OAuth URL only
+  requests the scopes passed by the tool call. The concierge derives
+  these from the spec's declared tools' `requires.scopes` set (already
+  declared per-tool in e.g.
+  [`slack.v1.ts:87`](../../../services/agent-tools/src/tools/slack.v1.ts)),
+  but **the platform must not trust the concierge to do this honestly** —
+  a jailbroken or confused model can pass any string array. At
+  dispatch time the runner computes
+  `allowed = union(spec.tools[*].requires.scopes for each tool whose kind matches args.kind)`
+  and **rejects the tool call** if `args.scopes ⊄ allowed`. The tool
+  signature alone doesn't enforce this (it's typed `Type.Array(Type.String())`);
+  the enforcement lives in the dispatcher. Without this gate, scope
+  minimization is an LLM convention, not a platform guarantee.
 - **Team isolation.** The session's `team_id` is the only team that
   gets the integration row. The Redis resume signal verifies
   `integration.team_id === session.team_id` before resuming; a race
   where two teams complete OAuth simultaneously can't cross-resume.
-- **OAuth consent screen as last resort.** The third-party (Slack)
-  consent screen always shows the user what scopes are being granted.
-  The user can deny. Same security floor as Settings → Integrations.
+- **OAuth consent screen is the actual last line of defense.** Even
+  with dispatch-time scope validation, the third-party (Slack) consent
+  screen is what catches anything that gets past the platform's checks:
+  it shows the user the actual scope set being granted and lets them
+  deny. The platform-side defenses raise the floor and shorten the
+  list of scopes that consent has to defend against; consent is what
+  ultimately authorizes the grant. Same security floor as Settings →
+  Integrations.
 - **Existing `integrationHostValidator`** (now wired post the dev-escape
   PR) ensures the OAuth start URL is hosted on a domain the kind is
   bound to, so a bundle can't trick the dock into rendering a phishing
@@ -357,10 +418,15 @@ For v0 (manual resume, Slack only):
 
 Call it 2–3 days of focused work to get v0 demo-able.
 
-v1 (Redis bridge) adds maybe a day on top — the runner already consumes
-Redis pubsub for the event bus, so the wire-up is cheap; the discipline
-is in nailing the resume race conditions (worker restart between
-publish and consume → durable waiting state in PG, not just memory).
+v1 (Redis Streams bridge) adds maybe a day on top — Django gets one new
+`XADD` call in the OAuth callback; the runner gains a consumer-group
+reader for `agent:integration_connected`. The reliability story (§4.4)
+already specifies the transport (Streams, not pubsub) and the
+backstop (durable PG `waiting_for_integration` + "Check now" recheck),
+so v1 isn't open-ended on race-condition design — it's a wire-up
+plus an end-to-end harness case that explicitly kills the worker
+between Django's `XADD` and the consume and verifies the manual
+recheck path recovers.
 
 v2 (generic) is mostly a per-kind catalogue and concierge-skill effort,
 not platform work. The platform changes from v1 should already
