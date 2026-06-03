@@ -100,6 +100,7 @@ import {
 import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
+import { moveFrontendOnlyTrendsFilterSettings } from './utils/queryUtils'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
@@ -582,7 +583,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source
         updateQuerySource: ({ querySource }) => {
-            actions.setQuery({
+            const nextQuery = moveFrontendOnlyTrendsFilterSettings({
                 ...values.query,
                 source: {
                     ...values.querySource,
@@ -593,6 +594,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     ),
                 },
             } as Node)
+            actions.setQuery(nextQuery)
         },
 
         // query source properties

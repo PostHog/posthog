@@ -3,7 +3,14 @@ import { isValidRE2 } from 'lib/utils/regexp'
 import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from 'scenes/funnels/funnelUtils'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { DataNode, HogQLVariable, InsightQueryNode, Node, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataNode,
+    HogQLVariable,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     getMathTypeWarning,
@@ -21,9 +28,11 @@ import {
     isTrendsQuery,
     isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
+
+const FRONTEND_ONLY_TRENDS_FILTER_KEYS = ['yAxis'] as const
 
 export const getVariablesFromQuery = (query: string): string[] => {
     const re = /\{variables\.([a-z0-9_]+)\}/gm
@@ -169,6 +178,48 @@ export const validateQuery = (q: DataNode): boolean => {
         return false
     }
     return true
+}
+
+export const moveFrontendOnlyTrendsFilterSettings = <T extends Node | null>(query: T): T => {
+    if (!query || !isInsightVizNode(query) || !isTrendsQuery(query.source) || !query.source.trendsFilter) {
+        return query
+    }
+
+    const trendsFilter = query.source.trendsFilter as Record<string, unknown>
+    const frontendOnlyTrendsFilter: Record<string, unknown> = {}
+    const backendTrendsFilter: Record<string, unknown> = { ...trendsFilter }
+
+    for (const key of FRONTEND_ONLY_TRENDS_FILTER_KEYS) {
+        if (key in backendTrendsFilter) {
+            frontendOnlyTrendsFilter[key] = backendTrendsFilter[key]
+            delete backendTrendsFilter[key]
+        }
+    }
+
+    if (Object.keys(frontendOnlyTrendsFilter).length === 0) {
+        return query
+    }
+
+    const cleanedBackendTrendsFilter = objectCleanWithEmpty(backendTrendsFilter) as TrendsQuery['trendsFilter']
+    const existingTrendsVizOptions = query.vizSpecificOptions?.[InsightType.TRENDS]
+
+    return {
+        ...query,
+        source: {
+            ...query.source,
+            trendsFilter: cleanedBackendTrendsFilter,
+        },
+        vizSpecificOptions: {
+            ...query.vizSpecificOptions,
+            [InsightType.TRENDS]: {
+                ...existingTrendsVizOptions,
+                trendsFilter: {
+                    ...existingTrendsVizOptions?.trendsFilter,
+                    ...frontendOnlyTrendsFilter,
+                },
+            },
+        },
+    } as InsightVizNode as T
 }
 
 // keep in sync with posthog/schema_helpers.py `grouped_chart_display_types` method

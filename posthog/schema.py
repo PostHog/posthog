@@ -5310,12 +5310,23 @@ class RETENTION(BaseModel):
     useSmallLayout: bool | None = None
 
 
+class TRENDS(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    trendsFilter: dict[str, Any] | None = Field(
+        default=None,
+        description="Frontend-only trends display settings that should not be sent to query runners.",
+    )
+
+
 class VizSpecificOptions(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     ActionsPie_1: ActionsPie | None = Field(default=None, alias="ActionsPie")
     RETENTION_1: RETENTION | None = Field(default=None, alias="RETENTION")
+    TRENDS_1: TRENDS | None = Field(default=None, alias="TRENDS")
 
 
 class WebAnalyticsExternalSummaryRequest(BaseModel):
@@ -6637,7 +6648,7 @@ class AssistantTrendsBreakdownFilter(BaseModel):
 
 class AssistantTrendsFilter(BaseModel):
     model_config = ConfigDict(
-        extra="ignore",
+        extra="forbid",
     )
     aggregationAxisFormat: AggregationAxisFormat | None = Field(
         default=AggregationAxisFormat.NUMERIC,
@@ -9550,7 +9561,7 @@ class TrendsAlertConfig(BaseModel):
 
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
-        extra="ignore",
+        extra="forbid",
     )
     aggregationAxisFormat: AggregationAxisFormat | None = Field(
         default=AggregationAxisFormat.NUMERIC,

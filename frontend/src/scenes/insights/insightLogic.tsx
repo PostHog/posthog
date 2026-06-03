@@ -69,6 +69,7 @@ import { insightDataLogic } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
+import { moveFrontendOnlyTrendsFilterSettings } from './utils/queryUtils'
 
 export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
@@ -547,6 +548,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             const { name, description, favorited, deleted, dashboards, tags } = values.insight
 
             let savedInsight: QueryBasedInsightModel
+            const queryForPersistence = moveFrontendOnlyTrendsFilterSettings(values.query)
 
             try {
                 // We don't want to send ALL the insight properties back to the API, so only grabbing fields that might have changed
@@ -555,7 +557,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     derived_name: values.derivedName,
                     description,
                     favorited,
-                    query: values.query,
+                    query: queryForPersistence,
                     deleted,
                     saved: true,
                     dashboards,
@@ -599,7 +601,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
             eventUsageLogic.actions.reportInsightSaved(
                 savedInsight,
-                values.query,
+                queryForPersistence,
                 insightNumericId === undefined,
                 'save'
             )

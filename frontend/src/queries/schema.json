@@ -42052,6 +42052,17 @@
                         }
                     },
                     "type": "object"
+                },
+                "TRENDS": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "trendsFilter": {
+                            "additionalProperties": {},
+                            "description": "Frontend-only trends display settings that should not be sent to query runners.",
+                            "type": "object"
+                        }
+                    },
+                    "type": "object"
                 }
             },
             "type": "object"

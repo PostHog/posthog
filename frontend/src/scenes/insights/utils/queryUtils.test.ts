@@ -1,9 +1,11 @@
 import { NodeKind } from '~/queries/schema/schema-general'
+import { InsightType } from '~/types'
 
 import {
     filterVariablesReferencedInQuery,
     hasInvalidRegexFilter,
     isBoxPlotMissingProperty,
+    moveFrontendOnlyTrendsFilterSettings,
     syncSelectedVariablesToQuery,
     validateQuery,
 } from './queryUtils'
@@ -190,6 +192,40 @@ describe('validateQuery', () => {
             properties: [{ type: 'event', key: 'url', operator: 'exact', value: '/home' }],
         }
         expect(validateQuery(trendsQuery)).toBe(true)
+    })
+})
+
+describe('moveFrontendOnlyTrendsFilterSettings', () => {
+    it('moves frontend-only trends filter settings to viz-specific options', () => {
+        const query = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    showLegend: true,
+                    yAxis: { label: 'Revenue' },
+                },
+            },
+        } as any
+
+        expect(moveFrontendOnlyTrendsFilterSettings(query)).toEqual({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [],
+                trendsFilter: {
+                    showLegend: true,
+                },
+            },
+            vizSpecificOptions: {
+                [InsightType.TRENDS]: {
+                    trendsFilter: {
+                        yAxis: { label: 'Revenue' },
+                    },
+                },
+            },
+        })
     })
 })
 

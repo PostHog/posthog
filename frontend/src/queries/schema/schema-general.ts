@@ -1323,6 +1323,10 @@ export interface SavedInsightNode extends Node<never>, InsightVizNodeViewProps, 
  * @see ChartRenderingMetadata
  * **/
 export interface VizSpecificOptions {
+    [InsightType.TRENDS]?: {
+        /** Frontend-only trends display settings that should not be sent to query runners. */
+        trendsFilter?: Record<string, any>
+    }
     [InsightType.RETENTION]?: {
         hideLineGraph?: boolean
         hideSizeColumn?: boolean
