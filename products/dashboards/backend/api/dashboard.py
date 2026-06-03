@@ -937,6 +937,7 @@ def _report_dashboard_tile_added(
     tile_type: str,
     request: Request | None = None,
     widget_type: str | None = None,
+    tile: DashboardTile | None = None,
 ) -> None:
     properties: dict[str, Any] = {
         "tile_type": tile_type,
@@ -950,6 +951,26 @@ def _report_dashboard_tile_added(
         user,
         "dashboard tile added",
         properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+    if widget_type is None:
+        return
+
+    widget_properties: dict[str, Any] = {
+        "widget_type": widget_type,
+        "dashboard_id": dashboard.id,
+    }
+    if tile is not None:
+        widget_properties["tile_id"] = tile.id
+        if tile.widget_id is not None:
+            widget_properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget added",
+        widget_properties,
         team=dashboard.team,
         request=request,
     )
@@ -1288,6 +1309,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     tile_type=tile_type,
                     widget_type=widget_type,
                     request=self.context["request"],
+                    tile=tile,
                 )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
@@ -2696,6 +2718,7 @@ class DashboardsViewSet(
                 tile_type="widget",
                 widget_type=tile.widget.widget_type,
                 request=request,
+                tile=tile,
             )
 
         return Response(
