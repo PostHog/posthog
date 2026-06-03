@@ -156,7 +156,10 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   checkName: Django Tests Pass
                   ref: ${{ github.sha }}
-                  timeoutSeconds: 2700
+                  # Must outlast the longest backend job (django tests: 45m in
+                  # ci-backend.yml) plus its start lag, so a slow-but-green check
+                  # still reports before we give up and block the deploy.
+                  timeoutSeconds: 3300
                   intervalSeconds: 30
 
             - name: Block deploy if backend tests did not pass
