@@ -31,6 +31,7 @@ import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } 
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
@@ -766,6 +767,17 @@ export class HogExecutorService {
         result.invocation.state.attempts++
 
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
+            const nonFailureSchemaEntry = invocation.hogFunction.inputs_schema?.find(
+                (s) => s.type === 'non_failure_status_codes'
+            )
+            const nonFailureConfig = nonFailureSchemaEntry
+                ? (invocation.hogFunction.inputs?.[nonFailureSchemaEntry.key]?.value as
+                      | Array<number | string>
+                      | null
+                      | undefined)
+                : undefined
+            const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
+
             const backoffMs = Math.min(
                 this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
                     Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
@@ -786,7 +798,7 @@ export class HogExecutorService {
                 message += ` Retrying in ${backoffMs}ms.`
             }
 
-            addLog('error', message)
+            addLog(isNonFailure ? 'info' : 'error', message)
 
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             if (canRetry && result.invocation.state.attempts < maxRetries) {
@@ -796,7 +808,7 @@ export class HogExecutorService {
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
                 return result
-            } else {
+            } else if (!isNonFailure) {
                 result.error = new Error(message)
             }
         }

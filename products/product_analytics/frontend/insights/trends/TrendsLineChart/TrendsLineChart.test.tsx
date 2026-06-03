@@ -2,8 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
+import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -341,11 +342,13 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const ticks = getHogChart().yTicks()
-            expect(ticks.length).toBeGreaterThan(0)
-            for (const t of ticks) {
-                expect(t).toMatch(/%/)
-            }
+            await waitFor(() => {
+                const ticks = getHogChart().yTicks()
+                expect(ticks.length).toBeGreaterThan(0)
+                for (const t of ticks) {
+                    expect(t).toMatch(/%/)
+                }
+            })
         })
     })
 

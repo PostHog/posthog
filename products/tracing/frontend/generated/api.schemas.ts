@@ -114,6 +114,11 @@ export interface _TracingAggregationRequestApi {
     query: _TracingAggregationQueryBodyApi
 }
 
+export interface _HasSpansResponseApi {
+    /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+    hasSpans: boolean
+}
+
 /**
  * * `latest` - latest
  * `earliest` - earliest

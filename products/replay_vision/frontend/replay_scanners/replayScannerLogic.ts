@@ -40,7 +40,7 @@ export interface ReplayScannerLogicProps {
 
 export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
-export type ObservationVerdictValue = 'yes' | 'no'
+export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
 function quantile(sorted: number[], q: number): number {
     if (sorted.length === 1) {
@@ -59,7 +59,7 @@ function currentTemplateKey(): string | null {
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
     if (scannerType === 'summarizer') {
-        return { prompt: '', length: 'medium', emits_embeddings: false }
+        return { prompt: '', length: 'medium' }
     }
     if (scannerType === 'classifier') {
         return { prompt: '', tags: [], multi_label: true }
@@ -280,7 +280,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     if (verdictFilter.length > 0) {
                         const verdict = readVerdict(o)
-                        if (verdict === null || !verdictFilter.includes(verdict ? 'yes' : 'no')) {
+                        if (verdict === null || !verdictFilter.includes(verdict)) {
                             return false
                         }
                     }
@@ -370,18 +370,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         ],
         monitorStats: [
             (s) => [s.succeededObservations],
-            (observations: ReplayObservationApi[]): { yesTotal: number; noTotal: number } => {
+            (
+                observations: ReplayObservationApi[]
+            ): { yesTotal: number; noTotal: number; inconclusiveTotal: number } => {
                 let yesTotal = 0
                 let noTotal = 0
+                let inconclusiveTotal = 0
                 for (const obs of observations) {
                     const v = readVerdict(obs)
-                    if (v === true) {
+                    if (v === 'yes') {
                         yesTotal += 1
-                    } else if (v === false) {
+                    } else if (v === 'no') {
                         noTotal += 1
+                    } else if (v === 'inconclusive') {
+                        inconclusiveTotal += 1
                     }
                 }
-                return { yesTotal, noTotal }
+                return { yesTotal, noTotal, inconclusiveTotal }
             },
         ],
         classifierTagStats: [
