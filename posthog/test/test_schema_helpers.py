@@ -6,6 +6,7 @@ from parameterized import parameterized
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AssistantTrendsFilter,
     BaseMathType,
     BreakdownAttributionType,
     EventPropertyFilter,
@@ -18,6 +19,7 @@ from posthog.schema import (
     PropertyOperator,
     RetentionQuery,
     StepOrderValue,
+    TrendsFilter,
     TrendsQuery,
 )
 
@@ -97,6 +99,31 @@ class TestSchemaHelpers(TestCase):
         result_dict = to_dict(query)
 
         self.assertEqual(result_dict, {"kind": "TrendsQuery", "series": []})
+
+    def test_trends_filter_ignores_unknown_properties(self):
+        query = TrendsQuery(
+            **{
+                **base_trends,
+                "trendsFilter": {
+                    "xAxisLabel": None,
+                    "yAxis": {"label": "Leaked chart setting"},
+                },
+            }
+        )
+
+        self.assertEqual(query.trendsFilter, TrendsFilter(xAxisLabel=None))
+        self.assertEqual(to_dict(query), {"kind": "TrendsQuery", "series": []})
+
+    def test_assistant_trends_filter_ignores_unknown_properties(self):
+        filter_model = AssistantTrendsFilter.model_validate(
+            {
+                "xAxisLabel": None,
+                "yAxis": {"label": "Leaked chart setting"},
+            }
+        )
+
+        self.assertEqual(filter_model, AssistantTrendsFilter(xAxisLabel=None))
+        self.assertEqual(filter_model.model_dump(exclude_defaults=True, exclude_none=True), {})
 
     def test_serializes_retention_filter_without_frontend_only_props(self):
         query = RetentionQuery(
