@@ -6,9 +6,10 @@ from django.conf import settings
 
 import structlog
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ee.tasks.subscriptions.subscription_utils import generate_assets
 
