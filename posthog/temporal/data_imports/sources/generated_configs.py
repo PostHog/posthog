@@ -194,7 +194,7 @@ class BrazeSourceConfig(config.Config):
 
 @config.config
 class BrevoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

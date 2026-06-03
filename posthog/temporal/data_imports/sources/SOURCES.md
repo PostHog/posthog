@@ -49,6 +49,7 @@ the row lists both.
 | bamboohr      | HTTP                        | requests                                                        | ✅                          |
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| brevo         | HTTP                        | requests                                                        | ✅                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
 | calendly      | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -150,7 +151,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintree
 - braze
-- brevo
 - campaign_monitor
 - circleci
 - clickup
