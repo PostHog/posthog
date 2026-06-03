@@ -29,5 +29,4 @@ export type BatchExportConfigurationForm = Omit<
         destination: 'S3' | 'Snowflake' | 'Postgres' | 'BigQuery' | 'Redshift' | 'Databricks' | 'HTTP' | 'AzureBlob'
         start_at: Dayjs | null
         end_at: Dayjs | null
-        json_config_file?: File[] | null
     }

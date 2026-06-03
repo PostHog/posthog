@@ -146,19 +146,6 @@ class TestWebAnalyticsMetrics(TestCase):
                 },
                 "stats_table_channel_type",
             ),
-            (
-                "trends",
-                "WebTrendsQuery",
-                None,
-                None,
-                {
-                    "query_kind": "WebTrendsQuery",
-                    "query_strategy": "none",
-                    "breakdown": "none",
-                    "has_conversion_goal": "false",
-                },
-                None,
-            ),
         ],
     )
     @patch(
@@ -333,7 +320,6 @@ class TestWebAnalyticsMetrics(TestCase):
             ("goals", "WebGoalsQuery", None, None),
             ("external_clicks", "WebExternalClicksTableQuery", None, None),
             ("vitals_paths", "WebVitalsPathBreakdownQuery", None, None),
-            ("trends", "WebTrendsQuery", None, None),
         ],
     )
     @patch(
