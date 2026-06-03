@@ -613,18 +613,6 @@ class ExperimentQueryBuilder:
         """
         return self._funnel_query_builder().build_variant_expr_for_funnel()
 
-    def _build_exposure_event_predicate(self) -> ast.Expr:
-        """
-        Builds the event predicate for exposure filtering (without timestamp conditions).
-
-        This handles:
-        - Custom exposure events via event_or_action_to_filter
-        - Special $feature_flag_called filtering (matching the flag key)
-
-        Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
-        """
-        return self._exposure_query_builder().build_exposure_event_predicate()
-
     def _build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
@@ -684,12 +672,6 @@ class ExperimentQueryBuilder:
         Builds the variant selection expression for mean metrics based on multiple variant handling.
         """
         return self._exposure_query_builder().build_variant_expr_for_mean()
-
-    def _build_funnel_step_columns(self) -> list[ast.Alias]:
-        """
-        Builds list of step column AST expressions: step_0, step_1, etc.
-        """
-        return self._funnel_query_builder().build_funnel_step_columns()
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """
