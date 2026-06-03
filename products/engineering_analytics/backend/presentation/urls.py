@@ -1,7 +1,8 @@
 """URL routes for engineering_analytics.
 
 Reference router for documentation. The real wiring lives in
-``posthog/api/__init__.py`` (the nested project router).
+``products/engineering_analytics/backend/routes.py`` (``register_routes``), which
+nests the viewset onto the shared project router via auto-discovery.
 """
 
 from rest_framework.routers import DefaultRouter
