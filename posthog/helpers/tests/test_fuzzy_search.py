@@ -64,3 +64,11 @@ class TestFuzzyFilter:
     def test_ties_preserve_input_order(self, items: list[dict]):
         result = fuzzy_filter("team", items, key=lambda c: c["name"])
         assert [c["id"] for c in result] == ["C2", "C3"]
+
+    def test_empty_query_matches_nothing(self, items: list[dict]):
+        # Callers that want "show everything" on an empty query must short-circuit before calling.
+        assert fuzzy_filter("", items, key=lambda c: c["name"]) == []
+
+    def test_empty_input_returns_empty(self):
+        assert fuzzy_filter("anything", [], key=lambda c: c["name"]) == []
+        assert fuzzy_rank("anything", []) == []

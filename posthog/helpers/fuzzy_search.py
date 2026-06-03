@@ -14,15 +14,10 @@ from rapidfuzz import fuzz, process, utils
 
 T = TypeVar("T")
 
-# rapidfuzz scores run 0-100. 70 keeps reordered, partial-token and single-typo
-# queries while dropping unrelated strings. Raise it for stricter matching, lower
-# it to be more permissive.
+# Scores run 0-100. 70 keeps reordered, partial-token and single-typo queries while dropping unrelated strings.
 DEFAULT_SCORE_CUTOFF = 70.0
 
-# WRatio blends plain ratio, partial-ratio and token-set scoring, so it handles
-# separators ("product analytics" vs "product-analytics"), reordered words and
-# partial tokens — the common cases for name search. default_process lowercases,
-# trims and collapses non-alphanumerics, which is what makes separators equivalent.
+# WRatio blends ratio, partial-ratio and token-set scoring, so it tolerates separators, reordering and partial tokens.
 _DEFAULT_SCORER = fuzz.WRatio
 
 

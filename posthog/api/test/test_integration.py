@@ -1185,8 +1185,8 @@ class TestIntegrationAPIKeyAccess:
             ("", ["C1", "C2", "C3"], False),
             # Pagination beyond the dataset returns an empty page.
             ("?limit=10&offset=10", [], False),
-            # Search + offset combine: "e" matches general+engineering in input order, offset=1 yields engineering.
-            ("?search=e&limit=1&offset=1", ["C3"], False),
+            # Search + offset combine: "gen" fuzzy-matches general+engineering, offset=1 yields engineering.
+            ("?search=gen&limit=1&offset=1", ["C3"], False),
         ],
         ids=["default-no-params", "offset-past-end", "search-with-offset"],
     )
@@ -1258,24 +1258,15 @@ class TestIntegrationAPIKeyAccess:
     @pytest.mark.parametrize(
         "search,expected_ids",
         [
-            # Spaces match separator-delimited names: the reported "product analytics" papercut.
-            # "team-product" (C2) is a weaker fuzzy match so it ranks below the exact hit.
+            # "team-product" (C2) is a weaker fuzzy match on "product", so it ranks below the exact hit.
             ("product analytics", ["C1", "C2"]),
-            # Underscore variant of the same query.
             ("product_analytics", ["C1", "C2"]),
-            # Reordered tokens still match (order independent).
             ("analytics product", ["C1", "C2"]),
-            # Partial tokens match.
             ("prod analy", ["C1"]),
-            # A small typo still resolves to the intended channel.
             ("analytcs", ["C1"]),
-            # Exact hyphenated name keeps working.
             ("product-analytics", ["C1", "C2"]),
-            # A single shared token matches multiple channels.
             ("team", ["C2", "C3"]),
-            # Pasting a channel id still resolves via the id fallback.
             ("C2", ["C2"]),
-            # Genuine non-matches return nothing.
             ("nonexistent channel", []),
         ],
         ids=[

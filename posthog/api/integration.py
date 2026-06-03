@@ -677,15 +677,11 @@ class IntegrationViewSet(
         query = search.strip()
         if not query:
             return visible
-        # Fuzzy-rank by channel name so spaced, reordered, partial and slightly-misspelled
-        # queries all match "product-analytics" and friends, best match first. Then union in
-        # any channel whose id contains the raw query so pasting a channel id still resolves.
+        # Fuzzy-rank by name, then union in any channel whose id contains the query so pasting an id still resolves.
         ranked = fuzzy_filter(query, visible, key=lambda channel: channel["name"])
         ranked_ids = {channel["id"] for channel in ranked}
         id_matches = [
-            channel
-            for channel in visible
-            if query.lower() in channel["id"].lower() and channel["id"] not in ranked_ids
+            channel for channel in visible if query.lower() in channel["id"].lower() and channel["id"] not in ranked_ids
         ]
         return ranked + id_matches
 
