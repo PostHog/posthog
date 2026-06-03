@@ -21,6 +21,7 @@ from posthog.models import PulseDigest, PulseFinding, PulseSubscription
 from posthog.models.pulse import DetectionMode, PulseSubscriptionFrequency
 from posthog.temporal.ai.pulse.period import period_bounds, period_key
 from posthog.temporal.ai.pulse.selection import select_candidates
+from posthog.temporal.ai.pulse.types import PulseScanConfig
 from posthog.temporal.ai.pulse.workflow import PulseScanInputs
 from posthog.temporal.common.client import async_connect
 
@@ -238,6 +239,72 @@ class PulseWatchedCandidateSerializer(serializers.Serializer):
     query = serializers.JSONField(help_text="TrendsQuery-shaped dict Pulse re-evaluates.")
 
 
+class PulseScanConfigSerializer(serializers.Serializer):
+    """Per-run scan tuning knobs for a manual staff trigger.
+
+    Every field is optional; omitted knobs fall back to the built-in defaults (the production
+    constants), so a partial override is "defaults plus the knobs you set". Nothing is persisted —
+    the resolved config rides along with the one-off scan that started it.
+    """
+
+    # Selection — which metrics get scanned. A per-source limit of 0 turns that source off.
+    max_candidates = serializers.IntegerField(
+        required=False, min_value=1, max_value=1000, help_text="Cap on total metrics scanned per run."
+    )
+    recent_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        help_text="Lookback window for recently-accessed dashboards and recently-viewed insights.",
+    )
+    min_viewers_for_recent_insight = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=100,
+        help_text="Minimum distinct viewers for the recently-viewed-insights source to include an insight.",
+    )
+    dashboard_tile_limit = serializers.IntegerField(
+        required=False, min_value=0, max_value=200, help_text="Max insights from pinned/recent dashboards (0 = off)."
+    )
+    recent_insight_limit = serializers.IntegerField(
+        required=False, min_value=0, max_value=500, help_text="Max recently-viewed insights (0 = off)."
+    )
+    saved_insight_limit = serializers.IntegerField(
+        required=False, min_value=0, max_value=200, help_text="Max recently-edited saved Trends insights (0 = off)."
+    )
+    top_event_limit = serializers.IntegerField(
+        required=False, min_value=0, max_value=500, help_text="Max highest-volume events (0 = off)."
+    )
+    # Detection — what counts as a notable change.
+    min_baseline_value = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=1_000_000.0,
+        help_text="Volume floor: skip metrics whose baseline median is below this (the top noise lever).",
+    )
+    min_change_pct = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        max_value=10.0,
+        help_text="Primary gate: minimum absolute fractional change to flag (0.25 = 25%).",
+    )
+    robust_z_threshold = serializers.FloatField(
+        required=False,
+        min_value=0.1,
+        max_value=10.0,
+        help_text="Secondary informational threshold for the robust z-score. Never a sole trigger.",
+    )
+    baseline_weeks = serializers.IntegerField(
+        required=False,
+        min_value=3,
+        max_value=12,
+        help_text="Completed weeks used to compute the baseline median.",
+    )
+    max_findings = serializers.IntegerField(
+        required=False, min_value=1, max_value=50, help_text="Maximum findings surfaced per digest."
+    )
+
+
 class PulseDigestViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -262,7 +329,7 @@ class PulseDigestViewSet(
         return qs
 
     @extend_schema(
-        request=None,
+        request=PulseScanConfigSerializer,
         responses={202: OpenApiResponse(description="Scan triggered; returns the Temporal workflow id.")},
     )
     @action(detail=False, methods=["post"])
@@ -270,9 +337,20 @@ class PulseDigestViewSet(
         """Kick off a one-off Pulse scan for this team now, without waiting for the schedule.
 
         Staff-only for now (404 hides it from non-staff); the gate can be relaxed to expose it to users later.
+
+        An optional body of tuning knobs (PulseScanConfig) overrides the heuristics for this run only —
+        nothing is persisted. The override is staff-gated by the same 404 as the trigger itself. With no
+        body, the run resolves its detection thresholds from the team's PulseSubscription, as a scheduled
+        run would.
         """
         if not request.user.is_staff:
             raise NotFound()
+
+        config_serializer = PulseScanConfigSerializer(data=request.data or {})
+        config_serializer.is_valid(raise_exception=True)
+        # An empty body means "use the team's saved settings" (config=None → resolved in the workflow);
+        # any provided knob produces a full override built over the built-in defaults.
+        override = PulseScanConfig(**config_serializer.validated_data) if config_serializer.validated_data else None
 
         team = self.team
         subscription = PulseSubscription.objects.unscoped().filter(team_id=team.id).first()
@@ -285,6 +363,7 @@ class PulseDigestViewSet(
             period_start=period_from.isoformat(),
             period_end=period_to.isoformat(),
             user_id=request.user.id,
+            config=override,
         )
         # Unique id (vs the scheduler's deterministic id) so a manual run never collides with a scheduled one.
         workflow_id = f"pulse-scan-manual-{team.id}-{uuid4()}"
@@ -378,7 +457,10 @@ class PulseSubscriptionViewSet(
     )
     @action(detail=False, methods=["get"], url_path="watched")
     def watched(self, request: Request, *args, **kwargs) -> Response:
-        candidates = async_to_sync(select_candidates)(team_id=self.team_id, max_candidates=WATCHED_MAX_CANDIDATES)
+        # Show the default watched set (the baseline selection), just capped smaller for the panel.
+        candidates = async_to_sync(select_candidates)(
+            team_id=self.team_id, config=PulseScanConfig(max_candidates=WATCHED_MAX_CANDIDATES)
+        )
         rows = [
             {
                 "source": c.descriptor.source,

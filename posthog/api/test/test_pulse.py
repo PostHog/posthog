@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -261,3 +261,89 @@ class TestPulseWatchedEndpoint(APIBaseTest):
     def test_watched_404_when_flag_off(self, _mock_flag) -> None:
         resp = self.client.get(self.url)
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
+
+
+class TestPulseTriggerScan(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/environments/{self.team.id}/pulse_digests/trigger_scan/"
+
+    def _make_staff(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+
+    def _mock_temporal_client(self, captured: dict) -> MagicMock:
+        async def _start_workflow(_name: str, inputs, **kwargs) -> None:
+            captured["inputs"] = inputs
+            captured["kwargs"] = kwargs
+
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=_start_workflow)
+        return client
+
+    @patch(FLAG_TARGET, return_value=True)
+    def test_non_staff_gets_404(self, _mock_flag) -> None:
+        resp = self.client.post(self.url, {}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
+
+    @patch(FLAG_TARGET, return_value=True)
+    @patch("posthog.api.pulse.async_connect", new_callable=AsyncMock)
+    def test_staff_empty_body_starts_scan_without_override(self, mock_connect, _mock_flag) -> None:
+        self._make_staff()
+        captured: dict = {}
+        mock_connect.return_value = self._mock_temporal_client(captured)
+
+        resp = self.client.post(self.url, {}, format="json")
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        self.assertIn("workflow_id", resp.json())
+        # No knobs sent → no override; the run resolves its config from the subscription in the workflow.
+        self.assertIsNone(captured["inputs"].config)
+
+    @patch(FLAG_TARGET, return_value=True)
+    @patch("posthog.api.pulse.async_connect", new_callable=AsyncMock)
+    def test_staff_override_threads_config_into_inputs(self, mock_connect, _mock_flag) -> None:
+        self._make_staff()
+        captured: dict = {}
+        mock_connect.return_value = self._mock_temporal_client(captured)
+
+        body = {"min_baseline_value": 12.0, "top_event_limit": 0, "max_findings": 3, "min_change_pct": 0.5}
+        resp = self.client.post(self.url, body, format="json")
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        config = captured["inputs"].config
+        self.assertIsNotNone(config)
+        self.assertEqual(config.min_baseline_value, 12.0)
+        self.assertEqual(config.top_event_limit, 0)
+        self.assertEqual(config.max_findings, 3)
+        self.assertEqual(config.min_change_pct, 0.5)
+        # Knobs left out of the body fall back to the built-in defaults.
+        self.assertEqual(config.dashboard_tile_limit, 10)
+        self.assertEqual(config.max_candidates, 200)
+
+    @parameterized.expand(
+        [
+            ("min_change_pct_too_high", {"min_change_pct": 99}),
+            ("min_change_pct_negative", {"min_change_pct": -0.1}),
+            ("top_event_limit_negative", {"top_event_limit": -1}),
+            ("dashboard_tile_limit_over_max", {"dashboard_tile_limit": 201}),
+            ("recent_insight_limit_negative", {"recent_insight_limit": -1}),
+            ("saved_insight_limit_negative", {"saved_insight_limit": -1}),
+            ("max_findings_zero", {"max_findings": 0}),
+            ("max_findings_over_max", {"max_findings": 51}),
+            ("baseline_weeks_too_low", {"baseline_weeks": 1}),
+            ("baseline_weeks_too_high", {"baseline_weeks": 13}),
+            ("min_viewers_zero", {"min_viewers_for_recent_insight": 0}),
+            ("recent_days_zero", {"recent_days": 0}),
+            ("recent_days_over_max", {"recent_days": 366}),
+            ("robust_z_too_low", {"robust_z_threshold": 0.05}),
+            ("min_baseline_value_negative", {"min_baseline_value": -1}),
+            ("max_candidates_zero", {"max_candidates": 0}),
+            ("max_candidates_over_max", {"max_candidates": 1001}),
+        ]
+    )
+    @patch(FLAG_TARGET, return_value=True)
+    def test_invalid_override_rejected(self, _name: str, body: dict, _mock_flag) -> None:
+        self._make_staff()
+        resp = self.client.post(self.url, body, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)

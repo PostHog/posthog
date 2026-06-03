@@ -11,6 +11,7 @@ import {
     PulseDigestDetail,
     PulseDigestSummary,
     PulseFindingType,
+    PulseScanConfigType,
     PulseSubscriptionType,
     PulseWatchedCandidate,
 } from './pulseTypes'
@@ -67,6 +68,23 @@ const DEFAULT_SUBSCRIPTION: PulseSubscriptionType = {
     created_at: null,
 }
 
+// Defaults mirror the backend PulseScanConfig (the production constants). The staff tuning draft starts
+// here and is persisted to localStorage so tweaks survive a reload while iterating.
+export const PULSE_SCAN_CONFIG_DEFAULTS: PulseScanConfigType = {
+    max_candidates: 200,
+    recent_days: 30,
+    min_viewers_for_recent_insight: 3,
+    dashboard_tile_limit: 10,
+    recent_insight_limit: 100,
+    saved_insight_limit: 15,
+    top_event_limit: 25,
+    min_baseline_value: 5,
+    min_change_pct: 0.25,
+    robust_z_threshold: 3.5,
+    baseline_weeks: 4,
+    max_findings: 5,
+}
+
 export const pulseLogic = kea<pulseLogicType>([
     path(['scenes', 'pulse', 'pulseLogic']),
     actions({
@@ -84,6 +102,8 @@ export const pulseLogic = kea<pulseLogicType>([
         markScanInProgress: true,
         scanResolved: true,
         setUpPulseAlerts: true,
+        updateScanConfigLocal: (patch: Partial<PulseScanConfigType>) => ({ patch }),
+        resetScanConfig: true,
     }),
     loaders(({ values, cache }) => ({
         digests: [
@@ -160,7 +180,8 @@ export const pulseLogic = kea<pulseLogicType>([
         scanTrigger: [
             null as { workflow_id: string } | null,
             {
-                triggerScan: async () => await api.pulse.triggerScan(),
+                // No config → the run resolves from the team's subscription; a config is a staff per-run override.
+                triggerScan: async (config?: Partial<PulseScanConfigType>) => await api.pulse.triggerScan(config),
             },
         ],
     })),
@@ -219,6 +240,16 @@ export const pulseLogic = kea<pulseLogicType>([
                 triggerScanFailure: () => false,
                 markScanInProgress: () => true,
                 scanResolved: () => false,
+            },
+        ],
+        // Staff scan-tuning draft. Persisted to localStorage so iterating on the knobs survives reloads;
+        // never sent anywhere until a "Run scan with these settings" trigger fires.
+        scanConfigDraft: [
+            PULSE_SCAN_CONFIG_DEFAULTS,
+            { persist: true },
+            {
+                updateScanConfigLocal: (state, { patch }) => ({ ...state, ...patch }),
+                resetScanConfig: () => PULSE_SCAN_CONFIG_DEFAULTS,
             },
         ],
     }),

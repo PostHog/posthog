@@ -33952,6 +33952,88 @@ export namespace Schemas {
     }
 
     /**
+     * Per-run scan tuning knobs for a manual staff trigger.
+
+    Every field is optional; omitted knobs fall back to the built-in defaults (the production
+    constants), so a partial override is "defaults plus the knobs you set". Nothing is persisted —
+    the resolved config rides along with the one-off scan that started it.
+     */
+    export interface PulseScanConfig {
+      /**
+         * Cap on total metrics scanned per run.
+         * @minimum 1
+         * @maximum 1000
+         */
+      max_candidates?: number;
+      /**
+         * Lookback window for recently-accessed dashboards and recently-viewed insights.
+         * @minimum 1
+         * @maximum 365
+         */
+      recent_days?: number;
+      /**
+         * Minimum distinct viewers for the recently-viewed-insights source to include an insight.
+         * @minimum 1
+         * @maximum 100
+         */
+      min_viewers_for_recent_insight?: number;
+      /**
+         * Max insights from pinned/recent dashboards (0 = off).
+         * @minimum 0
+         * @maximum 200
+         */
+      dashboard_tile_limit?: number;
+      /**
+         * Max recently-viewed insights (0 = off).
+         * @minimum 0
+         * @maximum 500
+         */
+      recent_insight_limit?: number;
+      /**
+         * Max recently-edited saved Trends insights (0 = off).
+         * @minimum 0
+         * @maximum 200
+         */
+      saved_insight_limit?: number;
+      /**
+         * Max highest-volume events (0 = off).
+         * @minimum 0
+         * @maximum 500
+         */
+      top_event_limit?: number;
+      /**
+         * Volume floor: skip metrics whose baseline median is below this (the top noise lever).
+         * @minimum 0
+         * @maximum 1000000
+         */
+      min_baseline_value?: number;
+      /**
+         * Primary gate: minimum absolute fractional change to flag (0.25 = 25%).
+         * @minimum 0
+         * @maximum 10
+         */
+      min_change_pct?: number;
+      /**
+         * Secondary informational threshold for the robust z-score. Never a sole trigger.
+         * @minimum 0.1
+         * @maximum 10
+         */
+      robust_z_threshold?: number;
+      /**
+         * Completed weeks used to compute the baseline median.
+         * @minimum 3
+         * @maximum 12
+         */
+      baseline_weeks?: number;
+      /**
+         * Maximum findings surfaced per digest.
+         * @minimum 1
+         * @maximum 50
+         */
+      max_findings?: number;
+    }
+
+    /**
      * * `ios` - iOS
     * `android` - Android
     * `web` - Web

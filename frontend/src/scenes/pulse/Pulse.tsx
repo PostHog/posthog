@@ -53,7 +53,13 @@ import { SidePanelTab } from '~/types'
 
 import { PulseFindingChart } from './PulseFindingChart'
 import { pulseLogic } from './pulseLogic'
-import { PulseDigestStatus, PulseDigestSummary, PulseFindingType, PulseSensitivity } from './pulseTypes'
+import {
+    PulseDigestStatus,
+    PulseDigestSummary,
+    PulseFindingType,
+    PulseScanConfigType,
+    PulseSensitivity,
+} from './pulseTypes'
 import {
     SENSITIVITY_PRESETS,
     buildFindingInsightContext,
@@ -416,6 +422,103 @@ function WatchedPanel(): JSX.Element | null {
     )
 }
 
+// Knob definitions for the staff scan-tuning panel — kept module-level so they aren't rebuilt each render.
+type ScanKnob = { key: keyof PulseScanConfigType; label: string; step?: number; hint?: string }
+const SELECTION_KNOBS: ScanKnob[] = [
+    { key: 'max_candidates', label: 'Max candidates' },
+    { key: 'recent_days', label: 'Recent window (days)' },
+    { key: 'min_viewers_for_recent_insight', label: 'Min viewers (recent insights)' },
+    { key: 'dashboard_tile_limit', label: 'Dashboard tiles', hint: '0 = off' },
+    { key: 'recent_insight_limit', label: 'Recently-viewed insights', hint: '0 = off' },
+    { key: 'saved_insight_limit', label: 'Saved insights', hint: '0 = off' },
+    { key: 'top_event_limit', label: 'Top events', hint: '0 = off' },
+]
+const DETECTION_KNOBS: ScanKnob[] = [
+    { key: 'min_baseline_value', label: 'Volume floor (min baseline)', step: 1 },
+    { key: 'min_change_pct', label: 'Min change %', step: 0.05 },
+    { key: 'robust_z_threshold', label: 'Robust z threshold', step: 0.5 },
+    { key: 'baseline_weeks', label: 'Baseline weeks' },
+    { key: 'max_findings', label: 'Max findings' },
+]
+
+// Staff-only knobs for one-off, no-deploy tuning of what Pulse considers interesting. The draft is local
+// (persisted to localStorage); "Run scan with these settings" sends it as a per-run override — nothing is
+// saved to the team. A plain "Run scan now" (no config) still uses the team's saved subscription settings.
+function ScanTuningPanel(): JSX.Element {
+    const { scanConfigDraft, scanTriggerLoading } = useValues(pulseLogic)
+    const { updateScanConfigLocal, resetScanConfig, triggerScan } = useActions(pulseLogic)
+
+    const renderKnob = (knob: ScanKnob): JSX.Element => (
+        <div key={knob.key} className="flex items-center justify-between gap-2">
+            <span className="text-sm">
+                {knob.label}
+                {knob.hint ? <span className="text-muted-alt ml-1">({knob.hint})</span> : null}
+            </span>
+            <LemonInput
+                type="number"
+                size="small"
+                className="w-24"
+                step={knob.step}
+                value={scanConfigDraft[knob.key]}
+                onChange={(v) =>
+                    // LemonInput type="number" emits NaN (not undefined) for an empty field, and NaN ?? x
+                    // doesn't catch it — so guard on finiteness to keep NaN out of the draft and the request.
+                    Number.isFinite(v) &&
+                    updateScanConfigLocal({ [knob.key]: v as number } as Partial<PulseScanConfigType>)
+                }
+            />
+        </div>
+    )
+
+    return (
+        <LemonCard className="mb-6">
+            <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-base font-semibold mb-0">Scan tuning</h3>
+                <LemonTag type="warning">Staff debug</LemonTag>
+            </div>
+            <p className="text-muted-alt text-sm mb-3">
+                Internal: override the heuristics for a single one-off scan to calibrate what's interesting — nothing
+                here is saved to the team.
+            </p>
+            <LemonCollapse
+                panels={[
+                    {
+                        key: 'knobs',
+                        header: 'Knobs',
+                        content: (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+                                <div className="flex flex-col gap-3">
+                                    <h4 className="text-xs uppercase font-semibold text-muted mb-0">Selection</h4>
+                                    {SELECTION_KNOBS.map(renderKnob)}
+                                </div>
+                                <div className="flex flex-col gap-3">
+                                    <h4 className="text-xs uppercase font-semibold text-muted mb-0">Detection</h4>
+                                    {DETECTION_KNOBS.map(renderKnob)}
+                                </div>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
+            <div className="flex items-center gap-2 mt-3">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    icon={<IconPulse />}
+                    onClick={() => triggerScan(scanConfigDraft)}
+                    loading={scanTriggerLoading}
+                    disabledReason={scanTriggerLoading ? 'Scan starting…' : undefined}
+                >
+                    Run scan with these settings
+                </LemonButton>
+                <LemonButton type="secondary" size="small" onClick={() => resetScanConfig()}>
+                    Reset to defaults
+                </LemonButton>
+            </div>
+        </LemonCard>
+    )
+}
+
 function DigestRow({ digest }: { digest: PulseDigestSummary }): JSX.Element {
     const { expandedDigestId, expandedDigest, expandedDigestLoading } = useValues(pulseLogic)
     const { setExpandedDigestId, getDigest } = useActions(pulseLogic)
@@ -579,8 +682,10 @@ export function Pulse(): JSX.Element {
             />
 
             <SubscriptionPanel />
-            {/* The watched-metric set is internal "magic sauce" we'll keep tuning — staff-only debug for now. */}
+            {/* The watched-metric set and the scan-tuning knobs are internal "magic sauce" we'll keep tuning —
+                staff-only debug while we calibrate on production data. */}
             {user?.is_staff && <WatchedPanel />}
+            {user?.is_staff && <ScanTuningPanel />}
 
             {digestsError && (
                 <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadDigests() }} className="mb-4">

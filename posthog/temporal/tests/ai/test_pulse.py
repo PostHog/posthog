@@ -9,9 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.pulse import PulseSubscription, Sensitivity
 from posthog.temporal.ai.pulse import detection, narrative, selection
 from posthog.temporal.ai.pulse.detection import (
-    MIN_BASELINE_VALUE,
+    _build_detection_query,
     _compute_impact,
     _compute_robust_z,
     _evaluate_candidate,
@@ -54,7 +55,9 @@ from posthog.temporal.ai.pulse.types import (
     EnrichFindingsInputs,
     Finding,
     MetricDescriptor,
+    PulseScanConfig,
 )
+from posthog.temporal.ai.pulse.workflow import _resolve_scan_config
 
 
 def _finding(*, impact: float, robust_z: float, label: str) -> Finding:
@@ -151,45 +154,79 @@ class TestExtractWeeklySeries:
         assert _extract_weekly_series(result) == expected
 
 
+class TestBuildDetectionQuery:
+    @parameterized.expand(
+        [
+            ("three_weeks", 3, "-35d"),
+            ("default_four", 4, "-42d"),
+            ("six_weeks", 6, "-56d"),
+        ]
+    )
+    def test_fetch_window_tracks_baseline_weeks(self, _name, baseline_weeks, expected_from):
+        # The fetch window is (baseline_weeks + 2) weeks: the baseline window plus the current and the
+        # dropped in-progress week.
+        query = _build_detection_query({"kind": "TrendsQuery", "breakdownFilter": {"x": 1}}, baseline_weeks)
+        assert query["dateRange"] == {"date_from": expected_from, "date_to": None}
+        assert query["interval"] == "week"
+        assert query["breakdownFilter"] is None  # breakdown stripped for the headline scan
+
+
 class TestEvaluateCandidate:
     def test_returns_none_when_series_too_short(self):
-        assert _evaluate_candidate(_make_candidate(), [10, 10, 10, 12], 0.25, 3.5) is None
+        assert _evaluate_candidate(_make_candidate(), [10, 10, 10, 12], PulseScanConfig()) is None
 
     def test_returns_none_when_baseline_too_low_volume(self):
-        below = MIN_BASELINE_VALUE - 1
+        below = PulseScanConfig().min_baseline_value - 1
         series = [below, below, below, below, below, 999]
-        assert _evaluate_candidate(_make_candidate(), series, 0.25, 3.5) is None
+        assert _evaluate_candidate(_make_candidate(), series, PulseScanConfig()) is None
+
+    def test_low_volume_metric_fires_when_floor_lowered(self):
+        # The same quiet metric that fails the default floor fires once min_baseline_value drops below it.
+        series = [4.0, 4.0, 4.0, 4.0, 8.0, 999.0]
+        assert _evaluate_candidate(_make_candidate(), series, PulseScanConfig()) is None
+        finding = _evaluate_candidate(_make_candidate(), series, PulseScanConfig(min_baseline_value=1.0))
+        assert finding is not None
+        assert finding.baseline_value == pytest.approx(4.0)
 
     def test_uses_median_baseline_robust_to_one_bad_week(self):
         # One spiked baseline week must not move the baseline (median=100, mean would be 280).
         series = [100.0, 100.0, 1000.0, 100.0, 50.0, 999.0]
-        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        finding = _evaluate_candidate(_make_candidate(), series, PulseScanConfig())
         assert finding is not None
         assert finding.baseline_value == pytest.approx(100.0)
         assert finding.current_value == 50.0
 
     def test_impact_set_on_finding(self):
         series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
-        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        finding = _evaluate_candidate(_make_candidate(), series, PulseScanConfig())
         assert finding is not None
         assert finding.impact == pytest.approx(0.5 * math.sqrt(100.0))
 
     def test_series_captured_for_sparkline(self):
         series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
-        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        finding = _evaluate_candidate(_make_candidate(), series, PulseScanConfig())
         assert finding is not None
         # Partial current week (999) dropped; recent completed weeks kept, ending at the current value.
         assert finding.series == [100.0, 100.0, 100.0, 100.0, 50.0]
         assert finding.series[-1] == finding.current_value
 
+    def test_baseline_weeks_narrows_the_baseline_window(self):
+        # With baseline_weeks=3 only the last 3 completed weeks form the baseline (median 100, dropping the
+        # earlier 10s); the captured series is the window + current.
+        series = [10.0, 10.0, 100.0, 100.0, 100.0, 50.0, 999.0]
+        finding = _evaluate_candidate(_make_candidate(), series, PulseScanConfig(baseline_weeks=3))
+        assert finding is not None
+        assert finding.baseline_value == pytest.approx(100.0)
+        assert finding.series == [100.0, 100.0, 100.0, 50.0]
+
     def test_change_pct_is_primary_gate_z_alone_does_not_fire(self):
-        # ~5% change but a large robust_z: must NOT fire (change_pct below min, z is secondary).
+        # ~5% change but a low robust_z threshold: must NOT fire (change_pct below min, z is secondary).
         series = [98.0, 100.0, 102.0, 100.0, 105.0, 999.0]
-        assert _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=0.1) is None
+        assert _evaluate_candidate(_make_candidate(), series, PulseScanConfig(robust_z_threshold=0.1)) is None
 
     def test_returns_finding_on_relative_change(self):
         series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
-        finding = _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5)
+        finding = _evaluate_candidate(_make_candidate(), series, PulseScanConfig())
         assert finding is not None
         assert finding.current_value == 50.0
         assert finding.change_pct < 0
@@ -198,7 +235,57 @@ class TestEvaluateCandidate:
 
     def test_returns_none_when_change_below_min(self):
         series = [100.0, 102.0, 98.0, 101.0, 103.0, 999.0]  # ~3% change
-        assert _evaluate_candidate(_make_candidate(), series, min_change_pct=0.25, robust_z_threshold=3.5) is None
+        assert _evaluate_candidate(_make_candidate(), series, PulseScanConfig()) is None
+
+    def test_min_change_pct_knob_gates_a_borderline_change(self):
+        # A ~50% drop fires at the default gate but not when the gate is raised above it.
+        series = [100.0, 100.0, 100.0, 100.0, 50.0, 999.0]
+        assert _evaluate_candidate(_make_candidate(), series, PulseScanConfig(min_change_pct=0.25)) is not None
+        assert _evaluate_candidate(_make_candidate(), series, PulseScanConfig(min_change_pct=0.75)) is None
+
+
+class TestResolveScanConfig:
+    def test_no_subscription_returns_defaults_unchanged(self):
+        defaults = PulseScanConfig(min_baseline_value=7.0, top_event_limit=3)
+        assert _resolve_scan_config(None, defaults) == defaults
+
+    def test_preset_subscription_overlays_detection_thresholds_only(self):
+        # Conservative preset = (0.40, 3.5); baseline_weeks/max_findings come from the subscription;
+        # the selection knobs stay at whatever defaults were passed in.
+        defaults = PulseScanConfig(top_event_limit=3, min_baseline_value=9.0)
+        sub = PulseSubscription(sensitivity=Sensitivity.CONSERVATIVE, baseline_weeks=6, max_findings=8)
+
+        resolved = _resolve_scan_config(sub, defaults)
+
+        assert resolved.min_change_pct == 0.40
+        assert resolved.robust_z_threshold == 3.5
+        assert resolved.baseline_weeks == 6
+        assert resolved.max_findings == 8
+        # Selection knobs untouched by the subscription.
+        assert resolved.top_event_limit == 3
+        assert resolved.min_baseline_value == 9.0
+
+    def test_custom_subscription_reads_its_own_thresholds(self):
+        sub = PulseSubscription(
+            sensitivity=Sensitivity.CUSTOM,
+            min_change_pct=0.42,
+            robust_z_threshold=2.0,
+            baseline_weeks=5,
+            max_findings=3,
+        )
+
+        resolved = _resolve_scan_config(sub, PulseScanConfig())
+
+        assert resolved.min_change_pct == 0.42
+        assert resolved.robust_z_threshold == 2.0
+        assert resolved.baseline_weeks == 5
+        assert resolved.max_findings == 3
+
+    def test_baseline_weeks_clamped_to_detector_floor(self):
+        # The subscription serializer allows baseline_weeks below the detector's minimum; resolution must
+        # clamp so a low stored value can't silently produce zero findings on scheduled runs.
+        sub = PulseSubscription(sensitivity=Sensitivity.BALANCED, baseline_weeks=1, max_findings=5)
+        assert _resolve_scan_config(sub, PulseScanConfig()).baseline_weeks == detection.MIN_BASELINE_WEEKS
 
 
 class TestPickTopContributor:

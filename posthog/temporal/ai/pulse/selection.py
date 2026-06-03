@@ -11,18 +11,12 @@ from typing import TYPE_CHECKING
 from django.db.models import Count, Q
 
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
+from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor, PulseScanConfig
 
 if TYPE_CHECKING:
     from posthog.models import Team
 
     from products.product_analytics.backend.models.insight import Insight
-
-RECENT_DAYS = 30
-MIN_VIEWERS_FOR_RECENT_INSIGHT = 3
-TOP_DASHBOARD_LIMIT = 10
-TOP_EVENT_LIMIT = 25
-SAVED_INSIGHT_LIMIT = 15  # most recently edited saved Trends insights, independent of dashboards/views
 
 
 def _trends_query_from_insight(insight: Insight) -> dict | None:
@@ -61,7 +55,7 @@ def _insight_to_candidate(insight: Insight, source: str) -> CandidateMetric | No
     )
 
 
-def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateMetric]:
+def _select_dashboard_tile_candidates(team: Team, limit: int, recent_days: int) -> list[CandidateMetric]:
     """Pick Trends insights on the team's most-pinned/visible dashboards."""
     # Lazy import: importing product models at module level triggers an app-init circular import
     # (the pulse package is eagerly preloaded via posthog.api). They resolve fine at activity-call time.
@@ -70,7 +64,7 @@ def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateM
 
     dashboards = (
         Dashboard.objects.filter(team=team, deleted=False)
-        .filter(Q(pinned=True) | Q(last_accessed_at__gte=datetime.now(UTC) - timedelta(days=RECENT_DAYS)))
+        .filter(Q(pinned=True) | Q(last_accessed_at__gte=datetime.now(UTC) - timedelta(days=recent_days)))
         .order_by("-pinned", "-last_accessed_at")[:limit]
     )
     tiles = (
@@ -91,17 +85,19 @@ def _select_dashboard_tile_candidates(team: Team, limit: int) -> list[CandidateM
     return candidates
 
 
-def _select_recent_viewed_insight_candidates(team: Team, limit: int, existing_ids: set[str]) -> list[CandidateMetric]:
+def _select_recent_viewed_insight_candidates(
+    team: Team, limit: int, existing_ids: set[str], recent_days: int, min_viewers: int
+) -> list[CandidateMetric]:
     """Pick Trends insights recently viewed by multiple team members."""
     # lazy: avoid app-init circular import
     from products.product_analytics.backend.models.insight import Insight, InsightViewed
 
-    since = datetime.now(UTC) - timedelta(days=RECENT_DAYS)
+    since = datetime.now(UTC) - timedelta(days=recent_days)
     viewed = (
         InsightViewed.objects.filter(team=team, last_viewed_at__gte=since)
         .values("insight_id")
         .annotate(viewer_count=Count("user_id", distinct=True))
-        .filter(viewer_count__gte=MIN_VIEWERS_FOR_RECENT_INSIGHT)
+        .filter(viewer_count__gte=min_viewers)
         .order_by("-viewer_count")
     )
     insight_ids = [v["insight_id"] for v in viewed if str(v["insight_id"]) not in existing_ids]
@@ -170,18 +166,33 @@ def _candidate_source_ids(candidates: list[CandidateMetric]) -> set[str]:
 
 
 @database_sync_to_async
-def _select_sync(team_id: int, max_candidates: int) -> list[CandidateMetric]:
+def _select_sync(team_id: int, config: PulseScanConfig) -> list[CandidateMetric]:
     from posthog.models import Team  # lazy: avoid app-init circular import
 
     team = Team.objects.get(id=team_id)
-    candidates = _select_dashboard_tile_candidates(team, TOP_DASHBOARD_LIMIT)
-    candidates.extend(
-        _select_recent_viewed_insight_candidates(team, max_candidates // 2, _candidate_source_ids(candidates))
-    )
-    candidates.extend(_select_saved_insight_candidates(team, SAVED_INSIGHT_LIMIT, _candidate_source_ids(candidates)))
-    candidates.extend(_select_top_event_candidates(team, TOP_EVENT_LIMIT))
-    return candidates[:max_candidates]
+    # Each source contributes only when its limit is positive — a limit of 0 turns it off, the per-run
+    # on/off lever. Order matters: earlier sources win the dedup, so dashboard tiles take priority.
+    candidates: list[CandidateMetric] = []
+    if config.dashboard_tile_limit > 0:
+        candidates.extend(_select_dashboard_tile_candidates(team, config.dashboard_tile_limit, config.recent_days))
+    if config.recent_insight_limit > 0:
+        candidates.extend(
+            _select_recent_viewed_insight_candidates(
+                team,
+                config.recent_insight_limit,
+                _candidate_source_ids(candidates),
+                config.recent_days,
+                config.min_viewers_for_recent_insight,
+            )
+        )
+    if config.saved_insight_limit > 0:
+        candidates.extend(
+            _select_saved_insight_candidates(team, config.saved_insight_limit, _candidate_source_ids(candidates))
+        )
+    if config.top_event_limit > 0:
+        candidates.extend(_select_top_event_candidates(team, config.top_event_limit))
+    return candidates[: config.max_candidates]
 
 
-async def select_candidates(team_id: int, max_candidates: int) -> list[CandidateMetric]:
-    return await _select_sync(team_id, max_candidates)
+async def select_candidates(team_id: int, config: PulseScanConfig) -> list[CandidateMetric]:
+    return await _select_sync(team_id, config)

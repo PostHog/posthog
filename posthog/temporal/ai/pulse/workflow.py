@@ -13,7 +13,7 @@ from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse import metrics
 from posthog.temporal.ai.pulse.delivery import emit_pulse_events, notify_digest, persist_findings
-from posthog.temporal.ai.pulse.detection import detect_changes
+from posthog.temporal.ai.pulse.detection import MIN_BASELINE_WEEKS, detect_changes
 from posthog.temporal.ai.pulse.narrative import enrich_findings, synthesize_digest
 from posthog.temporal.ai.pulse.selection import select_candidates
 from posthog.temporal.ai.pulse.types import (
@@ -23,6 +23,7 @@ from posthog.temporal.ai.pulse.types import (
     EnrichedFinding,
     EnrichFindingsInputs,
     Finding,
+    PulseScanConfig,
     SelectCandidatesInputs,
     SynthesizeDigestInputs,
 )
@@ -55,57 +56,58 @@ class PulseScanInputs(BaseModel):
     period_key: str
     period_start: str
     period_end: str
-    max_candidates: int = 200
-    robust_z_threshold: float = 3.5
-    min_change_pct: float = 0.25
-    baseline_weeks: int = 4
-    max_findings: int = 5
     user_id: int | None = None
+    # A fully-resolved per-run override (a staff manual trigger). None for scheduled runs, which resolve
+    # detection thresholds from the team's PulseSubscription inside the workflow instead. Freezing the
+    # override into the inputs keeps a manual run reproducible from what started it.
+    config: PulseScanConfig | None = None
 
 
-class ScanConfig(BaseModel):
-    """Detection config resolved from the team's PulseSubscription (with sensitivity presets applied)."""
+def _resolve_scan_config(subscription: PulseSubscription | None, defaults: PulseScanConfig) -> PulseScanConfig:
+    """Overlay a team's subscription detection thresholds onto the default config.
 
-    min_change_pct: float
-    robust_z_threshold: float
-    baseline_weeks: int
-    max_findings: int
+    Selection knobs aren't modeled on the subscription, so they stay at the defaults. With no
+    subscription the defaults are returned unchanged.
+    """
+    if subscription is None:
+        return defaults
+    min_change_pct, robust_z_threshold = subscription.resolve_sensitivity()
+    return defaults.model_copy(
+        update={
+            "min_change_pct": min_change_pct,
+            "robust_z_threshold": robust_z_threshold,
+            # The subscription serializer allows baseline_weeks as low as 1, but the detector needs at least
+            # MIN_BASELINE_WEEKS to form a stable median — clamp so a low setting can't silently zero findings.
+            "baseline_weeks": max(subscription.baseline_weeks, MIN_BASELINE_WEEKS),
+            "max_findings": subscription.max_findings,
+        }
+    )
 
 
 @activity.defn
-async def load_scan_config_activity(team_id: int, defaults: ScanConfig) -> ScanConfig:
-    """Resolve the team's detection config from its PulseSubscription, falling back to defaults."""
+async def load_scan_config_activity(team_id: int, defaults: PulseScanConfig) -> PulseScanConfig:
+    """Resolve a scheduled run's config from the team's PulseSubscription detection thresholds.
+
+    Manual staff runs skip this entirely by passing an explicit config override in the inputs.
+    """
 
     @database_sync_to_async
-    def _load() -> ScanConfig:
+    def _load() -> PulseScanConfig:
         with team_scope(team_id, canonical=True):
             subscription = PulseSubscription.objects.filter(team_id=team_id).first()
-        if subscription is None:
-            return defaults
-        min_change_pct, robust_z_threshold = subscription.resolve_sensitivity()
-        return ScanConfig(
-            min_change_pct=min_change_pct,
-            robust_z_threshold=robust_z_threshold,
-            baseline_weeks=subscription.baseline_weeks,
-            max_findings=subscription.max_findings,
-        )
+        return _resolve_scan_config(subscription, defaults)
 
     return await _load()
 
 
 @activity.defn
 async def select_candidate_metrics_activity(inputs: SelectCandidatesInputs) -> list[CandidateMetric]:
-    return await select_candidates(team_id=inputs.team_id, max_candidates=inputs.max_candidates)
+    return await select_candidates(team_id=inputs.team_id, config=inputs.config)
 
 
 @activity.defn
 async def detect_changes_activity(inputs: DetectChangesInputs) -> list[Finding]:
-    return await detect_changes(
-        team_id=inputs.team_id,
-        candidates=inputs.candidates,
-        min_change_pct=inputs.min_change_pct,
-        robust_z_threshold=inputs.robust_z_threshold,
-    )
+    return await detect_changes(team_id=inputs.team_id, candidates=inputs.candidates, config=inputs.config)
 
 
 @activity.defn
@@ -260,27 +262,24 @@ class PulseScanWorkflow(PostHogWorkflow):
             retry_policy=retry_policy,
         )
 
-        config = await workflow.execute_activity(
-            load_scan_config_activity,
-            args=[
-                inputs.team_id,
-                ScanConfig(
-                    min_change_pct=inputs.min_change_pct,
-                    robust_z_threshold=inputs.robust_z_threshold,
-                    baseline_weeks=inputs.baseline_weeks,
-                    max_findings=inputs.max_findings,
-                ),
-            ],
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=retry_policy,
-        )
+        # A staff manual trigger passes a fully-resolved override; a scheduled run resolves detection
+        # thresholds from the team's PulseSubscription (selection knobs stay at the built-in defaults).
+        if inputs.config is not None:
+            config = inputs.config
+        else:
+            config = await workflow.execute_activity(
+                load_scan_config_activity,
+                args=[inputs.team_id, PulseScanConfig()],
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=retry_policy,
+            )
 
         try:
             candidates = await workflow.execute_activity(
                 select_candidate_metrics_activity,
                 SelectCandidatesInputs(
                     team_id=inputs.team_id,
-                    max_candidates=inputs.max_candidates,
+                    config=config,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=retry_policy,
@@ -291,8 +290,7 @@ class PulseScanWorkflow(PostHogWorkflow):
                 DetectChangesInputs(
                     team_id=inputs.team_id,
                     candidates=candidates,
-                    robust_z_threshold=config.robust_z_threshold,
-                    min_change_pct=config.min_change_pct,
+                    config=config,
                 ),
                 start_to_close_timeout=timedelta(minutes=15),
                 heartbeat_timeout=timedelta(minutes=2),

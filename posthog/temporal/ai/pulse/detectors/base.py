@@ -28,6 +28,11 @@ class PulseDetector(ABC):
         baseline: list[float],
         min_change_pct: float,
         robust_z_threshold: float,
+        min_baseline_value: float,
     ) -> DetectionResult:
-        """Evaluate one candidate. robust_z is informational; the gate is in the strategy."""
+        """Evaluate one candidate. robust_z is informational; the gate is in the strategy.
+
+        `min_baseline_value` is the volume floor — metrics with a quieter baseline are skipped to
+        avoid noisy percentage swings on near-zero traffic.
+        """
         ...
