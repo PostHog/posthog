@@ -475,6 +475,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -504,8 +506,12 @@ export namespace Schemas {
       accountOwner?: string | number | null;
       allRolesUnassigned?: boolean | null;
       csm?: string | number | null;
+      /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+      filterExpression?: string | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
+      /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+      metrics?: string[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
@@ -4823,6 +4829,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -16473,6 +16481,18 @@ export namespace Schemas {
     };
 
     /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type ExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
+    /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
     * `append` - append
@@ -16619,6 +16639,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source: ExternalDataSchemaSource;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -17693,17 +17718,26 @@ export namespace Schemas {
 
     export interface FileSystemShortcut {
       readonly id: string;
+      /** Display path of the shortcut in the sidebar. */
       path: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -23655,9 +23689,18 @@ export namespace Schemas {
 
     export interface PersistedFolder {
       readonly id: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -24070,7 +24113,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -28194,6 +28237,18 @@ export namespace Schemas {
       is_nullable?: boolean;
     };
 
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -28273,6 +28328,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source?: PatchedExternalDataSchemaSource;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -28372,17 +28432,26 @@ export namespace Schemas {
 
     export interface PatchedFileSystemShortcut {
       readonly id?: string;
+      /** Display path of the shortcut in the sidebar. */
       path?: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -29442,9 +29511,18 @@ export namespace Schemas {
 
     export interface PatchedPersistedFolder {
       readonly id?: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type?: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -30435,7 +30513,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -35659,6 +35737,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -36094,6 +36174,8 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
@@ -39202,6 +39284,11 @@ export namespace Schemas {
     export interface _ErrorResponse {
       /** Human-readable error description from DRF. */
       detail: string;
+    }
+
+    export interface _HasSpansResponse {
+      /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+      hasSpans: boolean;
     }
 
     export interface _LogAttributeEntry {
@@ -43092,30 +43179,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat = typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateFormat = typeof EnvironmentsPersonsFunnelCorrelationCreateFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsLifecycleRetrieveParams = {
     format?: EnvironmentsPersonsLifecycleRetrieveFormat;
     };
@@ -45595,6 +45658,43 @@ export namespace Schemas {
      * Search in name, description, or metadata
      */
     search?: string;
+    };
+
+    export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
+    };
+
+    export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type DesktopRecordingsListParams = {
@@ -48648,30 +48748,6 @@ export namespace Schemas {
 
 
     export const PersonsFunnelCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type PersonsFunnelCorrelationRetrieveFormat = typeof PersonsFunnelCorrelationRetrieveFormat[keyof typeof PersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const PersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type PersonsFunnelCorrelationCreateFormat = typeof PersonsFunnelCorrelationCreateFormat[keyof typeof PersonsFunnelCorrelationCreateFormat];
-
-
-    export const PersonsFunnelCorrelationCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
