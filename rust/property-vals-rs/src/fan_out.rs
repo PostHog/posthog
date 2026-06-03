@@ -7,14 +7,32 @@ use crate::types::{Event, GroupIdentify, PropertyType, PropertyValueMessage, Tup
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
 
-pub fn fan_out(event: &Event, excluded: &ExcludedPropertyKeys) -> Vec<(TupleKey, u64)> {
+pub fn fan_out(
+    event: &Event,
+    excluded: &ExcludedPropertyKeys,
+    max_property_value_len: usize,
+) -> Vec<(TupleKey, u64)> {
     let mut out = Vec::new();
 
     if let Some(raw) = &event.properties {
-        emit_from_blob(event.team_id, PropertyType::Event, raw, excluded, &mut out);
+        emit_from_blob(
+            event.team_id,
+            PropertyType::Event,
+            raw,
+            excluded,
+            max_property_value_len,
+            &mut out,
+        );
     }
     if let Some(raw) = &event.person_properties {
-        emit_from_blob(event.team_id, PropertyType::Person, raw, excluded, &mut out);
+        emit_from_blob(
+            event.team_id,
+            PropertyType::Person,
+            raw,
+            excluded,
+            max_property_value_len,
+            &mut out,
+        );
     }
 
     out
@@ -23,6 +41,7 @@ pub fn fan_out(event: &Event, excluded: &ExcludedPropertyKeys) -> Vec<(TupleKey,
 pub fn fan_out_group(
     event: &GroupIdentify,
     excluded: &ExcludedPropertyKeys,
+    max_property_value_len: usize,
 ) -> Vec<(TupleKey, u64)> {
     let mut out = Vec::new();
     if let Some(raw) = &event.group_properties {
@@ -31,6 +50,7 @@ pub fn fan_out_group(
             PropertyType::Group(event.group_type_index),
             raw,
             excluded,
+            max_property_value_len,
             &mut out,
         );
     }
@@ -57,6 +77,7 @@ fn emit_from_blob(
     property_type: PropertyType,
     raw: &str,
     excluded: &ExcludedPropertyKeys,
+    max_property_value_len: usize,
     out: &mut Vec<(TupleKey, u64)>,
 ) {
     let parsed: Value = match serde_json::from_str(raw) {
@@ -94,7 +115,7 @@ fn emit_from_blob(
             metrics::counter!(VALUES_DROPPED, "reason" => "empty_value").increment(1);
             continue;
         }
-        if property_value.chars().count() > MAX_PROPERTY_VALUE_LEN {
+        if property_value.chars().count() > max_property_value_len {
             metrics::counter!(VALUES_DROPPED, "reason" => "value_too_long").increment(1);
             continue;
         }
@@ -202,31 +223,31 @@ mod tests {
     proptest! {
         #[test]
         fn fan_out_outputs_obey_caps_and_team(e in arb_event()) {
-            for (t, n) in fan_out(&e, &none()) {
+            for (t, n) in fan_out(&e, &none(), MAX_PROPERTY_VALUE_LEN) {
                 check_tuple_invariants(&t, n, e.team_id);
             }
         }
 
         #[test]
         fn fan_out_group_outputs_obey_caps_and_team(g in arb_group_identify()) {
-            for (t, n) in fan_out_group(&g, &none()) {
+            for (t, n) in fan_out_group(&g, &none(), MAX_PROPERTY_VALUE_LEN) {
                 check_tuple_invariants(&t, n, g.team_id);
             }
         }
 
         #[test]
         fn fan_out_is_pure(e in arb_event()) {
-            prop_assert_eq!(fan_out(&e, &none()), fan_out(&e, &none()));
+            prop_assert_eq!(fan_out(&e, &none(), MAX_PROPERTY_VALUE_LEN), fan_out(&e, &none(), MAX_PROPERTY_VALUE_LEN));
         }
 
         #[test]
         fn fan_out_group_is_pure(g in arb_group_identify()) {
-            prop_assert_eq!(fan_out_group(&g, &none()), fan_out_group(&g, &none()));
+            prop_assert_eq!(fan_out_group(&g, &none(), MAX_PROPERTY_VALUE_LEN), fan_out_group(&g, &none(), MAX_PROPERTY_VALUE_LEN));
         }
 
         #[test]
         fn fan_out_group_property_type_matches_index(g in arb_group_identify()) {
-            for (t, _) in fan_out_group(&g, &none()) {
+            for (t, _) in fan_out_group(&g, &none(), MAX_PROPERTY_VALUE_LEN) {
                 prop_assert_eq!(t.property_type, PropertyType::Group(g.group_type_index));
             }
         }
@@ -234,7 +255,11 @@ mod tests {
 
     #[test]
     fn event_property_produces_event_type_tuple() {
-        let tuples = fan_out(&event(r#"{"$browser":"Chrome"}"#), &none());
+        let tuples = fan_out(
+            &event(r#"{"$browser":"Chrome"}"#),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_type, PropertyType::Event);
         assert_eq!(tuples[0].0.property_key, "$browser");
@@ -244,13 +269,17 @@ mod tests {
 
     #[test]
     fn json_null_value_is_dropped() {
-        let tuples = fan_out(&event(r#"{"nullable_field":null}"#), &none());
+        let tuples = fan_out(
+            &event(r#"{"nullable_field":null}"#),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert!(tuples.is_empty());
     }
 
     #[test]
     fn empty_string_value_is_dropped() {
-        let tuples = fan_out(&event(r#"{"blank":""}"#), &none());
+        let tuples = fan_out(&event(r#"{"blank":""}"#), &none(), MAX_PROPERTY_VALUE_LEN);
         assert!(tuples.is_empty());
     }
 
@@ -261,7 +290,7 @@ mod tests {
             properties: None,
             person_properties: Some(r#"{"email":"foo@bar.com"}"#.to_string()),
         };
-        let tuples = fan_out(&ev, &none());
+        let tuples = fan_out(&ev, &none(), MAX_PROPERTY_VALUE_LEN);
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_type, PropertyType::Person);
         assert_eq!(tuples[0].0.property_key, "email");
@@ -270,33 +299,45 @@ mod tests {
 
     #[test]
     fn bool_value_coerces_to_string() {
-        let tuples = fan_out(&event(r#"{"a_bool":true}"#), &none());
+        let tuples = fan_out(
+            &event(r#"{"a_bool":true}"#),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_value, "true");
     }
 
     #[test]
     fn number_value_coerces_to_string() {
-        let tuples = fan_out(&event(r#"{"a_number":42}"#), &none());
+        let tuples = fan_out(
+            &event(r#"{"a_number":42}"#),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_value, "42");
     }
 
     #[test]
     fn unparseable_blob_emits_nothing() {
-        let tuples = fan_out(&event(r#"not valid json"#), &none());
+        let tuples = fan_out(&event(r#"not valid json"#), &none(), MAX_PROPERTY_VALUE_LEN);
         assert!(tuples.is_empty());
     }
 
     #[test]
     fn empty_object_emits_nothing() {
-        let tuples = fan_out(&event("{}"), &none());
+        let tuples = fan_out(&event("{}"), &none(), MAX_PROPERTY_VALUE_LEN);
         assert!(tuples.is_empty());
     }
 
     #[test]
     fn group_identify_index_0_emits_group_type() {
-        let tuples = fan_out_group(&group_identify(0, r#"{"plan":"enterprise"}"#), &none());
+        let tuples = fan_out_group(
+            &group_identify(0, r#"{"plan":"enterprise"}"#),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_type, PropertyType::Group(0));
         assert_eq!(tuples[0].0.property_key, "plan");
@@ -305,7 +346,11 @@ mod tests {
 
     #[test]
     fn group_identify_emits_group_type_matching_index() {
-        let tuples = fan_out_group(&group_identify(4, r#"{"region":"us-east"}"#), &none());
+        let tuples = fan_out_group(
+            &group_identify(4, r#"{"region":"us-east"}"#),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_type, PropertyType::Group(4));
     }
@@ -317,12 +362,16 @@ mod tests {
             group_type_index: 0,
             group_properties: None,
         };
-        assert!(fan_out_group(&g, &none()).is_empty());
+        assert!(fan_out_group(&g, &none(), MAX_PROPERTY_VALUE_LEN).is_empty());
     }
 
     #[test]
     fn group_identify_unparseable_drops() {
-        let tuples = fan_out_group(&group_identify(0, "not valid json"), &none());
+        let tuples = fan_out_group(
+            &group_identify(0, "not valid json"),
+            &none(),
+            MAX_PROPERTY_VALUE_LEN,
+        );
         assert!(tuples.is_empty());
     }
 
@@ -331,7 +380,7 @@ mod tests {
         let blob =
             r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1"}"#;
         let exclusions = excluded(&["$insert_id", "distinct_id", "$session_id"]);
-        let tuples = fan_out(&event(blob), &exclusions);
+        let tuples = fan_out(&event(blob), &exclusions, MAX_PROPERTY_VALUE_LEN);
         assert_eq!(tuples.len(), 1, "only $browser should survive exclusion");
         assert_eq!(tuples[0].0.property_key, "$browser");
         assert_eq!(tuples[0].0.property_value, "Chrome");
@@ -346,7 +395,7 @@ mod tests {
                 r#"{"email":"a@b.com","$session_id":"s1","plan":"enterprise"}"#.to_string(),
             ),
         };
-        let tuples = fan_out(&ev, &excluded(&["$session_id"]));
+        let tuples = fan_out(&ev, &excluded(&["$session_id"]), MAX_PROPERTY_VALUE_LEN);
         assert_eq!(tuples.len(), 2);
         let keys: Vec<&str> = tuples
             .iter()
@@ -360,7 +409,7 @@ mod tests {
     #[test]
     fn excluded_group_property_keys_are_skipped() {
         let g = group_identify(0, r#"{"plan":"enterprise","internal_id":"g-42"}"#);
-        let tuples = fan_out_group(&g, &excluded(&["internal_id"]));
+        let tuples = fan_out_group(&g, &excluded(&["internal_id"]), MAX_PROPERTY_VALUE_LEN);
         assert_eq!(tuples.len(), 1);
         assert_eq!(tuples[0].0.property_key, "plan");
     }
@@ -368,9 +417,9 @@ mod tests {
     #[test]
     fn empty_exclusion_list_is_a_noop() {
         let blob = r#"{"$browser":"Chrome","email":"a@b.com"}"#;
-        let with_default = fan_out(&event(blob), &none());
+        let with_default = fan_out(&event(blob), &none(), MAX_PROPERTY_VALUE_LEN);
         let parsed_empty: ExcludedPropertyKeys = "".parse().unwrap();
-        let with_parsed_empty = fan_out(&event(blob), &parsed_empty);
+        let with_parsed_empty = fan_out(&event(blob), &parsed_empty, MAX_PROPERTY_VALUE_LEN);
         assert_eq!(with_default.len(), 2);
         assert_eq!(with_default, with_parsed_empty);
     }

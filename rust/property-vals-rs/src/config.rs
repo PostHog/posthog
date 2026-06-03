@@ -38,6 +38,9 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_values_per_key: usize,
 
+    #[envconfig(default = "255")]
+    pub max_property_value_len: usize,
+
     #[envconfig(default = "0")]
     pub merger_seen_cache_capacity: usize,
 
