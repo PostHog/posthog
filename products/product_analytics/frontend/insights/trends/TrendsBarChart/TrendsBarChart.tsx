@@ -50,6 +50,8 @@ import {
 interface TrendsBarChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** True when rendered as a fixed-height dashboard/card tile, false on the full insight page. */
+    embedded?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
@@ -77,7 +79,11 @@ const resolveGroupTypeLabel = (
 
 const handleChartError = makeChartErrorHandler('trends-bar-chart')
 
-export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChartProps): JSX.Element | null {
+export function TrendsBarChart({
+    context,
+    inSharedMode = false,
+    embedded = false,
+}: TrendsBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -242,8 +248,10 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
             // Breakdown values become category (y-axis) labels here; truncate long ones (e.g. URLs)
             // so they don't grow the margin and push the plot off screen. Full value shows on hover.
             maxCategoryLabelWidth: MAX_CATEGORY_LABEL_WIDTH,
-            // Always render every breakdown row — grow the chart and let the tile scroll rather than
-            // dropping rows. This keeps dashboard tiles consistent with the full insight view.
+            // Dashboard/card tiles are a fixed height, so cap the rows to those that fit. The full
+            // insight page is `embedded: false` — even when opened from a dashboard (dashboardId in
+            // the URL) — so it keeps the grow-to-fit-all behavior and renders every breakdown row.
+            bars: { fitToHeight: embedded },
         }
     }, [
         yAxisScaleType,
@@ -252,6 +260,7 @@ export function TrendsBarChart({ context, inSharedMode = false }: TrendsBarChart
         trendsFilter?.yAxisLabel,
         displayLabels,
         labels,
+        embedded,
     ])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
