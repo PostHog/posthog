@@ -32,6 +32,7 @@ from posthog.utils import (
     get_compare_period_dates,
     get_default_event_info,
     get_default_event_name,
+    get_dogfood_flags_team_id,
     get_ip_address,
     get_js_url,
     get_self_capture_team_id,
@@ -39,6 +40,7 @@ from posthog.utils import (
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    resolve_dogfood_flags_team,
     resolve_self_capture_team,
     str_to_int_set,
     tile_filters_override_requested_by_client,
@@ -1108,6 +1110,54 @@ class TestResolveSelfCaptureTeam(TestCase):
         assert resolve_self_capture_team() == first_team
         assert get_self_capture_team_id() == first_team.id
 
+    def test_falls_back_to_first_team_when_logged_in_user_has_no_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        Team.objects.create(organization=organization, name="Second")
+
+        # A logged-in user whose current_team is None still falls back to the first team.
+        user = User.objects.create_and_join(organization, "user@posthog.com", self.PASSWORD)
+        user.current_team = None
+        user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        user.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
     def test_returns_none_when_there_are_no_teams(self):
         assert resolve_self_capture_team() is None
         assert get_self_capture_team_id() is None
+
+
+class TestResolveDogfoodFlagsTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_dogfood_flags_team() reads the whole teams table, so each test must control
+        # global state. Deleting an organization cascades to its projects and teams, and these
+        # deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_returns_first_team_not_current_team(self):
+        # The dogfood-flags team is the first/oldest team (the sync write target), even when the
+        # most-recently-logged-in user's current_team is a different team. The two resolvers
+        # intentionally diverge: self-capture follows current_team, dogfood-flags follows first team.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_dogfood_flags_team() == first_team
+        assert get_dogfood_flags_team_id() == first_team.id
+        # Same instance state, the two resolvers point at different teams.
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_dogfood_flags_team() is None
+        assert get_dogfood_flags_team_id() is None

@@ -11,7 +11,7 @@ from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProv
 
 class TestHyperCacheFlagProvider(SimpleTestCase):
     def setUp(self):
-        self.provider = HyperCacheFlagProvider(team_id=2)
+        self.provider = HyperCacheFlagProvider.for_static_team(2)
 
     def test_should_fetch_flag_definitions_always_returns_false(self):
         assert self.provider.should_fetch_flag_definitions() is False
@@ -94,7 +94,7 @@ class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
     @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
     def test_injected_resolver_used_for_lookup(self, mock_hypercache):
         mock_hypercache.get_from_cache.return_value = None
-        provider = HyperCacheFlagProvider(team_id_resolver=lambda: 7)
+        provider = HyperCacheFlagProvider.for_dynamic_resolution(lambda: 7)
 
         provider.get_flag_definitions()
 
@@ -102,7 +102,7 @@ class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
 
     @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
     def test_none_resolution_short_circuits_lookup(self, mock_hypercache):
-        provider = HyperCacheFlagProvider(team_id_resolver=lambda: None)
+        provider = HyperCacheFlagProvider.for_dynamic_resolution(lambda: None)
 
         assert provider.get_flag_definitions() is None
         mock_hypercache.get_from_cache.assert_not_called()
@@ -111,7 +111,7 @@ class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
     def test_resolver_memoized_after_first_success(self, mock_hypercache):
         mock_hypercache.get_from_cache.return_value = None
         resolver = Mock(return_value=7)
-        provider = HyperCacheFlagProvider(team_id_resolver=resolver)
+        provider = HyperCacheFlagProvider.for_dynamic_resolution(resolver)
 
         provider.get_flag_definitions()
         provider.get_flag_definitions()
@@ -122,7 +122,7 @@ class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
     def test_resolver_retried_until_success(self, mock_hypercache):
         mock_hypercache.get_from_cache.return_value = None
         resolver = Mock(side_effect=[None, 7])
-        provider = HyperCacheFlagProvider(team_id_resolver=resolver)
+        provider = HyperCacheFlagProvider.for_dynamic_resolution(resolver)
 
         # First poll: resolver returns None → lookup skipped, retried next time.
         assert provider.get_flag_definitions() is None
@@ -138,9 +138,21 @@ class TestHyperCacheFlagProviderTeamResolution(SimpleTestCase):
         # A configured team that doesn't exist makes get_from_cache raise Team.DoesNotExist
         # on a cache miss; the provider returns None so the SDK falls back to its API.
         mock_hypercache.get_from_cache.side_effect = ObjectDoesNotExist
-        provider = HyperCacheFlagProvider(team_id=2)
+        provider = HyperCacheFlagProvider.for_static_team(2)
 
         assert provider.get_flag_definitions() is None
+
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_static_team_resolves_to_fixed_id(self, mock_hypercache):
+        mock_hypercache.get_from_cache.return_value = None
+        provider = HyperCacheFlagProvider.for_static_team(42)
+
+        provider.get_flag_definitions()
+        provider.get_flag_definitions()
+
+        # The fixed id is used on every lookup, never re-resolved to anything else.
+        mock_hypercache.get_from_cache.assert_called_with(42)
+        assert mock_hypercache.get_from_cache.call_count == 2
 
 
 SAMPLE_FLAGS = {
@@ -170,7 +182,7 @@ class TestSDKClientIntegration(SimpleTestCase):
     def test_sdk_loads_flags_from_provider_instead_of_api(self):
         mock_hypercache = MagicMock()
         mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
-        provider = HyperCacheFlagProvider(team_id=2)
+        provider = HyperCacheFlagProvider.for_static_team(2)
         provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
@@ -189,7 +201,7 @@ class TestSDKClientIntegration(SimpleTestCase):
     def test_sdk_falls_back_to_api_when_cache_is_empty_and_no_flags_loaded(self):
         mock_hypercache = MagicMock()
         mock_hypercache.get_from_cache.return_value = None
-        provider = HyperCacheFlagProvider(team_id=2)
+        provider = HyperCacheFlagProvider.for_static_team(2)
         provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
@@ -201,7 +213,7 @@ class TestSDKClientIntegration(SimpleTestCase):
 
     def test_sdk_skips_api_when_cache_empty_but_flags_already_loaded(self):
         mock_hypercache = MagicMock()
-        provider = HyperCacheFlagProvider(team_id=2)
+        provider = HyperCacheFlagProvider.for_static_team(2)
         provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
@@ -224,7 +236,7 @@ class TestSDKClientIntegration(SimpleTestCase):
 
     def test_sdk_picks_up_flag_changes_on_next_poll(self):
         mock_hypercache = MagicMock()
-        provider = HyperCacheFlagProvider(team_id=2)
+        provider = HyperCacheFlagProvider.for_static_team(2)
         provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
@@ -253,7 +265,7 @@ class TestSDKClientIntegration(SimpleTestCase):
     def test_sdk_falls_back_to_api_when_provider_raises(self):
         mock_hypercache = MagicMock()
         mock_hypercache.get_from_cache.side_effect = Exception("Redis down")
-        provider = HyperCacheFlagProvider(team_id=2)
+        provider = HyperCacheFlagProvider.for_static_team(2)
         provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
@@ -262,3 +274,47 @@ class TestSDKClientIntegration(SimpleTestCase):
             client._load_feature_flags()
 
             mock_api.assert_called_once()
+
+
+def _calls_for(mock_method, event: str):
+    return [c for c in mock_method.call_args_list if c.args and c.args[0] == event]
+
+
+class TestHyperCacheFlagProviderLogging(SimpleTestCase):
+    # The two one-time (per-process) diagnostic logs.
+
+    @patch("products.feature_flags.backend.sdk_cache_provider.logger")
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_team_resolved_logged_once(self, mock_hypercache, mock_logger):
+        mock_hypercache.get_from_cache.return_value = None
+        provider = HyperCacheFlagProvider.for_static_team(7)
+
+        provider.get_flag_definitions()
+        provider.get_flag_definitions()
+
+        resolved = _calls_for(mock_logger.info, "sdk_flag_provider_team_resolved")
+        assert len(resolved) == 1
+        assert resolved[0].kwargs["team_id"] == 7
+
+    @patch("products.feature_flags.backend.sdk_cache_provider.logger")
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_zero_flags_logged_once(self, mock_hypercache, mock_logger):
+        mock_hypercache.get_from_cache.return_value = {"flags": [], "group_type_mapping": {}, "cohorts": {}}
+        provider = HyperCacheFlagProvider.for_static_team(7)
+
+        provider.get_flag_definitions()
+        provider.get_flag_definitions()
+
+        zero = _calls_for(mock_logger.warning, "sdk_flag_provider_zero_flags")
+        assert len(zero) == 1
+        assert zero[0].kwargs["team_id"] == 7
+
+    @patch("products.feature_flags.backend.sdk_cache_provider.logger")
+    @patch("products.feature_flags.backend.local_evaluation.flag_definitions_hypercache")
+    def test_zero_flags_not_logged_when_flags_present(self, mock_hypercache, mock_logger):
+        mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
+        provider = HyperCacheFlagProvider.for_static_team(7)
+
+        provider.get_flag_definitions()
+
+        assert _calls_for(mock_logger.warning, "sdk_flag_provider_zero_flags") == []

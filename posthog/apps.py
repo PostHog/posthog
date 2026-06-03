@@ -12,9 +12,9 @@ from posthog.git import get_git_branch, get_git_commit_short
 from posthog.tasks.tasks import sync_all_organization_available_product_features
 from posthog.utils import (
     get_available_timezones_with_offsets,
+    get_dogfood_flags_team_id,
     get_instance_region,
     get_machine_id,
-    get_self_capture_team_id,
     initialize_self_capture_api_token,
     str_to_bool,
 )
@@ -95,17 +95,20 @@ class PostHogConfig(AppConfig):
             from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
 
             explicit_team_id = os.environ.get("POSTHOG_SELF_TEAM_ID")
-            if explicit_team_id is None and settings.SELF_CAPTURE and not settings.E2E_TESTING:
-                # Local/self-hosted: resolve the self-team lazily (like self-capture), instead
-                # of assuming team 2 exists. Resolution happens inside get_flag_definitions.
-                posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
-                    team_id_resolver=get_self_capture_team_id
-                )
+            if explicit_team_id is not None:
+                # Operator override: pin the flag-definitions team explicitly.
+                provider = HyperCacheFlagProvider.for_static_team(int(explicit_team_id))
+            elif settings.SELF_CAPTURE and not settings.E2E_TESTING:
+                # Local/self-hosted: read flag definitions from the dogfood team
+                # (project.teams.first()), resolved lazily once teams/migrations exist.
+                # Intentionally the FIRST team, not self-capture's current_team — see
+                # resolve_dogfood_flags_team() in posthog/utils.py.
+                provider = HyperCacheFlagProvider.for_dynamic_resolution(get_dogfood_flags_team_id)
             else:
-                # Cloud (SELF_CAPTURE off), E2E, or an explicit operator override: static team id.
-                posthoganalytics.flag_definition_cache_provider = HyperCacheFlagProvider(  # ty: ignore[invalid-assignment]
-                    team_id=int(explicit_team_id) if explicit_team_id else 2
-                )
+                # Cloud (SELF_CAPTURE off) or E2E: the canonical PostHog-internal team is 2.
+                provider = HyperCacheFlagProvider.for_static_team(2)
+
+            posthoganalytics.flag_definition_cache_provider = provider  # ty: ignore[invalid-assignment]
 
         # load feature flag definitions if not already loaded
         if not posthoganalytics.disabled and posthoganalytics.feature_flag_definitions() is None:
