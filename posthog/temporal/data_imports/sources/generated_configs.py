@@ -504,7 +504,7 @@ class MailchimpSourceConfig(config.Config):
 
 @config.config
 class MailerLiteSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

@@ -1,13 +1,16 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { fullName } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 
 const PREVIEW_MAX_CHARS = 200
@@ -19,6 +22,45 @@ function getPreview(notebook: AccountNotebookApi): string {
     }
     const collapsed = text.replace(/\s+/g, ' ')
     return collapsed.length > PREVIEW_MAX_CHARS ? `${collapsed.slice(0, PREVIEW_MAX_CHARS).trimEnd()}…` : collapsed
+}
+
+const LINK_ICONS: Record<string, JSX.Element> = {
+    organization: <IconPeople />,
+    revenue: <IconPiggyBank />,
+    'usage-dashboard': <IconGraph />,
+    slack: <IconSlack />,
+    'billing-admin': <IconReceipt />,
+}
+
+function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
+    const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
+    return (
+        <div className="flex flex-col gap-1">
+            <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
+            {accountLoading ? (
+                <>
+                    <LemonSkeleton className="h-7 w-32" />
+                    <LemonSkeleton className="h-7 w-32" />
+                    <LemonSkeleton className="h-7 w-32" />
+                </>
+            ) : (
+                links.map((link) => (
+                    <LemonButton
+                        key={link.key}
+                        type="tertiary"
+                        size="small"
+                        fullWidth
+                        icon={LINK_ICONS[link.key]}
+                        to={link.to ?? undefined}
+                        targetBlank={link.targetBlank}
+                        disabledReason={link.disabledReason ?? undefined}
+                    >
+                        {link.label}
+                    </LemonButton>
+                ))
+            )}
+        </div>
+    )
 }
 
 export function AccountNotebooksExpansion({ accountId }: { accountId: string }): JSX.Element {
@@ -75,18 +117,27 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
     ]
 
     return (
-        <div className="p-3 bg-bg-light">
-            <LemonTable<AccountNotebookApi>
-                size="small"
-                embedded
-                dataSource={notebooks ?? []}
-                rowKey="short_id"
-                loading={notebooksLoading}
-                columns={columns}
-                emptyState={
-                    notebooks === null ? 'Failed to load account notes.' : 'No notes linked to this account yet.'
-                }
-            />
+        <div className="sticky left-0 w-[100cqw] p-3 bg-bg-light">
+            <div className="flex gap-8">
+                <div className="w-fit shrink-0">
+                    <UsefulLinks accountId={accountId} />
+                </div>
+                <div className="flex-1 min-w-0">
+                    <LemonTable<AccountNotebookApi>
+                        size="small"
+                        embedded
+                        dataSource={notebooks ?? []}
+                        rowKey="short_id"
+                        loading={notebooksLoading}
+                        columns={columns}
+                        emptyState={
+                            notebooks === null
+                                ? 'Failed to load account notes.'
+                                : 'No notes linked to this account yet.'
+                        }
+                    />
+                </div>
+            </div>
         </div>
     )
 }

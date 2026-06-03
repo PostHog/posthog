@@ -4286,6 +4286,10 @@ snapshots:
         hash: v1.k794b7964.b13cbe3831d8061ef40152025cdd3d6760f914417355679d0f22581de83de586.W8vrcREpOiVfHeVafSDXEU3Iyom5qvydZLiA0lgnvaU
     scenes-app-customer-analytics-accounts--row-expanded-empty--light:
         hash: v1.k794b7964.904bd5b939f99d43408ae3a8a814a3c299bd57bf13a0fd1d98ff6033fd66e343.K1Z16ICEF6-O9kIej8kGnYyarloq2oZH5rdtmx-8Hu0
+    scenes-app-customer-analytics-accounts--row-expanded-links-disabled--dark:
+        hash: v1.k794b7964.92be80889ae455a05c5e79357b0b86fadeb9cb7f93761089d48b1315cc1b8448.A3_TCemtV73Ig2IEi-D8h9T4buy_xGLaVH1EYQ7B7II
+    scenes-app-customer-analytics-accounts--row-expanded-links-disabled--light:
+        hash: v1.k794b7964.507c607813892eeabec48171f50ab7220f2a5b2a6bd1bdb77cb64c89f0bc88b1.bQIl5-n8IuVD1CTj6b2fpXagCUDsoTOKycNebvdBBbU
     scenes-app-customer-analytics-accounts--row-expanded-with-note--dark:
         hash: v1.k794b7964.3c9ce002ecb9931c56ef82618cc1625ee847a7f8df2a35c490006e4b356e6fb5.bK3yVZfb-U4TUMJHKvLemkMdqx6YNKdkFC2lnrWBgYg
     scenes-app-customer-analytics-accounts--row-expanded-with-note--light:
@@ -5907,9 +5911,9 @@ snapshots:
     scenes-app-settings-environment--settings-environment-error-tracking--light:
         hash: v1.k794b7964.df02fcd95e1f9112616fe56e8541581568932b938d9450663a928cf01da1f12e.Ag0JlyyWvjEPr5Fn-2tw25Vmj5i3y5bnLNgOGMvEnVM
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--dark:
-        hash: v1.k794b7964.300288a0ebffc24792ce30b3c4d406cf6094ebe17b302f20213395115e9541ff.l3W9IJOgmcF1ZamIqo4_uQQxaqDSKJ3fumH1-UInEwY
+        hash: v1.k794b7964.80c679de8bf9284289f301eba371a17fdb989857adadc9ddd1accd62f6864a8d.KxdiTscByOSZT-ey3VVA2-8r79r4HILribwk9B9QAms
     scenes-app-settings-environment--settings-environment-error-tracking-configuration--light:
-        hash: v1.k794b7964.bc36c7ac40d2aeb9af38f00b414aedb050bbed90814c93cb8fc8c59cff44862b.yJM5SxFw6K6OO9Uz73-yGl53mo8okt-2zie2ptlRKcU
+        hash: v1.k794b7964.9d4e3cc3c75db7c236507539bd17fceb70d58e56ca2223c2022b20b301a9e9b3.eTnWulPHX9MremFBzJYUli8VaPHbUChZ287rEX9oIww
     scenes-app-settings-environment--settings-environment-feature-flags--dark:
         hash: v1.k794b7964.ad14435de0672d1899cd23e51214c7ff70d1557ef6bc21de88946e1b02dc0ddd.rSQy7QhYRP-Zuzl8xAEtgcuc3f-KEtRX0rw257x5oTE
     scenes-app-settings-environment--settings-environment-feature-flags--light:

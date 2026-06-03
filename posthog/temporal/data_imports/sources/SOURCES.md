@@ -77,6 +77,7 @@ the row lists both.
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
@@ -189,7 +190,7 @@ doesn't conflict with concurrent PRs.
 - jira
 - kafka
 - launchdarkly
-- mailerlite
+- lever
 - marketo
 - microsoft_teams
 - mixpanel
