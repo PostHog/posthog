@@ -305,6 +305,66 @@ def _normalize_intents(intents: list[dict]) -> list[dict]:
     )
 
 
+# Write-action parity cases: (name, http_method, url_suffix, body, expected_status, compare_mode).
+# compare_mode: "team_shaped" → response is the serialized team (compare minus volatile fields);
+#               "team_shaped_intents" → also compare product_intents structurally; "full_body" → exact body match.
+# Adding a new environment action that mirrors onto projects is a single row here. The only action NOT in this
+# table is default_evaluation_contexts, which is an irreducible POST-then-DELETE sequence (separate test below).
+WRITE_ACTION_CASES = [
+    ("reset_token", "patch", "reset_token/", None, status.HTTP_200_OK, "team_shaped"),
+    ("rotate_secret_token", "patch", "rotate_secret_token/", None, status.HTTP_200_OK, "team_shaped"),
+    ("delete_secret_token_backup", "patch", "delete_secret_token_backup/", None, status.HTTP_200_OK, "team_shaped"),
+    (
+        "generate_conversations_public_token",
+        "post",
+        "generate_conversations_public_token/",
+        None,
+        status.HTTP_200_OK,
+        "team_shaped",
+    ),
+    (
+        "add_product_intent",
+        "patch",
+        "add_product_intent/",
+        {"product_type": "product_analytics", "metadata": {}},
+        status.HTTP_201_CREATED,
+        "team_shaped_intents",
+    ),
+    (
+        "complete_product_onboarding",
+        "patch",
+        "complete_product_onboarding/",
+        {"product_type": "product_analytics", "metadata": {}},
+        status.HTTP_200_OK,
+        "team_shaped_intents",
+    ),
+    (
+        "logs_config",
+        "patch",
+        "logs_config/",
+        {"logs_distinct_id_attribute_key": "myDistinctId"},
+        status.HTTP_200_OK,
+        "full_body",
+    ),
+    (
+        "default_release_conditions",
+        "put",
+        "default_release_conditions/",
+        {"enabled": True, "default_groups": [{"properties": [], "rollout_percentage": 50}]},
+        status.HTTP_200_OK,
+        "full_body",
+    ),
+    (
+        "experiments_config",
+        "patch",
+        "experiments_config/",
+        {"default_experiment_stats_method": "bayesian"},
+        status.HTTP_200_OK,
+        "full_body",
+    ),
+]
+
+
 class TestWriteActionParity(DifferentialParityBase):
     def _make_twin(self) -> tuple[Project, Team]:
         project, team = Project.objects.create_with_team(organization=self.organization, initiating_user=self.user)
@@ -334,61 +394,19 @@ class TestWriteActionParity(DifferentialParityBase):
         )
         return resp_a, resp_b
 
-    def test_reset_token_parity(self):
-        resp_a, resp_b = self._run_twin_action("patch", "reset_token/")
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
+    @parameterized.expand(WRITE_ACTION_CASES)
+    def test_write_action_parity(self, name, method, suffix, body, expected_status, compare):
+        resp_a, resp_b = self._run_twin_action(method, suffix, body)
+        self.assertEqual(resp_a.status_code, expected_status, resp_a.json())
+        if compare == "full_body":
+            self.assertEqual(resp_a.json(), resp_b.json())
+            return
         self._assert_team_shaped_parity(resp_a.json(), resp_b.json())
-
-    def test_rotate_secret_token_parity(self):
-        resp_a, resp_b = self._run_twin_action("patch", "rotate_secret_token/")
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self._assert_team_shaped_parity(resp_a.json(), resp_b.json())
-
-    def test_delete_secret_token_backup_parity(self):
-        resp_a, resp_b = self._run_twin_action("patch", "delete_secret_token_backup/")
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self._assert_team_shaped_parity(resp_a.json(), resp_b.json())
-
-    def test_generate_conversations_public_token_parity(self):
-        resp_a, resp_b = self._run_twin_action("post", "generate_conversations_public_token/")
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self._assert_team_shaped_parity(resp_a.json(), resp_b.json())
-
-    def test_add_product_intent_parity(self):
-        body = {"product_type": "product_analytics", "metadata": {}}
-        resp_a, resp_b = self._run_twin_action("patch", "add_product_intent/", body)
-        self.assertEqual(resp_a.status_code, status.HTTP_201_CREATED, resp_a.json())
-        self._assert_team_shaped_parity(resp_a.json(), resp_b.json())
-        self.assertEqual(
-            _normalize_intents(resp_a.json()["product_intents"]), _normalize_intents(resp_b.json()["product_intents"])
-        )
-
-    def test_complete_product_onboarding_parity(self):
-        body = {"product_type": "product_analytics", "metadata": {}}
-        resp_a, resp_b = self._run_twin_action("patch", "complete_product_onboarding/", body)
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self._assert_team_shaped_parity(resp_a.json(), resp_b.json())
-        self.assertEqual(
-            _normalize_intents(resp_a.json()["product_intents"]), _normalize_intents(resp_b.json()["product_intents"])
-        )
-
-    def test_logs_config_patch_parity(self):
-        body = {"logs_distinct_id_attribute_key": "myDistinctId"}
-        resp_a, resp_b = self._run_twin_action("patch", "logs_config/", body)
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self.assertEqual(resp_a.json(), resp_b.json())
-
-    def test_default_release_conditions_put_parity(self):
-        body = {"enabled": True, "default_groups": [{"properties": [], "rollout_percentage": 50}]}
-        resp_a, resp_b = self._run_twin_action("put", "default_release_conditions/", body)
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self.assertEqual(resp_a.json(), resp_b.json())
-
-    def test_experiments_config_patch_parity(self):
-        body = {"default_experiment_stats_method": "bayesian"}
-        resp_a, resp_b = self._run_twin_action("patch", "experiments_config/", body)
-        self.assertEqual(resp_a.status_code, status.HTTP_200_OK, resp_a.json())
-        self.assertEqual(resp_a.json(), resp_b.json())
+        if compare == "team_shaped_intents":
+            self.assertEqual(
+                _normalize_intents(resp_a.json()["product_intents"]),
+                _normalize_intents(resp_b.json()["product_intents"]),
+            )
 
     def test_default_evaluation_contexts_post_and_delete_parity(self):
         # POST returns a per-row id (differs between twins); compare everything else.
