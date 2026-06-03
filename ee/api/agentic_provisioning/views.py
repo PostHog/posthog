@@ -2433,7 +2433,8 @@ def _capture_provisioning_event(
     if partner is not None:
         properties.setdefault("partner_id", str(partner.id))
         properties.setdefault("client_name", partner.name)
-        properties.setdefault("partner_type", partner.provisioning_partner_type or "")
+        if partner.provisioning_partner_type:
+            properties.setdefault("partner_type", partner.provisioning_partner_type)
     posthoganalytics.capture(
         f"agentic_provisioning {event_type}",
         distinct_id=distinct_id,

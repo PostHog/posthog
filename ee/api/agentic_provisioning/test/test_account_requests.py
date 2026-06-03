@@ -698,35 +698,38 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestCaptureProvisioningEvent(ProvisioningTestBase):
-    def _make_partner(self, **overrides) -> OAuthApplication:
-        defaults = {
-            "client_id": "attribution-test",
-            "name": "Attribution Test Client",
-            "client_secret": "",
-            "client_type": OAuthApplication.CLIENT_PUBLIC,
-            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            "redirect_uris": "https://partner.example.com/callback",
-            "algorithm": "RS256",
-            "provisioning_partner_type": "test_partner",
-        }
-        defaults.update(overrides)
-        return OAuthApplication.objects.create(**defaults)
+    def _make_partner(self, partner_type: str = "test_partner") -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id=f"attribution-test-{partner_type or 'untyped'}",
+            name="Attribution Test Client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            provisioning_partner_type=partner_type,
+        )
 
+    @parameterized.expand(
+        [
+            ("typed_partner", "test_partner", True, "test_partner"),
+            ("untyped_partner", "", True, None),
+            ("no_partner", None, False, None),
+        ]
+    )
     @patch("ee.api.agentic_provisioning.views.posthoganalytics.capture")
-    def test_partner_adds_client_attribution(self, mock_capture):
-        partner = self._make_partner()
+    def test_partner_attribution(self, _name, partner_type, expects_client, expected_partner_type, mock_capture):
+        partner = None if partner_type is None else self._make_partner(partner_type=partner_type)
         _capture_provisioning_event("account_request", "new_user", partner=partner, team_id=42)
 
         props = mock_capture.call_args.kwargs["properties"]
-        assert props["client_name"] == "Attribution Test Client"
-        assert props["partner_id"] == str(partner.id)
-        assert props["partner_type"] == "test_partner"
-
-    @patch("ee.api.agentic_provisioning.views.posthoganalytics.capture")
-    def test_no_partner_omits_client_attribution(self, mock_capture):
-        _capture_provisioning_event("account_request", "new_user", team_id=42)
-
-        props = mock_capture.call_args.kwargs["properties"]
-        assert "client_name" not in props
-        assert "partner_id" not in props
-        assert "partner_type" not in props
+        if expects_client:
+            assert props["client_name"] == "Attribution Test Client"
+            assert props["partner_id"] == str(partner.id)
+        else:
+            assert "client_name" not in props
+            assert "partner_id" not in props
+        if expected_partner_type is None:
+            assert "partner_type" not in props
+        else:
+            assert props["partner_type"] == expected_partner_type
