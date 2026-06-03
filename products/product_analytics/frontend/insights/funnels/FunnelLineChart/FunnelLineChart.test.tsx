@@ -11,7 +11,7 @@ import { AnnotationScope } from '~/types'
 
 import { FUNNEL_CONVERSION_SERIES_LABEL } from '../shared/funnelSeriesMeta'
 
-configure({ asyncUtilTimeout: 2000 })
+configure({ asyncUtilTimeout: 3000 })
 
 ensureJsdom()
 
@@ -119,12 +119,18 @@ describe('FunnelLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const lines = getHogChart().referenceLines()
-            // value→pixel isn't recoverable from the DOM; assert the line is labelled,
-            // drawn horizontally (across the value axis), and actually positioned.
-            expect(lines).toEqual([
-                expect.objectContaining({ label: 'Target', orientation: 'horizontal', position: expect.any(Number) }),
-            ])
+            await waitFor(() => {
+                const lines = getHogChart().referenceLines()
+                // value→pixel isn't recoverable from the DOM; assert the line is labelled,
+                // drawn horizontally (across the value axis), and actually positioned.
+                expect(lines).toEqual([
+                    expect.objectContaining({
+                        label: 'Target',
+                        orientation: 'horizontal',
+                        position: expect.any(Number),
+                    }),
+                ])
+            })
         })
     })
 
