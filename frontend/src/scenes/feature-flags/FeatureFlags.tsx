@@ -407,17 +407,27 @@ export function OverviewTab({
             title: 'Type',
             width: 120,
             render: function RenderType(_, featureFlag: FeatureFlagType) {
-                const label = featureFlag.is_remote_configuration
-                    ? 'Remote config'
-                    : (featureFlag.experiment_set?.length || 0) > 0
-                      ? 'Experiment'
-                      : (featureFlag.filters?.multivariate?.variants?.length || 0) > 0
-                        ? 'Multiple variants'
-                        : 'Boolean'
+                const labels: string[] = []
+                if (featureFlag.is_remote_configuration) {
+                    labels.push('Remote config')
+                }
+                if ((featureFlag.experiment_set?.length || 0) > 0) {
+                    labels.push('Experiment')
+                }
+                if ((featureFlag.filters?.multivariate?.variants?.length || 0) > 0) {
+                    labels.push('Multiple variants')
+                }
+                if (labels.length === 0) {
+                    labels.push('Boolean')
+                }
                 return (
-                    <LemonTag type="default" className="whitespace-nowrap">
-                        {label}
-                    </LemonTag>
+                    <div className="flex flex-wrap gap-1">
+                        {labels.map((label) => (
+                            <LemonTag key={label} type="default" className="whitespace-nowrap">
+                                {label}
+                            </LemonTag>
+                        ))}
+                    </div>
                 )
             },
         },
