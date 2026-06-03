@@ -42,7 +42,6 @@ class ServiceNowSource(ResumableSource[ServiceNowSourceConfig, ServiceNowResumeC
         return SourceConfig(
             name=SchemaExternalDataSourceType.SERVICE_NOW,
             label="ServiceNow",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Sync your ServiceNow ITSM data (incidents, problems, change requests, users, configuration items, and more) into the PostHog Data warehouse.
 

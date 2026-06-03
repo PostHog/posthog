@@ -57,7 +57,7 @@ class TestServiceNowSource:
 
         assert config.name.value == "ServiceNow"
         assert config.label == "ServiceNow"
-        assert config.unreleasedSource is True
+        assert config.unreleasedSource is not True
         assert config.releaseStatus == ReleaseStatus.ALPHA
 
         field_names = [f.name for f in config.fields]
