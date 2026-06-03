@@ -1,3 +1,5 @@
+from typing import cast
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -54,7 +56,7 @@ class TestExtractionFailureDoesNotCleanupS3:
     @pytest.mark.asyncio
     async def test_s3_files_preserved_when_extraction_fails(self) -> None:
         pipeline = _make_pipeline()
-        s3_writer = pipeline._s3_batch_writer
+        s3_writer = cast(MagicMock, pipeline._s3_batch_writer)
 
         with (
             patch(
