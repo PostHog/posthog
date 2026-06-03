@@ -370,7 +370,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
     total_metrics = models.PositiveIntegerField(default=0)
     completed_metrics = models.PositiveIntegerField(default=0)
     failed_metrics = models.PositiveIntegerField(default=0)
-    errors = models.JSONField(default=dict)
+    metric_errors = models.JSONField(default=dict)
     metric_uuids = models.JSONField(default=list)
 
     # Single data-window end shared by all metrics in the run. Set once when the run starts; every metric (including

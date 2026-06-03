@@ -42,7 +42,7 @@ class TestExperimentMetricsRecalculationModel(BaseTest):
             assert recalc.total_metrics == 0
             assert recalc.completed_metrics == 0
             assert recalc.failed_metrics == 0
-            assert recalc.errors == {}
+            assert recalc.metric_errors == {}
             assert recalc.metric_uuids == []
             assert recalc.trigger == ExperimentMetricsRecalculation.Trigger.MANUAL
             assert recalc.started_at is None

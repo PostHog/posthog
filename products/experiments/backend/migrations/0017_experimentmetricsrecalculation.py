@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
                 ("total_metrics", models.PositiveIntegerField(default=0)),
                 ("completed_metrics", models.PositiveIntegerField(default=0)),
                 ("failed_metrics", models.PositiveIntegerField(default=0)),
-                ("errors", models.JSONField(default=dict)),
+                ("metric_errors", models.JSONField(default=dict)),
                 ("metric_uuids", models.JSONField(default=list)),
                 ("query_to", models.DateTimeField(blank=True, null=True)),
                 (
