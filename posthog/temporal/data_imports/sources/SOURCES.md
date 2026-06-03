@@ -48,12 +48,14 @@ the row lists both.
 | bigquery      | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads      | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | buildbetter   | HTTP                        | requests                                                        | ✅                          |
+| calendly      | HTTP                        | requests                                                        | ✅                          |
 | chargebee     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clerk         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse    | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | convex        | HTTP                        | requests                                                        | ✅                          |
 | customer_io   | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
 | doit          | HTTP                        | requests                                                        | ✅                          |
+| drip          | HTTP                        | requests                                                        | ✅                          |
 | github        | HTTP                        | requests                                                        | ✅                          |
 | google_ads    | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -62,6 +64,7 @@ the row lists both.
 | linear        | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads  | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mailjet       | HTTP                        | requests                                                        | ✅                          |
 | meta_ads      | HTTP                        | requests                                                        | ✅                          |
 | mongodb       | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql         | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
@@ -79,6 +82,7 @@ the row lists both.
 | salesforce    | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sentry        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | shopify       | HTTP                        | requests                                                        | ✅                          |
+| shortcut      | HTTP                        | requests                                                        | ✅                          |
 | slack         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snapchat_ads  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake     | DB protocol                 | snowflake-connector-python                                      | ➖                          |
