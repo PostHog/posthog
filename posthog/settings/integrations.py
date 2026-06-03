@@ -134,3 +134,7 @@ HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS = get_from_env(
 # can't create the unprivileged user namespace the Chromium sandbox needs). Set False to keep the
 # sandbox once the runtime allows it (seccomp profile permitting userns clone, non-root user).
 HEATMAP_CHROMIUM_NO_SANDBOX = get_from_env("HEATMAP_CHROMIUM_NO_SANDBOX", True, type_cast=str_to_bool)
+
+# Cursor Cloud Agent dispatch (Signals -> Cursor). Prototype reads a single instance-wide
+# key; productionizing this means a per-team `cursor` OAuth integration instead.
+CURSOR_API_KEY = get_from_env("CURSOR_API_KEY", "")

@@ -26,6 +26,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -50,6 +51,11 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.cursor_dispatch import (
+    SIGNALS_CURSOR_DISPATCH_FLAG,
+    CursorDispatchError,
+    dispatch_report_to_cursor,
+)
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -68,6 +74,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
 )
 from products.signals.backend.serializers import (
+    CursorDispatchResponseSerializer,
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
@@ -914,6 +921,38 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=None,
+        responses={200: CursorDispatchResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="dispatch_to_cursor", required_scopes=["task:write"])
+    def dispatch_to_cursor(self, request, pk=None, **kwargs):
+        """Dispatch this report to a Cursor Cloud Agent. Behind the signals-cursor-dispatch flag."""
+        if not posthoganalytics.feature_enabled(
+            SIGNALS_CURSOR_DISPATCH_FLAG,
+            str(request.user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
+        api_key = settings.CURSOR_API_KEY
+        if not api_key:
+            return Response(
+                {"error": "Cursor is not connected for this instance."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        report = cast(SignalReport, self.get_object())
+
+        try:
+            result = dispatch_report_to_cursor(report, api_key=api_key, site_url=settings.SITE_URL)
+        except CursorDispatchError as e:
+            logger.warning("signals.cursor_dispatch.failed", report_id=str(report.id), error=str(e))
+            return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
+        return Response(CursorDispatchResponseSerializer(result).data)
 
 
 @extend_schema_view(
