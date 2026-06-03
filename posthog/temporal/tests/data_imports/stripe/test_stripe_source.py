@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 import stripe as stripe_lib
+from stripe._http_client import HTTPClient
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -572,19 +573,18 @@ def test_subscription_expand_encodes_as_array_not_object():
     can't catch this because it intercepts above the SDK's query-string encoding."""
     captured: dict[str, str] = {}
 
-    class RecordingHTTPClient:
+    class RecordingHTTPClient(HTTPClient):
         name = "recording"
 
-        def request_with_retries(self, method, url, headers, post_data=None, **kwargs):
+        def request_with_retries(self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None):
             captured["url"] = url
             body = '{"object":"list","data":[],"has_more":false,"url":"/v1/subscriptions"}'
             return body, 200, {"request-id": "req_test"}
 
-        def request_stream_with_retries(self, *args, **kwargs):
+        def request_stream_with_retries(
+            self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None
+        ):
             raise NotImplementedError
-
-        def close(self):
-            pass
 
     client = stripe_lib.StripeClient("sk_test_x", http_client=RecordingHTTPClient())
     resources = _build_resources(client)
