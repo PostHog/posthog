@@ -753,7 +753,19 @@ export const maxContextLogic = kea<maxContextLogicType>([
                 const allNotebooks = [...contextNotebooks, ...sceneNotebooks]
                 if (allNotebooks.length > 0) {
                     const uniqueNotebooks = new Map<string, MaxNotebookContext>()
-                    allNotebooks.forEach((nb) => uniqueNotebooks.set(nb.id, nb))
+                    allNotebooks.forEach((notebook) => {
+                        const existingNotebook = uniqueNotebooks.get(notebook.id)
+                        uniqueNotebooks.set(
+                            notebook.id,
+                            existingNotebook
+                                ? {
+                                      ...existingNotebook,
+                                      ...notebook,
+                                      request_location: notebook.request_location ?? existingNotebook.request_location,
+                                  }
+                                : notebook
+                        )
+                    })
                     context.notebooks = Array.from(uniqueNotebooks.values())
                 }
 

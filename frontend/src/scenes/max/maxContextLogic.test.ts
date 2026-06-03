@@ -1,3 +1,4 @@
+import { kea, path, selectors, type Logic } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -6,6 +7,8 @@ import '@posthog/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import type { SceneExport } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -19,7 +22,32 @@ import {
 } from '~/types'
 
 import { maxContextLogic } from './maxContextLogic'
+import { MaxContextType, type MaxContextInput } from './maxTypes'
 import { maxMocks } from './testUtils'
+
+const Component = (): null => null
+const SCENE_NOTEBOOK_SHORT_ID = 'scene-notebook'
+const testSceneMaxContextLogic = kea<Logic>([
+    path(['scenes', 'max', 'maxContextLogicTestScene']),
+    selectors({
+        maxContext: [
+            () => [],
+            (): MaxContextInput[] => [
+                {
+                    type: MaxContextType.NOTEBOOK,
+                    data: {
+                        short_id: SCENE_NOTEBOOK_SHORT_ID,
+                        title: 'Scene notebook',
+                    },
+                },
+            ],
+        ],
+    }),
+])
+const testSceneExport: SceneExport = {
+    component: Component,
+    logic: testSceneMaxContextLogic,
+}
 
 describe('maxContextLogic', () => {
     let logic: ReturnType<typeof maxContextLogic.build>
@@ -99,6 +127,8 @@ describe('maxContextLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        sceneLogic.unmount()
+        testSceneMaxContextLogic.unmount()
     })
 
     describe('core functionality', () => {
@@ -247,6 +277,52 @@ describe('maxContextLogic', () => {
                             name: 'Test Action',
                             description: 'Test action description',
                             type: 'action',
+                        },
+                    ],
+                }),
+            })
+        })
+
+        it('preserves notebook request location when scene context has the same notebook', async () => {
+            const requestLocation = {
+                type: 'notebook_position' as const,
+                position: 2,
+                current_block_text: 'Write the next section here',
+                previous_block_text: 'Previous section',
+                next_block_text: 'Next section',
+            }
+
+            sceneLogic.mount()
+            const sceneParams = { params: {}, searchParams: {}, hashParams: {} }
+            sceneLogic.actions.setTabs([
+                {
+                    id: 'tab-1',
+                    active: true,
+                    pathname: '/test-scene',
+                    search: '',
+                    hash: '',
+                    title: 'Test scene',
+                    iconType: 'blank',
+                    sceneId: 'test-scene',
+                    sceneParams,
+                },
+            ])
+            sceneLogic.actions.setExportedScene(testSceneExport, 'test-scene', undefined, 'tab-1', sceneParams)
+            const inlineNotebookContext = {
+                short_id: SCENE_NOTEBOOK_SHORT_ID,
+                title: 'Inline notebook',
+                request_location: requestLocation,
+            }
+            logic.actions.addOrUpdateContextNotebook(inlineNotebookContext)
+
+            await expectLogic(logic).toMatchValues({
+                compiledContext: partial({
+                    notebooks: [
+                        {
+                            type: MaxContextType.NOTEBOOK,
+                            id: SCENE_NOTEBOOK_SHORT_ID,
+                            name: 'Scene notebook',
+                            request_location: requestLocation,
                         },
                     ],
                 }),
