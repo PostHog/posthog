@@ -196,6 +196,7 @@ export const accountLinksLogic = kea<accountLinksLogicType>([
                 })
                 actions.loadAccountSuccess(updated)
                 actions.closeEditor()
+                lemonToast.success('Links updated')
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountLinksLogic.saveLinks' })
                 lemonToast.error('Failed to save links')
