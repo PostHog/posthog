@@ -480,12 +480,12 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
     if (features.length === 0) {
         return null
     }
-    const max = Math.max(...features.map((f) => f.importance))
     const bars = (
         <div className="space-y-2">
             <div className="text-xs text-muted">
                 <span style={{ color: 'var(--success)' }}>● raises</span>{' '}
-                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction
+                <span style={{ color: 'var(--danger)' }}>● lowers</span> the prediction · bars on a fixed 0–1 importance
+                scale
             </div>
             <div className="space-y-1">
                 {features.map((f) => {
@@ -505,7 +505,7 @@ function FeatureImportanceChart({ explanation }: { explanation: unknown }): JSX.
                                     <div
                                         className="h-full rounded"
                                         style={{
-                                            width: `${Math.max(2, (f.importance / max) * 100)}%`,
+                                            width: `${Math.min(100, Math.max(2, f.importance * 100))}%`,
                                             backgroundColor: isNegative ? 'var(--danger)' : 'var(--success)',
                                         }}
                                     />
