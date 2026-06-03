@@ -714,6 +714,8 @@ def least_common_runtime_type(runtime_types: list[RuntimeType], dialect: HogQLDi
         return known_types[0].with_nullable(nullable)
 
     families = {type_.family for type_ in known_types}
+    if families == {"boolean"}:
+        return BOOLEAN_RUNTIME_TYPE.with_nullable(nullable)
     if families <= {"integer", "boolean"}:
         bits = max((type_.bits or 64) for type_ in known_types if type_.family == "integer") if known_types else 64
         signed = any(type_.signed is not False for type_ in known_types if type_.family == "integer")

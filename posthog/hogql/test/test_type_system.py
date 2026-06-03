@@ -104,6 +104,9 @@ class TestHogQLTypeSystem:
         assert least_common_supertype(
             [ast.DateType(nullable=False), ast.DateTimeType(nullable=True)]
         ) == ast.DateTimeType(nullable=True)
+        assert least_common_supertype(
+            [ast.BooleanType(nullable=False), ast.BooleanType(nullable=True)]
+        ) == ast.BooleanType(nullable=True)
 
     def test_comparison_compatibility(self) -> None:
         assert (
