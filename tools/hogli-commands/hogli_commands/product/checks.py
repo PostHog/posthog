@@ -475,6 +475,10 @@ class MisplacedFilesCheck(ProductCheck):
     # `templates` is allowed because Django's app_directories loader requires
     # the folder to live at <app>/templates/, and templates aren't Python
     # imports so import-linter contracts don't apply.
+    # `admin` is allowed because Django's autodiscover_modules("admin") requires
+    # the admin module at <app>.admin — and that module can be a flat `admin.py`
+    # or an `admin/` package (both resolve to the same import). The file form is
+    # already accepted, so the package form has to be too.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -486,6 +490,7 @@ class MisplacedFilesCheck(ProductCheck):
         "models",
         "logic",
         "templates",
+        "admin",
         "__pycache__",
     }
 
