@@ -44,12 +44,6 @@ pub struct Config {
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,
 
-    #[envconfig(default = "clickhouse_groups")]
-    pub groups_kafka_consumer_topic: String,
-
-    #[envconfig(default = "clickhouse-property-vals-rs-groups")]
-    pub groups_kafka_consumer_group: String,
-
     #[envconfig(default = "")]
     pub allowed_teams: TeamList,
 

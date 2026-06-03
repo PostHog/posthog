@@ -87,7 +87,7 @@ impl Producer for AggregatedProducer {
         // Full-tuple partition key. The same (team, type, key, value) tuple
         // from any pod always lands on the same partition, so the merger on
         // the consuming side can merge the per-pod duplicates that the
-        // events/groups workers emit across replicas.
+        // events worker emits across replicas.
         let send_fut = send_keyed_iter_to_kafka(
             &self.inner,
             &self.output_topic,

@@ -11,25 +11,9 @@ pub struct Event {
 
     #[serde(default)]
     pub properties: Option<String>,
-    #[serde(default)]
-    pub person_properties: Option<String>,
 }
 
 impl IngestableEvent for Event {
-    fn team_id(&self) -> i64 {
-        self.team_id
-    }
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct GroupIdentify {
-    pub team_id: i64,
-    pub group_type_index: u8,
-    #[serde(default)]
-    pub group_properties: Option<String>,
-}
-
-impl IngestableEvent for GroupIdentify {
     fn team_id(&self) -> i64 {
         self.team_id
     }
@@ -43,6 +27,9 @@ pub struct TupleKey {
     pub property_value: String,
 }
 
+// Only Event is produced now that person and group fan-out is gone. Person and
+// Group remain so the merger can still deserialize and drain in-flight
+// intermediate-topic messages produced before this rolled out.
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
 pub enum PropertyType {
     Event,

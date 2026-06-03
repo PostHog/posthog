@@ -2,7 +2,7 @@ use serde_json::Value;
 
 use crate::config::ExcludedPropertyKeys;
 use crate::metrics_consts::VALUES_DROPPED;
-use crate::types::{Event, GroupIdentify, PropertyType, PropertyValueMessage, TupleKey};
+use crate::types::{Event, PropertyType, PropertyValueMessage, TupleKey};
 
 pub const MAX_PROPERTY_KEY_LEN: usize = 400;
 pub const MAX_PROPERTY_VALUE_LEN: usize = 255;
@@ -13,27 +13,7 @@ pub fn fan_out(event: &Event, excluded: &ExcludedPropertyKeys) -> Vec<(TupleKey,
     if let Some(raw) = &event.properties {
         emit_from_blob(event.team_id, PropertyType::Event, raw, excluded, &mut out);
     }
-    if let Some(raw) = &event.person_properties {
-        emit_from_blob(event.team_id, PropertyType::Person, raw, excluded, &mut out);
-    }
 
-    out
-}
-
-pub fn fan_out_group(
-    event: &GroupIdentify,
-    excluded: &ExcludedPropertyKeys,
-) -> Vec<(TupleKey, u64)> {
-    let mut out = Vec::new();
-    if let Some(raw) = &event.group_properties {
-        emit_from_blob(
-            event.team_id,
-            PropertyType::Group(event.group_type_index),
-            raw,
-            excluded,
-            &mut out,
-        );
-    }
     out
 }
 
@@ -128,15 +108,6 @@ mod tests {
         Event {
             team_id: 2,
             properties: Some(properties.to_string()),
-            person_properties: None,
-        }
-    }
-
-    fn group_identify(group_type_index: u8, properties: &str) -> GroupIdentify {
-        GroupIdentify {
-            team_id: 2,
-            group_type_index,
-            group_properties: Some(properties.to_string()),
         }
     }
 
@@ -166,19 +137,8 @@ mod tests {
         fn arb_event()(
             team_id: i64,
             properties in prop::option::of(arb_blob()),
-            person_properties in prop::option::of(arb_blob()),
         ) -> Event {
-            Event { team_id, properties, person_properties }
-        }
-    }
-
-    prop_compose! {
-        fn arb_group_identify()(
-            team_id: i64,
-            group_type_index: u8,
-            group_properties in prop::option::of(arb_blob()),
-        ) -> GroupIdentify {
-            GroupIdentify { team_id, group_type_index, group_properties }
+            Event { team_id, properties }
         }
     }
 
@@ -208,27 +168,8 @@ mod tests {
         }
 
         #[test]
-        fn fan_out_group_outputs_obey_caps_and_team(g in arb_group_identify()) {
-            for (t, n) in fan_out_group(&g, &none()) {
-                check_tuple_invariants(&t, n, g.team_id);
-            }
-        }
-
-        #[test]
         fn fan_out_is_pure(e in arb_event()) {
             prop_assert_eq!(fan_out(&e, &none()), fan_out(&e, &none()));
-        }
-
-        #[test]
-        fn fan_out_group_is_pure(g in arb_group_identify()) {
-            prop_assert_eq!(fan_out_group(&g, &none()), fan_out_group(&g, &none()));
-        }
-
-        #[test]
-        fn fan_out_group_property_type_matches_index(g in arb_group_identify()) {
-            for (t, _) in fan_out_group(&g, &none()) {
-                prop_assert_eq!(t.property_type, PropertyType::Group(g.group_type_index));
-            }
         }
     }
 
@@ -252,20 +193,6 @@ mod tests {
     fn empty_string_value_is_dropped() {
         let tuples = fan_out(&event(r#"{"blank":""}"#), &none());
         assert!(tuples.is_empty());
-    }
-
-    #[test]
-    fn person_properties_emit_person_type() {
-        let ev = Event {
-            team_id: 2,
-            properties: None,
-            person_properties: Some(r#"{"email":"foo@bar.com"}"#.to_string()),
-        };
-        let tuples = fan_out(&ev, &none());
-        assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].0.property_type, PropertyType::Person);
-        assert_eq!(tuples[0].0.property_key, "email");
-        assert_eq!(tuples[0].0.property_value, "foo@bar.com");
     }
 
     #[test]
@@ -295,38 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn group_identify_index_0_emits_group_type() {
-        let tuples = fan_out_group(&group_identify(0, r#"{"plan":"enterprise"}"#), &none());
-        assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].0.property_type, PropertyType::Group(0));
-        assert_eq!(tuples[0].0.property_key, "plan");
-        assert_eq!(tuples[0].0.property_value, "enterprise");
-    }
-
-    #[test]
-    fn group_identify_emits_group_type_matching_index() {
-        let tuples = fan_out_group(&group_identify(4, r#"{"region":"us-east"}"#), &none());
-        assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].0.property_type, PropertyType::Group(4));
-    }
-
-    #[test]
-    fn group_identify_missing_properties_drops() {
-        let g = GroupIdentify {
-            team_id: 2,
-            group_type_index: 0,
-            group_properties: None,
-        };
-        assert!(fan_out_group(&g, &none()).is_empty());
-    }
-
-    #[test]
-    fn group_identify_unparseable_drops() {
-        let tuples = fan_out_group(&group_identify(0, "not valid json"), &none());
-        assert!(tuples.is_empty());
-    }
-
-    #[test]
     fn excluded_event_property_keys_are_skipped() {
         let blob =
             r#"{"$insert_id":"abc-123","$browser":"Chrome","distinct_id":"u1","$session_id":"s1"}"#;
@@ -335,34 +230,6 @@ mod tests {
         assert_eq!(tuples.len(), 1, "only $browser should survive exclusion");
         assert_eq!(tuples[0].0.property_key, "$browser");
         assert_eq!(tuples[0].0.property_value, "Chrome");
-    }
-
-    #[test]
-    fn excluded_person_property_keys_are_skipped() {
-        let ev = Event {
-            team_id: 2,
-            properties: None,
-            person_properties: Some(
-                r#"{"email":"a@b.com","$session_id":"s1","plan":"enterprise"}"#.to_string(),
-            ),
-        };
-        let tuples = fan_out(&ev, &excluded(&["$session_id"]));
-        assert_eq!(tuples.len(), 2);
-        let keys: Vec<&str> = tuples
-            .iter()
-            .map(|(t, _)| t.property_key.as_str())
-            .collect();
-        assert!(keys.contains(&"email"));
-        assert!(keys.contains(&"plan"));
-        assert!(!keys.contains(&"$session_id"));
-    }
-
-    #[test]
-    fn excluded_group_property_keys_are_skipped() {
-        let g = group_identify(0, r#"{"plan":"enterprise","internal_id":"g-42"}"#);
-        let tuples = fan_out_group(&g, &excluded(&["internal_id"]));
-        assert_eq!(tuples.len(), 1);
-        assert_eq!(tuples[0].0.property_key, "plan");
     }
 
     #[test]
