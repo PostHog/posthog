@@ -72,6 +72,7 @@ the row lists both.
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
+| intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
@@ -185,7 +186,6 @@ doesn't conflict with concurrent PRs.
 - greenhouse
 - helpscout
 - instagram
-- intercom
 - iterable
 - jira
 - kafka
