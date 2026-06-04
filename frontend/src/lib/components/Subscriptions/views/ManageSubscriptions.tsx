@@ -100,7 +100,7 @@ export function SubscriptionListItem({
                     <div className={`font-medium ${enabled ? 'text-link' : 'text-muted'}`}>{subscription.title}</div>
                     {aiPrompt ? (
                         <Tooltip title={aiPromptTruncated ? aiPrompt : undefined}>
-                            <div className="text-sm text-text-3000 italic">{`"${aiPromptPreview}"`}</div>
+                            <div className="text-sm text-muted italic">{`"${aiPromptPreview}"`}</div>
                         </Tooltip>
                     ) : null}
                     <div className="text-sm text-text-3000">
