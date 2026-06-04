@@ -641,6 +641,7 @@ class TestOAuthModels(TestCase):
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
 
+    @freeze_time("2026-01-01 00:00:00")
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
         app = self._make_app("Narrowed App", "narrowed_client_id")
         other_app = self._make_app("Other App", "other_client_id")

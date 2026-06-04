@@ -6,6 +6,7 @@ from unittest.mock import patch
 from django.contrib.admin import AdminSite
 from django.utils import timezone
 
+from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, OAuthApplicationForm
@@ -42,6 +43,7 @@ class TestOAuthApplicationAdmin(BaseTest):
 
         assert "Only used for HMAC provisioning partners" in form.fields["provisioning_signing_secret"].help_text
 
+    @freeze_time("2026-01-01 00:00:00")
     def test_revoke_all_sessions_action_force_invalidates_tokens(self):
         app = OAuthApplication.objects.create(
             name="Revoke Action App",
