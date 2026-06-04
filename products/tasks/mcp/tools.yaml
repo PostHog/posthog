@@ -60,7 +60,6 @@ tools:
     tasks-file-create:
         operation: tasks_file_create
         enabled: true
-        mcp_version: 2
         scopes:
             - task:write
         annotations:
@@ -270,7 +269,6 @@ tools:
     tasks-unfile-create:
         operation: tasks_unfile_create
         enabled: true
-        mcp_version: 2
         scopes:
             - task:write
         annotations:
@@ -278,7 +276,7 @@ tools:
             destructive: false
             idempotent: true
         title: Remove a task from the project tree
-        description: >
+        description: |
             Remove a task's entry from the desktop project tree. The task itself is not deleted.
         feature_flag: tasks
     tasks-update:
