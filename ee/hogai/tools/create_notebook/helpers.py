@@ -2,20 +2,13 @@ from collections.abc import Sequence
 from enum import Enum
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
-from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact
 
 from ee.hogai.artifacts.handlers.visualization import VisualizationHandler
 from ee.hogai.artifacts.manager import ArtifactManager
-from ee.hogai.artifacts.types import (
-    ModelArtifactResult,
-    StoredBlock,
-    StoredNotebookArtifactContent,
-    VisualizationRefBlock,
-)
+from ee.hogai.artifacts.types import StoredBlock, StoredNotebookArtifactContent, VisualizationRefBlock
 from ee.hogai.tools.create_notebook.parsing import parse_notebook_content_for_storage
 from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc
 from ee.hogai.utils.types.base import AssistantMessageUnion
@@ -80,18 +73,10 @@ async def save_notebook_to_db(
     viz_lookup: dict[str, dict] = {}
     if ref_ids:
         viz_handler = VisualizationHandler()
-        user_access_control = UserAccessControl(user, team)
         results = await viz_handler.alist(team, ref_ids, state_messages)
         for ref_id, result in zip(ref_ids, results):
             if result is None or result.content.query is None:
                 continue
-            # Skip saved object the user can't access
-            if isinstance(result, ModelArtifactResult):
-                has_access = await database_sync_to_async(user_access_control.check_access_level_for_object)(
-                    result.model, "viewer"
-                )
-                if not has_access:
-                    continue
             query = result.content.query.model_dump(mode="json", exclude_none=True)
             kind = query.get("kind", "")
             if kind == "DataVisualizationNode":
