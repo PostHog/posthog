@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -15,6 +16,7 @@
     "peerDependencies": {
         "@posthog/icons": "*",
         "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "react": "*",
         "typescript": "*"

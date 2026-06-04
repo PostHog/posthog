@@ -99,3 +99,6 @@ MAX_FEATURE_FLAG_FILTER_SIZE_BYTES: int = get_from_env(
     512 * 1024,
     type_cast=int,  # 512KB
 )
+
+# Team ID for the local-evaluation canary. Unset disables the canary task.
+FEATURE_FLAGS_CANARY_TEAM_ID: int | None = get_from_env("FEATURE_FLAGS_CANARY_TEAM_ID", optional=True, type_cast=int)
