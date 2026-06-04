@@ -11,10 +11,11 @@ from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
@@ -109,6 +110,10 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.user)
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
         self.posthog_code_integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -116,7 +121,23 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
             config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
+        # Seed the Slack-user → email cache so routing can resolve U123 → self.user
+        # without calling the Slack API. New tests that exercise the unauthorised
+        # paths override this row (or delete it) deliberately.
+        self._seed_slack_user_cache("U123", "dev@example.com")
         self.event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
+
+    def _seed_slack_user_cache(self, slack_user_id: str, email: str | None) -> SlackUserProfileCache:
+        from django.utils import timezone
+
+        return SlackUserProfileCache.objects.create(
+            integration=self.posthog_code_integration,
+            slack_user_id=slack_user_id,
+            email=email,
+            display_name="Dev",
+            real_name="Dev User",
+            refreshed_at=timezone.now(),
+        )
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
@@ -276,6 +297,87 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert result == ROUTE_HANDLED_LOCALLY
         mock_sync_connect.assert_not_called()
         mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_from_unknown_user_is_silently_dropped(self, mock_sync_connect, mock_asyncio_run):
+        # A Slack user whose email doesn't map to any PostHog ``User`` in any connected
+        # org must produce no workflow and no Slack reply — only a server-side log line.
+        SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
+        self._seed_slack_user_cache("U123", "stranger@example.com")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_sync_connect.assert_not_called()
+        mock_asyncio_run.assert_not_called()
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_filters_candidates_to_user_accessible_only(self, mock_sync_connect, mock_asyncio_run):
+        # When the workspace spans two orgs and the resolved PostHog user only
+        # belongs to one of them, ``resolve_from_candidates`` filters the other
+        # out so the workflow runs against the accessible integration.
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id="T12345",
+            config=self.posthog_code_integration.config,
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        # The user belongs to ``self.organization`` only, so only that integration
+        # should be the mention target — ``other_integration`` is filtered out.
+        assert workflow_inputs.integration_id == self.posthog_code_integration.id
+        assert workflow_inputs.integration_id != other_integration.id
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_app_mention_passes_resolved_user_id_into_workflow_inputs(self, mock_sync_connect, mock_asyncio_run):
+        # The routing layer must propagate the resolved PostHog user id into the
+        # mention workflow inputs so the workflow can skip its legacy in-workflow
+        # resolve activity.
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
+
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert workflow_inputs.user_id == self.user.id
+
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False)
+    def test_command_workflow_receives_resolved_user_id(self, mock_sync_connect, mock_asyncio_run):
+        # Command path mirrors the mention path: routing resolves the user once
+        # and the command workflow gets ``user_id`` so it skips its legacy
+        # resolve-user activity on replay-safe code paths.
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        event = {**self.event, "text": "<@UBOT123> project 2"}
+
+        route_posthog_code_event_to_relevant_region(request, event, "T12345")
+
+        mock_sync_connect.return_value.start_workflow.assert_called_once()
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        assert workflow_inputs.user_id == self.user.id
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
@@ -676,6 +778,8 @@ class TestChannelApprovalGate(TestCase):
     """
 
     def setUp(self):
+        from django.utils import timezone
+
         from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
 
         cache.clear()
@@ -683,12 +787,27 @@ class TestChannelApprovalGate(TestCase):
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.user)
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
         self.integration = Integration.objects.create(
             team=self.team,
             kind="slack",
             integration_id="T12345",
             config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-posthog-code-test"},
+        )
+        # Routing now resolves the Slack user to a PostHog user before any
+        # channel-approval logic runs. Seed the cache so the gate has something
+        # to resolve without calling Slack.
+        SlackUserProfileCache.objects.create(
+            integration=self.integration,
+            slack_user_id="U123",
+            email="dev@example.com",
+            display_name="Dev",
+            real_name="Dev User",
+            refreshed_at=timezone.now(),
         )
         self.event = {
             "type": "app_mention",

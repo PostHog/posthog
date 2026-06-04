@@ -163,6 +163,10 @@ class PostHogCodeSlackMentionWorkflowInputs:
     slack_team_id: str
     # Event that dispatched the workflow
     slack_event_id: str | None = None
+    # PostHog user resolved at routing time. ``None`` only on workflow histories
+    # started before this field existed — those replay through the legacy
+    # in-workflow resolve activity. New starts always populate it.
+    user_id: int | None = None
 
 
 def derive_mention_workflow_id(inputs: "PostHogCodeSlackMentionWorkflowInputs") -> str:
@@ -279,11 +283,18 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if followup_handled:
                 return
 
-            user_id = await _execute_posthog_code_activity(
-                resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
-            )
-            if not user_id:
-                return
+            # ``user_id`` is now resolved at routing time (api.py). Histories
+            # started before that change carry ``inputs.user_id is None`` and
+            # replay through the legacy activity; new starts skip it. Both
+            # branches match the recorded command stream — see plan notes.
+            if inputs.user_id is None:
+                user_id = await _execute_posthog_code_activity(
+                    resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
+                )
+                if not user_id:
+                    return
+            else:
+                user_id = inputs.user_id
 
             thread_messages = await _execute_posthog_code_activity(
                 collect_posthog_code_thread_messages_activity,
