@@ -163,7 +163,7 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
         fake_query,
     )
 
-    batches = list(response.items())  # type: ignore[arg-type]
+    batches = list(response.items())
 
     yielded_dates = [batch[0]["date"] for batch in batches]
     assert dt.date(2026, 4, 25) in yielded_dates
