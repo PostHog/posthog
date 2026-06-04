@@ -272,17 +272,71 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
-# Freeze the shared root-table singletons so any in-place edit raises (see _FrozenFields); editing
-# requires a private copy via Database.get_table(), which clones on first access.
-for _frozen_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.values():
-    if _frozen_node.table is not None:
-        freeze_table_tree(_frozen_node.table)
+def _freeze_node_tree(node: TableNode) -> None:
+    # Recursively freeze every table payload in a catalog subtree (see _FrozenFields). Idempotent.
+    if isinstance(node.table, Table):
+        freeze_table_tree(node.table)
+    for child in node.children.values():
+        _freeze_node_tree(child)
 
 
-def _shared_catalog_nodes(frozen: dict[str, TableNode]) -> dict[str, TableNode]:
-    # Copy-on-write: fresh per-Database node wrappers sharing the frozen table payloads by reference;
-    # ensure_materialized() clones a table on first access, so a query copies only what it touches.
-    return {name: TableNode(name=node.name, table=node.table, hidden=node.hidden) for name, node in frozen.items()}
+def _shared_catalog_skeleton(node: TableNode) -> TableNode:
+    # Copy-on-write: a fresh per-Database node wrapper (recursively, for nested namespaces) that
+    # shares the frozen table payloads by reference; ensure_materialized() clones a table on first
+    # write, so a query copies only what it touches.
+    return TableNode(
+        name=node.name,
+        table=node.table,
+        hidden=node.hidden,
+        children={name: _shared_catalog_skeleton(child) for name, child in node.children.items()},
+    )
+
+
+def _frozen_table_nodes(tables: dict[str, TableNode]) -> dict[str, TableNode]:
+    # Fresh frozen node wrappers over the given table payloads, built once at import.
+    nodes = {name: TableNode(name=node.name, table=node.table) for name, node in tables.items()}
+    for node in nodes.values():
+        _freeze_node_tree(node)
+    return nodes
+
+
+# The root catalog: a frozen singleton shared by reference across every request (copy-on-write).
+_FROZEN_ROOT_TABLES: dict[str, TableNode] = _frozen_table_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE)
+
+# The `posthog.` namespace: a second frozen singleton that brings in the frozen root tables plus the
+# namespace-only tables below. New tables are added here, not to the closed root above.
+_FROZEN_POSTHOG_NAMESPACE: dict[str, TableNode] = {
+    **_FROZEN_ROOT_TABLES,
+    # Add new tables here
+    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
+    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+    "session_replay_features": TableNode(name="session_replay_features", table=SessionReplayFeaturesTable()),
+    "metrics": TableNode(name="metrics", table=MetricsTable()),
+    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
+    "error_tracking_fingerprint_issue_state": TableNode(
+        name="error_tracking_fingerprint_issue_state", table=ErrorTrackingFingerprintIssueStateTable()
+    ),
+    "web_overview_preaggregated": TableNode(name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()),
+    "conversion_goal_attributed_preaggregated": TableNode(
+        name="conversion_goal_attributed_preaggregated", table=ConversionGoalAttributedPreaggregatedTable()
+    ),
+    "web_stats_paths_preaggregated": TableNode(
+        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
+    ),
+    "web_stats_preaggregated": TableNode(name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()),
+    "web_vitals_paths_preaggregated": TableNode(
+        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
+    ),
+    "web_stats_frustration_preaggregated": TableNode(
+        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+    ),
+    "web_goals_preaggregated": TableNode(name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()),
+}
+# Freeze the namespace-only tables (the root tables brought in above are already frozen).
+for _node in _FROZEN_POSTHOG_NAMESPACE.values():
+    _freeze_node_tree(_node)
 
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
@@ -294,48 +348,10 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
 
     if include_posthog_tables:
         children = {
-            **_shared_catalog_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE),
+            **{name: _shared_catalog_skeleton(node) for name, node in _FROZEN_ROOT_TABLES.items()},
             "posthog": TableNode(
                 name="posthog",
-                children={
-                    **_shared_catalog_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE),
-                    # Add new tables here
-                    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
-                    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
-                    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
-                    "session_replay_features": TableNode(
-                        name="session_replay_features", table=SessionReplayFeaturesTable()
-                    ),
-                    "metrics": TableNode(name="metrics", table=MetricsTable()),
-                    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
-                    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
-                    "error_tracking_fingerprint_issue_state": TableNode(
-                        name="error_tracking_fingerprint_issue_state",
-                        table=ErrorTrackingFingerprintIssueStateTable(),
-                    ),
-                    "web_overview_preaggregated": TableNode(
-                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
-                    ),
-                    "conversion_goal_attributed_preaggregated": TableNode(
-                        name="conversion_goal_attributed_preaggregated",
-                        table=ConversionGoalAttributedPreaggregatedTable(),
-                    ),
-                    "web_stats_paths_preaggregated": TableNode(
-                        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
-                    ),
-                    "web_stats_preaggregated": TableNode(
-                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
-                    ),
-                    "web_vitals_paths_preaggregated": TableNode(
-                        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
-                    ),
-                    "web_stats_frustration_preaggregated": TableNode(
-                        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
-                    ),
-                    "web_goals_preaggregated": TableNode(
-                        name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
-                    ),
-                },
+                children={name: _shared_catalog_skeleton(node) for name, node in _FROZEN_POSTHOG_NAMESPACE.items()},
             ),
             "system": SystemTables(),
             **children,
