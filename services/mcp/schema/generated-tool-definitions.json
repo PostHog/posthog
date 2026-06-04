@@ -4757,6 +4757,104 @@
             "readOnlyHint": false
         }
     },
+    "subscriptions-create": {
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "Create subscription",
+        "title": "Create subscription",
+        "required_scopes": ["subscription:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-deliveries-list": {
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "List subscription deliveries",
+        "title": "List subscription deliveries",
+        "required_scopes": ["subscription:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-deliveries-retrieve": {
+        "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "Get subscription delivery",
+        "title": "Get subscription delivery",
+        "required_scopes": ["subscription:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-list": {
+        "description": "List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday), next_delivery_date, and a human-readable summary.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "List subscriptions",
+        "title": "List subscriptions",
+        "required_scopes": ["subscription:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-partial-update": {
+        "description": "Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday, start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "Update subscription",
+        "title": "Update subscription",
+        "required_scopes": ["subscription:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "subscriptions-retrieve": {
+        "description": "Get a specific subscription by ID. Returns the full subscription configuration including target type and value, schedule details, next delivery date, and associated insight or dashboard.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "Get subscription",
+        "title": "Get subscription",
+        "required_scopes": ["subscription:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "subscriptions-test-delivery-create": {
+        "description": "Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook). Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202 Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription is already in flight.",
+        "category": "Subscriptions",
+        "feature": "subscriptions",
+        "summary": "Send test delivery",
+        "title": "Send test delivery",
+        "required_scopes": ["subscription:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "survey-create": {
         "description": "Creates a new survey in the project. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow.",
         "category": "Surveys",

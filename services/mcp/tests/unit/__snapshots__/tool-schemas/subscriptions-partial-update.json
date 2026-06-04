@@ -101,9 +101,9 @@
             "description": "ID of a connected Slack integration. Required when target_type is slack."
         },
         "interval": {
-            "description": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.",
+            "description": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.",
             "maximum": 2147483647,
-            "minimum": 1,
+            "minimum": -2147483648,
             "type": "number"
         },
         "invite_message": {
