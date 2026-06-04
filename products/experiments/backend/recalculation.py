@@ -12,6 +12,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 from datetime import timedelta
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -28,7 +29,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
-from products.experiments.backend.temporal.recalculation_logic import _find_metric_dict
+from products.experiments.backend.temporal.recalculation_logic import find_metric_dict
 
 # How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
 # stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
@@ -48,6 +49,11 @@ def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict]
 
     Accepts an optional pre-computed `results` list to avoid recomputing fingerprints on the GET path where
     the same list is also surfaced to the client.
+
+    Inherits the fingerprint-divergence hazard from `get_run_results`: `completed_metrics` can silently drop
+    if experiment fields that feed the fingerprint (start_date, exposure_criteria, stats method,
+    only_count_matured_users) change between the workflow's writes and this read. `failed_metrics` is partly
+    immune because discovery-step failures come from `metric_errors` (stored on the row), not from result rows.
     """
     rows = results if results is not None else get_run_results(recalc)
     completed = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.COMPLETED)
@@ -98,7 +104,14 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
 
-    with team_scope(experiment.team_id, canonical=True):
+    with team_scope(experiment.team_id, canonical=True), transaction.atomic():
+        # Serialize concurrent POSTs for this experiment by locking the Experiment row up front. Without this,
+        # two simultaneous POSTs (double-click, retry storm, two tabs) both see no active recalc row and both
+        # reach .create(); the second hits the unique_active_metrics_recalculation_per_experiment constraint
+        # and returns HTTP 500. Locking the Experiment row queues the second POST behind the first, which
+        # then sees the freshly-created row in its lookup and returns is_existing=True cleanly.
+        Experiment.objects.select_for_update().filter(id=experiment.id).first()
+
         # Activity-aware staleness: PENDING rows anchor on created_at (workflow never reached its start
         # activity); IN_PROGRESS rows anchor on started_at (workflow began executing then stalled). A row past
         # the threshold is treated as dead and skipped, so a fresh recalc can start. Without this, a PENDING
@@ -176,11 +189,17 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
 
     Returns ``{metric_uuid: recalc_fp}`` for metrics still resolvable on the experiment. A uuid present on the job
     but no longer on the experiment is skipped (metric removed mid-run).
+
+    Divergence hazard: the fingerprint is derived from mutable experiment fields (start_date, exposure_criteria,
+    stats method, only_count_matured_users). If any of these change between the workflow's writes and a later
+    read, the recomputed fingerprints will not match the on-disk ones and the corresponding result rows become
+    unreachable (until the experiment fields revert). This is the explicit trade-off of "no FK on
+    ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
     """
     stats_method = get_experiment_stats_method(experiment)
     fingerprints: dict[str, str] = {}
     for metric_uuid in recalc.metric_uuids or []:
-        metric_dict = _find_metric_dict(experiment, metric_uuid)
+        metric_dict = find_metric_dict(experiment, metric_uuid)
         if metric_dict is None:
             continue
         config_fp = compute_metric_fingerprint(
@@ -199,6 +218,10 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
 
     Scopes by recomputing each metric's recalc fingerprint and filtering ``fingerprint__in`` — never returns
     rows from a previous run or from the timeseries workflow (which uses config fingerprints).
+
+    See `_recalc_fingerprints_for_run` for the fingerprint-divergence hazard: if experiment fields that feed
+    the fingerprint change after the run wrote its rows, this can return [] for what is on-disk a successful
+    run. Symptom: "results disappeared after editing exposure_criteria / start_date / stats config."
     """
     fingerprints = _recalc_fingerprints_for_run(recalc.experiment, recalc)
     if not fingerprints:
