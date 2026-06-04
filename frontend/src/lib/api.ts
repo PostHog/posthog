@@ -2887,7 +2887,7 @@ const api = {
         ): Promise<{ results: Record<string, any>[] }> {
             return new ApiRequest()
                 .tracingSpans()
-                .withAction(`trace/${traceId}`)
+                .withAction(`trace/${encodeURIComponent(traceId)}`)
                 .create({
                     data: {
                         ...query,

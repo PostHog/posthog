@@ -2,14 +2,14 @@ import { combineUrl } from 'kea-router'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
 import { DEFAULT_DATE_RANGE } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 
 import { getLogsSceneUrl } from './logsUrl'
 
 describe('getLogsSceneUrl', () => {
-    const filterGroup = {
+    const filterGroup: UniversalFiltersGroup = {
         type: FilterLogicalOperator.And,
         values: [
             {
