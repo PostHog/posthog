@@ -168,6 +168,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
             <More
                 overlay={
                     <>
+                        {featureFlag.id && (
+                            <LemonButton to={urls.featureFlag(featureFlag.id)} data-attr="feature-flag-view" fullWidth>
+                                View
+                            </LemonButton>
+                        )}
+
                         <LemonButton
                             onClick={() => {
                                 void copyToClipboard(featureFlag.key, 'feature flag key')
@@ -245,7 +251,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             data-attr="feature-flag-duplicate"
                             fullWidth
                         >
-                            Duplicate feature flag
+                            Duplicate
                         </LemonButton>
 
                         <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>

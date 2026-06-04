@@ -36,7 +36,12 @@ class Command(BaseCommand):
                 "template_id": "template-linkedin-ads",
                 "from_string": "'LinkedIn-Version': '202409'",
                 "to_string": "'LinkedIn-Version': '202508'",
-            }
+            },
+            "meta-ads-api-version-update": {
+                "template_id": "template-meta-ads",
+                "from_string": "graph.facebook.com/v21.0/",
+                "to_string": "graph.facebook.com/v25.0/",
+            },
         }
 
         if not replace_key or replace_key not in replaceOptions:

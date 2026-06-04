@@ -653,6 +653,14 @@ class TestDashboardWidgets(APIBaseTest):
             team=ANY,
             request=ANY,
         )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
@@ -682,6 +690,36 @@ class TestDashboardWidgets(APIBaseTest):
             team=ANY,
             request=ANY,
         )
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "error_tracking_list"
+        assert widget_added_calls[0][0][2]["dashboard_id"] == dashboard_id
+        assert "tile_id" in widget_added_calls[0][0][2]
+        assert "widget_id" in widget_added_calls[0][0][2]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_add_session_replay_widget_fires_dashboard_widget_added_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        mock_report_user_action.reset_mock()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/widgets/batch/",
+            {
+                "widgets": [
+                    {"widget_type": "session_replay_list", "config": {"limit": 5}, "name": "Recent replays"},
+                ]
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        widget_added_calls = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget added"
+        ]
+        assert len(widget_added_calls) == 1
+        assert widget_added_calls[0][0][2]["widget_type"] == "session_replay_list"
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_batch_create_widget_tiles(self) -> None:
@@ -753,6 +791,7 @@ class TestDashboardWidgets(APIBaseTest):
 
         for call in mock_report_user_action.call_args_list:
             assert call[0][1] != "dashboard tile added"
+            assert call[0][1] != "dashboard widget added"
 
     @override_settings(IN_UNIT_TESTING=True)
     @patch("posthog.resource_limits.evaluator.report_user_action")
@@ -825,7 +864,13 @@ class TestDashboardWidgets(APIBaseTest):
             action = "retrieve"
 
         context = {"view": ViewShim(), "order": 0}
-        assert DashboardTileSerializer(tile, context=context).data["widget"] is not None
+        full_widget = DashboardTileSerializer(tile, context=context).data["widget"]
+        assert full_widget is not None
+        assert full_widget["created_by"] is not None
 
         shared_context = {**context, "is_shared": True}
-        assert DashboardTileSerializer(tile, context=shared_context).data["widget"] is None
+        shared_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert shared_widget is not None
+        assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
+        assert shared_widget["widget_type"] == "error_tracking_list"
+        assert shared_widget["config"]["limit"] == 10

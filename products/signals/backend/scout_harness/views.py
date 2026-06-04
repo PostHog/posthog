@@ -39,7 +39,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.models import SignalProjectProfile, SignalScoutRun
+from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -52,6 +52,7 @@ from products.signals.backend.scout_harness.serializers import (
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
+    SignalScoutConfigSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
@@ -482,3 +483,66 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
         return Response(ProjectProfileSerializer(profile.as_dict()).data)
+
+
+class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Per-scout config: list and tune each scout's schedule, enablement, and emit posture.
+
+    `list` is read (`signal_scout:read`); `partial_update` is a user-grantable write
+    (`signal_scout:write`) — config changes drive spend, so enablement is activity-logged
+    and `enabled_by` records who flipped it on.
+    """
+
+    serializer_class = SignalScoutConfigSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout"
+    queryset = SignalScoutConfig.objects.unscoped()
+    lookup_field = "id"
+    pagination_class = None
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutConfigSerializer(many=True),
+                description="Per-scout configs for this project, ordered by skill name.",
+            ),
+        },
+        summary="List scout configs",
+        description=(
+            "List the per-(team, skill) scout configs for this project — schedule "
+            "(`run_interval_minutes`), `enabled`, and `emit` posture per scout."
+        ),
+        operation_id="signals_scout_config_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        configs = SignalScoutConfig.objects.unscoped().filter(team_id=_canonical_team_id(self)).order_by("skill_name")
+        return Response(SignalScoutConfigSerializer(configs, many=True).data)
+
+    @extend_schema(
+        request=SignalScoutConfigSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalScoutConfigSerializer, description="Updated config."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Update a scout config",
+        description=(
+            "Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` "
+            "(dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is "
+            "activity-logged since it drives spend."
+        ),
+        operation_id="signals_scout_config_update",
+    )
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=_canonical_team_id(self), id=config_id).first()
+        if config is None:
+            raise exceptions.NotFound()
+        serializer = SignalScoutConfigSerializer(config, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
+        save_kwargs = {}
+        if not config.enabled and serializer.validated_data.get("enabled"):
+            save_kwargs["enabled_by"] = request.user
+        instance = serializer.save(**save_kwargs)
+        return Response(SignalScoutConfigSerializer(instance).data)

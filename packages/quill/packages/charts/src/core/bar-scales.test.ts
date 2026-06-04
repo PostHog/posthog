@@ -1,5 +1,5 @@
 import { dimensions, makeSeries } from '../testing'
-import { createBarScales } from './scales'
+import { createBarScales, groupedBandSlot } from './scales'
 
 describe('hog-charts bar scales', () => {
     describe('createBarScales — vertical orientation (default)', () => {
@@ -208,6 +208,31 @@ describe('hog-charts bar scales', () => {
             const domain = value.domain()
             expect(domain[0]).toBeLessThanOrEqual(-10)
             expect(domain[1]).toBeGreaterThanOrEqual(0)
+        })
+    })
+
+    describe('groupedBandSlot', () => {
+        const series = [
+            makeSeries({ key: 's1', data: [1, 2] }),
+            makeSeries({ key: 's2', data: [3, 4] }),
+        ]
+        const grouped = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'grouped' })
+
+        it("returns the series' band-axis slot within the band", () => {
+            const start = grouped.band('a')!
+            expect(groupedBandSlot(grouped, 'a', 's2')).toEqual({
+                x: start + grouped.group!('s2')!,
+                width: grouped.group!.bandwidth(),
+            })
+        })
+
+        it('returns undefined for a series not in the group scale', () => {
+            expect(groupedBandSlot(grouped, 'a', 'missing')).toBeUndefined()
+        })
+
+        it('returns undefined for non-grouped layouts (no group scale)', () => {
+            const stacked = createBarScales(series, ['a', 'b'], dimensions, { barLayout: 'stacked' })
+            expect(groupedBandSlot(stacked, 'a', 's1')).toBeUndefined()
         })
     })
 })

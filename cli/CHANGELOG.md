@@ -1,5 +1,17 @@
 # posthog-cli
 
+# 0.7.18
+
+- fix: rename `--env-file` to `--dotenv-file`. The npm package runs the CLI binary through a `node` wrapper script, and Node has its own built-in `--env-file` flag — so Node intercepted the flag before it reached the binary, failing with `node: .env: not found` for a missing file. `--env-file` still works as an alias for native installs.
+
+# 0.7.17
+
+- fix: treat a missing `--env-file` as a warning instead of a fatal error — the CLI logs that the file wasn't found and falls back to the other credential sources (process env, then stored credentials). A file that exists but can't be read still errors.
+
+# 0.7.16
+
+- feat: add `--dry-run` flag (and `POSTHOG_CLI_DRY_RUN` env var) to skip artifact uploads (sourcemap, dSYM, Hermes, ProGuard) without contacting PostHog or requiring credentials — for CI gates that bundle to catch regressions but must not upload.
+
 # 0.7.15
 
 - fix: make symbol upload retry logs clearer and report failed finalization explicitly.

@@ -122,7 +122,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
+        actions: [
+            insightDataLogic,
+            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelChanges'],
+        ],
     })),
 
     actions({
@@ -572,7 +575,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
@@ -580,6 +583,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     props.setQuery(query)
                 }
             }
+        },
+
+        // Discarding edits reverts the query to the saved version. A debounced filter
+        // update (e.g. updateDateRange) that was dispatched just before the discard would
+        // otherwise resolve afterwards and re-apply the discarded value on top of the
+        // reverted query. Flag it so the in-flight debounce bails out instead.
+        cancelChanges: () => {
+            cache.pendingFilterUpdateCancelled = true
         },
 
         // query source
@@ -599,8 +610,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
+            cache.pendingFilterUpdateCancelled = false
             if (!ignoreDebounce) {
                 await breakpoint(300)
+            }
+            // Changes were discarded while this debounce was pending — don't re-apply the
+            // edited date range over the query that cancelChanges just reverted.
+            if (cache.pendingFilterUpdateCancelled) {
+                cache.pendingFilterUpdateCancelled = false
+                return
             }
             eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             const updates = {
