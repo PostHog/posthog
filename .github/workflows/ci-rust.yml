@@ -104,7 +104,6 @@ jobs:
               with:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
-                  pr-base-ref: ${{ github.event.pull_request.base.ref }}
                   push-before-sha: ${{ github.event.before }}
                   rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
 

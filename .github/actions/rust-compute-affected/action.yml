@@ -8,11 +8,7 @@ inputs:
         description: github.event_name — controls how the base ref is resolved
         required: true
     pr-base-sha:
-        description: 'Base SHA for PR / merge-group events (fallback if pr-base-ref unavailable)'
-        required: false
-        default: ''
-    pr-base-ref:
-        description: 'Base branch name for PR events (e.g. master) — used to compute a fresh merge-base'
+        description: 'Base SHA for PR / merge-group events'
         required: false
         default: ''
     push-before-sha:
@@ -64,7 +60,6 @@ runs:
           env:
               EVENT_NAME: ${{ inputs.event-name }}
               PR_BASE_SHA: ${{ inputs.pr-base-sha }}
-              PR_BASE_REF: ${{ inputs.pr-base-ref }}
               PUSH_BEFORE_SHA: ${{ inputs.push-before-sha }}
               FORCE_REBUILD: ${{ inputs.rebuild-all }}
           working-directory: rust
@@ -79,8 +74,8 @@ runs:
                       # Try to resolve the base branch name from the input or
                       # the GitHub event payload so we diff against the current
                       # tip rather than the potentially stale PR base SHA.
-                      base_branch="${PR_BASE_REF}"
-                      if [ -z "$base_branch" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
+                      base_branch=""
+                      if [ -f "$GITHUB_EVENT_PATH" ]; then
                           base_branch=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
                       fi
 

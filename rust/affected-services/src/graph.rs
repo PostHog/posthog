@@ -117,14 +117,8 @@ impl Drop for TempWorktree {
 }
 
 pub fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option<PackageGraph> {
-    eprintln!(
-        "DEBUG building old graph for base_ref={base_ref}, workspace_subdir={workspace_subdir}"
-    );
     let worktree = match TempWorktree::create(base_ref, &[workspace_subdir]) {
-        Ok(w) => {
-            eprintln!("DEBUG worktree created at {:?}", w.path());
-            w
-        }
+        Ok(w) => w,
         Err(e) => {
             eprintln!("warning: could not create worktree at {base_ref}: {e}");
             return None;
@@ -136,19 +130,12 @@ pub fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option
         eprintln!("warning: {base_ref} has no {workspace_subdir}/Cargo.toml");
         return None;
     }
-    eprintln!("DEBUG old workspace Cargo.toml found at {old_workspace:?}");
 
     let mut cmd = MetadataCommand::new();
     cmd.current_dir(&old_workspace);
     cmd.other_options(["--locked"]);
     match cmd.build_graph() {
-        Ok(graph) => {
-            eprintln!(
-                "DEBUG old graph built successfully ({} crates)",
-                graph.workspace().iter().count()
-            );
-            Some(graph)
-        }
+        Ok(graph) => Some(graph),
         Err(e) => {
             eprintln!("warning: could not build old package graph: {e}");
             None

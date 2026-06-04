@@ -46,16 +46,6 @@ pub fn compute_affected(
         .map(|f| to_workspace_relative(f))
         .collect();
 
-    eprintln!("DEBUG changed_files ({}):", changed_files.len());
-    for f in changed_files {
-        eprintln!("  {f}");
-    }
-    eprintln!("DEBUG workspace_paths ({}):", workspace_paths.len());
-    for p in &workspace_paths {
-        eprintln!("  {p}");
-    }
-    eprintln!("DEBUG old_graph available: {}", old_graph.is_some());
-
     // When no old graph is available (single-graph fallback) and Cargo.lock
     // changed, the determinator can't diff resolved dependencies — it sees
     // old == new. Force a full rebuild to be safe.
@@ -90,20 +80,6 @@ pub fn compute_affected(
     let workspace_size = new_graph.workspace().iter().count();
     let affected_count = result.affected_set.len();
     let rebuild_all = affected_count == workspace_size;
-
-    eprintln!("DEBUG affected_count: {affected_count}, workspace_size: {workspace_size}, rebuild_all: {rebuild_all}");
-    let affected_debug: Vec<String> = result
-        .affected_set
-        .packages(DependencyDirection::Forward)
-        .map(|p| p.name().to_string())
-        .collect();
-    eprintln!("DEBUG affected crates: {affected_debug:?}");
-    let path_changed_debug: Vec<String> = result
-        .path_changed_set
-        .packages(DependencyDirection::Forward)
-        .map(|p| p.name().to_string())
-        .collect();
-    eprintln!("DEBUG path_changed crates: {path_changed_debug:?}");
 
     let bin_to_crate = build_binary_to_crate_map(new_graph);
 
