@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.db import close_old_connections, transaction
-from django.db.models import F
 from django.utils import timezone
 
 import structlog
@@ -168,21 +167,18 @@ def _build_metric(
 
 
 def _record_failure(recalculation_id: str, metric_uuid: str, step: str, message: str) -> None:
-    """Atomically increment failed_metrics and merge the error entry under a row lock (no lost updates)."""
+    """Merge the error entry into metric_errors under a row lock (no lost updates between concurrent failures).
+
+    Idempotent on Temporal retries: the dict is keyed by metric_uuid, so re-running this for the same metric
+    just overwrites the existing entry with a fresh timestamp.
+    """
     capped = message[:_MAX_ERROR_MESSAGE_LENGTH]
     with transaction.atomic():
         recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
         metric_errors = recalc.metric_errors or {}
         metric_errors[metric_uuid] = {"step": step, "message": capped, "timestamp": timezone.now().isoformat()}
         recalc.metric_errors = metric_errors
-        recalc.failed_metrics = F("failed_metrics") + 1
-        recalc.save(update_fields=["metric_errors", "failed_metrics"])
-
-
-def _record_success(recalculation_id: str) -> None:
-    ExperimentMetricsRecalculation.objects.filter(id=recalculation_id).update(
-        completed_metrics=F("completed_metrics") + 1
-    )
+        recalc.save(update_fields=["metric_errors"])
 
 
 def _store_result(
@@ -277,7 +273,6 @@ def _calculate_experiment_metric_for_recalculation_sync(
             result=result_dict,
             error_message=None,
         )
-        _record_success(recalculation_id)
         return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
     except (StatisticError, ZeroDivisionError) as e:

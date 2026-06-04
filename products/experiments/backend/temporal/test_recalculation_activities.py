@@ -231,7 +231,7 @@ class TestCalculateActivity(BaseTest):
             assert result.success is False
             assert result.error_step == "discovery"
             recalc.refresh_from_db()
-            assert recalc.failed_metrics == 1
+            assert len(recalc.metric_errors) == 1
             assert "does-not-exist" in recalc.metric_errors
 
     def test_bad_metric_type_fails_at_calculation(self):
@@ -249,7 +249,7 @@ class TestCalculateActivity(BaseTest):
             assert result.success is False
             assert result.error_step == "calculation"
             recalc.refresh_from_db()
-            assert recalc.failed_metrics == 1
+            assert len(recalc.metric_errors) == 1
             assert "m-bad" in recalc.metric_errors
 
     def test_missing_start_date_fails(self):
@@ -261,7 +261,7 @@ class TestCalculateActivity(BaseTest):
 
             assert result.success is False
             recalc.refresh_from_db()
-            assert recalc.failed_metrics == 1
+            assert len(recalc.metric_errors) == 1
 
     def test_saved_metric_is_resolvable(self):
         # A saved/shared metric (uuid only on saved_metric.query) must be found by the calc lookup; otherwise it
@@ -298,8 +298,44 @@ class TestCalculateActivity(BaseTest):
             _calculate(exp.id, "missing-b", str(recalc.id), _QUERY_TO)
 
             recalc.refresh_from_db()
-            assert recalc.failed_metrics == 2
+            assert len(recalc.metric_errors) == 2
             assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
+
+    @parameterized.expand(
+        [
+            # (name, metric_uuid_called, metrics_on_experiment, run_with_mocked_failure)
+            # Discovery-step failure: metric_uuid not present on the experiment, no result row, only metric_errors.
+            ("discovery_failure", "does-not-exist", [_mean_metric("m1")], False),
+            # Calculation-step failure: metric resolves, runner raises, writes both metric_errors and a FAILED result row.
+            ("calculation_failure", "m1", [_mean_metric("m1")], True),
+        ]
+    )
+    def test_retry_does_not_double_count(self, name: str, metric_uuid: str, metrics: list, mock_runner_failure: bool):
+        # Temporal retries the whole activity on transient failure. _store_result is idempotent (update_or_create
+        # keyed on fingerprint + query_to) and metric_errors is keyed by metric_uuid, so a second run must leave
+        # state identical to the first — no inflated counts, no duplicate result rows.
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
+            recalc = self._recalc(exp)
+
+            def _run() -> None:
+                if mock_runner_failure:
+                    with patch(
+                        "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+                    ) as mock_runner:
+                        mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
+                        _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
+                else:
+                    _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
+
+            _run()
+            _run()  # simulated Temporal retry
+
+            recalc.refresh_from_db()
+            assert len(recalc.metric_errors) == 1
+            assert metric_uuid in recalc.metric_errors
+            # One result row per (metric_uuid, fingerprint, query_to) regardless of retry count.
+            assert ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count() <= 1
 
     def test_unexpected_error_calls_capture_exception_and_caps_message(self):
         with team_scope(self.team.id, canonical=True):
