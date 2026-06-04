@@ -932,7 +932,9 @@ class ZohoCRMSourceConfig(config.Config):
 
 @config.config
 class ZoomSourceConfig(config.Config):
-    pass
+    account_id: str
+    client_id: str
+    client_secret: str
 
 
 @config.config

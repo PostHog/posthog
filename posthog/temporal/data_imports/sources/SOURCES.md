@@ -118,6 +118,7 @@ the row lists both.
 | woocommerce      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| zoom             | HTTP                        | requests                                                        | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -223,7 +224,6 @@ doesn't conflict with concurrent PRs.
 - xero
 - youtube_analytics
 - zoho_crm
-- zoom
 - zuora
 
 ---
