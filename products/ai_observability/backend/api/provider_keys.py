@@ -543,24 +543,24 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     {"detail": "Replacement key must be from the same provider"}, status=status.HTTP_400_BAD_REQUEST
                 )
 
-            model_config_ids = list(
-                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
-                    "id", flat=True
-                )
-            )
             with transaction.atomic():
+                model_config_ids = list(
+                    LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                        "id", flat=True
+                    )
+                )
                 LLMModelConfiguration.objects.filter(id__in=model_config_ids, team_id=self.team_id).update(
                     provider_key=replacement_key
                 )
                 _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
                 return super().destroy(request, *args, **kwargs)
         else:
-            model_config_ids = list(
-                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
-                    "id", flat=True
-                )
-            )
             with transaction.atomic():
+                model_config_ids = list(
+                    LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                        "id", flat=True
+                    )
+                )
                 # Deleting the key leaves dependent evals unrunnable. Only promote currently-active
                 # evals to the error state — user-paused evals should stay paused (the user's intent
                 # is preserved), and already-errored evals don't need their existing reason overwritten.
