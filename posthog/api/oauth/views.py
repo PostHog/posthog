@@ -881,6 +881,26 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         """
         redirect, error_response = super().error_response(error, **kwargs)
 
+        # Surface scope-ceiling rejections as a product event so on-call can alert on
+        # /authorize failing with invalid_scope (an under-seeded or `*`-on-non-empty ceiling).
+        if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
+            user = getattr(self.request, "user", None)
+            registration_type = (
+                "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+            )
+            posthoganalytics.capture(
+                distinct_id=str(getattr(user, "distinct_id", None) or application.client_id),
+                event="oauth_authorization_rejected",
+                properties={
+                    "reason": "invalid_scope",
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": registration_type,
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                },
+            )
+
         if redirect:
             if no_redirect:
                 return Response(
