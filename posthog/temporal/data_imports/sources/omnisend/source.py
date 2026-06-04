@@ -69,12 +69,11 @@ You can create an API key in your [Omnisend account settings](https://app.omnise
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=bool(fields := INCREMENTAL_FIELDS.get(endpoint)),
+                supports_append=bool(fields),
+                incremental_fields=fields or [],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)
