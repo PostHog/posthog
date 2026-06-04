@@ -20,15 +20,23 @@ export const manifest: ProductManifest = {
             projectBased: true,
             activityScope: 'TaskDetail',
         },
+        // Hidden internal debug scene. No nav entry — reachable only by typing the URL.
+        SlackTaskContext: {
+            name: 'Slack task context',
+            import: () => import('./frontend/SlackTaskContextScene'),
+            projectBased: true,
+        },
     },
     routes: {
         '/tasks': ['TaskTracker', 'taskTracker'],
         '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
+        '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     },
     redirects: {},
     urls: {
         taskTracker: (): string => '/tasks',
         taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+        slackTaskContext: (): string => '/slack-task-context',
     },
     fileSystemTypes: {
         task: {

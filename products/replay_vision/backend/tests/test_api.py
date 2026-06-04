@@ -187,10 +187,10 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
     @parameterized.expand(
         [
             ("monitor", ScannerType.MONITOR, {"prompt": "p"}),
+            ("monitor-allow-inconclusive", ScannerType.MONITOR, {"prompt": "p", "allow_inconclusive": True}),
             ("classifier", ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a", "b"]}),
             ("scorer", ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}),
             ("summarizer", ScannerType.SUMMARIZER, {"prompt": "p"}),
-            ("indexer", ScannerType.INDEXER, {}),
         ]
     )
     def test_create_accepts_valid_scanner_config_per_type(
@@ -337,6 +337,33 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
 
+    def _patch_deny_session_recording(self):
+        return patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, **_: resource != "session_recording",
+        )
+
+    def test_create_rejected_without_session_recording_read(self) -> None:
+        with self._patch_deny_session_recording():
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": "needs-recording-read",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "p"},
+                    "model": ScannerModel.GEMINI_3_FLASH,
+                },
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertIn("session_recording", resp.json()["detail"])
+
+    def test_patch_rejected_without_session_recording_read(self) -> None:
+        scanner = self._create_scanner()
+        with self._patch_deny_session_recording():
+            resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"name": "renamed"}, format="json")
+        self.assertEqual(resp.status_code, 403, resp.json())
+
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property
@@ -431,7 +458,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             scanner_result={
                 "model_output": {
                     "scanner_type": "monitor",
-                    "verdict": True,
+                    "verdict": "yes",
                     "reasoning": "user completed checkout",
                     "confidence": 0.9,
                 },
@@ -442,7 +469,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertEqual(body["scanner_result"]["signals_count"], 0)
-        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], True)
+        self.assertEqual(body["scanner_result"]["model_output"]["verdict"], "yes")
         self.assertEqual(body["scanner_result"]["model_output"]["confidence"], 0.9)
 
     @parameterized.expand(
@@ -487,6 +514,298 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         body = resp.json()
         self.assertEqual(len(body["results"]), 2)
         self.assertIsNotNone(body.get("next"))
+
+    def test_stats_status_counts_and_coverage(self) -> None:
+        self._create_observation(
+            session_id="a",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={
+                "model_output": {
+                    "scanner_type": "monitor",
+                    "verdict": "yes",
+                    "reasoning": "r",
+                    "confidence": 0.9,
+                },
+                "signals_count": 0,
+            },
+        )
+        self._create_observation(
+            session_id="a-failed",
+            status=ObservationStatus.FAILED,
+            error_reason="provider_transient:nope",
+            completed_at=timezone.now(),
+        )
+        self._create_observation(
+            session_id="b",
+            status=ObservationStatus.INELIGIBLE,
+            error_reason="too_short:tiny",
+            completed_at=timezone.now(),
+        )
+        self._create_observation(session_id="c")  # pending
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["status_counts"]["total"], 4)
+        self.assertEqual(body["status_counts"]["succeeded"], 1)
+        self.assertEqual(body["status_counts"]["failed"], 1)
+        self.assertEqual(body["status_counts"]["ineligible"], 1)
+        self.assertEqual(body["status_counts"]["in_flight"], 1)
+        self.assertEqual(body["status_counts"]["success_rate"], 50)
+        self.assertEqual(body["coverage"]["total_sessions"], 4)
+        self.assertEqual(body["coverage"]["recent_days"], 14)
+        # Monitor scanner: monitor stats populated, classifier/scorer null.
+        self.assertEqual(body["monitor"], {"yes_total": 1, "no_total": 0, "inconclusive_total": 0})
+        self.assertIsNone(body["classifier"])
+        self.assertIsNone(body["scorer"])
+
+    def test_stats_classifier_tag_rankings(self) -> None:
+        classifier = self._create_scanner(
+            name="intent",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "p", "tags": ["onboarding", "support"], "multi_label": True},
+        )
+        for idx, (tags, freeform) in enumerate(
+            [
+                (["onboarding"], []),
+                (["onboarding", "support"], ["surprise"]),
+                (["support"], ["surprise"]),
+                ([], []),
+            ]
+        ):
+            ReplayObservation.objects.create(
+                scanner=classifier,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(classifier),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "classifier",
+                        "tags": tags,
+                        "tags_freeform": freeform,
+                        "reasoning": "r",
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(classifier.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["classifier"]["total_with_tags"], 3)
+        self.assertEqual(
+            body["classifier"]["fixed_ranked"],
+            [{"tag": "onboarding", "count": 2}, {"tag": "support", "count": 2}],
+        )
+        self.assertEqual(body["classifier"]["freeform_ranked"], [{"tag": "surprise", "count": 2}])
+        self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
+        self.assertIsNone(body["monitor"])
+        self.assertIsNone(body["scorer"])
+
+    def test_filterset_status_multi_value(self) -> None:
+        self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        self._create_observation(
+            session_id="bad",
+            status=ObservationStatus.FAILED,
+            error_reason="x:y",
+            completed_at=timezone.now(),
+        )
+        self._create_observation(session_id="pending")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?status=succeeded,failed")
+        self.assertEqual(resp.status_code, 200)
+        sessions = sorted(r["session_id"] for r in resp.json()["results"])
+        self.assertEqual(sessions, ["bad", "ok"])
+
+    def test_filterset_verdict_multi_value(self) -> None:
+        for verdict in ["yes", "no", "inconclusive"]:
+            self._create_observation(
+                session_id=f"sess-{verdict}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "monitor",
+                        "verdict": verdict,
+                        "reasoning": "r",
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?verdict=yes,inconclusive")
+        self.assertEqual(resp.status_code, 200)
+        sessions = sorted(r["session_id"] for r in resp.json()["results"])
+        self.assertEqual(sessions, ["sess-inconclusive", "sess-yes"])
+
+    @parameterized.expand(
+        [
+            ("status=bogus", "status"),
+            ("triggered_by=hack", "triggered_by"),
+            ("verdict=maybe", "verdict"),
+            ("order_by=garbage", "order_by"),
+            ("order_by=-result_score_typo", "order_by"),
+        ]
+    )
+    def test_invalid_filter_or_order_returns_400(self, query: str, attr: str) -> None:
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{query}")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json().get("attr"), attr)
+
+    def test_order_by_result_score_ignores_non_numeric_payloads(self) -> None:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 100}},
+        )
+        # Schema drift / bad write: `score` may be a string. The cast must not 500 the request.
+        for idx, score in enumerate([3.0, "not-a-number", 1.0]):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=result_score")
+        self.assertEqual(resp.status_code, 200)
+        sessions = [r["session_id"] for r in resp.json()["results"]]
+        # Numeric scores first (ascending), bad row last via nulls_last.
+        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+
+    def test_order_by_result_score_numeric(self) -> None:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 100}},
+        )
+        for idx, score in enumerate([2.0, 10.0, 1.0]):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        # Lexicographic ordering would put "10" before "2"; numeric ordering puts 1 < 2 < 10.
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=result_score")
+        sessions = [r["session_id"] for r in resp.json()["results"]]
+        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}?order_by=-result_score")
+        sessions = [r["session_id"] for r in resp.json()["results"]]
+        self.assertEqual(sessions, ["sess-1", "sess-0", "sess-2"])
+
+    def test_order_by_scanner_version_numeric(self) -> None:
+        snap_v1 = {**_snapshot_for(self.scanner), "scanner_version": 1}
+        snap_v2 = {**_snapshot_for(self.scanner), "scanner_version": 2}
+        snap_v10 = {**_snapshot_for(self.scanner), "scanner_version": 10}
+        for idx, snap in enumerate([snap_v2, snap_v10, snap_v1]):
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=snap,
+                triggered_by=ObservationTrigger.SCHEDULE,
+            )
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=scanner_version")
+        sessions = [r["session_id"] for r in resp.json()["results"]]
+        self.assertEqual(sessions, ["sess-2", "sess-0", "sess-1"])
+
+    def test_filterset_tags_match_fixed_or_freeform(self) -> None:
+        classifier = self._create_scanner(
+            name="intent",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "p", "tags": ["onboarding", "support"], "multi_label": True},
+        )
+        for idx, (tags, freeform) in enumerate(
+            [
+                (["onboarding"], []),
+                (["support"], []),
+                ([], ["surprise"]),
+                ([], []),
+            ]
+        ):
+            ReplayObservation.objects.create(
+                scanner=classifier,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(classifier),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "classifier",
+                        "tags": tags,
+                        "tags_freeform": freeform,
+                        "reasoning": "r",
+                        "confidence": 0.5,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(classifier.id))}?tags=onboarding,surprise")
+        self.assertEqual(resp.status_code, 200)
+        sessions = sorted(r["session_id"] for r in resp.json()["results"])
+        self.assertEqual(sessions, ["sess-0", "sess-2"])
+
+    def test_stats_scorer_summary_and_histogram(self) -> None:
+        scorer = self._create_scanner(
+            name="frustration",
+            scanner_type=ScannerType.SCORER,
+            scanner_config={"prompt": "p", "scale": {"min": 0, "max": 10}},
+        )
+        for idx, score in enumerate([1.0, 2.0, 3.0, 4.0, 5.0]):
+            ReplayObservation.objects.create(
+                scanner=scorer,
+                session_id=f"sess-{idx}",
+                scanner_snapshot=_snapshot_for(scorer),
+                triggered_by=ObservationTrigger.SCHEDULE,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {"scanner_type": "scorer", "score": score, "reasoning": "r", "confidence": 0.5},
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(scorer.id))}stats/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        summary = body["scorer"]["summary"]
+        self.assertEqual(summary["count"], 5)
+        self.assertEqual(summary["min"], 1.0)
+        self.assertEqual(summary["max"], 5.0)
+        self.assertEqual(summary["median"], 3.0)
+        self.assertAlmostEqual(summary["mean"], 3.0)
+        histogram = body["scorer"]["histogram"]
+        self.assertEqual(sum(histogram["counts"]), 5)
+        self.assertEqual(len(histogram["labels"]), len(histogram["counts"]))
+        self.assertIsNone(body["monitor"])
+        self.assertIsNone(body["classifier"])
+
+    def test_stats_respects_status_filter(self) -> None:
+        self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        self._create_observation(
+            session_id="bad",
+            status=ObservationStatus.FAILED,
+            error_reason="x:y",
+            completed_at=timezone.now(),
+        )
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/?status=failed")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["status_counts"]["total"], 1)
+        self.assertEqual(body["status_counts"]["failed"], 1)
+        self.assertEqual(body["status_counts"]["succeeded"], 0)
 
 
 @patch("products.replay_vision.backend.api.scanners.async_to_sync")

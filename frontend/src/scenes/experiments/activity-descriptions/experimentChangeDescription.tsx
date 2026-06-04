@@ -43,10 +43,34 @@ type AllowedExperimentFields = Pick<
     | 'metrics'
     | 'metrics_secondary'
     | 'exposure_criteria'
+    | 'parameters'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
 > & {
     deleted: boolean
+}
+
+function describeExcludedVariantsChange(before: string[] | undefined, after: string[] | undefined): string | null {
+    const beforeSet = new Set(before ?? [])
+    const afterSet = new Set(after ?? [])
+    const added = [...afterSet].filter((k) => !beforeSet.has(k))
+    const removed = [...beforeSet].filter((k) => !afterSet.has(k))
+
+    if (added.length === 0 && removed.length === 0) {
+        return null
+    }
+    const parts: string[] = []
+    if (added.length === 1) {
+        parts.push(`excluded variant ${added[0]} from analysis`)
+    } else if (added.length > 1) {
+        parts.push(`excluded variants ${added.join(', ')} from analysis`)
+    }
+    if (removed.length === 1) {
+        parts.push(`re-included variant ${removed[0]} in analysis`)
+    } else if (removed.length > 1) {
+        parts.push(`re-included variants ${removed.join(', ')} in analysis`)
+    }
+    return parts.join(' and ')
 }
 
 /**
@@ -205,6 +229,16 @@ export const getExperimentChangeDescription = (
             }
 
             return changes.filter(Boolean) as (string | JSX.Element)[]
+        })
+        .with({ field: 'parameters' }, ({ before, after }) => {
+            const summary = describeExcludedVariantsChange(
+                (before as { excluded_variants?: string[] } | null)?.excluded_variants,
+                (after as { excluded_variants?: string[] } | null)?.excluded_variants
+            )
+            if (summary) {
+                return summary
+            }
+            return 'updated parameters'
         })
         .otherwise(({ field, action }) => {
             // Fallback for unhandled fields - ensures all activity is visible

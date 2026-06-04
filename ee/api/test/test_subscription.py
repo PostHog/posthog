@@ -16,11 +16,18 @@ from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.subscription import SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER, Subscription, SubscriptionDelivery
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.subscription import (
+    SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
+    Subscription,
+    SubscriptionDelivery,
+)
+from products.exports.backend.temporal.subscriptions.types import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionTriggerType,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import APILicensedTest
@@ -120,6 +127,50 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert isinstance(activity_inputs, ProcessSubscriptionWorkflowInputs)
         assert activity_inputs.subscription_id == data["id"]
         assert activity_inputs.invite_message == "hey there!"
+
+    def test_cannot_create_subscription_without_insight_or_dashboard(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            {
+                "target_type": "email",
+                "target_value": "test@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "No content source",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert "must have an insight, a dashboard, or a prompt" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("zero", 0),
+            ("negative", -1),
+        ]
+    )
+    def test_cannot_create_subscription_with_invalid_interval(self, _name: str, interval: Optional[int]):
+        payload = {
+            "insight": self.insight.id,
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "frequency": "weekly",
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Invalid interval",
+        }
+        if interval is not None:
+            payload["interval"] = interval
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.json().get("attr") == "interval"
+
+    def test_can_update_subscription_without_resending_relation(self):
+        sub_id = self._create_subscription().json()["id"]
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Updated title"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["title"], "Updated title")
 
     def test_can_create_new_subscription_without_invite_message(self):
         response = self._create_subscription(invite_message=None)
@@ -672,6 +723,64 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["title"] == "renamed while over the cap"
+        assert response.json()["summary_enabled"] is True
+
+    @parameterized.expand(
+        [
+            # The credit gate fires only when a summary is being switched on: an over-budget
+            # org is blocked when summary_enabled=True but can still create plain subscriptions.
+            ("summary_on_over_budget", True, True, status.HTTP_402_PAYMENT_REQUIRED),
+            ("summary_on_under_budget", True, False, status.HTTP_201_CREATED),
+            ("summary_off_over_budget", False, True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_summary_enabled_respects_ai_credit_budget(
+        self,
+        _name: str,
+        summary_enabled: bool,
+        is_limited: bool,
+        expected_status: int,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        with patch("ee.api.subscription.is_team_limited", return_value=is_limited):
+            response = self._create_subscription(summary_enabled=summary_enabled)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_402_PAYMENT_REQUIRED:
+            assert "AI credit usage limit" in response.json()["detail"]
+
+    def test_patch_transition_to_summary_enabled_blocked_when_over_credit_budget(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        create_response = self._create_subscription(summary_enabled=False)
+        sub_id = create_response.json()["id"]
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            patch_response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"summary_enabled": True},
+            )
+
+        assert patch_response.status_code == status.HTTP_402_PAYMENT_REQUIRED
+        assert "AI credit usage limit" in patch_response.json()["detail"]
+
+    def test_patch_unrelated_field_on_already_enabled_summary_when_over_credit_budget(self) -> None:
+        # Going over budget mid-month must not trap an org out of editing existing
+        # summaries — only transitions *into* an active summary are gated.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        existing = self._seed_active_summary_subscriptions(1)
+
+        with patch("ee.api.subscription.is_team_limited", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{existing[0].id}",
+                {"title": "renamed while over budget"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["title"] == "renamed while over budget"
         assert response.json()["summary_enabled"] is True
 
     @parameterized.expand(

@@ -32,6 +32,7 @@ def create_endpoint_with_version(
     )
     EndpointVersion.objects.create(
         endpoint=endpoint,
+        team=team,
         version=current_version,
         query=query,
         description=description,

@@ -26,6 +26,7 @@ from google.api_core.exceptions import Forbidden
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
+from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
 
@@ -38,9 +39,13 @@ from posthog.temporal.data_imports.pipelines.helpers import (
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES
+from posthog.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, TrackedHTTPAdapter
+from posthog.temporal.data_imports.sources.common.sql import compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.implementation import SQLSourceImplementation
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
+from posthog.temporal.data_imports.sources.common.sql.projection import format_projected_select_clause
 from posthog.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
@@ -55,6 +60,10 @@ __all__ = [
     "filter_bigquery_incremental_fields",
     "validate_bigquery_credentials",
 ]
+
+# Host used both to build the Storage Read API gRPC channel and to label the
+# tracked gRPC transport's logs/metrics.
+BIGQUERY_STORAGE_HOST = "bigquerystorage.googleapis.com"
 
 
 def build_destination_table_prefix(schema_id: str | None) -> str:
@@ -139,11 +148,24 @@ def bigquery_storage_read_client(
         scopes=["https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/cloud-platform"],
     )
 
-    client = bigquery_storage.BigQueryReadClient(
-        credentials=credentials,
-    )
+    # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
+    # interceptors, then hand it to the transport. Passing a `channel` makes the
+    # transport ignore credentials, so they must already be baked into the channel
+    # via `create_channel(credentials=...)`. This routes the Storage Read API's
+    # create_read_session (unary) + read_rows (server-streaming) RPCs through our
+    # logging / metrics / sample-capture pipeline.
+    channel = BigQueryReadGrpcTransport.create_channel(host=BIGQUERY_STORAGE_HOST, credentials=credentials)
+    tracked_channel = make_tracked_channel(channel, host=BIGQUERY_STORAGE_HOST)
+    transport = BigQueryReadGrpcTransport(channel=tracked_channel)
 
-    yield client
+    try:
+        client = bigquery_storage.BigQueryReadClient(transport=transport)
+        yield client
+    finally:
+        # We own the channel (built above), so we must close it — otherwise each
+        # sync leaks an open gRPC channel + its file descriptors. Closing the
+        # transport closes the underlying channel.
+        transport.close()
 
 
 def delete_table(
@@ -369,13 +391,30 @@ def _get_rows_to_sync(
         return 0
 
 
+_BQ_QUOTER = BacktickIdentifierQuoter()
+
+
+def _bq_select_clause(
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+) -> str:
+    """BigQuery SELECT-list with backtick quoting and identifier allowlist."""
+    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    return format_projected_select_clause(projected, _BQ_QUOTER)
+
+
 def _get_query(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
     bq_table: bigquery.Table,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
 ) -> str:
+    select_clause = _bq_select_clause(enabled_columns, primary_keys, incremental_field)
+
     if should_use_incremental_field:
         if incremental_field is None or incremental_field_type is None:
             raise ValueError("incremental_field and incremental_field_type can't be None")
@@ -390,12 +429,12 @@ def _get_query(
 
         operator = incremental_type_to_operator(incremental_field_type)
         return f"""
-            SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
+            SELECT {select_clause} FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`
             WHERE `{incremental_field}` {operator} {last_value}
             ORDER BY `{incremental_field}` ASC
             """
 
-    return f"SELECT * FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`"
+    return f"SELECT {select_clause} FROM `{bq_table.dataset_id}`.`{bq_table.table_id}`"
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
@@ -659,6 +698,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         db_incremental_field_last_value = (
             inputs.db_incremental_field_last_value if should_use_incremental_field else None
         )
+        enabled_columns = inputs.enabled_columns
         logger = inputs.logger
 
         project_id = config.key_file.project_id
@@ -705,6 +745,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             ) as bq_client:
                 bq_table = bq_client.get_table(fully_qualified_table_name)
 
+                # Query path projects into the temp table; direct-storage path projects via
+                # `selected_fields` on the read session.
+                projected_columns = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                storage_selected_fields: list[str] | None = None
+
                 if should_use_incremental_field:
                     # This is only done because incremental syncs require progress tracking.
                     # This requirement means we need to enforce an order, as otherwise
@@ -720,6 +765,8 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         bq_table,
                         incremental_field,
                         incremental_field_type,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
@@ -741,6 +788,8 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         bq_table,
                         incremental_field,
                         incremental_field_type,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
@@ -750,16 +799,21 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
                     bq_table = bq_client.get_table(destination_table)
 
+                else:
+                    if projected_columns is not None:
+                        storage_selected_fields = projected_columns
+
                 requested_session = bigquery_storage.ReadSession(
                     table=bq_table.to_bqstorage(),
                     data_format=bigquery_storage.DataFormat.ARROW,
                     read_options=bigquery_storage.ReadSession.TableReadOptions(
+                        selected_fields=storage_selected_fields or [],
                         arrow_serialization_options=bigquery_storage.ArrowSerializationOptions(
                             # LZ4 offers a good trade-off of low resource usage for compression, so
                             # as an initial value without further testing it should do fine. That being said,
                             # TODO: Evaluate if ZSTD is a better alternative for our use case.
                             buffer_compression=bigquery_storage.ArrowSerializationOptions.CompressionCodec.LZ4_FRAME
-                        )
+                        ),
                     ),
                 )
                 with bigquery_storage_read_client(
