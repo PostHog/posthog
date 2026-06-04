@@ -27,11 +27,19 @@ let META_CURRENCIES := [
 /* ---------- 1. Work out the value / currency with fallback ---------- */
 let txCurrency := upper(inputs.customData.currency ?? 'USD')
 let txPrice    := inputs.customData.price
-let usdBackup  := inputs.customData.price_usd ?? txPrice
 
 if (not has(META_CURRENCIES, txCurrency)) {
     txCurrency := 'USD'
-    txPrice := usdBackup
+
+    // Fall back to the pre-converted USD value
+    txPrice := inputs.customData.price_usd
+}
+
+let customData := {}
+
+if(not empty(txCurrency) and not empty(txPrice)) {
+    customData['currency'] := txCurrency
+    customData['price'] := txPrice
 }
 
 let body := {
@@ -42,10 +50,7 @@ let body := {
             'event_time': inputs.eventTime,
             'action_source': inputs.actionSource,
             'user_data': {},
-            'custom_data': {
-                'currency': txCurrency,
-                'price': txPrice
-            }
+            'custom_data': customData
         }
     ],
     'access_token': inputs.accessToken

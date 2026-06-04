@@ -114,7 +114,8 @@ let txValue := inputs.customData.value
 
 if (not has(SNAPCHAT_CURRENCIES, txCurrency)) {
     txCurrency := 'USD'
-    // Add an input variable that maps to inputs.customData for this conversion value
+
+    // Fall back to the pre-converted USD value
     txValue := inputs.customData.value_usd
 }
 

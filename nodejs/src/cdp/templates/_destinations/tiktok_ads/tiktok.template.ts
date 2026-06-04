@@ -92,7 +92,8 @@ let txValue := inputs.propertyProperties.value
 
 if (not has(TIKTOK_CURRENCIES, txCurrency)) {
     txCurrency := 'USD'
-    // Add an input variable that maps to inputs.propertyProperties for this conversion value
+    
+    // Fall back to the pre-converted USD value
     txValue := inputs.propertyProperties.value_usd
 }
 

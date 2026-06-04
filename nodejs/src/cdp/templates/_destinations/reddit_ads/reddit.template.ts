@@ -72,7 +72,7 @@ let txValue := inputs.eventProperties.value
 if (not has(REDDIT_CURRENCIES, txCurrency)) {
     txCurrency := 'USD'
     
-    // Add an input variable that maps to inputs.eventProperties for this conversion value
+    // Fall back to the pre-converted USD value
     txValue := inputs.eventProperties.value_usd
 }
 

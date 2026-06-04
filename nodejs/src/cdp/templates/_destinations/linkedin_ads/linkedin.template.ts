@@ -20,10 +20,10 @@ let LINKEDIN_AD_ACCOUNT_CURRENCIES := [
 let txCurrency := upper(inputs.currencyCode ?? 'USD')
 let txAmount := inputs.conversionValue
 
-if (not empty(inputs.currencyCode) and not has(LINKEDIN_AD_ACCOUNT_CURRENCIES, txCurrency)) {
+if (not has(LINKEDIN_AD_ACCOUNT_CURRENCIES, txCurrency)) {
     txCurrency := 'USD'
 
-    // Add an input variable that maps to event.properties for this conversion value
+    // Fall back to the pre-converted USD value
     txAmount := inputs.event.value_usd
 }
 

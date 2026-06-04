@@ -103,7 +103,7 @@ let txConversionValue := inputs.conversionValue
 if (not has(GOOGLE_ADS_CURRENCIES, txCurrency)) {
     txCurrency := 'USD'
 
-    // Add an input variable that maps to event.properties for this conversion value
+    // Fall back to the pre-converted USD value
     txConversionValue := inputs.event.value_usd
 }
 
