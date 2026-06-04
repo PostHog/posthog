@@ -99,6 +99,109 @@ def _convert_tables(text: str) -> str:
     return "\n".join(result)
 
 
+# Slack renders text above ~4000 characters as a "Show more" affordance and silently truncates;
+# splitting at 3500 leaves comfortable headroom for the mention prefix and code-fence overhead.
+SLACK_MESSAGE_TEXT_LIMIT = 3500
+
+_FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+
+
+def _split_text_for_slack(text: str, limit: int = SLACK_MESSAGE_TEXT_LIMIT) -> list[str]:
+    """Split text into Slack-sized chunks, preferring paragraph and line boundaries.
+
+    Fenced code blocks that cross a chunk boundary are closed at the end of one
+    chunk and reopened (with the same language hint) at the start of the next so
+    each posted chunk renders as valid mrkdwn on its own.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    segments: list[tuple[str, str, str]] = []
+    pos = 0
+    for match in _FENCED_CODE_RE.finditer(text):
+        if match.start() > pos:
+            segments.append(("text", "", text[pos : match.start()]))
+        segments.append(("code", match.group(1), match.group(2)))
+        pos = match.end()
+    if pos < len(text):
+        segments.append(("text", "", text[pos:]))
+
+    chunks: list[str] = []
+    current = ""
+
+    def flush() -> None:
+        nonlocal current
+        stripped = current.rstrip()
+        if stripped:
+            chunks.append(stripped)
+        current = ""
+
+    def append_atom(atom: str, separator: str = "") -> None:
+        """Append ``atom`` to the current chunk, flushing first if it would overflow."""
+        nonlocal current
+        candidate = current + (separator if current else "") + atom
+        if len(candidate) <= limit:
+            current = candidate
+            return
+        flush()
+        current = atom
+
+    def split_long_line(line: str) -> None:
+        """Hard-split a single line that is itself longer than the limit."""
+        nonlocal current
+        remaining = line
+        while len(remaining) > limit:
+            flush()
+            chunks.append(remaining[:limit])
+            remaining = remaining[limit:]
+        if remaining:
+            append_atom(remaining, separator="\n")
+
+    for kind, lang, body in segments:
+        if kind == "text":
+            for paragraph_index, paragraph in enumerate(body.split("\n\n")):
+                separator = "\n\n" if paragraph_index > 0 or current else ""
+                if len(current) + len(separator) + len(paragraph) <= limit:
+                    current = current + separator + paragraph
+                    continue
+                if len(paragraph) <= limit:
+                    append_atom(paragraph, separator="\n\n")
+                    continue
+                # Paragraph alone overflows — fall back to per-line packing.
+                for line_index, line in enumerate(paragraph.split("\n")):
+                    sep = "\n" if line_index > 0 or current else ""
+                    if len(current) + len(sep) + len(line) <= limit:
+                        current = current + sep + line
+                    elif len(line) <= limit:
+                        append_atom(line, separator="\n")
+                    else:
+                        split_long_line(line)
+            continue
+
+        fence_open = f"```{lang}\n" if lang else "```\n"
+        fence_close = "\n```"
+        full_block = f"{fence_open}{body}{fence_close}"
+        if len(full_block) <= limit:
+            append_atom(full_block, separator="\n\n")
+            continue
+        # Block itself overflows — emit it across multiple fenced chunks, line-aligned.
+        flush()
+        overhead = len(fence_open) + len(fence_close)
+        room = max(1, limit - overhead)
+        cursor = 0
+        while cursor < len(body):
+            end = min(cursor + room, len(body))
+            if end < len(body):
+                newline = body.rfind("\n", cursor, end)
+                if newline > cursor:
+                    end = newline
+            chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
+            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
+
+    flush()
+    return chunks
+
+
 @dataclass
 class RelaySlackMessageInput:
     run_id: str
@@ -138,10 +241,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         return
 
     text = _markdown_to_slack_mrkdwn(text)
-
-    SLACK_MESSAGE_TEXT_LIMIT = 3900
-    if len(text) > SLACK_MESSAGE_TEXT_LIMIT:
-        text = f"{text[: SLACK_MESSAGE_TEXT_LIMIT - 3]}..."
+    chunks = _split_text_for_slack(text)
 
     context = SlackThreadContext(
         integration_id=mapping.integration_id,
@@ -155,7 +255,9 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     mention_prefix = f"<@{mapping.mentioning_slack_user_id}> " if mapping.mentioning_slack_user_id else ""
     if input.delete_progress:
         handler.delete_progress()
-    handler.post_thread_message(f"{mention_prefix}{text}")
+    for index, chunk in enumerate(chunks):
+        prefix = mention_prefix if index == 0 else ""
+        handler.post_thread_message(f"{prefix}{chunk}")
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 
