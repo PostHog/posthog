@@ -131,6 +131,65 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
+    @freeze_time("2021-06-18 12:00:00")
+    def test_hide_incomplete_conversion_window_periods(self):
+        # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
+        # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
+        # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
+        journeys_for(
+            {
+                "user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7)},
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 13)},
+                ],
+                "recent_entrant": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 15)},
+                ],
+            },
+            self.team,
+        )
+
+        def run_trends(hide_incomplete_periods: bool) -> list[dict]:
+            query = FunnelsQuery(
+                dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-18 23:59:59"),
+                interval="day",
+                series=[EventsNode(event="step one"), EventsNode(event="step two")],
+                funnelsFilter=FunnelsFilter(
+                    funnelVizType="trends",
+                    funnelWindowInterval=7,
+                    funnelWindowIntervalUnit="day",
+                    hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
+                ),
+            )
+            return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+        # Flag off: every daily period in range is present, including the recent incomplete ones.
+        periods_with_incomplete = run_trends(hide_incomplete_periods=False)
+        with_incomplete_by_day = {row["timestamp"].date(): row for row in periods_with_incomplete}
+        self.assertEqual(len(periods_with_incomplete), 12)  # 2021-06-07 .. 2021-06-18 inclusive
+        # both of user_a's entrances converted
+        self.assertEqual(with_incomplete_by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        self.assertEqual(with_incomplete_by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
+        # recent entrant shows as a non-converter, dragging the recent trend down
+        self.assertEqual(with_incomplete_by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
+        self.assertEqual(with_incomplete_by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
+
+        # Flag on: now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only
+        # once its whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e.
+        # entrances on or before 2021-06-10.
+        periods_without_incomplete = run_trends(hide_incomplete_periods=True)
+        without_incomplete_by_day = {row["timestamp"].date(): row for row in periods_without_incomplete}
+        self.assertEqual(
+            [row["timestamp"].date() for row in periods_without_incomplete],
+            [date(2021, 6, day) for day in range(7, 11)],
+        )
+        # the old entrance that converted is retained, even though its conversion event is recent
+        self.assertEqual(without_incomplete_by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
+        self.assertNotIn(date(2021, 6, 12), without_incomplete_by_day)
+        self.assertNotIn(date(2021, 6, 15), without_incomplete_by_day)
+
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_only_one_user_reached_one_step(self, timezone):
         self.team.timezone = timezone
