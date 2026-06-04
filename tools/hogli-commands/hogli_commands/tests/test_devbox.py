@@ -3519,7 +3519,10 @@ class TestKeepaliveShim:
         devbox_mutagen.ensure_ssh_shim()
         ssh, scp = shim_dir / "ssh", shim_dir / "scp"
         assert ssh.exists() and scp.exists()
-        assert ssh.stat().st_mode & 0o111  # executable
+        # Owner-only: the daemon execs these, so no group/other access (0o700).
+        assert ssh.stat().st_mode & 0o777 == 0o700
+        assert scp.stat().st_mode & 0o777 == 0o700
+        assert shim_dir.stat().st_mode & 0o077 == 0  # dir not group/other accessible
         assert f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}" in ssh.read_text()
         assert 'exec "/usr/bin/scp"' in scp.read_text()
 

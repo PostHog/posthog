@@ -243,12 +243,16 @@ def ensure_ssh_shim() -> Path:
     isn't ``-oServerAliveCountMax=``.
     """
     _SSH_SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    # The daemon execs these scripts, so keep the dir and scripts owner-only: no
+    # other local account can tamper with what runs as us, and they need no wider
+    # access. chmod runs every time so an older world-readable install self-heals.
+    _SSH_SHIM_DIR.chmod(0o700)
     for name in ("ssh", "scp"):
         target = _SSH_SHIM_DIR / name
         content = _SHIM_TEMPLATE.format(count=_KEEPALIVE_COUNT, real=_resolve_real_ssh(name))
         if not target.exists() or target.read_text() != content:
             target.write_text(content)
-            target.chmod(0o755)
+        target.chmod(0o700)
     return _SSH_SHIM_DIR
 
 
