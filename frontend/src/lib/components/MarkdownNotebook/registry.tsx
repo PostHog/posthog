@@ -3,7 +3,6 @@ import { useState } from 'react'
 import {
     IconCode,
     IconDatabase,
-    IconEye,
     IconFlag,
     IconFlask,
     IconGraph,
@@ -241,18 +240,9 @@ function makeDefinition(
 
 function QueryView({ node }: NotebookComponentRenderProps): JSX.Element {
     const query = node.props.query
-    const queryKind =
-        query && typeof query === 'object' && !Array.isArray(query) && typeof query.kind === 'string'
-            ? query.kind
-            : 'Invalid query'
 
     return (
         <div className="MarkdownNotebook__component-preview">
-            <div className="MarkdownNotebook__component-preview-header">
-                <IconGraph />
-                <span>Query</span>
-                <span className="MarkdownNotebook__component-badge">{queryKind}</span>
-            </div>
             <pre>{JSON.stringify(query, null, 2)}</pre>
         </div>
     )
@@ -287,14 +277,9 @@ function LatexView({ node }: NotebookComponentRenderProps): JSX.Element {
 
 function CodeView({ node }: NotebookComponentRenderProps): JSX.Element {
     const code = typeof node.props.code === 'string' ? node.props.code : ''
-    const title = typeof node.props.title === 'string' ? node.props.title : splitTagName(node.tagName)
 
     return (
         <div className="MarkdownNotebook__code-component">
-            <div className="MarkdownNotebook__component-preview-header">
-                <IconCode />
-                <span>{title}</span>
-            </div>
             <pre>{code || 'No code yet'}</pre>
         </div>
     )
@@ -303,10 +288,6 @@ function CodeView({ node }: NotebookComponentRenderProps): JSX.Element {
 function SummaryView({ node }: NotebookComponentRenderProps): JSX.Element {
     return (
         <div className="MarkdownNotebook__component-preview">
-            <div className="MarkdownNotebook__component-preview-header">
-                <IconEye />
-                <span>{splitTagName(node.tagName)}</span>
-            </div>
             <pre>{JSON.stringify(node.props, null, 2)}</pre>
         </div>
     )

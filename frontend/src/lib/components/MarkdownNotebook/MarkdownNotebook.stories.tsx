@@ -44,7 +44,7 @@ const componentCatalogNotebook = `# Component catalog
 
 const embedsNotebook = `# Embeds
 
-<Image src="https://res.cloudinary.com/dmukukwp6/image/upload/posthog.com/contents/images/blog/posthog-engineering.png" alt="PostHog engineering" />
+<Image src="https://res.cloudinary.com/dmukukwp6/image/upload/data_warehouse_2c3928e9ad" alt="PostHog engineering" />
 
 <Embed src="https://posthog.com" title="PostHog" />
 
@@ -64,6 +64,9 @@ const meta: Meta<StoryArgs> = {
     title: 'Components/Markdown notebook',
     component: MarkdownNotebook,
     tags: ['autodocs'],
+    args: {
+        showDebug: true,
+    },
     render: (props) => <ControlledNotebook {...props} />,
 }
 
