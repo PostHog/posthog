@@ -8,6 +8,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
@@ -30,6 +32,14 @@ POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 
+# Stalled-turn handling (see the debugging-signals-pipeline skill). agent_message_chunk events
+# are NOT persisted to the S3 log, so a parsed agent_message is always a *complete* message —
+# which lets us safely accept an idle-but-finished turn and distinguish it from a hung one.
+# Once a turn has a complete agent_message but no end_turn and has been idle this long, accept it.
+POLL_IDLE_GRACE_SECONDS = settings.TASKS_POLL_IDLE_GRACE_SECONDS
+# Once a turn has produced no agent_message and emitted nothing for this long, abort it as hung.
+POLL_INACTIVITY_ABORT_SECONDS = settings.TASKS_POLL_INACTIVITY_ABORT_SECONDS
+
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
 # errors) via classifyAgentError() and writes the category + raw message here, so
@@ -47,7 +57,6 @@ class AgentError:
 
     def describe(self) -> str:
         return f"{self.category}: {self.message}" if self.category else self.message
-
 
 @dataclass(frozen=True)
 class CustomPromptSandboxContext:
@@ -71,6 +80,18 @@ class EmptyAgentTurnError(RuntimeError):
         super().__init__(message)
         self.total_lines = total_lines
         self.printed_lines = printed_lines
+
+
+class AgentTurnStalledError(RuntimeError):
+    """Raised when an agent turn never completes: it produced no agent_message and went idle,
+    or it hit the absolute poll ceiling. Subclasses RuntimeError so existing callers that catch
+    RuntimeError/Exception keep working; callers may catch this specifically to retry the turn."""
+
+    def __init__(self, message: str, *, elapsed: int, stale_seconds: int, total_lines: int):
+        super().__init__(message)
+        self.elapsed = elapsed
+        self.stale_seconds = stale_seconds
+        self.total_lines = total_lines
 
 
 async def create_task_and_trigger(
@@ -199,6 +220,28 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
+        # A turn that finished its answer (a complete agent_message) but never emitted end_turn
+        # would otherwise block until MAX_POLL_SECONDS. Once it has been idle for the grace window,
+        # accept the settled answer as the turn result — recovers "end_turn-gap" stalls.
+        if latest_assistant_text is not None and stale_seconds >= POLL_IDLE_GRACE_SECONDS:
+            logger.warning(
+                "custom_prompt - poll_for_turn: turn idle %ds with a complete agent_message but no "
+                "end_turn; accepting it as complete, run=%s total_lines=%d",
+                stale_seconds,
+                task_run.id,
+                total_lines,
+            )
+            return latest_assistant_text, full_log, total_lines, printed_lines
+        # A turn that produced no agent_message and has emitted nothing for the inactivity window is
+        # a hung turn — fail fast (and diagnosably) instead of blocking the full MAX_POLL_SECONDS.
+        if latest_assistant_text is None and stale_seconds >= POLL_INACTIVITY_ABORT_SECONDS:
+            raise AgentTurnStalledError(
+                f"custom_prompt - poll_for_turn: no agent activity for {stale_seconds}s "
+                f"(elapsed={elapsed}s) with no agent_message — aborting stalled turn for run={task_run.id}",
+                elapsed=elapsed,
+                stale_seconds=stale_seconds,
+                total_lines=total_lines,
+            )
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return
         # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
         skip_lines = max(skip_lines, total_lines)
@@ -227,7 +270,12 @@ async def poll_for_turn(
                 verbose=verbose,
                 output_fn=output_fn,
             )
-    raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+    raise AgentTurnStalledError(
+        f"custom_prompt - poll_for_turn: timed out after {elapsed}s",
+        elapsed=elapsed,
+        stale_seconds=elapsed - last_new_lines_at,
+        total_lines=skip_lines,
+    )
 
 
 async def _drain_final_log(

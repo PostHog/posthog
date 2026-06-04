@@ -63,6 +63,15 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
+# poll_for_turn (custom-prompt agent log poller) stall handling. These guard the
+# orchestrator-side wait, distinct from the sandbox-side TASKS_INACTIVITY_TIMEOUT_SECONDS above.
+# If a turn produced a complete agent_message but no end_turn, accept it once it has been idle
+# this long (recovers "end_turn-gap" stalls without waiting out MAX_POLL_SECONDS).
+TASKS_POLL_IDLE_GRACE_SECONDS: int = get_from_env("TASKS_POLL_IDLE_GRACE_SECONDS", 90, type_cast=int)
+# If a turn produced no agent_message and has emitted nothing for this long, abort it as a hung
+# turn (fail fast + diagnosably) instead of blocking the full MAX_POLL_SECONDS.
+TASKS_POLL_INACTIVITY_ABORT_SECONDS: int = get_from_env("TASKS_POLL_INACTIVITY_ABORT_SECONDS", 180, type_cast=int)
+
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
 # quickly instead of waiting out the GitHub token's lifetime.

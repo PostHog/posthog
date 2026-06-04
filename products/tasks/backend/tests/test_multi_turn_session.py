@@ -14,6 +14,7 @@ from posthog.models.user import User
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
     AgentError,
+    AgentTurnStalledError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     _extract_agent_error,
@@ -707,3 +708,80 @@ class TestCreateTaskAndTriggerForwardsContext:
         kwargs = mock_create.call_args.kwargs
         assert kwargs["sandbox_environment_id"] == expected_env
         assert kwargs["posthog_mcp_scopes"] == expected_scopes
+
+
+class TestPollForTurnStallHandling:
+    """Stalled turns must surface in the inactivity window, not block the full MAX_POLL_SECONDS.
+
+    A turn that produced a complete agent_message but never emitted end_turn is recovered (the
+    answer is settled). A turn that produced no agent_message and went idle is aborted fast with a
+    typed AgentTurnStalledError. A slow-but-progressing turn is never killed.
+    """
+
+    @staticmethod
+    def _patches(read_side, *, interval=10, grace=5, abort=1000, max_poll=30 * 60):
+        mod = "products.tasks.backend.services.custom_prompt_internals"
+        fake = FakeTaskRun()
+        read_kw = {"side_effect": read_side} if callable(read_side) else {"return_value": read_side}
+        return fake, (
+            patch("posthog.storage.object_storage.read", **read_kw),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch(f"{mod}.POLL_INTERVAL_SECONDS", interval),
+            patch(f"{mod}.POLL_IDLE_GRACE_SECONDS", grace),
+            patch(f"{mod}.POLL_INACTIVITY_ABORT_SECONDS", abort),
+            patch(f"{mod}.MAX_POLL_SECONDS", max_poll),
+            patch("products.tasks.backend.models.TaskRun.objects.get", lambda **_: fake),
+        )
+
+    @pytest.mark.asyncio
+    async def test_recovers_complete_answer_when_idle_without_end_turn(self):
+        # Turn produced a complete agent_message but no end_turn, then went idle (log never changes).
+        log = "\n".join([_user_message_line("prompt"), _agent_message_line("the-final-answer")])
+        fake, patches = self._patches(log, grace=5, abort=1000)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+        assert last_message == "the-final-answer"
+        assert total_lines == 2
+
+    @pytest.mark.asyncio
+    async def test_aborts_when_no_answer_and_inactive(self):
+        # Turn emitted activity (user_message + usage_update) but never an agent_message, then froze.
+        log = "\n".join([_user_message_line("prompt"), _usage_update_line(0)])
+        fake, patches = self._patches(log, grace=1000, abort=15)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            with pytest.raises(AgentTurnStalledError) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+        assert exc_info.value.stale_seconds >= 15
+        assert exc_info.value.elapsed >= 15
+
+    @pytest.mark.asyncio
+    async def test_does_not_abort_while_progressing(self):
+        # New lines arrive every poll (progress), so staleness never builds — then the turn finishes.
+        logs = [
+            "\n".join([_user_message_line("prompt"), _usage_update_line(10)]),
+            "\n".join([_user_message_line("prompt"), _usage_update_line(10), _usage_update_line(20)]),
+            "\n".join(
+                [
+                    _user_message_line("prompt"),
+                    _usage_update_line(10),
+                    _usage_update_line(20),
+                    _agent_message_line("answer-after-work"),
+                    _end_turn_line(),
+                ]
+            ),
+        ]
+        poll_iter = iter(logs)
+        fake, patches = self._patches(lambda *_a, **_k: next(poll_iter), grace=5, abort=15)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+        assert last_message == "answer-after-work"
+
+    @pytest.mark.asyncio
+    async def test_ceiling_raises_typed_stalled_error_with_message(self):
+        # Empty log forever, abort disabled — the absolute MAX_POLL_SECONDS ceiling still trips,
+        # and must raise the typed error carrying the legacy "timed out after Ns" message.
+        fake, patches = self._patches("", interval=10, grace=1000, abort=1000, max_poll=20)
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
+            with pytest.raises(AgentTurnStalledError) as exc_info:
+                await poll_for_turn(fake, skip_lines=0)
+        assert "timed out after 20s" in str(exc_info.value)
