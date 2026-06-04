@@ -17,6 +17,10 @@ name: Release
 permissions:
     contents: read
 
+concurrency:
+    group: ${{ inputs.tag && inputs.tag != 'dry-run' && 'release-posthog-cli-publish' || format('release-posthog-cli-{0}', github.ref) }}
+    cancel-in-progress: false
+
 # This task will run whenever you workflow_dispatch with a tag that looks like a version
 # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
 # Various formats will be parsed into a VERSION and an optional PACKAGE_NAME, where
