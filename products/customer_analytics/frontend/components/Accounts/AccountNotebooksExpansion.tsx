@@ -162,7 +162,10 @@ export function AccountNotebooksExpansion({
                 <div className="flex-1 min-w-0">
                     <LemonTabs
                         activeKey={activeTab}
-                        onChange={setActiveTab}
+                        onChange={(tab) => {
+                            setActiveTab(tab)
+                            posthog.capture(AccountsEvents.TabViewed, { tab })
+                        }}
                         size="small"
                         tabs={[
                             {

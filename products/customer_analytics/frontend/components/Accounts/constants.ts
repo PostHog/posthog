@@ -32,4 +32,6 @@ export const AccountsEvents = {
     RoleAssigned: 'customer analytics account role assigned',
     LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
+    TabViewed: 'customer analytics account tab viewed',
+    RelatedUserClicked: 'customer analytics account related user clicked',
 } as const
