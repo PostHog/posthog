@@ -3192,14 +3192,14 @@
            FROM person
            WHERE equals(person.team_id, 99999)
            GROUP BY person.id
-           HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS persons
+           HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
         INNER JOIN
           (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
                   person_distinct_id2.distinct_id AS distinct_id
            FROM person_distinct_id2
            WHERE equals(person_distinct_id2.team_id, 99999)
            GROUP BY person_distinct_id2.distinct_id
-           HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
+           HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS persons__pdi ON equals(persons.persons___id, persons__pdi.person_id)) AS revenue_analytics_customer__persons ON equals(revenue_analytics_customer.id, revenue_analytics_customer__persons.revenue_analytics_customer__persons___pdi___distinct_id)
      LEFT JOIN
        (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
                sum(revenue_analytics_revenue_item.amount) AS revenue
@@ -3265,14 +3265,14 @@
               FROM person_distinct_id2
               WHERE equals(person_distinct_id2.team_id, 99999)
               GROUP BY person_distinct_id2.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__pdi__person___id,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      revenue_analytics_customer.id AS person_id,
@@ -3324,13 +3324,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
@@ -3455,13 +3455,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
@@ -3541,7 +3541,7 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      revenue_analytics_customer.id AS person_id,
@@ -3593,13 +3593,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
@@ -3679,14 +3679,14 @@
               FROM person_distinct_id_overrides
               WHERE equals(person_distinct_id_overrides.team_id, 99999)
               GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
            INNER JOIN
              (SELECT tupleElement(argMax(tuple(person.id), person.version), 1) AS e__person___id,
                      person.id AS id
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(ifNull(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), 0), ifNull(less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+              HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      revenue_analytics_customer.id AS person_id,
@@ -3738,13 +3738,13 @@
             ranked_breakdown_values.count AS value,
             ranked_breakdown_values.breakdown_value AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(lessOrEquals(ranked_breakdown_values.breakdown_rank, 25), 0)),
+     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
        other_breakdown_values AS
     (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
             sum(ranked_breakdown_values.count) AS value,
             ['$$_posthog_breakdown_other_$$'] AS breakdown_value
      FROM ranked_breakdown_values
-     WHERE ifNull(greater(ranked_breakdown_values.breakdown_rank, 25), 0)
+     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
      GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
        top_n_and_other_breakdown_values AS
     (SELECT day_start AS day_start,
