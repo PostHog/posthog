@@ -122,7 +122,8 @@ class TestRedisStream(BaseTest):
 
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].event.type, AssistantEventType.MESSAGE)
-        self.assertEqual(cast(MessageEvent, chunks[0].event).payload.content, "test")
+        payload = cast(AssistantMessage, chunks[0].event.payload)
+        self.assertEqual(payload.content, "test")
 
     @parameterized.expand([("offload_on", True, 1), ("offload_off", False, 0)])
     @pytest.mark.asyncio
