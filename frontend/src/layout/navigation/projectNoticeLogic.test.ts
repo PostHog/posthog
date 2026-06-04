@@ -72,6 +72,7 @@ describe('projectNoticeLogic', () => {
 
     describe('self-managed reverse proxy detection', () => {
         let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
 
         beforeEach(() => {
             useMocks({
@@ -88,18 +89,20 @@ describe('projectNoticeLogic', () => {
                 },
             })
             initKeaTests()
-            getItemSpy = jest.spyOn(Storage.prototype, 'getItem')
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            // shouldFetchProxyRecords() gates on `new Date().getDate() <= 7`. Spy on getDate rather
+            // than faking all timers — fake timers would stall the async detection query and the
+            // loadRecords/HogQL responses would never resolve.
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate')
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            jest.useRealTimers()
+            getDateSpy.mockRestore()
         })
 
         it('mounts the proxy checker and runs detection inside the nudge window', async () => {
-            jest.useFakeTimers()
-            jest.setSystemTime(new Date(2026, 3, 3)) // April 3
-            getItemSpy.mockImplementation(() => null)
+            getDateSpy.mockReturnValue(3) // inside the first-7-days window
 
             const logic = projectNoticeLogic()
             logic.mount()
@@ -113,11 +116,10 @@ describe('projectNoticeLogic', () => {
         })
 
         it.each([
-            { label: 'day of month is > 7', date: new Date(2026, 3, 15), dismissed: false },
-            { label: 'notice is dismissed', date: new Date(2026, 3, 3), dismissed: true },
-        ])('does not mount the proxy checker when $label', async ({ date, dismissed }) => {
-            jest.useFakeTimers()
-            jest.setSystemTime(date)
+            { label: 'day of month is > 7', dayOfMonth: 15, dismissed: false },
+            { label: 'notice is dismissed', dayOfMonth: 3, dismissed: true },
+        ])('does not mount the proxy checker when $label', async ({ dayOfMonth, dismissed }) => {
+            getDateSpy.mockReturnValue(dayOfMonth)
             getItemSpy.mockImplementation((key: string) => (dismissed && key === DISMISS_KEY ? 'true' : null))
 
             const logic = projectNoticeLogic()
@@ -131,11 +133,14 @@ describe('projectNoticeLogic', () => {
 
     describe('reverse proxy banner suppression', () => {
         let getItemSpy: jest.SpyInstance
+        let getDateSpy: jest.SpyInstance
+        // Mutable detection result the mocked HogQL endpoint reads per request, so each test can
+        // drive the DIY-proxy-detected vs no-proxy path. A non-null first column means events carry
+        // $lib_custom_api_host, i.e. a self-managed proxy is routing data.
+        let hogqlResults: (string | null)[][]
 
-        // Configurable HogQL detection result so we can drive both the DIY-proxy-detected and
-        // no-proxy paths through the projectNoticeVariant selector. A non-null first column means
-        // events carry $lib_custom_api_host, i.e. a self-managed proxy is routing data.
-        const setupMocks = (hogqlResults: (string | null)[][]): void => {
+        beforeEach(() => {
+            hogqlResults = [[null], [null]]
             useMocks({
                 get: {
                     '/api/organizations/@current/proxy_records': [200, { results: [] }],
@@ -144,24 +149,22 @@ describe('projectNoticeLogic', () => {
                     '/api/environments/:team_id/query/:kind': () => [200, { results: hogqlResults }],
                 },
             })
-        }
-
-        beforeEach(() => {
             initKeaTests()
             // isCloudOrDev gates the nudge — self-hosted users manage their own infrastructure.
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
-            jest.useFakeTimers()
-            jest.setSystemTime(new Date(2026, 3, 3)) // April 3 — inside the nudge window
+            // Inside the first-7-days nudge window. Spy on getDate (not fake timers) so the async
+            // proxy_records + HogQL detection responses still resolve.
+            getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
         })
 
         afterEach(() => {
             getItemSpy.mockRestore()
-            jest.useRealTimers()
+            getDateSpy.mockRestore()
         })
 
         it('suppresses the nudge when a self-managed proxy is detected', async () => {
-            setupMocks([['https://proxy.example.com'], [null]])
+            hogqlResults = [['https://proxy.example.com'], [null]]
 
             const logic = projectNoticeLogic()
             logic.mount()
@@ -176,7 +179,7 @@ describe('projectNoticeLogic', () => {
         })
 
         it('shows the nudge when no proxy exists and there are no managed records', async () => {
-            setupMocks([[null], [null]])
+            hogqlResults = [[null], [null]]
 
             const logic = projectNoticeLogic()
             logic.mount()
