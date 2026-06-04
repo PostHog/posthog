@@ -164,7 +164,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
-                "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
+                "required": True,
+                "min_value": 1,
+                "help_text": (
+                    "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). "
+                    "Required on create; must be 1 or greater."
+                ),
             },
             "byweekday": {
                 "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
@@ -521,6 +526,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         previous_value="",
                         invite_message=invite_message,
                         trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -594,6 +600,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     previous_value=previous_value,
                     invite_message=invite_message,
                     trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    resource_type=instance.resource_type,
                 ),
                 id=workflow_id,
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -796,6 +803,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         previous_value=None,
                         invite_message=None,
                         trigger_type=SubscriptionTriggerType.MANUAL,
+                        resource_type=subscription.resource_type,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
