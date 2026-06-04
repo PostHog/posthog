@@ -18,6 +18,7 @@
 # ---
 # name: TestPropertyTypes.test_group_boolean_property_types
   '''
+  
   SELECT ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_2)s, %(hogql_val_3)s, NULL)), 1), 0), ifNull(equals(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_4)s, %(hogql_val_5)s, NULL)), 0), 0), isNull(toBool(transform(toString(events__group_0.properties___group_boolean), %(hogql_val_6)s, %(hogql_val_7)s, NULL)))
   FROM events LEFT JOIN (
   SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, %(hogql_val_1)s)), 1) AS properties___group_boolean, groups.group_type_index AS index, groups.group_key AS key
@@ -30,6 +31,7 @@
 # ---
 # name: TestPropertyTypes.test_group_property_types
   '''
+  
   SELECT accurateCastOrNull(events__group_0.properties___inty, %(hogql_val_2)s) AS inty
   FROM events LEFT JOIN (
   SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, %(hogql_val_1)s)), 1) AS properties___inty, groups.group_type_index AS index, groups.group_key AS key
@@ -42,6 +44,7 @@
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_combined
   '''
+  
   SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', ''), %(hogql_val_5)s), events__person.properties___tickets)
   FROM events LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
@@ -62,6 +65,7 @@
 # ---
 # name: TestPropertyTypes.test_resolve_property_types_event
   '''
+  
   SELECT multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_2)s), ''), 'null'), '^"|"$', ''), %(hogql_val_3)s)), toBool(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_4)s), ''), 'null'), '^"|"$', '')), %(hogql_val_5)s, %(hogql_val_6)s, NULL)) AS bool
   FROM events
   WHERE equals(events.team_id, 420)
