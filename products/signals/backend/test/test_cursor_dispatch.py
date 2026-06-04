@@ -208,15 +208,20 @@ class TestDispatchToCursorEndpoint(APIBaseTest):
         return f"/api/projects/{self.team.id}/signals/reports/cursor_connection/"
 
     def test_cursor_connection_set_and_status(self):
-        assert self.client.get(self._connection_url()).json()["connected"] is False
+        with patch(FLAG_PATH, return_value=True):
+            assert self.client.get(self._connection_url()).json()["connected"] is False
 
-        response = self.client.post(self._connection_url(), {"api_key": "crsr_team_key"}, format="json")
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["connected"] is True
+            response = self.client.post(self._connection_url(), {"api_key": "crsr_team_key"}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["connected"] is True
 
-        integration = Integration.objects.get(team=self.team, kind="cursor")
-        assert integration.sensitive_config.get("api_key") == "crsr_team_key"
-        assert self.client.get(self._connection_url()).json()["connected"] is True
+            integration = Integration.objects.get(team=self.team, kind="cursor")
+            assert integration.sensitive_config.get("api_key") == "crsr_team_key"
+            assert self.client.get(self._connection_url()).json()["connected"] is True
+
+    def test_cursor_connection_flag_off_returns_404(self):
+        with patch(FLAG_PATH, return_value=False):
+            assert self.client.get(self._connection_url()).status_code == status.HTTP_404_NOT_FOUND
 
     def test_resolve_prefers_team_integration_over_setting(self):
         Integration.objects.create(team=self.team, kind="cursor", sensitive_config={"api_key": "team-key"})

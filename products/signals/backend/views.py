@@ -965,6 +965,14 @@ class SignalReportViewSet(
     @action(detail=False, methods=["get", "post"], url_path="cursor_connection", required_scopes=["task:write"])
     def cursor_connection(self, request, **kwargs):
         """Get or set this team's Cursor connection (the key a settings UI configures, stored per team)."""
+        if not posthoganalytics.feature_enabled(
+            SIGNALS_CURSOR_DISPATCH_FLAG,
+            str(request.user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
         if request.method == "POST":
             serializer = CursorConnectionRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
