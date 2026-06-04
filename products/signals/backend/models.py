@@ -164,10 +164,6 @@ class SignalReport(UUIDModel):
     # How many times the summary workflow has run for this report (incremented on each CANDIDATE -> IN_PROGRESS).
     run_count = models.IntegerField(default=0)
 
-    # Denormalized signal provenance (sorted, deduped), refreshed each summary run. Lets the inbox
-    # source filter + scout visibility gate read from Postgres instead of round-tripping to ClickHouse.
-    source_products = ArrayField(base_field=models.CharField(max_length=100), default=list, blank=True)
-
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)

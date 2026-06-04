@@ -7,14 +7,7 @@ import structlog
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.access import user_can_see_signals_scout_reports
-from products.signals.backend.models import (
-    SignalReport,
-    SignalReportTask,
-    SignalSourceConfig,
-    SignalTeamConfig,
-    SignalUserAutonomyConfig,
-)
+from products.signals.backend.models import SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -169,20 +162,6 @@ async def maybe_autostart_implementation_task(
     )
     if task_user is None:
         return
-
-    # Hold scout-only reports back from auto-starting work (draft PR) until the assignee is in the
-    # inbox rollout, mirroring the inbox/Slack visibility gate.
-    source_products = (
-        await SignalReport.objects.filter(team_id=team_id, id=report_id)
-        .values_list("source_products", flat=True)
-        .afirst()
-    )
-    if source_products == [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]:
-        can_see = await database_sync_to_async(user_can_see_signals_scout_reports, thread_sensitive=False)(
-            task_user, team
-        )
-        if not can_see:
-            return
 
     task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
         team=team,

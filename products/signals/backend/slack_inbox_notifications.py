@@ -31,7 +31,6 @@ from slack_sdk.errors import SlackApiError
 from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 
-from products.signals.backend.access import user_can_see_signals_scout_reports
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
@@ -390,9 +389,6 @@ def dispatch_inbox_item_notifications(
         return 0
 
     sources = source_products or []
-    # Scout-only reports are held back from Slack for users outside the inbox rollout, mirroring
-    # the inbox visibility gate so a hidden report isn't delivered out-of-band.
-    scout_only = report.source_products == [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]
     implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
     users_by_id = {user.id: user for user in User.objects.filter(id__in=[config.user_id for config in targets])}
 
@@ -408,8 +404,6 @@ def dispatch_inbox_item_notifications(
                 "signals_inbox_slack_notification_missing_user",
                 extra={"report_id": report_id, "team_id": team_id, "user_id": config.user_id},
             )
-            continue
-        if scout_only and not user_can_see_signals_scout_reports(users_by_id[config.user_id], report.team):
             continue
         integration = config.slack_notification_integration
         channel = config.slack_notification_channel

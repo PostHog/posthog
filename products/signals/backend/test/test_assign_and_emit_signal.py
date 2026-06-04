@@ -121,33 +121,6 @@ async def test_new_match_creates_potential_report_below_threshold(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_new_match_records_source_product_on_creation(ateam):
-    """A new report records the contributing signal's source product."""
-    input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
-
-    result = await assign_and_emit_signal_activity(input_)
-
-    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
-    assert report.source_products == ["conversations"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_existing_match_unions_new_source_product(ateam):
-    """A signal from a different source accreting onto an existing report unions its source product."""
-    seed = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD * 0.5)
-    seed_result = await assign_and_emit_signal_activity(seed)
-
-    follow_up = _build_input(ateam.id, _existing_match(seed_result.report_id), weight=WEIGHT_THRESHOLD * 0.5)
-    follow_up.source_product = "error_tracking"
-    await assign_and_emit_signal_activity(follow_up)
-
-    report = await database_sync_to_async(SignalReport.objects.get)(id=seed_result.report_id)
-    assert report.source_products == ["conversations", "error_tracking"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
 async def test_new_match_creates_and_immediately_promotes_when_above_threshold(ateam):
     """A first signal at/above threshold creates a POTENTIAL report and promotes it in one shot."""
     input_ = _build_input(ateam.id, _new_match(), weight=WEIGHT_THRESHOLD)

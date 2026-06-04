@@ -390,10 +390,6 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
-            # Authoritative provenance refresh: this is the full source set as of this run.
-            if report.source_products != input.source_products:
-                report.source_products = input.source_products
-                updated_fields.append("source_products")
             report.save(update_fields=updated_fields)
             return report.run_count, False
 
