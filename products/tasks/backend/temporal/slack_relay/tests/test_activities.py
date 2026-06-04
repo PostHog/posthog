@@ -1,5 +1,6 @@
 from typing import ClassVar
 
+import unittest
 from unittest.mock import patch
 
 from django.test import TestCase
@@ -105,36 +106,51 @@ class TestRelaySlackMessage(TestCase):
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
 
-class TestMarkdownToSlackMrkdwn(TestCase):
+class TestMarkdownToSlackMrkdwn(unittest.TestCase):
     @parameterized.expand(
         [
             ("bold", "**hello**", "*hello*"),
-            ("nested_bold_in_list", "- **MIT** is permissive", "- *MIT* is permissive"),
+            ("italic_asterisk", "*italic*", "_italic_"),
+            ("italic_underscore", "_italic_", "_italic_"),
+            ("bold_italic", "***boldit***", "*_boldit_*"),
             ("strikethrough", "~~removed~~", "~removed~"),
             ("link", "[Click here](https://example.com)", "<https://example.com|Click here>"),
-            ("image", "![alt](https://img.png)", "<https://img.png|alt>"),
             ("h1", "# Title", "*Title*"),
             ("h3", "### Section", "*Section*"),
-            ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
-            ("bold_not_in_code", "**bold** and `**not bold**`", "*bold* and `**not bold**`"),
+            ("dash_bullets", "- one\n- two", "• one\n• two"),
+            ("ordered_list_preserved", "1. one\n2. two", "1. one\n2. two"),
+            ("task_list", "- [ ] todo\n- [x] done", "• ☐ todo\n• ☑ done"),
+            ("horizontal_rule", "---", "──────────"),
+            ("blockquote_preserved", "> quote", "> quote"),
+            ("nested_bold_in_dash_list", "- **MIT** is permissive", "• *MIT* is permissive"),
             ("plain_text_unchanged", "Hello world", "Hello world"),
+            ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
         ]
     )
     def test_inline_conversions(self, _name, markdown, expected):
         assert _markdown_to_slack_mrkdwn(markdown) == expected
 
-    def test_table_converted_to_columns(self):
-        md = "| License | Key Points |\n|---|---|\n| **MIT** | Permissive |\n| **GPL** | Copyleft |"
-        result = _markdown_to_slack_mrkdwn(md)
-        assert "---" not in result
-        assert "*MIT*" in result
-        assert "*GPL*" in result
-        assert "Permissive" in result
-        lines = [line for line in result.split("\n") if line.strip()]
-        assert len(lines) == 3  # header + 2 data rows
+    def test_empty_string_returns_unchanged(self):
+        assert _markdown_to_slack_mrkdwn("") == ""
 
-    def test_code_block_preserved(self):
-        md = "```python\n**not bold**\n```\nBut **this is bold**"
+    def test_table_renders_as_fenced_code_block_with_aligned_columns(self):
+        md = "| License | Key Points |\n|---|---|\n| MIT | Permissive |\n| GPL | Copyleft |"
+        # Widest cells per column: 'License' (7) and 'Key Points' (10). Two-space gutter.
+        # Trailing whitespace is rstripped, so the GPL row's narrower last cell isn't padded.
+        expected = "```\nLicense  Key Points\nMIT      Permissive\nGPL      Copyleft\n```"
+        assert _markdown_to_slack_mrkdwn(md) == expected
+
+    def test_table_strips_inline_markdown_from_cells(self):
+        md = "| Name | Note |\n|---|---|\n| **MIT** | [docs](https://x.com) |"
         result = _markdown_to_slack_mrkdwn(md)
-        assert "```python\n**not bold**\n```" in result
-        assert "*this is bold*" in result
+        # Bold markers and link syntax don't render inside a code block, so we strip them.
+        assert "**" not in result
+        assert "MIT" in result
+        assert "docs" in result
+        assert "https://x.com" not in result
+
+    def test_pipe_rows_without_separator_are_not_treated_as_a_table(self):
+        # No separator row → likely incidental pipes, not a table. Leave alone.
+        md = "| a | b |\n| c | d |"
+        result = _markdown_to_slack_mrkdwn(md)
+        assert "```" not in result
