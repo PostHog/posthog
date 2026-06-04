@@ -1,7 +1,7 @@
 import React from 'react'
 
 import { useRadialLayout } from '../../core/radial-context'
-import { AXIS_LABEL_FONT, measureLabelWidth } from '../../utils/text-measure'
+import { FONT_FAMILY, measureLabelWidth } from '../../utils/text-measure'
 
 export interface SliceLabelsProps {
     valueFormatter?: (value: number) => string
@@ -17,8 +17,7 @@ export interface SliceLabelsProps {
 
 const LABEL_FONT_SIZE = 14
 const LABEL_LINE_HEIGHT = 1.2
-// Same family as the axis labels, restyled to the on-slice weight/size for accurate measuring.
-const LABEL_FONT = AXIS_LABEL_FONT.replace(/^\d+px/, `600 ${LABEL_FONT_SIZE}px`)
+const LABEL_FONT = `600 ${LABEL_FONT_SIZE}px ${FONT_FAMILY}`
 // Breathing room added around each label box so near-touching labels still count as colliding.
 const LABEL_PADDING_X = 4
 const LABEL_PADDING_Y = 2
@@ -44,7 +43,7 @@ function formatPercent(fraction: number): string {
     return `${Math.round(fraction * 1000) / 10}%`
 }
 
-interface LabelBox {
+export interface LabelBox {
     key: string
     x: number
     y: number
@@ -61,7 +60,7 @@ function overlaps(a: LabelBox, b: LabelBox): boolean {
 /** Slices whose centered label box doesn't collide with an already-kept one. Larger slices win,
  *  so when adjacent thin slices crowd the same arc the most significant labels survive and the
  *  rest are dropped rather than overlapping. */
-function nonCollidingKeys(boxes: LabelBox[]): Set<string> {
+export function nonCollidingKeys(boxes: LabelBox[]): Set<string> {
     const kept: LabelBox[] = []
     const keptKeys = new Set<string>()
     for (const box of [...boxes].sort((a, b) => b.value - a.value)) {

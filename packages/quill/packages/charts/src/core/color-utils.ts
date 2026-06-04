@@ -13,6 +13,7 @@ export function dimColor(color: string, alpha: number): string {
 export function mixColors(from: string, to: string, t: number): string {
     const a = d3Rgb(from)
     const b = d3Rgb(to)
+    // d3 returns an RGBColor with NaN channels (not null) for unparseable input.
     if (Number.isNaN(a.r) || Number.isNaN(b.r)) {
         return from
     }

@@ -27,7 +27,8 @@ export interface PieChartConfig<Meta = unknown> {
     /** Duration (ms) of the hover transition — the slice eases outward and brightens over this
      *  window rather than snapping. Default 150. `0` disables (instant). */
     hoverAnimationMs?: number
-    /** Disable the hover grow effect — useful for snapshot stability or constrained layouts. */
+    /** Disable the hover grow effect — useful for snapshot stability or constrained layouts.
+     *  Legacy name: this gates the whole hover effect (grow + brighten + dim), not just an offset. */
     disableHoverOffset?: boolean
     /** Hide on-slice labels for slices smaller than this fraction of the total. Default 0.05. */
     minSlicePercentForLabel?: number
@@ -72,8 +73,10 @@ const DEFAULT_MIN_SLICE_PERCENT = 0.05
 const HOVER_HIGHLIGHT_TARGET = '#ffffff'
 const HOVER_HIGHLIGHT_AMOUNT = 0.15
 // Non-hovered slices ease toward the chart background by this fraction, fading into the
-// backdrop so the hovered slice stands out. White fallback when the theme has no background.
+// backdrop so the hovered slice stands out.
 const HOVER_DIM_AMOUNT = 0.55
+// Used only when the theme omits `backgroundColor`. Assumes a light backdrop — consumers on a
+// dark theme should set `theme.backgroundColor` so slices dim toward the dark surface instead.
 const HOVER_DIM_TARGET_FALLBACK = '#ffffff'
 
 function easeOutCubic(t: number): number {
@@ -155,10 +158,8 @@ function PieChartInner<Meta = unknown>({
     const effectiveHoverGrowth = disableHoverOffset ? 0 : hoverGrowth
     const effectiveHoverAnimationMs = disableHoverOffset ? 0 : hoverAnimationMs
 
-    // Current backdrop-dim level (0 = no dim, 1 = full). Ramps up over the hover fade and only
-    // ever increases while hovering — a hoverIndex change resets `hoverProgress` to 0, so reading
-    // the dim straight off it would flash the backdrop back to full color on every slice crossing.
-    // Reset to 0 on hover-out so the next hover fades in fresh.
+    // Backdrop-dim level (0 = none, 1 = full), held across slice crossings — see the ramp in
+    // drawHover for why it can't be read straight off hoverProgress.
     const dimRef = useRef(0)
 
     const drawStatic = useCallback((args: ChartDrawArgs) => {
@@ -166,7 +167,7 @@ function PieChartInner<Meta = unknown>({
         if (!layout) {
             return
         }
-        drawSlices(args.ctx, layout, { skipIndex: -1, outerRadiusBoost: 0 })
+        drawSlices(args.ctx, layout, { outerRadiusBoost: 0 })
     }, [])
 
     const drawHover = useCallback(
@@ -201,9 +202,7 @@ function PieChartInner<Meta = unknown>({
                 const faded = mixColors(other.color, dimTarget, dimRef.current)
                 drawSliceShape(args.ctx, other, layout, { outerRadiusBoost: 0, fillStyle: faded })
             }
-            // Hovered slice last (on top), grown outward and brightened. The grown wedge keeps the
-            // static slice's center and angles, so it covers its own base and only extends past
-            // `outerRadius` into empty space — never over a neighbour.
+            // Hovered slice last, on top of the dimmed others.
             const outerRadiusBoost = eased * effectiveHoverGrowth
             const fillStyle = mixColors(slice.color, HOVER_HIGHLIGHT_TARGET, eased * HOVER_HIGHLIGHT_AMOUNT)
             drawSliceShape(args.ctx, slice, layout, { outerRadiusBoost, fillStyle })
@@ -267,19 +266,15 @@ function getLayoutFromArgs<Meta>(args: ChartDrawArgs): PieLayout<Meta> | null {
 }
 
 interface DrawSlicesOptions {
-    skipIndex: number
     outerRadiusBoost: number
 }
 
 function drawSlices<Meta>(
     ctx: CanvasRenderingContext2D,
     layout: PieLayout<Meta>,
-    { skipIndex, outerRadiusBoost }: DrawSlicesOptions
+    { outerRadiusBoost }: DrawSlicesOptions
 ): void {
     for (let i = 0; i < layout.slices.length; i++) {
-        if (i === skipIndex) {
-            continue
-        }
         drawSliceShape(ctx, layout.slices[i], layout, { outerRadiusBoost, fillStyle: layout.slices[i].color })
     }
 }
