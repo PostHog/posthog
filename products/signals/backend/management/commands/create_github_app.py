@@ -333,7 +333,8 @@ class Command(BaseCommand):
         self.stdout.write("  2. Restart your dev server so it picks up the new .env values.")
 
     def _verify_key(self, client_id: str, pem: str) -> None:
-        loaded_key = _format_private_key_for_env(pem).replace("\\n", "\n")
+        env_formatted = _format_private_key_for_env(pem)
+        loaded_key = env_formatted.replace("\\n", "\n").strip()
         now = int(time.time())
         try:
             token = jwt.encode(
