@@ -65,13 +65,16 @@ export function Annotations(): JSX.Element {
                             />
                         }
                     >
-                        <div className="font-semibold line-clamp-2 flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5">
                             {annotation.emoji && (
                                 <span className="text-base leading-none shrink-0">{annotation.emoji}</span>
                             )}
-                            <Link subtle to={urls.annotation(annotation.id)}>
-                                {annotation.content ?? ''}
-                            </Link>
+                            {/* line-clamp-2 must stay on its own element — combining it with flex breaks the clamp */}
+                            <div className="font-semibold line-clamp-2 min-w-0">
+                                <Link subtle to={urls.annotation(annotation.id)}>
+                                    {annotation.content ?? ''}
+                                </Link>
+                            </div>
                         </div>
                     </Tooltip>
                 )
