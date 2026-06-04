@@ -14,9 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from rest_framework.serializers import ModelSerializer
-
 from django_display_ids.contrib.rest_framework import DisplayIDField
+from rest_framework.serializers import ModelSerializer
 
 _PATCHED_FLAG = "_display_id_pk_patched"
 
