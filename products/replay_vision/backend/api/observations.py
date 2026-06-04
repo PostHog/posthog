@@ -1,9 +1,9 @@
 import uuid
 from typing import Any
 
-from django.db.models import F, Q, QuerySet
-from django.db.models.expressions import RawSQL
-from django.db.models.fields.json import KeyTextTransform
+from django.db.models import Case, CharField, F, FloatField, Func, IntegerField, Q, QuerySet, Value, When
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast
 
 import structlog
 import django_filters
@@ -35,6 +35,13 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
+
+
+class _JsonbTypeof(Func):
+    """Postgres `JSONB_TYPEOF(value)` wrapped as an ORM function so callers can `Case(When(...))` on the result."""
+
+    function = "JSONB_TYPEOF"
+    output_field = CharField()
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -278,23 +285,27 @@ class _OrderByFilter(django_filters.CharFilter):
             return qs.order_by(("-" if descending else "") + key, "id")
         if key == "result_score":
             # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
-            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- static SQL literal, no interpolation.
+            score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
+            score_text = KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result"))
             qs = qs.annotate(
-                _order_score=RawSQL(
-                    "CASE WHEN jsonb_typeof(scanner_result -> 'model_output' -> 'score') = 'number' "
-                    "THEN (scanner_result -> 'model_output' ->> 'score')::float ELSE NULL END",
-                    [],
+                _score_type=_JsonbTypeof(score_jsonb),
+                _order_score=Case(
+                    When(_score_type="number", then=Cast(score_text, FloatField())),
+                    default=Value(None),
+                    output_field=FloatField(),
                 ),
             )
             expr = F("_order_score").desc(nulls_last=True) if descending else F("_order_score").asc(nulls_last=True)
             return qs.order_by(expr, "id")
         if key == "scanner_version":
-            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- static SQL literal, no interpolation.
+            version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
+            version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
             qs = qs.annotate(
-                _order_version=RawSQL(
-                    "CASE WHEN jsonb_typeof(scanner_snapshot -> 'scanner_version') = 'number' "
-                    "THEN (scanner_snapshot ->> 'scanner_version')::int ELSE NULL END",
-                    [],
+                _version_type=_JsonbTypeof(version_jsonb),
+                _order_version=Case(
+                    When(_version_type="number", then=Cast(version_text, IntegerField())),
+                    default=Value(None),
+                    output_field=IntegerField(),
                 ),
             )
             expr = F("_order_version").desc(nulls_last=True) if descending else F("_order_version").asc(nulls_last=True)
