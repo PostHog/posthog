@@ -88,17 +88,17 @@ Two filter shapes cover almost everything:
   the recordings query, so first collect session IDs with `execute-sql`, then pass them as `session_ids`
   (see the two-step pattern below).
 
-| User goal                                             | Approach                                                                                                                                                 |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Signup / onboarding / pricing / checkout friction** | `visited_page` `icontains` the relevant path (confirm the real path first). Order `start_time`, or `console_error_count` to surface broken ones.         |
-| **A specific feature**                                | Two-step: `execute-sql` for `$session_id`s where the feature event fired, then `session_ids`. Pair with `visited_page` if the feature lives on one page. |
-| **Rageclicks / frustration**                          | Two-step on the `$rageclick` event → `session_ids`. Or filter `properties` with an `element` `text`/`selector` filter for a specific control.            |
-| **Errors / something broken**                         | `properties: [{ "type": "recording", "key": "console_error_count", "operator": "gt", "value": 0 }]`, order `console_error_count`.                        |
-| **A/B test / feature flag**                           | `{ "type": "flag", "key": "<flag-key>", "operator": "flag_evaluates_to", "value": "<variant or true>" }`.                                                |
-| **A specific person / segment**                       | `person_uuid`, a `person` property filter (e.g. `email`), or a `cohort` filter (`cohorts-list` for the id).                                              |
-| **Mobile / responsive issues**                        | `event` `$device_type` `exact` `["Mobile"]`, or `$screen_width` `lt` a threshold.                                                                        |
-| **Most active users / "just show me good ones"**      | No filter; `order: "activity_score"`. The reliable default when the user has no specific goal.                                                           |
-| **Most active pages**                                 | `execute-sql` to rank `$pageview` by URL, then filter recordings by the hottest page's `visited_page`.                                                   |
+| User goal                                             | Approach                                                                                                                                                                  |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Signup / onboarding / pricing / checkout friction** | `visited_page` `icontains` the relevant path (confirm the real path first). Order `start_time`, or `console_error_count` to surface broken ones.                          |
+| **A specific feature**                                | Two-step: `execute-sql` for `$session_id`s where the feature event fired, then `session_ids`. Pair with `visited_page` if the feature lives on one page.                  |
+| **Rageclicks / frustration**                          | Two-step on the `$rageclick` event → `session_ids`. Or filter `properties` with an `element` `text`/`selector` filter for a specific control.                             |
+| **Errors / something broken**                         | `properties: [{ "type": "recording", "key": "console_error_count", "operator": "gt", "value": 0 }]`, order `console_error_count`.                                         |
+| **A/B test / feature flag**                           | `{ "type": "flag", "key": "<flag-key>", "operator": "flag_evaluates_to", "value": "<variant or true>" }`.                                                                 |
+| **A specific person / segment**                       | `person_uuid`, a `person` property filter (e.g. `email`), or a `cohort` filter (`cohorts-list` for the id).                                                               |
+| **Mobile / responsive issues**                        | `{ "type": "event", "key": "$device_type", "operator": "exact", "value": ["Mobile"] }`, or `{ "type": "event", "key": "$screen_width", "operator": "lt", "value": 600 }`. |
+| **Most active users / "just show me good ones"**      | No filter; `order: "activity_score"`. The reliable default when the user has no specific goal.                                                                            |
+| **Most active pages**                                 | `execute-sql` to rank `$pageview` by URL, then filter recordings by the hottest page's `visited_page`.                                                                    |
 
 ### Two-step pattern: "sessions where event X happened"
 
