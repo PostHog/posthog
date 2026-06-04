@@ -21222,7 +21222,7 @@ export namespace Schemas {
       interview_url: string;
       /** True if an email was queued for delivery. False when the recipient was skipped — see `reason`. */
       sent: boolean;
-      /** Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true. */
+      /** Why the email was skipped (e.g., `not_an_email`, `duplicate_recipient`, `already_sent`). Empty when sent=true. */
       reason?: string;
     }
 

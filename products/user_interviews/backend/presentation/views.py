@@ -821,7 +821,10 @@ class InterviewInviteResultSerializer(serializers.Serializer):
     reason = serializers.CharField(
         required=False,
         allow_blank=True,
-        help_text="Why the email was skipped (e.g., `not_an_email`, `already_sent`). Empty when sent=true.",
+        help_text=(
+            "Why the email was skipped (e.g., `not_an_email`, `duplicate_recipient`, `already_sent`). "
+            "Empty when sent=true."
+        ),
     )
 
 
@@ -1079,6 +1082,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         send_async = params.validated_data["send_async"]
 
         results: list[dict[str, Any]] = []
+        seen_emails: set[str] = set()
         for link in links:
             base = {
                 "interviewee_identifier": link["identifier"],
@@ -1088,6 +1092,14 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not link["email"]:
                 results.append({**base, "sent": False, "reason": "not_an_email"})
                 continue
+
+            # Collapse display-name aliases that resolve to the same mailbox (e.g.
+            # "A1 <x@host>" and "A2 <x@host>") so one mailbox can't be invited repeatedly.
+            email_key = link["email"].strip().lower()
+            if email_key in seen_emails:
+                results.append({**base, "sent": False, "reason": "duplicate_recipient"})
+                continue
+            seen_emails.add(email_key)
 
             built = build_invite_email_context(
                 topic=topic,

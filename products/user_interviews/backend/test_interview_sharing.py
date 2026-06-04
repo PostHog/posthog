@@ -1145,6 +1145,26 @@ class TestSendInterviewInvites(_FeatureFlagEnabledMixin):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "per-send limit" in response.json()["error"]
 
+    def test_send_invites_collapses_aliases_to_one_mailbox(self):
+        topic = self._create_topic(
+            interviewee_emails=["A1 <victim@example.com>", "A2 <victim@example.com>", "victim@example.com"],
+            interviewee_distinct_ids=[],
+        )
+
+        with (
+            patch("products.user_interviews.backend.presentation.views.EmailMessage") as mock_message_cls,
+            patch("products.user_interviews.backend.presentation.views.is_email_available", return_value=True),
+        ):
+            response = self.client.post(self._url(str(topic.id)), data={"send_async": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        results = response.json()
+        sent = [r for r in results if r["sent"]]
+        duplicates = [r for r in results if r.get("reason") == "duplicate_recipient"]
+        assert len(sent) == 1
+        assert len(duplicates) == 2
+        assert mock_message_cls.call_count == 1
+
     @parameterized.expand(
         [
             ("url", "chat about http://evil.com"),
