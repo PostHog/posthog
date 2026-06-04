@@ -672,7 +672,7 @@ class PostmarkSourceConfig(config.Config):
 
 @config.config
 class ProductboardSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
