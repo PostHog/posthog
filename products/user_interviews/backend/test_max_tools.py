@@ -220,6 +220,27 @@ class TestPreviewUserInterviewInviteTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_arun_impl_previews_for_specific_identifier(self):
+        topic = await self._create_topic(
+            interviewee_emails=["Alex <alex@example.com>", "jordan@example.com"], interviewee_distinct_ids=[]
+        )
+        _content, artifact = await self._tool()._arun_impl(
+            topic_id=str(topic.id), interviewee_identifier="jordan@example.com"
+        )
+        assert artifact["interviewee_identifier"] == "jordan@example.com"
+        assert artifact["email"] == "jordan@example.com"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_rejects_non_targeted_identifier(self):
+        topic = await self._create_topic()
+        _content, artifact = await self._tool()._arun_impl(
+            topic_id=str(topic.id), interviewee_identifier="not-targeted@example.com"
+        )
+        assert artifact["error"] == "no_interviewees"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     @parameterized.expand(
         [
             ("missing_topic_id", {"topic_id": "  "}, "validation_failed"),

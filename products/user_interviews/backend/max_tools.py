@@ -379,17 +379,17 @@ class PreviewUserInterviewInviteTool(MaxTool):
             }
 
         emailable_note = (
-            "" if payload["emailable"] else " This interviewee has no email address, so they can't be emailed."
+            "" if payload["emailable"] else "\n\n(This interviewee has no email address, so they can't be emailed.)"
         )
-        link_note = (
-            " The link shown is an illustrative placeholder — a real per-recipient link is created when invites are sent."
-            if payload["is_preview_link"]
-            else ""
-        )
+        # Include the intro copy in the text result so the body can be proofread from the chat itself,
+        # not only via the artifact renderer. The greeting + interview-link button are fixed boilerplate.
+        body_preview = (topic.invite_message or "").strip() or "(default copy — no custom intro message set)"
         content = (
             f"Invite preview for **{payload['interviewee_identifier']}** "
             f"(greeting addressed to {payload['user_name']}):\n\n"
             f"**Subject:** {payload['subject']}\n\n"
-            f"The full rendered email is shown below.{emailable_note}{link_note}"
+            f"**Intro message:**\n{body_preview}\n\n"
+            f"A fixed greeting and an interview-link button are appended below this intro in the actual email "
+            f"(the link is minted per recipient when invites are sent).{emailable_note}"
         )
         return content, payload

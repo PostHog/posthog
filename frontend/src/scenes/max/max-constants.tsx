@@ -586,6 +586,21 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Setting up interview topic...'
         },
     },
+    preview_user_interview_invite: {
+        name: 'Preview interview invite',
+        description:
+            'Preview the invitation email a targeted interviewee would receive — subject and body — without sending',
+        product: Scene.UserInterviews,
+        flag: FEATURE_FLAGS.USER_INTERVIEWS,
+        icon: iconForType('user_interview'),
+        modes: [AgentMode.UserInterview],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Previewed interview invite'
+            }
+            return 'Previewing interview invite...'
+        },
+    },
     create_hog_function_filters: {
         name: 'Set up function filters',
         description: 'Set up function filters for quick pipeline configuration',
