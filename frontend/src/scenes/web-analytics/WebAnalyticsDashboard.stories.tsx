@@ -84,6 +84,33 @@ export function WebAnalyticsDashboard(): JSX.Element {
     return <App />
 }
 
+// Snapshot the dashboard across viewport widths so narrow-screen layout regressions are caught.
+// `narrow` (568px) is the one that surfaces the responsive issues; the wider presets guard against
+// the opposite — fixes for narrow screens shouldn't break the roomier layouts.
+WebAnalyticsDashboardViewports.parameters = {
+    layout: 'fullscreen',
+    viewMode: 'story',
+    mockDate: '2023-02-01',
+    pageUrl: urls.webAnalytics(),
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
+    testOptions: {
+        includeNavigationInSnapshot: true,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
+    },
+}
+export function WebAnalyticsDashboardViewports(): JSX.Element {
+    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+
+    useEffect(() => {
+        setSourceTab(SourceTab.REFERRING_DOMAIN)
+        setDeviceTab(DeviceTab.BROWSER)
+    }, [setDeviceTab, setSourceTab])
+
+    return <App />
+}
+
 WebAnalyticsDashboardLoading.parameters = {
     layout: 'fullscreen',
     viewMode: 'story',
