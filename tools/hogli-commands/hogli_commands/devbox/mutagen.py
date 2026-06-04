@@ -8,12 +8,12 @@ wrappers. v1 only targets Coder workspaces as the remote endpoint.
 from __future__ import annotations
 
 import os
+import re
 import json
 import shutil
 import hashlib
 import platform
 import subprocess
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -282,29 +282,30 @@ def _daemon_pids() -> list[int]:
 
 
 def _daemon_ssh_path(pid: int) -> str | None:
-    """The ``MUTAGEN_SSH_PATH`` a process was started with, or ``None``.
+    """The ``MUTAGEN_SSH_PATH`` a process was started with, or ``None`` (best-effort).
 
-    Best-effort: Linux reads ``/proc/<pid>/environ`` (NUL-delimited), elsewhere
-    it parses ``ps eww`` (whitespace-delimited env after the command). We only
-    compare a shim-dir path (no spaces), so token splitting suffices either way.
+    The value can legitimately contain spaces (a home dir like ``/Users/John
+    Doe``), so both branches preserve them: Linux reads ``/proc/<pid>/environ``,
+    which is NUL-delimited; macOS/BSD parse ``ps eww``, whose env is
+    space-delimited with no per-entry boundary, so we capture from our key up to
+    the next ``KEY=`` (or line end) rather than splitting on whitespace.
     """
     if platform.system() == "Linux":
         try:
             raw = Path(f"/proc/{pid}/environ").read_bytes()
         except OSError:
             return None
-        tokens: Iterable[str] = (entry.decode(errors="replace") for entry in raw.split(b"\0"))
-    else:
-        try:
-            result = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
-        except (OSError, subprocess.SubprocessError):
-            return None
-        tokens = result.stdout.split()
-    for token in tokens:
-        key, sep, value = token.partition("=")
-        if sep and key == "MUTAGEN_SSH_PATH":
-            return value
-    return None
+        for entry in raw.split(b"\0"):
+            key, sep, value = entry.partition(b"=")
+            if sep and key == b"MUTAGEN_SSH_PATH":
+                return value.decode(errors="replace")
+        return None
+    try:
+        result = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"(?:^|\s)MUTAGEN_SSH_PATH=(.*?)(?=\s\S+=|$)", result.stdout)
+    return match.group(1) if match else None
 
 
 def _daemon_uses_shim(shim_dir: Path) -> bool:

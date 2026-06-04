@@ -3565,6 +3565,39 @@ class TestKeepaliveShim:
         monkeypatch.setattr(devbox_mutagen, "_daemon_ssh_path", lambda pid: "/other")
         assert devbox_mutagen._daemon_uses_shim(tmp_path) is False
 
+    @pytest.mark.parametrize(
+        "ps_output, expected",
+        [
+            # `ps eww` env is space-delimited; a value with a space must not be
+            # truncated, whether it's followed by another entry or ends the line.
+            (
+                "/Users/John Doe/.hogli/bin/mutagen daemon run "
+                "XPC_SERVICE_NAME=0 MUTAGEN_SSH_PATH=/Users/John Doe/.hogli/mutagen-ssh-shim FOO=bar\n",
+                "/Users/John Doe/.hogli/mutagen-ssh-shim",
+            ),
+            (
+                "/x/mutagen daemon run MUTAGEN_SSH_PATH=/Users/John Doe/.hogli/mutagen-ssh-shim\n",
+                "/Users/John Doe/.hogli/mutagen-ssh-shim",
+            ),
+            (
+                "/x/mutagen daemon run MUTAGEN_SSH_PATH=/home/u/.hogli/mutagen-ssh-shim X=1\n",
+                "/home/u/.hogli/mutagen-ssh-shim",
+            ),
+            ("/x/mutagen daemon run XPC_SERVICE_NAME=0\n", None),
+        ],
+        ids=["spaced-mid", "spaced-last", "plain", "absent"],
+    )
+    def test_daemon_ssh_path_parses_ps_env_with_spaces(
+        self, monkeypatch: pytest.MonkeyPatch, ps_output: str, expected: str | None
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen.platform, "system", lambda: "Darwin")
+        monkeypatch.setattr(
+            devbox_mutagen.subprocess,
+            "run",
+            lambda *a, **k: subprocess.CompletedProcess(a, 0, ps_output, ""),
+        )
+        assert devbox_mutagen._daemon_ssh_path(123) == expected
+
     def test_ensure_daemon_fast_path_does_not_touch_daemon(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
