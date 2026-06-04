@@ -45,7 +45,7 @@ struct TempWorktree {
 }
 
 impl TempWorktree {
-    fn create(base_ref: &str, sparse_paths: &[&str]) -> Result<Self> {
+    fn create(base_ref: &str, checkout_paths: &[&str]) -> Result<Self> {
         let path = tempfile::Builder::new()
             .prefix("affected-services-")
             .tempdir()
@@ -70,21 +70,22 @@ impl TempWorktree {
             String::from_utf8_lossy(&out.stderr).trim()
         );
 
+        // Override core.sparseCheckout for this command only — the parent
+        // worktree (CI sparse checkout) sets it in the shared git config,
+        // which would otherwise filter the checkout to an incomplete set.
         let out = Command::new("git")
-            .args(["-C", path_s.as_ref(), "sparse-checkout", "set", "--cone"])
-            .args(sparse_paths)
+            .args([
+                "-c",
+                "core.sparseCheckout=false",
+                "-C",
+                path_s.as_ref(),
+                "checkout",
+                "HEAD",
+                "--",
+            ])
+            .args(checkout_paths)
             .output()
-            .context("failed to configure sparse-checkout on worktree")?;
-        anyhow::ensure!(
-            out.status.success(),
-            "git sparse-checkout set failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-
-        let out = Command::new("git")
-            .args(["-C", path_s.as_ref(), "checkout"])
-            .output()
-            .context("failed to checkout worktree")?;
+            .context("failed to checkout worktree paths")?;
         anyhow::ensure!(
             out.status.success(),
             "git checkout in worktree failed: {}",

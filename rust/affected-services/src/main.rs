@@ -2,7 +2,6 @@ use std::io::BufRead;
 use std::path::Path;
 
 use anyhow::Result;
-// cache bust
 use clap::{Parser, ValueEnum};
 
 use affected_services::affected::compute_affected;
