@@ -242,13 +242,33 @@ export function formatResolvedName(
     if (!frame.resolved_name || frame.resolved_name === '?') {
         return null
     }
-    return frame.module && shouldQualifyFunctionName(frame.lang)
+    return frame.module && frame.lang === 'java'
         ? qualifyFunctionName(frame.module, frame.resolved_name)
         : frame.resolved_name
 }
 
 export function formatFrameSource(frame: Pick<ErrorTrackingStackFrame, 'source' | 'module'>): string {
-    return frame.source || frame.module || 'Unknown Source'
+    if (frame.source) {
+        return `File "${frame.source}"`
+    }
+
+    if (frame.module) {
+        return `Module "${frame.module}"`
+    }
+
+    return 'Unknown Source'
+}
+
+export function formatFrameResolvedName(
+    frame: Pick<ErrorTrackingStackFrame, 'module' | 'resolved_name' | 'lang' | 'source'>
+): string | null {
+    const resolvedName = formatResolvedName(frame)
+
+    if (!frame.source && frame.module && resolvedName?.startsWith(`${frame.module}.`)) {
+        return resolvedName.slice(frame.module.length + 1)
+    }
+
+    return resolvedName
 }
 
 function shouldQualifyFunctionName(lang: string): boolean {

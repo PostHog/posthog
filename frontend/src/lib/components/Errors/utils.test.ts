@@ -1,5 +1,6 @@
 import { ExceptionAttributes } from './types'
 import {
+    formatFrameResolvedName,
     formatFrameSource,
     formatFunctionName,
     formatResolvedName,
@@ -178,22 +179,23 @@ describe('Error Display', () => {
     })
 
     it('uses the module as a source fallback when a frame has no source path', () => {
-        expect(formatFrameSource({ source: 'Program.cs', module: 'NoPdbLib.Thrower' })).toEqual('Program.cs')
-        expect(formatFrameSource({ source: null, module: 'NoPdbLib.Thrower' })).toEqual('NoPdbLib.Thrower')
+        expect(formatFrameSource({ source: 'Program.cs', module: 'NoPdbLib.Thrower' })).toEqual('File "Program.cs"')
+        expect(formatFrameSource({ source: null, module: 'NoPdbLib.Thrower' })).toEqual('Module "NoPdbLib.Thrower"')
         expect(formatFrameSource({ source: null, module: null })).toEqual('Unknown Source')
     })
 
     it('qualifies dotnet function names with the frame module', () => {
         expect(formatResolvedName({ lang: 'dotnet', module: 'NoPdbLib.Thrower', resolved_name: 'Boom' })).toEqual(
-            'NoPdbLib.Thrower.Boom'
+            'Boom'
         )
         expect(
-            formatResolvedName({
+            formatFrameResolvedName({
                 lang: 'dotnet',
                 module: 'NoPdbLib.Thrower',
+                source: null,
                 resolved_name: 'NoPdbLib.Thrower.Boom',
             })
-        ).toEqual('NoPdbLib.Thrower.Boom')
+        ).toEqual('Boom')
         expect(
             formatFunctionName({
                 lang: 'dotnet',
