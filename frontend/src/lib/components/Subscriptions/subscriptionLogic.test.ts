@@ -161,7 +161,9 @@ describe('subscriptionLogic', () => {
     })
 
     it('rejects empty prompt when resource_type is ai_prompt', async () => {
-        router.actions.push('/insights/123/subscriptions/new')
+        // The parent-less /subscriptions/new route is the AI flow; its urlToAction sets
+        // resource_type='ai_prompt' (the /insights/... route forces 'insight').
+        router.actions.push('/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         newLogic.actions.setSubscriptionValues({ resource_type: 'ai_prompt', prompt: '   ', title: 'AI test' })
         await expectLogic(newLogic).toFinishListeners()
@@ -169,7 +171,7 @@ describe('subscriptionLogic', () => {
     })
 
     it('rejects prompts exceeding 4000 characters when resource_type is ai_prompt', async () => {
-        router.actions.push('/insights/123/subscriptions/new')
+        router.actions.push('/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         newLogic.actions.setSubscriptionValues({
             resource_type: 'ai_prompt',
