@@ -88,7 +88,7 @@ impl TempWorktree {
                 .unwrap_or(false),
         };
         if !restore_ok {
-            eprintln!("warning: failed to restore core.sparseCheckout — CI checkout config may be corrupted");
+            anyhow::bail!("failed to restore core.sparseCheckout after worktree creation");
         }
 
         anyhow::ensure!(
