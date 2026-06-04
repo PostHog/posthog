@@ -60,6 +60,18 @@ class _RaisingReviewer:
         raise RuntimeError("Claude Code returned an error result: success")
 
 
+class _TurnLimitReviewer:
+    """Stand-in for Reviewer that hits the max turns limit."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        pass
+
+    def review(self, *args: object, **kwargs: object) -> dict:
+        raise RuntimeError(
+            "Claude Code returned an error result: Reached maximum number of turns (5)"
+        )
+
+
 @pytest.mark.parametrize(
     "gate_verdict, expected_final",
     [
@@ -88,3 +100,40 @@ def test_backend_failure_yields_error_except_when_gates_deny(
     if expected_final == "ERROR":
         assert pipeline.reviewer_output is not None
         assert pipeline.reviewer_output["verdict"] == "ERROR"
+        # Retryable errors should mention infrastructure
+        assert "infrastructure" in pipeline.reviewer_output["reasoning"]
+
+
+def test_turn_limit_error_not_retried_and_has_correct_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A turn-limit error is non-retryable and should give a clear message
+    about complexity rather than blaming infrastructure."""
+    call_count = 0
+    original_review = _TurnLimitReviewer.review
+
+    def counting_review(self, *args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return original_review(self, *args, **kwargs)
+
+    monkeypatch.setattr(review_pr, "Reviewer", _TurnLimitReviewer)
+    monkeypatch.setattr(_TurnLimitReviewer, "review", counting_review)
+    monkeypatch.setattr(review_pr.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pipeline.pr = _fake_pr(head_sha="abc123")
+    pipeline.classification = {"tier": "T1-agent", "breadth": "narrow"}
+    pipeline.gate_results = [GateResult("deny-list", True, "")]
+
+    pipeline._llm_review("PENDING")
+
+    # Non-retryable: should only be called once, not retried
+    assert call_count == 1
+    assert pipeline.final_verdict == "ERROR"
+    assert pipeline.reviewer_output is not None
+    assert "could not complete its analysis" in pipeline.reviewer_output["reasoning"]
+    # Should NOT mention infrastructure/credentials
+    assert "infrastructure" not in pipeline.reviewer_output["reasoning"]
+    assert "credentials" not in pipeline.reviewer_output["reasoning"]
