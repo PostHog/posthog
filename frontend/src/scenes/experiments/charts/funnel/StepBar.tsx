@@ -137,7 +137,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     const seriesColor =
         experiment?.parameters?.feature_flag_variants && variantKey
             ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
-            : 'var(--text-muted)'
+            : 'var(--muted)'
 
     // Get sampled sessions from the experiment result
     let sessionData: SessionData[] | undefined
