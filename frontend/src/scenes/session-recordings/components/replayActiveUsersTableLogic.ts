@@ -1,5 +1,6 @@
 import { defaults, kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
@@ -71,10 +72,11 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
                 try {
                     const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
                     results = qResponse.results || []
-                } catch {
+                } catch (e) {
                     // This query joins replay events against the events table over 7 days and
                     // can time out or 500 on large teams. It only powers a non-critical widget,
                     // so degrade to an empty table rather than surfacing an uncaught error.
+                    posthog.captureException(e)
                 }
 
                 breakpoint()
