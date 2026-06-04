@@ -2,12 +2,11 @@ import { actions, connect, kea, key, listeners, path, props, reducers } from 'ke
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { quickFiltersLogic } from 'lib/components/QuickFilters'
-
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyOperator, QuickFilterOption } from '~/types'
 
 import { QuickFiltersEvents } from './consts'
+import { quickFiltersLogic } from './quickFiltersLogic'
 import type { quickFiltersSectionLogicType } from './quickFiltersSectionLogicType'
 
 const QUICK_FILTERS_URL_PARAM = 'quick_filters'

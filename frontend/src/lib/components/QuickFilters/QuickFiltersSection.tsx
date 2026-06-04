@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { QuickFilterSelector, quickFiltersLogic } from 'lib/components/QuickFilters'
-
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter } from '~/types'
 
 import { QuickFiltersConfigureButton } from './QuickFiltersConfigureButton'
+import { QuickFilterSelector } from './QuickFilterSelector'
+import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersSectionLogic } from './quickFiltersSectionLogic'
 
 export interface QuickFiltersSectionProps {
@@ -21,6 +21,7 @@ export interface QuickFiltersSectionProps {
      * - `['id1', 'id2']`: show only filters with matching IDs
      */
     filterIds?: string[] | null
+    hideConfigureButton?: boolean
 }
 
 export function QuickFiltersSection({
@@ -28,6 +29,7 @@ export function QuickFiltersSection({
     logicKey,
     onNewFilterCreated,
     filterIds,
+    hideConfigureButton = false,
 }: QuickFiltersSectionProps): JSX.Element {
     const { quickFilters } = useValues(quickFiltersLogic({ context }))
     const { selectedQuickFilters } = useValues(quickFiltersSectionLogic({ context, logicKey }))
@@ -61,11 +63,13 @@ export function QuickFiltersSection({
                     />
                 )
             })}
-            <QuickFiltersConfigureButton
-                context={context}
-                onNewFilterCreated={onNewFilterCreated}
-                showLabel={quickFilters.length === 0}
-            />
+            {!hideConfigureButton ? (
+                <QuickFiltersConfigureButton
+                    context={context}
+                    onNewFilterCreated={onNewFilterCreated}
+                    showLabel={quickFilters.length === 0}
+                />
+            ) : null}
         </>
     )
 }
