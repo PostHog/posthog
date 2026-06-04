@@ -258,7 +258,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         printed = self._print_select(
             "SELECT event, session.$session_duration FROM events PREWHERE event = '$pageview' WHERE timestamp >= '2024-01-01'"
         )
-        # Compact all whitespace: the pretty-printer can wrap the PREWHERE keyword across lines.
+        # Compact all whitespace so the structural assertions don't depend on pretty-printer line breaks.
         compact = "".join(printed.split())
         assert ")ASeventsLEFTJOIN" in compact, "expected pushdown to fire:\n" + printed
         subquery = compact.split("FROM(", 1)[1].split(")ASeventsLEFTJOIN", 1)[0]
