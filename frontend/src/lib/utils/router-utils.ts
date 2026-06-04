@@ -28,7 +28,7 @@ function isPathWithoutProjectId(path: string): boolean {
 }
 
 function normalizeRelativePath(path: string): string {
-    const normalized = path.replace(/^(\.\.\/)+|^\.\//, '')
+    const normalized = path.replace(/^(\.\.\/|\.\/)+/, '')
     return normalized.startsWith('/') ? normalized : `/${normalized}`
 }
 

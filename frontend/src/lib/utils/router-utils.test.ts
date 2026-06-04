@@ -26,6 +26,9 @@ describe('router-utils', () => {
         it('normalizes ./ prefix to absolute path with project id', () => {
             expect(addProjectIdIfMissing('./insights/abc123', 112509)).toEqual('/project/112509/insights/abc123')
         })
+        it('normalizes repeated ./ prefixes', () => {
+            expect(addProjectIdIfMissing('././dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')
+        })
         it('does not alter normal absolute paths', () => {
             expect(addProjectIdIfMissing('/dashboard/1663553', 112509)).toEqual('/project/112509/dashboard/1663553')
         })
