@@ -327,9 +327,7 @@ async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, 
     # A different skill for the same team is in flight — should NOT block. Run status lives
     # on the linked TaskRun now, so stand up a real IN_PROGRESS TaskRun + bridge row.
     other_task_run = await database_sync_to_async(_make_task_run)(ateam)
-    await database_sync_to_async(TaskRun.objects.filter(id=other_task_run.id).update)(
-        status=TaskRun.Status.IN_PROGRESS
-    )
+    await database_sync_to_async(TaskRun.objects.filter(id=other_task_run.id).update)(status=TaskRun.Status.IN_PROGRESS)
     await database_sync_to_async(SignalScoutRun.objects.create)(
         task_run=other_task_run,
         team=ateam,
