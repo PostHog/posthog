@@ -1045,14 +1045,17 @@ def export_events_to_duckling_s3(
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
     # Event rows are wide (large properties/person_properties JSON), and the Parquet
-    # writer buffers whole row groups across parallel encoding threads — this is where
-    # the export OOMs (ParquetBlockOutputFormat in the stack trace), not the scan. Raise
-    # the memory ceiling and shrink the row-group buffer so the writer holds less at once.
+    # writer buffers a full row group per encoding thread before flushing — this is where
+    # the export OOMs (ParquetBlockOutputFormat in the stack trace), not the scan. Peak
+    # memory is ~ row_group_size * bytes_per_row * threads, so the 1M-row default builds
+    # multi-GB groups that blow the limit under parallel encoding. 250k rows lands each
+    # group in Parquet's recommended byte range (~hundreds of MB) while keeping read
+    # efficiency near the default; the raised ceiling is headroom on top.
     export_settings = settings.copy()
     export_settings.update(
         {
             "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB, matching the full-persons export
-            "output_format_parquet_row_group_size": 100_000,  # fewer rows buffered per group (default 1M)
+            "output_format_parquet_row_group_size": 250_000,  # down from the 1M default
         }
     )
 
