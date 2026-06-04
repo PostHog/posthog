@@ -45,8 +45,6 @@ def _build_event_url_timeline(llm_input: SingleSessionSummaryLlmInputs) -> list[
         if not isinstance(url_key, str) or not isinstance(ts, str):
             continue
         event_ms = calculate_time_since_start(ts, session_start_time)
-        if event_ms is None:
-            continue
         url = llm_input.url_mapping_reversed.get(url_key, url_key)
         timeline.append((event_ms / 1000, url))
     return timeline
