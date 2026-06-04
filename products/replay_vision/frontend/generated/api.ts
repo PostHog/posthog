@@ -19,6 +19,7 @@ import type {
     PatchedReplayScannerApi,
     ReplayObservationApi,
     ReplayScannerApi,
+    ScannerCreatorsResponseApi,
     VisionObservationsListParams,
     VisionQuotaApi,
     VisionScannersListParams,
@@ -322,6 +323,23 @@ export const visionScannersObservationsStatsRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/creators/`
+}
+
+/**
+ * Distinct creators across the team's scanners — feeds the `Created by` filter dropdown.
+ */
+export const visionScannersCreatorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerCreatorsResponseApi> => {
+    return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
