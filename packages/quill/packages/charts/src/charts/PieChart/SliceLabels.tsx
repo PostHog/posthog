@@ -18,7 +18,7 @@ const LABEL_STYLE_BASE: React.CSSProperties = {
     position: 'absolute',
     pointerEvents: 'none',
     color: 'white',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: 600,
     lineHeight: 1.2,
     textAlign: 'center',

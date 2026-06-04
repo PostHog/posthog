@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useRef } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { mixColors } from '../../core/color-utils'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
 import { useRadialLayout } from '../../core/radial-context'
 import { RadialChart } from '../../core/RadialChart'
@@ -21,9 +22,12 @@ export interface PieChartConfig<Meta = unknown> {
     /** Render slice values as percentages of total. Drives both axes-label-style formatting
      *  and the on-slice / tooltip formatting. */
     isPercent?: boolean
-    /** Pixels the hovered slice slides out along its bisector. Default 16. */
-    hoverOffset?: number
-    /** Disable the hover pop-out — useful for snapshot stability or constrained layouts. */
+    /** Pixels the hovered slice's outer radius grows on hover (center stays fixed). Default 8. */
+    hoverGrowth?: number
+    /** Duration (ms) of the hover transition — the slice eases outward and brightens over this
+     *  window rather than snapping. Default 150. `0` disables (instant). */
+    hoverAnimationMs?: number
+    /** Disable the hover grow effect — useful for snapshot stability or constrained layouts. */
     disableHoverOffset?: boolean
     /** Hide on-slice labels for slices smaller than this fraction of the total. Default 0.05. */
     minSlicePercentForLabel?: number
@@ -61,8 +65,20 @@ export interface PieChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-const DEFAULT_HOVER_OFFSET = 16
+const DEFAULT_HOVER_GROWTH = 8
+const DEFAULT_HOVER_ANIMATION_MS = 150
 const DEFAULT_MIN_SLICE_PERCENT = 0.05
+// Hovered slice eases toward white by this fraction at full hover — a subtle highlight.
+const HOVER_HIGHLIGHT_TARGET = '#ffffff'
+const HOVER_HIGHLIGHT_AMOUNT = 0.15
+// Non-hovered slices ease toward the chart background by this fraction, fading into the
+// backdrop so the hovered slice stands out. White fallback when the theme has no background.
+const HOVER_DIM_AMOUNT = 0.55
+const HOVER_DIM_TARGET_FALLBACK = '#ffffff'
+
+function easeOutCubic(t: number): number {
+    return 1 - Math.pow(1 - t, 3)
+}
 
 const CENTER_LABEL_STYLE: React.CSSProperties = {
     position: 'absolute',
@@ -111,7 +127,8 @@ function PieChartInner<Meta = unknown>({
         showValueOnSlice = true,
         showLabelOnSlice = false,
         isPercent = false,
-        hoverOffset = DEFAULT_HOVER_OFFSET,
+        hoverGrowth = DEFAULT_HOVER_GROWTH,
+        hoverAnimationMs = DEFAULT_HOVER_ANIMATION_MS,
         disableHoverOffset = false,
         minSlicePercentForLabel = DEFAULT_MIN_SLICE_PERCENT,
         padAngle = 0,
@@ -135,57 +152,64 @@ function PieChartInner<Meta = unknown>({
         [sliceValue, innerRadiusRatio, padAngle, sort]
     )
 
-    const effectiveHoverOffset = disableHoverOffset ? 0 : hoverOffset
+    const effectiveHoverGrowth = disableHoverOffset ? 0 : hoverGrowth
+    const effectiveHoverAnimationMs = disableHoverOffset ? 0 : hoverAnimationMs
+
+    // Current backdrop-dim level (0 = no dim, 1 = full). Ramps up over the hover fade and only
+    // ever increases while hovering — a hoverIndex change resets `hoverProgress` to 0, so reading
+    // the dim straight off it would flash the backdrop back to full color on every slice crossing.
+    // Reset to 0 on hover-out so the next hover fades in fresh.
+    const dimRef = useRef(0)
 
     const drawStatic = useCallback((args: ChartDrawArgs) => {
         const layout = getLayoutFromArgs<Meta>(args)
         if (!layout) {
             return
         }
-        drawSlices(args.ctx, layout, args.theme, { skipIndex: -1, offset: 0 })
+        drawSlices(args.ctx, layout, { skipIndex: -1, outerRadiusBoost: 0 })
     }, [])
 
     const drawHover = useCallback(
         (args: ChartDrawArgs): boolean => {
             const layout = getLayoutFromArgs<Meta>(args)
-            if (!layout || args.hoverIndex < 0) {
+            // A lone full-circle slice has nothing to highlight against — growing it just
+            // pulses the whole wheel.
+            const slice = layout && args.hoverIndex >= 0 ? layout.slices[args.hoverIndex] : null
+            if (!layout || !slice || layout.slices.length <= 1 || effectiveHoverGrowth === 0) {
+                dimRef.current = 0
                 return false
             }
-            // Single-slice charts have nothing to pop out — drawing the offset would visually
-            // shift the whole wheel.
-            if (layout.slices.length <= 1 || effectiveHoverOffset === 0) {
-                return false
+            // The focused slice's growth + tint ease over `hoverProgress` (0→1 from useChartDraw's
+            // RAF loop), so it swells and brightens rather than snapping.
+            const eased = easeOutCubic(args.hoverProgress)
+            // Ramp the backdrop dim with the same fade, but only ever upward: `hoverProgress`
+            // resets to 0 on each hoverIndex change, so reading the dim straight off it would
+            // flash the rest of the pie back to full color every time the cursor crosses into the
+            // next slice. Holding the max keeps the backdrop steady (and lets an in-progress fade
+            // continue) as you sweep across segments; it resets on hover-out (guard above).
+            dimRef.current = Math.max(dimRef.current, eased * HOVER_DIM_AMOUNT)
+            // Repaint every *other* slice over its static copy in a color faded toward the
+            // background, dimming the rest so the hovered slice stands out. The fade fill must be
+            // opaque — a translucent fill would composite against the full-color static slice
+            // beneath the overlay and not dim at all.
+            const dimTarget = args.theme.backgroundColor || HOVER_DIM_TARGET_FALLBACK
+            for (let i = 0; i < layout.slices.length; i++) {
+                if (i === args.hoverIndex) {
+                    continue
+                }
+                const other = layout.slices[i]
+                const faded = mixColors(other.color, dimTarget, dimRef.current)
+                drawSliceShape(args.ctx, other, layout, { outerRadiusBoost: 0, fillStyle: faded })
             }
-            // The mask step below relies on `theme.backgroundColor` to erase the static-canvas
-            // copy of the slice. Without one, the popped-out slice would partially overlap the
-            // original and smear — better to skip the pop-out than render that.
-            if (!args.theme.backgroundColor) {
-                return false
-            }
-            const slice = layout.slices[args.hoverIndex]
-            if (!slice) {
-                return false
-            }
-            // Two-pass paint on the (always-cleared) overlay canvas:
-            //   1. Fill the slice's original footprint with the theme background. The overlay
-            //      sits above the static canvas, so this *visually* erases the un-offset copy
-            //      that `useChartDraw` re-paints on the static layer every render.
-            //   2. Paint the slice in its real color at the offset position.
-            // Without step 1 the offset copy only partially overlaps the original, leaving a
-            // crescent of the un-offset slice visible — a smear, not a clean pop-out.
-            drawSliceShape(args.ctx, slice, layout, {
-                offset: 0,
-                fillStyle: args.theme.backgroundColor,
-                withStroke: undefined,
-            })
-            drawSliceShape(args.ctx, slice, layout, {
-                offset: effectiveHoverOffset,
-                fillStyle: slice.color,
-                withStroke: layout.slices.length > 1 ? args.theme.backgroundColor : undefined,
-            })
+            // Hovered slice last (on top), grown outward and brightened. The grown wedge keeps the
+            // static slice's center and angles, so it covers its own base and only extends past
+            // `outerRadius` into empty space — never over a neighbour.
+            const outerRadiusBoost = eased * effectiveHoverGrowth
+            const fillStyle = mixColors(slice.color, HOVER_HIGHLIGHT_TARGET, eased * HOVER_HIGHLIGHT_AMOUNT)
+            drawSliceShape(args.ctx, slice, layout, { outerRadiusBoost, fillStyle })
             return true
         },
-        [effectiveHoverOffset]
+        [effectiveHoverGrowth]
     )
 
     const renderTooltip = useMemo(
@@ -207,7 +231,8 @@ function PieChartInner<Meta = unknown>({
             tooltip={renderTooltip}
             showTooltip={showTooltip}
             onSliceClick={onSliceClick}
-            hitOuterSlack={effectiveHoverOffset}
+            hitOuterSlack={effectiveHoverGrowth}
+            hoverAnimationMs={effectiveHoverAnimationMs}
             className={className}
             dataAttr={dataAttr}
         >
@@ -243,55 +268,37 @@ function getLayoutFromArgs<Meta>(args: ChartDrawArgs): PieLayout<Meta> | null {
 
 interface DrawSlicesOptions {
     skipIndex: number
-    offset: number
+    outerRadiusBoost: number
 }
 
 function drawSlices<Meta>(
     ctx: CanvasRenderingContext2D,
     layout: PieLayout<Meta>,
-    theme: ChartTheme,
-    { skipIndex, offset }: DrawSlicesOptions
+    { skipIndex, outerRadiusBoost }: DrawSlicesOptions
 ): void {
     for (let i = 0; i < layout.slices.length; i++) {
         if (i === skipIndex) {
             continue
         }
-        drawSlice(ctx, layout.slices[i], layout, theme, { offset })
+        drawSliceShape(ctx, layout.slices[i], layout, { outerRadiusBoost, fillStyle: layout.slices[i].color })
     }
 }
 
-interface DrawSliceOptions {
-    offset: number
-}
-
-function drawSlice<Meta>(
-    ctx: CanvasRenderingContext2D,
-    slice: PieLayout<Meta>['slices'][number],
-    layout: PieLayout<Meta>,
-    theme: ChartTheme,
-    { offset }: DrawSliceOptions
-): void {
-    // Inter-slice stroke in the theme background — visually separates adjacent slices
-    // without a heavy outline. Skipped when there's only one slice (no neighbour to separate from).
-    const withStroke = layout.slices.length > 1 ? theme.backgroundColor : undefined
-    drawSliceShape(ctx, slice, layout, { offset, fillStyle: slice.color, withStroke })
-}
-
 interface DrawSliceShapeOptions {
-    offset: number
+    /** Pixels added to the outer radius (center fixed) — drives the hover grow. */
+    outerRadiusBoost: number
     fillStyle: string
-    /** Inter-slice stroke color (typically `theme.backgroundColor`). Omit to skip stroking. */
-    withStroke: string | undefined
 }
 
-/** Lower-level slice painter — takes explicit fill / stroke so the hover layer can both
- *  mask (background fill, no stroke) and re-paint (slice color, with stroke) using the same
- *  arc geometry. */
+/** Lower-level slice painter — takes an explicit fill so the hover layer can re-paint a slice
+ *  (grown + brightened) over its static base using the same center and angles. Slices are drawn
+ *  borderless: with many thin wedges, an inter-slice stroke piles up into a white cone at the
+ *  apex, so adjacent slices are separated by color alone (matching the legacy pie). */
 function drawSliceShape<Meta>(
     ctx: CanvasRenderingContext2D,
     slice: PieLayout<Meta>['slices'][number],
     layout: PieLayout<Meta>,
-    { offset, fillStyle, withStroke }: DrawSliceShapeOptions
+    { outerRadiusBoost, fillStyle }: DrawSliceShapeOptions
 ): void {
     const halfPad = layout.padAngle / 2
     const start = slice.startAngle + halfPad
@@ -299,10 +306,8 @@ function drawSliceShape<Meta>(
     if (start >= end) {
         return
     }
-    const offsetX = offset === 0 ? 0 : Math.sin(slice.centroidAngle) * offset
-    const offsetY = offset === 0 ? 0 : -Math.cos(slice.centroidAngle) * offset
-    const cx = layout.cx + offsetX
-    const cy = layout.cy + offsetY
+    const { cx, cy, innerRadius } = layout
+    const outerRadius = layout.outerRadius + outerRadiusBoost
 
     // Canvas arc convention: 0 = 3 o'clock, increasing clockwise. d3.pie uses
     // 0 = 12 o'clock. Subtract π/2 to align.
@@ -311,19 +316,13 @@ function drawSliceShape<Meta>(
 
     ctx.fillStyle = fillStyle
     ctx.beginPath()
-    if (layout.innerRadius > 0) {
-        ctx.arc(cx, cy, layout.outerRadius, cStart, cEnd, false)
-        ctx.arc(cx, cy, layout.innerRadius, cEnd, cStart, true)
+    if (innerRadius > 0) {
+        ctx.arc(cx, cy, outerRadius, cStart, cEnd, false)
+        ctx.arc(cx, cy, innerRadius, cEnd, cStart, true)
     } else {
         ctx.moveTo(cx, cy)
-        ctx.arc(cx, cy, layout.outerRadius, cStart, cEnd, false)
+        ctx.arc(cx, cy, outerRadius, cStart, cEnd, false)
     }
     ctx.closePath()
     ctx.fill()
-
-    if (withStroke) {
-        ctx.lineWidth = 1
-        ctx.strokeStyle = withStroke
-        ctx.stroke()
-    }
 }
