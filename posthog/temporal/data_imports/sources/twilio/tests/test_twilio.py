@@ -44,10 +44,17 @@ class TestFormatFilterDate:
             (date(2026, 3, 4), "2026-03-04"),
             ("2026-03-04T02:58:14Z", "2026-03-04"),
             ("Fri, 24 May 2019 17:44:46 +0000", "2019-05-24"),
+            (1583290694, "2020-03-04"),  # epoch seconds
         ],
     )
     def test_format_filter_date(self, value, expected):
         assert _format_filter_date(value) == expected
+
+    @pytest.mark.parametrize("value", ["not-a-date", "", None])
+    def test_format_filter_date_raises_on_unparseable(self, value):
+        # Better to fail loudly than emit a malformed filter Twilio rejects with error 20001.
+        with pytest.raises(ValueError):
+            _format_filter_date(value)
 
 
 class TestBuildInitialParams:

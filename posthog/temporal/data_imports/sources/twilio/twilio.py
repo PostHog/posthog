@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -31,19 +31,21 @@ class TwilioResumeConfig:
 
 
 def _format_filter_date(value: Any) -> str:
-    """Twilio date filters are GMT and day-granular (YYYY-MM-DD).
+    """Format an incremental watermark as Twilio's day-granular GMT filter value (YYYY-MM-DD).
 
-    We format the watermark down to its date and use an inclusive `>=` filter, so the whole
-    boundary day is re-fetched and de-duplicated on `sid` by the pipeline's merge semantics.
+    Used with an inclusive `>=` filter, so the whole boundary day is re-fetched and de-duplicated
+    on `sid` by the pipeline's merge semantics. `bool` is excluded from the numeric branch since it
+    subclasses `int`. We raise on anything we can't turn into a real date rather than passing a
+    malformed value through, which Twilio would reject mid-sync with the opaque error 20001.
     """
     if isinstance(value, datetime | date):
         return value.strftime("%Y-%m-%d")
-    # Watermarks arrive as datetimes in practice; parse any string defensively so a non-ISO
-    # value can't produce a malformed filter (which Twilio rejects with error 20001).
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return datetime.fromtimestamp(value, tz=UTC).strftime("%Y-%m-%d")
     try:
         return dateutil_parser.parse(str(value)).strftime("%Y-%m-%d")
-    except (ValueError, TypeError, OverflowError):
-        return str(value)[:10]
+    except (ValueError, TypeError, OverflowError) as e:
+        raise ValueError(f"Cannot build a Twilio date filter from incremental value {value!r}") from e
 
 
 def _build_initial_params(
