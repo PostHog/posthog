@@ -12598,6 +12598,7 @@ export namespace Schemas {
     * `Chargebee` - Chargebee
     * `Clerk` - Clerk
     * `GoogleAds` - GoogleAds
+    * `GoogleSearchConsole` - GoogleSearchConsole
     * `TemporalIO` - TemporalIO
     * `DoIt` - DoIt
     * `GoogleSheets` - GoogleSheets
@@ -12750,6 +12751,7 @@ export namespace Schemas {
       Chargebee: 'Chargebee',
       Clerk: 'Clerk',
       GoogleAds: 'GoogleAds',
+      GoogleSearchConsole: 'GoogleSearchConsole',
       TemporalIO: 'TemporalIO',
       DoIt: 'DoIt',
       GoogleSheets: 'GoogleSheets',
@@ -12909,6 +12911,7 @@ export namespace Schemas {
       * `Chargebee` - Chargebee
       * `Clerk` - Clerk
       * `GoogleAds` - GoogleAds
+      * `GoogleSearchConsole` - GoogleSearchConsole
       * `TemporalIO` - TemporalIO
       * `DoIt` - DoIt
       * `GoogleSheets` - GoogleSheets
@@ -16704,6 +16707,7 @@ export namespace Schemas {
       * `Chargebee` - Chargebee
       * `Clerk` - Clerk
       * `GoogleAds` - GoogleAds
+      * `GoogleSearchConsole` - GoogleSearchConsole
       * `TemporalIO` - TemporalIO
       * `DoIt` - DoIt
       * `GoogleSheets` - GoogleSheets
@@ -17941,6 +17945,17 @@ export namespace Schemas {
       conversions: number;
       /** Period-over-period change in conversions, null when not meaningful. */
       change: WoWChange | null;
+    }
+
+    export interface GoogleSearchConsoleSite {
+      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+      siteUrl: string;
+      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+      permissionLevel: string;
+    }
+
+    export interface GoogleSearchConsoleSitesResponse {
+      sites: GoogleSearchConsoleSite[];
     }
 
     export interface Group {
@@ -20067,6 +20082,7 @@ export namespace Schemas {
     * `google-cloud-service-account` - Google Cloud Service Account
     * `google-cloud-storage` - Google Cloud Storage
     * `google-pubsub` - Google Pubsub
+    * `google-search-console` - Google Search Console
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
     * `intercom` - Intercom
@@ -20107,6 +20123,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
       Intercom: 'intercom',
@@ -41970,6 +41987,7 @@ export namespace Schemas {
     * `google-cloud-service-account` - Google Cloud Service Account
     * `google-cloud-storage` - Google Cloud Storage
     * `google-pubsub` - Google Pubsub
+    * `google-search-console` - Google Search Console
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
     * `intercom` - Intercom
@@ -42021,6 +42039,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
       Intercom: 'intercom',
@@ -47401,6 +47420,7 @@ export namespace Schemas {
     * `google-cloud-service-account` - Google Cloud Service Account
     * `google-cloud-storage` - Google Cloud Storage
     * `google-pubsub` - Google Pubsub
+    * `google-search-console` - Google Search Console
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
     * `intercom` - Intercom
@@ -47452,6 +47472,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
       Intercom: 'intercom',
