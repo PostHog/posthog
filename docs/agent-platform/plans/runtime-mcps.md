@@ -1,15 +1,15 @@
 # Design — runtime `spec.mcps[]` support
 
-> **Auth redesign in progress.** The current auth surface (`secrets[]`
-> for URL substitution only, `auth.integration` requiring a Django
-> integration kind per provider) is the open gap. Self-serve
-> "bring-your-own token" cases should use
-> [`@posthog/http-request`](../../../services/agent-tools/src/tools/http-request.v1.ts)
-> today; the redesigned auth path for runtime MCPs lives at
-> [`runtime-mcps-auth-discovery.md`](runtime-mcps-auth-discovery.md).
-> Until that ships, runtime MCPs are best for typed catalogs +
-> per-tool approval gating (the cases that genuinely benefit from
-> protocol semantics).
+> **Bring-your-own auth shipped.** `McpRefSchema` now accepts a
+> `headers` field with `${SECRET}` substitution — same shape as
+> [`@posthog/http-request`](../../../services/agent-tools/src/tools/http-request.v1.ts).
+> Paste a PAT into `spec.secrets`, reference it as
+> `Authorization: 'Bearer ${TOKEN}'` on the McpRef, you're done.
+> Works for GitHub MCP, Linear MCP, Sentry MCP, Notion MCP, anything
+> with a bearer-token auth model. See
+> [`runtime-mcps-auth-discovery.md`](runtime-mcps-auth-discovery.md) §"Tier 1 ✅ shipped."
+> Tier 2 (managed OAuth via DCR for the "click-to-connect" UX) is the
+> queued upgrade.
 
 **Status:** ✅ shipped, then simplified — see "Post-ship simplification" below.
 The plan as a whole landed (PRs 1-7); the `kind: 'agent'` agent-to-agent

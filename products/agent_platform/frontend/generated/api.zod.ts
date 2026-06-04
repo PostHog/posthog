@@ -286,6 +286,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         secrets: zod
                             .array(zod.string())
                             .default(agentApplicationsRevisionsCreateBodySpecMcpsItemSecretsDefault),
+                        headers: zod.record(zod.string(), zod.string()).optional(),
                         tools: zod
                             .array(
                                 zod.union([
@@ -600,6 +601,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         secrets: zod
                             .array(zod.string())
                             .default(agentApplicationsRevisionsUpdateBodySpecMcpsItemSecretsDefault),
+                        headers: zod.record(zod.string(), zod.string()).optional(),
                         tools: zod
                             .array(
                                 zod.union([
@@ -939,6 +941,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         secrets: zod
                             .array(zod.string())
                             .default(agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemSecretsDefault),
+                        headers: zod.record(zod.string(), zod.string()).optional(),
                         tools: zod
                             .array(
                                 zod.union([

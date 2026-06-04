@@ -429,6 +429,33 @@ describe('AgentSpecSchema', () => {
             const m = spec.mcps[0]
             expect(m.secrets).toEqual([])
             expect(m.tools).toBeUndefined()
+            expect(m.headers).toBeUndefined()
+        })
+
+        it('parses author-supplied headers with secret references for BYO bearer tokens', () => {
+            // Unblocks GitHub MCP / Linear MCP / any HTTP-API'd MCP with a
+            // bearer-token auth model. Same substitution semantics as
+            // @posthog/http-request — the runner walks headers + substitutes
+            // ${NAME} from `secrets[]` before opening the client.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        id: 'github',
+                        url: 'https://api.githubcopilot.com/mcp',
+                        secrets: ['GITHUB_TOKEN'],
+                        headers: {
+                            Authorization: 'Bearer ${GITHUB_TOKEN}',
+                            'X-GitHub-Api-Version': '2022-11-28',
+                        },
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.headers).toEqual({
+                Authorization: 'Bearer ${GITHUB_TOKEN}',
+                'X-GitHub-Api-Version': '2022-11-28',
+            })
         })
 
         it.each([

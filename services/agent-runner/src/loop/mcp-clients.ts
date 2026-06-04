@@ -258,6 +258,17 @@ async function resolveTarget(
         // when set; this branch only fires when the spec is auth-less.
         headers['Authorization'] = `Bearer ${deps.devMcpBearerToken}`
     }
+    // Author-supplied headers — the BYO-bearer-token path. Walked after the
+    // integration / dev-bearer blocks so explicit author entries take
+    // precedence on duplicate keys (matches `http-request`'s "caller-set
+    // values are not silently overwritten" rule). Substituted from the
+    // ref's `secrets[]` declarations — missing-secret throws the same
+    // mcp_secret_not_resolved error as the URL path.
+    if (ref.headers) {
+        for (const [name, raw] of Object.entries(ref.headers)) {
+            headers[name] = substituteSecrets(raw, ref.secrets, deps.secrets)
+        }
+    }
     return { url, headers }
 }
 

@@ -261,6 +261,8 @@ export type AgentRevisionApiSpecMcpsItemAuth = {
     integration?: string
 }
 
+export type AgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
+
 export type AgentRevisionApiSpecMcpsItemToolsItem =
     | string
     | {
@@ -286,6 +288,7 @@ export type AgentRevisionApiSpecMcpsItem = {
     url: string
     auth?: AgentRevisionApiSpecMcpsItemAuth
     secrets?: string[]
+    headers?: AgentRevisionApiSpecMcpsItemHeaders
     tools?: AgentRevisionApiSpecMcpsItemToolsItem[]
 }
 
@@ -473,6 +476,8 @@ export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
     integration?: string
 }
 
+export type PatchedAgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
+
 export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
     | string
     | {
@@ -498,6 +503,7 @@ export type PatchedAgentRevisionApiSpecMcpsItem = {
     url: string
     auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
     secrets?: string[]
+    headers?: PatchedAgentRevisionApiSpecMcpsItemHeaders
     tools?: PatchedAgentRevisionApiSpecMcpsItemToolsItem[]
 }
 

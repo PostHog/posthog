@@ -179,9 +179,7 @@ describe('slack trigger: real e2e', () => {
         // And no leftover pending_inputs that would have caused a second turn.
         expect(session!.pending_inputs).toHaveLength(0)
         // Assistant should have replied exactly once.
-        const assistantTexts = session!.conversation.filter(
-            (m): m is { role: 'assistant'; content: string } => m.role === 'assistant'
-        )
+        const assistantTexts = session!.conversation.filter((m) => m.role === 'assistant')
         expect(assistantTexts).toHaveLength(1)
     })
 

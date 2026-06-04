@@ -95,6 +95,27 @@ def _with_auth(spec: dict) -> dict:
                 ],
             },
         ),
+        # BYO bearer token: author drops a PAT into spec.secrets, references
+        # it from mcps[].headers. Mirrors @posthog/http-request's shape; the
+        # runner walks `headers` and substitutes `${NAME}` at session start.
+        (
+            "external_mcp_byo_headers_with_secret",
+            {
+                "model": "x",
+                "secrets": ["GITHUB_TOKEN"],
+                "mcps": [
+                    {
+                        "id": "github",
+                        "url": "https://api.githubcopilot.com/mcp",
+                        "secrets": ["GITHUB_TOKEN"],
+                        "headers": {
+                            "Authorization": "Bearer ${GITHUB_TOKEN}",
+                            "X-GitHub-Api-Version": "2022-11-28",
+                        },
+                    }
+                ],
+            },
+        ),
         # Registry-pin shapes the freeze pipeline resolves: a skill carrying
         # `from_template` + `alias` (+ optional `version`) alongside the
         # runtime id/path, and a `custom_template` tool ref. Before these

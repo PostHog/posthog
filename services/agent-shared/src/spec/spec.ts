@@ -286,6 +286,23 @@ export const McpRefSchema = z.object({
      */
     secrets: z.array(z.string()).default([]),
     /**
+     * Author-supplied request headers stamped on every outgoing MCP request.
+     * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
+     * the plaintext value before opening the MCP client, so the secret never
+     * leaves the runner process. Same substitution shape as
+     * `@posthog/http-request`'s `headers` — the parallel is intentional so
+     * authors can use the same mental model for "bring my own bearer token"
+     * against either a typed MCP catalog or a raw HTTP API.
+     *
+     * Use this for the bring-your-own-token case (paste a PAT once, reference
+     * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For platform-
+     * managed OAuth tokens, use `auth.integration` instead; integration-
+     * stamped headers compose with author-supplied headers — explicit
+     * author entries win on duplicate keys, matching `http-request`'s
+     * "caller-set values are not silently overwritten" rule.
+     */
+    headers: z.record(z.string(), z.string()).optional(),
+    /**
      * Per-tool selection AND approval gating. Bare string is a passthrough
      * (gates inclusion, no approval); object form carries
      * `requires_approval` + `approval_policy`. Omitted / empty = expose

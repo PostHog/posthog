@@ -153,6 +153,50 @@ describe('runtime MCPs: real e2e', () => {
         // belt-and-braces check that the filtered one round-tripped.
     })
 
+    it('substitutes ${SECRET_NAME} placeholders in author-supplied headers (BYO bearer token)', async () => {
+        // End-to-end: agent deploys with a `headers` field referencing a
+        // secret. Runner opens the MCP client; the harness's transport
+        // factory captures the per-call target so we can assert the
+        // substituted Authorization landed on the wire. This is the GitHub
+        // / Linear / Sentry MCP path: paste a PAT into spec.secrets, point
+        // the McpRef's `headers.Authorization` at `Bearer ${TOKEN}`, the
+        // model gets typed access to the MCP catalog without the platform
+        // shipping a per-provider integration kind.
+        const { factory, targets } = buildFactory({
+            'list-issues': { description: 'd', handler: () => ({ items: [] }) },
+        })
+        c = await buildCluster({
+            mcpTransportFactory: factory,
+            resolveSecrets: async () => ({ GITHUB_TOKEN: 'ghp_realtoken' }),
+        })
+        c.setScript([fauxCallTool('github__list-issues', {}), fauxText('done')])
+        await c.deployAgent({
+            slug: 'mcp-byo-headers',
+            spec: {
+                secrets: ['GITHUB_TOKEN'],
+                mcps: [
+                    {
+                        id: 'github',
+                        url: 'https://api.githubcopilot.com/mcp',
+                        secrets: ['GITHUB_TOKEN'],
+                        headers: {
+                            Authorization: 'Bearer ${GITHUB_TOKEN}',
+                            'X-GitHub-Api-Version': '2022-11-28',
+                        },
+                    },
+                ],
+            },
+        })
+        const res = await request(c.ingress).post('/agents/mcp-byo-headers/run').send({ message: 'go' })
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        // Header substitution fired: the resolved token reached the wire,
+        // and the static header passed through unchanged.
+        expect(targets[0].headers.Authorization).toBe('Bearer ghp_realtoken')
+        expect(targets[0].headers['X-GitHub-Api-Version']).toBe('2022-11-28')
+    })
+
     it('substitutes ${SECRET_NAME} placeholders in the connect URL', async () => {
         const { factory, targets } = buildFactory({
             ping: { description: 'd', handler: () => ({ ok: true }) },

@@ -7718,6 +7718,8 @@ export namespace Schemas {
       integration?: string;
     };
 
+    export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
     export type AgentRevisionSpecMcpsItemToolsItem = string | {
       /** @minLength 1 */
       name: string;
@@ -7741,6 +7743,7 @@ export namespace Schemas {
       url: string;
       auth?: AgentRevisionSpecMcpsItemAuth;
       secrets?: string[];
+      headers?: AgentRevisionSpecMcpsItemHeaders;
       tools?: AgentRevisionSpecMcpsItemToolsItem[];
     };
 
@@ -28041,6 +28044,8 @@ export namespace Schemas {
       integration?: string;
     };
 
+    export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
     export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
       /** @minLength 1 */
       name: string;
@@ -28064,6 +28069,7 @@ export namespace Schemas {
       url: string;
       auth?: PatchedAgentRevisionSpecMcpsItemAuth;
       secrets?: string[];
+      headers?: PatchedAgentRevisionSpecMcpsItemHeaders;
       tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
     };
 

@@ -1,7 +1,8 @@
 # Design — runtime MCP auth + OAuth discovery
 
-**Status:** plan only, no code yet. **Owner:** dylan. **Tracking:**
-[`_ROADMAP.md`](_ROADMAP.md) §C.2 (follow-up).
+**Status:** **Tier 1 ✅ shipped** (BYO headers + secret substitution on
+`McpRefSchema`). Tier 2 (DCR + managed OAuth) still queued. **Owner:**
+dylan. **Tracking:** [`_ROADMAP.md`](_ROADMAP.md) §C.2 (follow-up).
 **Sibling:** [`runtime-mcps.md`](runtime-mcps.md) — the runner-side
 plumbing this builds on.
 
@@ -157,6 +158,39 @@ The concierge's existing `set_secret` flow handles pasting
 Every SaaS MCP with a static-token auth model. Linear, Sentry, the
 self-hosted half of Grafana, Notion, internal services. The author
 generates the token at the provider, pastes once, done.
+
+### ✅ Shipped
+
+`headers` field landed on `McpRefSchema` with `${SECRET}` substitution.
+Runner walks `ref.headers` after the integration / dev-bearer paths,
+substituting from the ref's `secrets[]` (missing secrets throw
+`mcp_secret_not_resolved` — same loud-failure shape as the URL path).
+Author-supplied entries take precedence on duplicate keys, matching
+`http-request`'s "caller-set values are not silently overwritten" rule.
+Django spec validator mirrored. OpenAPI regenerated. Test coverage:
+
+- `services/agent-shared/src/spec/spec.test.ts` — parsing with headers
+- `services/agent-runner/src/loop/mcp-clients.test.ts` — substitution,
+  precedence over integration auth, missing-secret error
+- `services/agent-tests/src/cases/mcp-tools.test.ts` — end-to-end
+  GitHub-MCP-shaped round trip with `Authorization: Bearer ${TOKEN}`
+- `products/agent_platform/backend/test_spec_schema.py` — Django mirror
+
+Spec authors using a typed MCP catalog with bearer-token auth land at:
+
+```yaml
+mcps:
+  - id: github
+    url: https://api.githubcopilot.com/mcp
+    secrets: [GITHUB_TOKEN]
+    headers:
+      Authorization: 'Bearer ${GITHUB_TOKEN}'
+    tools: [get_issue, search_issues, create_pull_request_comment]
+```
+
+Tier 2 (DCR + managed OAuth) is the queued upgrade for "click-to-connect"
+UX; until then, paste-a-PAT via the concierge's `set_secret` flow is
+the path.
 
 ## Tier 2 design — Dynamic Client Registration
 

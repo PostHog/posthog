@@ -237,6 +237,18 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         "type": "array",
                         "items": {"type": "string"},
                     },
+                    # Author-supplied request headers stamped on every outgoing
+                    # MCP request. Values may reference `${NAME}` from
+                    # `secrets[]`; the runner substitutes the plaintext value
+                    # before opening the MCP client. Same substitution shape as
+                    # `@posthog/http-request`'s `headers` — the parallel is
+                    # intentional. Use for the bring-your-own-token case
+                    # (paste a PAT once, reference it as `${TOKEN}` in
+                    # `Authorization: 'Bearer ${TOKEN}'`).
+                    "headers": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
                     # Per-tool selection + approval gating. Bare string
                     # = inclusion only (was allowlist[] pre-PR-7);
                     # object form adds requires_approval +

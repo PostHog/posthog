@@ -199,6 +199,81 @@ describe('openMcpClients', () => {
         await closePairs(pairs)
     })
 
+    it('substitutes ${NAME} placeholders in author-supplied headers (BYO bearer token)', async () => {
+        // The bring-your-own-token path: author pastes a PAT into spec.secrets,
+        // references it via `Authorization: Bearer ${TOKEN}` on the MCP ref.
+        // Plaintext substitution happens server-side so the token never appears
+        // in the model's tool-call history. Same shape as @posthog/http-request.
+        const { factory, pairs, targets } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'github',
+                url: 'https://api.githubcopilot.com/mcp',
+                secrets: ['GITHUB_TOKEN'],
+                headers: {
+                    Authorization: 'Bearer ${GITHUB_TOKEN}',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                },
+            },
+        ]
+        const { close } = await openMcpClients(refs, {
+            integrations: {},
+            secrets: { GITHUB_TOKEN: 'ghp_realtoken' },
+            transportFactory: factory,
+        })
+        expect(targets[0].headers.Authorization).toBe('Bearer ghp_realtoken')
+        expect(targets[0].headers['X-GitHub-Api-Version']).toBe('2022-11-28')
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('author headers take precedence over integration-stamped Authorization on duplicate keys', async () => {
+        // Matches @posthog/http-request's "caller-set values are not silently
+        // overwritten" rule. If the author explicitly sets Authorization in
+        // headers AND wires auth.integration, the explicit author value wins
+        // — the integration bearer falls through. Authors who want the
+        // integration's token must omit Authorization from headers.
+        const { factory, pairs, targets } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'fancy',
+                url: 'https://example.com/mcp',
+                secrets: ['CUSTOM_TOKEN'],
+                auth: { integration: 'slack:T01' },
+                headers: { Authorization: 'Bearer ${CUSTOM_TOKEN}' },
+            },
+        ]
+        const { close } = await openMcpClients(refs, {
+            integrations: {
+                'slack:T01': { kind: 'slack', access_token: 'xoxb-from-integration' },
+            },
+            secrets: { CUSTOM_TOKEN: 'custom-from-secret' },
+            transportFactory: factory,
+            integrationHostValidator: () => true,
+        })
+        expect(targets[0].headers.Authorization).toBe('Bearer custom-from-secret')
+        await close()
+        await closePairs(pairs)
+    })
+
+    it('throws mcp_secret_not_resolved when a header references an undeclared secret', async () => {
+        // Same loud-failure shape as the URL path — sending a literal
+        // `${NAME}` to the remote would 401 with a confusing protocol error.
+        const { factory, pairs } = await buildEchoFactory()
+        const refs: McpRef[] = [
+            {
+                id: 'github',
+                url: 'https://example.com/mcp',
+                secrets: ['GITHUB_TOKEN'],
+                headers: { Authorization: 'Bearer ${GITHUB_TOKEN}' },
+            },
+        ]
+        await expect(
+            openMcpClients(refs, { integrations: {}, secrets: {}, transportFactory: factory })
+        ).rejects.toThrow(/mcp_secret_not_resolved: GITHUB_TOKEN/)
+        await closePairs(pairs)
+    })
+
     it('throws mcp_secret_not_resolved when a declared secret is missing', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
