@@ -6,7 +6,7 @@ from posthog.schema import MaterializationMode, PropertyGroupsMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
-from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsTable
+from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.visitor import CloningVisitor
 
@@ -157,34 +157,38 @@ def lower_property_type(property_type: ast.PropertyType, context: HogQLContext) 
 
 
 def _property_cast_type(property_type: ast.PropertyType, context: HogQLContext) -> str | None:
-    """The registered scalar type the second PropertySwapper would coerce this property to, or None.
+    """The registered scalar type the PropertySwapper would coerce this property to, or None.
 
-    Mirrors `PropertySwapper.visit_field`'s single-key event/person coercion, restricted to the table shapes
-    lowering itself handles. Group properties (lazy joins) and PoE virtual-table person props are out of scope
-    here and stay with the swapper. Returns one of "Float" / "DateTime" / "Boolean" / "String", or None when
-    the property isn't in the resolved registry (i.e. the swapper would leave it as a raw string).
+    Mirrors `PropertySwapper.visit_field`'s single-key event/person coercion. Group properties (resolved via
+    lazy joins, then repointed into a subquery) don't reach here as raw `PropertyType`s, so they stay with the
+    swapper. Returns one of "Float" / "DateTime" / "Boolean" / "String", or None when the property isn't in the
+    resolved registry (i.e. the swapper would leave it as a raw string).
     """
     swapper = context.property_swapper
     if swapper is None or len(property_type.chain) != 1:
         return None
 
     base_field_type = property_type.field_type
-    table_type = _underlying_table_type(base_field_type.table_type)
-    if table_type is None:
-        return None
-
-    table = table_type.table
     property_name = str(property_type.chain[0])
     field_name = base_field_type.name
+    raw_table_type = base_field_type.table_type
 
     prop_info: dict[str, str | None] | None = None
-    if field_name == "properties":
-        if isinstance(table, EventsTable):
-            prop_info = swapper.event_properties.get(property_name)
-        elif isinstance(table, (PersonsTable, RawPersonsTable)):
+    # PoE person properties read `properties.$x` off the events person sub-table (a VirtualTableType).
+    if isinstance(raw_table_type, ast.VirtualTableType) and raw_table_type.field == "poe":
+        if field_name == "properties":
             prop_info = swapper.person_properties.get(property_name)
-    elif field_name == "person_properties" and isinstance(table, EVENTS_TABLE_TYPES):
+    elif field_name == "person_properties":
         prop_info = swapper.person_properties.get(property_name)
+    elif field_name == "properties":
+        table_type = _underlying_table_type(raw_table_type)
+        if table_type is None:
+            return None
+        table = table_type.table
+        if isinstance(table, (PersonsTable, RawPersonsTable, EventsPersonSubTable)):
+            prop_info = swapper.person_properties.get(property_name)
+        elif isinstance(table, EventsTable):
+            prop_info = swapper.event_properties.get(property_name)
 
     if not prop_info:
         return None
@@ -301,6 +305,9 @@ def _synthetic_column_field(base_field_type: ast.FieldType, column_name: str, *,
 def _augment_table_type(
     table_type: ast.Type, column_name: str, *, is_nullable: bool
 ) -> ast.TableType | ast.TableAliasType | None:
+    if isinstance(table_type, ast.VirtualTableType):
+        # PoE person properties: the physical mat/group columns live on the underlying events table.
+        return _augment_table_type(table_type.table_type, column_name, is_nullable=is_nullable)
     if isinstance(table_type, ast.TableAliasType):
         inner = table_type.table_type
         if not isinstance(inner, ast.TableType):
@@ -323,7 +330,7 @@ def _augment_plain_table_type(table_type: ast.TableType, column_name: str, is_nu
 
 
 def _underlying_table_type(table_type: ast.Type) -> ast.TableType | None:
-    if isinstance(table_type, ast.TableAliasType):
+    while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
         table_type = table_type.table_type
     if isinstance(table_type, ast.TableType):
         return table_type
