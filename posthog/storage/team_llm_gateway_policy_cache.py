@@ -27,7 +27,7 @@ from django.db import OperationalError
 
 import structlog
 
-from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
+from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import refresh_expiring_caches as refresh_generic
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
@@ -95,7 +95,7 @@ team_llm_gateway_policy_hypercache = HyperCache(
     batch_load_fn=_batch_load_llm_gateway_policy,
     cache_ttl=LLM_GATEWAY_POLICY_CACHE_TTL,
     cache_miss_ttl=LLM_GATEWAY_POLICY_CACHE_MISS_TTL,
-    cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
+    cache_alias=(AI_GATEWAY_DEDICATED_CACHE_ALIAS if AI_GATEWAY_DEDICATED_CACHE_ALIAS in settings.CACHES else None),
     expiry_sorted_set_key=LLM_GATEWAY_POLICY_CACHE_EXPIRY_SORTED_SET,
 )
 

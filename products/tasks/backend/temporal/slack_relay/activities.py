@@ -2,11 +2,20 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
 logger = get_logger(__name__)
+
+_CONVERTER = SlackMarkdownConverter()
+
+_RE_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+_RE_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{2,}:?$")
+_RE_FENCE = re.compile(r"^\s*(```|~~~)")
+_RE_INLINE_MARKDOWN_MARKERS = re.compile(r"\*\*|__|\*|_|~~|`")
+_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
 
 class _RelayAlreadyRecorded(Exception):
@@ -14,89 +23,94 @@ class _RelayAlreadyRecorded(Exception):
 
 
 def _markdown_to_slack_mrkdwn(text: str) -> str:
-    """Convert markdown to Slack mrkdwn format.
+    """Convert markdown to Slack ``mrkdwn`` via ``markdown_to_mrkdwn``.
 
-    Handles the most common differences while preserving code blocks.
+    Tables are pre-converted to fenced code blocks before the library runs because
+    Slack ``mrkdwn`` is rendered in a proportional font — pipe-separated rows do
+    not line up. A fenced code block forces monospace and the columns align.
     """
-    # Preserve code blocks from transformation
-    code_blocks: list[str] = []
-
-    def _stash_code_block(match: re.Match) -> str:
-        code_blocks.append(match.group(0))
-        return f"\x00CODE{len(code_blocks) - 1}\x00"
-
-    text = re.sub(r"```[\s\S]*?```", _stash_code_block, text)
-    text = re.sub(r"`[^`]+`", _stash_code_block, text)
-
-    # Markdown tables → plain text columns
-    text = _convert_tables(text)
-
-    # Headers → bold (### Header → *Header*)
-    text = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=re.MULTILINE)
-
-    # Bold: **text** → *text* (but not inside already-converted bold)
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-
-    # Strikethrough: ~~text~~ → ~text~
-    text = re.sub(r"~~(.+?)~~", r"~\1~", text)
-
-    # Images before links since ![...] is more specific than [...]
-    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
-
-    # Links: [text](url) → <url|text>
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
-
-    # Restore code blocks
-    for i, block in enumerate(code_blocks):
-        text = text.replace(f"\x00CODE{i}\x00", block)
-
-    return text
+    if not text:
+        return text
+    return _CONVERTER.convert(_tables_to_fenced_code_blocks(text))
 
 
-def _convert_tables(text: str) -> str:
-    """Convert markdown tables to aligned plain-text columns."""
+def _tables_to_fenced_code_blocks(text: str) -> str:
+    """Replace pipe-syntax markdown tables with fenced code blocks of padded columns.
+
+    A run of consecutive ``|…|`` lines surrounding a ``---`` separator row is
+    treated as a table; runs without a separator are left untouched. Lines inside
+    an existing fenced code block are skipped entirely so we don't mis-detect a
+    pipe-shaped line of source code as a table.
+    """
     lines = text.split("\n")
-    result: list[str] = []
-    table_lines: list[str] = []
+    out: list[str] = []
+    run: list[str] = []
+    in_fence = False
 
-    def _flush_table() -> None:
-        if not table_lines:
+    def _flush() -> None:
+        if not run:
             return
-        rows: list[list[str]] = []
-        for line in table_lines:
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            # Skip separator rows (----, :---:, etc.)
-            if all(re.match(r"^:?-+:?$", c) for c in cells):
-                continue
-            rows.append(cells)
-        if not rows:
-            table_lines.clear()
-            return
-        # Calculate column widths
-        col_count = max(len(r) for r in rows)
-        widths = [0] * col_count
-        for row in rows:
-            for i, cell in enumerate(row):
-                if i < col_count:
-                    widths[i] = max(widths[i], len(cell))
-        for row in rows:
-            padded = []
-            for i in range(col_count):
-                cell = row[i] if i < len(row) else ""
-                padded.append(cell.ljust(widths[i]))
-            result.append("  ".join(padded).rstrip())
-        table_lines.clear()
+        rendered = _render_table(run)
+        out.extend(run if rendered is None else [rendered])
+        run.clear()
 
     for line in lines:
-        stripped = line.strip()
-        if re.match(r"^\|.*\|$", stripped):
-            table_lines.append(stripped)
+        if _RE_FENCE.match(line):
+            _flush()
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if not in_fence and _RE_TABLE_ROW.match(line):
+            run.append(line)
         else:
-            _flush_table()
-            result.append(line)
-    _flush_table()
+            _flush()
+            out.append(line)
+    _flush()
 
-    return "\n".join(result)
+    return "\n".join(out)
+
+
+def _render_table(rows_raw: list[str]) -> str | None:
+    """Render a candidate table block to a fenced code block, or ``None`` if invalid.
+
+    A separator row of all-dashes cells (``---``, ``:---:``) is required — without
+    it the pipes are likely incidental rather than a table.
+    """
+    parsed: list[list[str]] = []
+    has_separator = False
+    for line in rows_raw:
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and all(_RE_TABLE_SEPARATOR_CELL.match(c) for c in cells):
+            has_separator = True
+            continue
+        parsed.append([_strip_inline_markdown(c) for c in cells])
+
+    if not has_separator or not parsed:
+        return None
+
+    col_count = max(len(r) for r in parsed)
+    widths = [0] * col_count
+    for row in parsed:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    body_lines = [
+        "  ".join((row[i] if i < len(row) else "").ljust(widths[i]) for i in range(col_count)).rstrip()
+        for row in parsed
+    ]
+    return "```\n" + "\n".join(body_lines) + "\n```"
+
+
+def _strip_inline_markdown(cell: str) -> str:
+    """Strip emphasis markers and unwrap links inside a cell.
+
+    The cell ends up inside a fenced code block where ``*bold*`` and ``[text](url)``
+    are not interpreted, so leaving the markers in just shifts column widths and
+    adds visual noise.
+    """
+    cell = _RE_MD_LINK.sub(r"\1", cell)
+    cell = _RE_INLINE_MARKDOWN_MARKERS.sub("", cell)
+    return cell.strip()
 
 
 @dataclass

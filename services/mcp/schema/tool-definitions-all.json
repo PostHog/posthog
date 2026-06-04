@@ -2678,6 +2678,111 @@
             "readOnlyHint": true
         }
     },
+    "heatmaps-events": {
+        "description": "Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you can open the session recordings that produced a hotspot.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Get sessions behind heatmap coordinates",
+        "title": "Get sessions behind heatmap coordinates",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-list": {
+        "description": "Aggregated heatmap interactions captured on a page. Filter by `url_exact` (one page) or `url_pattern` (regex across pages), a date window (`date_from`/`date_to`, data is retained 90 days), and optionally a viewport range (`viewport_width_min`/`viewport_width_max`, CSS px) to isolate a device class. Set `type` to 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. For clicks each result is a point — `pointer_relative_x` (0..1 across the viewport), `pointer_y` (absolute pixels down the page), and a `count`; 'scrolldepth' returns reach buckets instead. For the click types the response also includes a `fold` summary — `pct_below_fold` (share of non-fixed interactions that landed below the user's initial viewport, i.e. required scrolling), `below_fold_count`, `total_count`, and the `median_viewport_height` (the typical fold line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick` hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "List heatmap interactions for a page",
+        "title": "List heatmap interactions for a page",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-create": {
+        "description": "Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width — poll `heatmaps-saved-get` until `status` is 'completed'; the rendered page (with data overlaid) is then viewable by the user in the PostHog UI. Provide `widths` (CSS px, 100-3000) to control which viewports are rendered, or omit it for sensible defaults. The URL must be exact — wildcards are not allowed.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Create a saved heatmap",
+        "title": "Create a saved heatmap",
+        "required_scopes": ["heatmap:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-get": {
+        "description": "Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the PostHog UI.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Get a saved heatmap",
+        "title": "Get a saved heatmap",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-list": {
+        "description": "List saved heatmaps for the project. A saved heatmap pins a page URL plus a set of viewport widths and (for type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`, `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is viewable by the user in the PostHog UI.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "List saved heatmaps",
+        "title": "List saved heatmaps",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-regenerate": {
+        "description": "Re-run screenshot generation for a saved heatmap of type 'screenshot' by its `short_id`. Clears the existing renders and re-renders at every target width; `status` returns to 'processing'. Use when a page has changed or a render failed.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Regenerate a saved heatmap screenshot",
+        "title": "Regenerate a saved heatmap screenshot",
+        "required_scopes": ["heatmap:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-update": {
+        "description": "Update a saved heatmap by its `short_id`. Send only the fields to change — rename via `name`, change `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call). Changing the `url` of a 'screenshot' heatmap triggers a fresh render.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Update a saved heatmap",
+        "title": "Update a saved heatmap",
+        "required_scopes": ["heatmap:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
     "hog-flows-logs-retrieve": {
         "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
         "category": "Workflows",
