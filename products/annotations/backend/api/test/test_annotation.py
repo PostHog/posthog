@@ -202,35 +202,41 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert test_annotation.scope == "organization"
         assert test_annotation.date_marker is None
 
-    def test_creating_annotation_with_emoji(self) -> None:
+    @parameterized.expand(
+        [
+            ("simple_emoji", "🚀", "🚀"),
+            ("zwj_sequence", "👨‍👩‍👦", "👨‍👩‍👦"),
+            ("max_length_boundary", "🚀" * 16, "🚀" * 16),
+            ("blank_normalised_to_null", "", None),
+        ]
+    )
+    def test_creating_annotation_emoji(self, _name: str, emoji: str, expected: Optional[str]) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
                 "content": "Release shipped",
                 "scope": "project",
                 "date_marker": "2020-01-01T00:00:00.000000Z",
-                "emoji": "🚀",
+                "emoji": emoji,
             },
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["emoji"] == "🚀"
+        assert response.json()["emoji"] == expected
         instance = Annotation.objects.get(pk=response.json()["id"])
-        assert instance.emoji == "🚀"
+        assert instance.emoji == expected
 
-    def test_creating_annotation_with_blank_emoji_stores_null(self) -> None:
+    def test_creating_annotation_with_too_long_emoji_is_rejected(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
             {
                 "content": "Release shipped",
                 "scope": "project",
                 "date_marker": "2020-01-01T00:00:00.000000Z",
-                "emoji": "",
+                "emoji": "🚀" * 17,  # 17 code points exceeds the 16-char limit
             },
         )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["emoji"] is None
-        instance = Annotation.objects.get(pk=response.json()["id"])
-        assert instance.emoji is None
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "emoji" in response.json()
 
     def test_updating_and_clearing_annotation_emoji(self) -> None:
         test_annotation = Annotation.objects.create(
