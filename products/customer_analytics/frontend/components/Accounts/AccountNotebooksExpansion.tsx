@@ -23,6 +23,7 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
+import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
 const PREVIEW_MAX_CHARS = 200
@@ -70,7 +71,7 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                         targetBlank={link.targetBlank}
                         disabledReason={link.disabledReason ?? undefined}
                         onClick={() =>
-                            posthog.capture('customer analytics account link clicked', {
+                            posthog.capture(AccountsEvents.LinkClicked, {
                                 link_key: link.key,
                                 has_destination: !!link.to,
                             })
@@ -107,7 +108,7 @@ export function AccountNotebooksExpansion({
                             to={urls.notebook(notebook.short_id)}
                             className="font-medium"
                             onClick={() =>
-                                posthog.capture('customer analytics account note clicked', {
+                                posthog.capture(AccountsEvents.NoteClicked, {
                                     notebook_short_id: notebook.short_id,
                                 })
                             }

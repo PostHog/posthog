@@ -12,6 +12,7 @@ import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } fr
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
     ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
+    AccountsEvents,
     AccountsOverviewThresholdOperator,
     DEFAULT_TILES,
     MAX_ACCOUNTS_OVERVIEW_TILES,
@@ -259,7 +260,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
             }
             const diff = diffOverviewTiles(before, values.tiles)
             if (diff.changed) {
-                posthog.capture('customer analytics accounts overview tiles edited', {
+                posthog.capture(AccountsEvents.OverviewTilesEdited, {
                     tiles_added: diff.added,
                     tiles_removed: diff.removed,
                     tiles_updated: diff.updated,

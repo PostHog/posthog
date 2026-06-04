@@ -7,6 +7,7 @@ Guidance for agents working on the Accounts area of Customer analytics (`product
 We track user actions on the Accounts list with `posthog.capture()`. Conventions:
 
 - Event names: `customer analytics accounts <verb> <object>` — lowercase, spaces. Property keys are `snake_case`.
+- **Reference event names via the `AccountsEvents` const in `constants.ts`** — never pass a raw string to `posthog.capture`. A typo'd literal silently forks a new event in PostHog and breaks reporting with no error. When adding an event, add it to `AccountsEvents` and to the table below.
 - Fire events in the **kea logic listeners** (where the action and its values live), not in components. Only fire from a component when no action exists for the interaction (the expanded-row links/notes).
 - **Filters use a dedicated `reportFilterChange` action.** The raw filter setters (`setTagsFilter`, `setCsmFilter`, …) are also dispatched by URL sync (shared view links) and by cross-filter cascades (checking "unassigned only" clears the role filters), so capturing in their listeners would log phantom events. The filter controls dispatch `reportFilterChange(filterType)` on genuine interaction only; its listener reads the post-change state and captures. Add new filters the same way.
 - Use the **effective/debounced** action where one exists (e.g. capture in the `setSearchInput` listener after its debounce) so events don't fire per keystroke.

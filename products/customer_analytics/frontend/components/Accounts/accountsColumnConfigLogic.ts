@@ -16,6 +16,7 @@ import type { DataWarehouseViewLink } from '~/types'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
+import { AccountsEvents } from './constants'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -305,7 +306,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 lemonToast.success('Columns saved')
                 const diff = diffColumnConfiguration(previousColumns, columns)
                 if (diff.changed) {
-                    posthog.capture('customer analytics accounts columns saved', {
+                    posthog.capture(AccountsEvents.ColumnsSaved, {
                         column_count: columns.length,
                         columns,
                         added_count: diff.added,

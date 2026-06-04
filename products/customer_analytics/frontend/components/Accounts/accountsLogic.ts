@@ -21,6 +21,7 @@ import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } f
 import { ACCOUNTS_HOGQL_DEFAULT_SELECT, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
+import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
 
@@ -378,7 +379,7 @@ export const accountsLogic = kea<accountsLogicType>([
             actions.setSearchQuery(query)
             const trimmed = query.trim()
             if (trimmed) {
-                posthog.capture('customer analytics accounts searched', {
+                posthog.capture(AccountsEvents.Searched, {
                     query_length: trimmed.length,
                     has_query: true,
                     active_filter_count: values.activeFilterCount,
@@ -413,7 +414,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.is_cleared = !values.allRolesUnassigned
                     break
             }
-            posthog.capture('customer analytics accounts filter changed', properties)
+            posthog.capture(AccountsEvents.FilterChanged, properties)
         },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
@@ -454,7 +455,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 next = null
             }
             actions.setSortOrder(next)
-            posthog.capture('customer analytics accounts sorted', {
+            posthog.capture(AccountsEvents.Sorted, {
                 column,
                 direction: next ? next.direction : 'cleared',
             })
@@ -469,7 +470,7 @@ export const accountsLogic = kea<accountsLogicType>([
             clearSortIfColumnRemoved(values, actions)
         },
         refresh: () => {
-            posthog.capture('customer analytics accounts refreshed', {
+            posthog.capture(AccountsEvents.Refreshed, {
                 has_search: !!values.searchQuery.trim(),
                 active_filter_count: values.activeFilterCount,
                 sort_column: values.sortOrder?.column ?? null,
@@ -490,7 +491,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
                 actions.replaceAccount(updated)
-                posthog.capture('customer analytics account role assigned', {
+                posthog.capture(AccountsEvents.RoleAssigned, {
                     role,
                     is_assigned: user !== null,
                     assigned_user_id: user?.id ?? null,
@@ -506,7 +507,7 @@ export const accountsLogic = kea<accountsLogicType>([
         },
     })),
     afterMount(() => {
-        posthog.capture('customer analytics accounts list viewed')
+        posthog.capture(AccountsEvents.ListViewed)
     }),
     actionToUrl(({ values }) => {
         // Mirror the full view into the URL hash so the link is shareable.
