@@ -73,6 +73,8 @@ hogli devbox:sync --terminate                        # tear down when done
 
 `devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
+> **Note:** The mutagen daemon does not auto-start on system reboot. After a reboot, just run `hogli devbox:sync` again — the daemon starts on demand and your existing sync session resumes automatically.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)
