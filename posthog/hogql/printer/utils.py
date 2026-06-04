@@ -19,6 +19,7 @@ from posthog.hogql.transforms.events_predicate_pushdown import apply_events_pred
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
+from posthog.hogql.transforms.property_lowering import lower_properties
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
@@ -155,6 +156,13 @@ def prepare_ast_for_printing(
         if events_pushdown_enabled(context.modifiers):
             with context.timings.measure("events_predicate_pushdown"):
                 node = apply_events_predicate_pushdown(node, context)
+
+        # Lower materializable event/person properties to concrete column AST (selection + scalar cast) before
+        # the property swapper runs, so the swapper only coerces the tail it still owns (group props, PoE
+        # virtual-table person props). Properties this pass lowers are no longer PropertyTypes, so the printer
+        # never has to chase them to a physical column.
+        with context.timings.measure("lower_properties"):
+            node = lower_properties(node, context)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(

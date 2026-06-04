@@ -69,18 +69,38 @@ printer string-for-string — it can't, and shouldn't.
    Caveat — `clear_types`: `LowerProperties` must construct `CloningVisitor(clear_types=False)`; the default
    `True` wipes every node's resolved type and printing then fails ("FROM clause ... before type resolution").
 
-3. **Re-home optimizations + integrate — NEXT.**
-   - Move `_get_optimized_property_group_call` and the skip-index comparison rewrites (`clickhouse.py:536-901`)
-     into the lowering (they emit the optimized concrete form directly), reading the index flags off the
-     stage-1 source.
-   - Slot the pass into `prepare_ast_for_printing`. **Hard part — ordering:** the second `swap_properties`
-     (event/person type *coercion*: `toFloat`/`toDateTime`) runs *after* pushdown (`printer/utils.py:160`),
-     but lowering must run *before* pushdown. Either move coercion ahead of lowering, or teach coercion to
-     wrap the lowered expression.
-   - Delete the printer's property lowering (`visit_property_type` shrinks to the joined-subquery case),
-     delete the pushdown machinery (`_materialized_column_for_property`, `_optimized_json_has_group_column`,
-     `_collect_materialized_column`, `_inner_table_type_with_materialized_columns`), and re-apply the
-     pushdown "project columns + repoint" rewrite — now trivial because there are no `PropertyType`s left.
+3. **Integrate + scalar cast — DONE, tested.**
+   This refactor is **general and independent of the events-predicate pushdown** — the pushdown was only the
+   example that exposed the printer's `PropertyType`-chasing. Lowering now runs **globally** for every
+   ClickHouse query.
+   - **Cast folded in:** `lower_property_type` now also applies the scalar cast (`toFloat` / `toDateTime` /
+     `toBool`) for single-key event/person properties, reading the type the swapper already resolves into
+     `context.property_swapper.event_properties[name]["type"]` (`_property_cast_type` + `_apply_property_cast`,
+     mirroring `PropertySwapper._field_type_to_property_call`). So the cast and column-selection are one pass.
+   - **Ordering resolved by running lowering *before* the swapper** (`printer/utils.py`, new `lower_properties`
+     step right after pushdown, before `swap_properties`). The conflict dissolves: lowered properties are no
+     longer `PropertyType`, so the swapper no-ops on them and only coerces the tail it still owns (group props
+     via lazy joins, PoE virtual-table person props). No double-cast.
+   - Verified by `TestPropertyLoweringCast` (numeric `>` compares numerically not lexically; Float64 result
+     type; boolean coercion) + the existing `test_property_types.py` / `test_query.py` execution assertions
+     (only failures are cosmetic SQL-text churn in `.ambr` snapshots + inline hardcoded-SQL `.py` assertions,
+     plus pre-existing group-test personhog flakiness — **zero behavioral regressions**; response column names
+     are stable because they derive from the HogQL-dialect prepare, which the CH-only lowering never touches).
+
+4. **Deletions + coverage expansion — NEXT (deferred, safe to do incrementally).**
+   - Lowering currently *coexists* with the printer's `visit_property_type` lowering and the swapper's
+     property-cast branch — it handles the common cases (events/persons direct, single + deep chains), they
+     handle the tail it returns `None` for. Both can stay until lowering covers 100%.
+   - Expand coverage to the `None` cases (group props via lazy joins, PoE VirtualTableType person props,
+     ColumnAliasedTableType, `restricted_properties`). Once nothing falls through:
+     delete the printer's `visit_property_type` lowering (shrinks to the joined-subquery case), delete the
+     swapper's property-cast branch (keeps only real-column timezone / S3 duties), and move
+     `_get_optimized_property_group_call` + the skip-index comparison rewrites (`clickhouse.py:536-901`) into
+     the lowering (reading the index flags off the stage-1 source).
+   - The events-predicate-pushdown's mat-column machinery (`_materialized_column_for_property`,
+     `_optimized_json_has_group_column`, `_collect_materialized_column`,
+     `_inner_table_type_with_materialized_columns`) becomes redundant once lowering runs before it and there
+     are no `PropertyType`s to chase — delete then, and simplify pushdown to a plain "project + repoint".
 
 ## Related / context
 
