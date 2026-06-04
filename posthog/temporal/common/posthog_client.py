@@ -15,7 +15,6 @@ from temporalio.worker import (
 
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
-
 from products.exports.backend.tasks.failure_handler import USER_QUERY_ERROR_NAMES
 
 logger = get_write_only_logger()
@@ -40,16 +39,39 @@ async def _add_inputs_to_capture_kwargs(
         capture_exception(e, **capture_kwargs)
 
 
+def _exception_type_names(exception: Exception) -> set[str]:
+    type_names = {type(exception).__name__}
+    current_exception: Exception | None = exception
+    seen_exception_ids: set[int] = set()
+
+    while current_exception is not None and id(current_exception) not in seen_exception_ids:
+        seen_exception_ids.add(id(current_exception))
+        exception_type = getattr(current_exception, "type", None)
+        if isinstance(exception_type, str):
+            type_names.add(exception_type)
+
+        cause = current_exception.__cause__
+        if not isinstance(cause, Exception):
+            break
+
+        type_names.add(type(cause).__name__)
+        current_exception = cause
+
+    return type_names
+
+
+def _is_user_query_error(exception: Exception) -> bool:
+    return not USER_QUERY_ERROR_NAMES.isdisjoint(_exception_type_names(exception))
+
+
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Skip capture for known user-authored query mistakes (e.g. invalid HogQL exports).
-            # ClickHouse correctly rejects these and the export pipeline classifies them as
-            # non-retryable user errors, so capturing them just pollutes our own error tracking.
-            if type(e).__name__ in USER_QUERY_ERROR_NAMES:
+            if _is_user_query_error(e):
                 raise
+
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {

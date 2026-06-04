@@ -1,12 +1,12 @@
 """Test that we capture exceptions in activities and workflows to PostHog."""
 
-import uuid
 import datetime as dt
+import uuid
 from dataclasses import dataclass
 from typing import Any
+from unittest.mock import patch
 
 import pytest
-from unittest.mock import patch
 
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
@@ -102,9 +102,10 @@ class UserQueryErrorWorkflow:
 
 @activity.defn
 async def user_query_error_activity() -> None:
-    # Mirrors a customer scheduling an invalid HogQL export: ClickHouse rejects the query
-    # and the export pipeline classifies it as a non-retryable user error.
-    raise CHQueryErrorNotAnAggregate("Column is not under aggregate function and not in GROUP BY")
+    try:
+        raise CHQueryErrorNotAnAggregate("Column is not under aggregate function and not in GROUP BY")
+    except CHQueryErrorNotAnAggregate as error:
+        raise ApplicationError(str(error), type=type(error).__name__, non_retryable=True) from error
 
 
 @pytest.mark.parametrize("fail", [True, False])
