@@ -2,12 +2,13 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { insightsModel } from '~/models/insightsModel'
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
 import {
@@ -858,6 +859,32 @@ describe('sqlEditorLogic', () => {
             await new Promise((resolve) => setTimeout(resolve, 0))
 
             expect(logic.values.activeTab?.name).toEqual(MOCK_INSIGHT.name)
+        })
+
+        it('saving after a remote rename sends the fresh name, not the stale tab state', async () => {
+            await loadInsight()
+            insightsModel.mount()
+
+            const updateSpy = jest
+                .spyOn(insightsApi, 'update')
+                .mockImplementation(async (_id, payload) => ({ ...MOCK_INSIGHT, ...payload }) as QueryBasedInsightModel)
+
+            // The insight is renamed from another surface while this tab is open.
+            insightsModel.actions.renameInsightSuccess({
+                ...MOCK_INSIGHT,
+                name: 'Renamed elsewhere',
+            } as QueryBasedInsightModel)
+            await expectLogic(logic).toDispatchActions(['updateTab'])
+
+            // Saving from the editor must not clobber the newer name with the stale tab state.
+            await logic.asyncActions.updateInsight()
+
+            expect(updateSpy).toHaveBeenCalledWith(
+                MOCK_INSIGHT.id,
+                expect.objectContaining({ name: 'Renamed elsewhere' })
+            )
+
+            updateSpy.mockRestore()
         })
     })
 
