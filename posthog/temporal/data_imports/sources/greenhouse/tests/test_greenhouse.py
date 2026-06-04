@@ -132,9 +132,9 @@ class TestGreenhouseSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    def test_partition_key_is_never_updated_at(self) -> None:
-        for endpoint in ENDPOINTS:
-            assert GREENHOUSE_ENDPOINTS[endpoint].partition_key not in ("updated_at", "last_activity_at")
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_partition_key_is_never_updated_at(self, endpoint: str) -> None:
+        assert GREENHOUSE_ENDPOINTS[endpoint].partition_key not in ("updated_at", "last_activity_at")
 
     def test_sort_mode_is_ascending(self) -> None:
         assert greenhouse_source("key", "candidates", MagicMock(), MagicMock()).sort_mode == "asc"
