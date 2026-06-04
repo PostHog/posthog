@@ -9,6 +9,7 @@ from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     EventsPredicatePushdownExtractor,
     JoinedTableReferenceFinder,
+    contains_subquery,
     references_joined_table,
 )
 from posthog.hogql.parser import parse_expr
@@ -249,3 +250,14 @@ class TestEventsPredicatePushdownExtractor:
 
             assert inner_where is None, f"{op}: should not be pushable"
             assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == op
+
+    def test_subquery_predicate_stays_outer(self):
+        """A predicate with a nested subquery (e.g. inCohortVia=SUBQUERY's IN (SELECT ...)) is not pushable;
+        a plain events predicate alongside it still pushes."""
+        expr = parse_expr("event = 'x' AND person_id IN (SELECT person_id FROM raw_cohortpeople)")
+        extractor = EventsPredicatePushdownExtractor(set())
+        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+
+        # the bare `event = 'x'` pushes; the IN (SELECT ...) stays outer
+        assert inner_where is not None and not contains_subquery(inner_where)
+        assert outer_where is not None and contains_subquery(outer_where)

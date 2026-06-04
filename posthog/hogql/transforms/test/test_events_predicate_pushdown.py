@@ -8,13 +8,16 @@ from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_person,
     flush_persons_and_events,
     materialized,
 )
 
+from django.test import override_settings
+
 from parameterized import parameterized
 
-from posthog.schema import PropertyGroupsMode
+from posthog.schema import InCohortVia, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -36,7 +39,8 @@ from posthog.hogql.transforms.events_predicate_pushdown import (
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import Cohort, MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.utils import uuid7
 
 from products.event_definitions.backend.models.property_definition import PropertyType
@@ -1074,6 +1078,44 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             rows = self._results(paged, push_down=push) or []
             assert len(rows) == 2, f"push={push}: expected exactly 2 rows, got {rows}"
             assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_exec_in_cohort_with_session_join_declines_and_stays_equivalent(self):
+        # `person_id IN COHORT` + a session join + LIMIT. Across every inCohortVia mode the pushdown DECLINES
+        # (LEFTJOIN: unresolved InCohort op kept outer; SUBQUERY: the IN (SELECT ...) is kept outer), so the
+        # query runs flat — results stay correct (only c_in's 2 events match; c_out is excluded) and on==off.
+        _create_person(team=self.team, distinct_ids=["c_in"], properties={"$os": "Chrome"}, is_identified=True)
+        _create_person(team=self.team, distinct_ids=["c_out"], properties={"$os": "Firefox"}, is_identified=True)
+        self._create_session("2024-01-02T00:00:00", "c_in", "pro", "2024-01-02T10:00:00", "2024-01-02T10:05:00")
+        self._create_session("2024-01-03T00:00:00", "c_out", "pro", "2024-01-03T09:00:00")
+        flush_persons_and_events()
+        cohort = Cohort.objects.create(
+            team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
+        )
+        recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+        select = (
+            f"SELECT event, session.$session_duration FROM events "
+            f"WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND person_id IN COHORT {cohort.pk} LIMIT 50"
+        )
+        for mode in (InCohortVia.SUBQUERY, InCohortVia.LEFTJOIN, InCohortVia.AUTO):
+            printed, _ = prepare_and_print_ast(
+                parse_select(select),
+                HogQLContext(
+                    team_id=self.team.pk,
+                    enable_select_queries=True,
+                    modifiers=HogQLQueryModifiers(pushDownPredicates=True, inCohortVia=mode),
+                ),
+                "clickhouse",
+            )
+            assert ") AS events LEFT JOIN" not in printed, f"mode={mode}: cohort predicate must not push:\n{printed}"
+            on = execute_hogql_query(
+                select, team=self.team, modifiers=HogQLQueryModifiers(pushDownPredicates=True, inCohortVia=mode)
+            ).results
+            off = execute_hogql_query(
+                select, team=self.team, modifiers=HogQLQueryModifiers(pushDownPredicates=False, inCohortVia=mode)
+            ).results
+            assert sorted(on or []) == sorted(off or []), f"mode={mode}: pushdown changed results: on={on} off={off}"
+            assert len(on or []) == 2, f"mode={mode}: expected 2 cohort-member events, got {on}"
 
     def test_exec_array_join_predicate_not_pushed_stays_equivalent(self):
         # arrayJoin in a predicate is residual (it can't be pushed into the events subquery), so the whole
