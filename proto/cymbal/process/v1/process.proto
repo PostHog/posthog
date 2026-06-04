@@ -1,32 +1,25 @@
 syntax = "proto3";
 package cymbal.process.v1;
 
-// ProcessStream is the Node-facing streaming Cymbal processing API. It accepts
-// whole canonical error-tracking events and returns one terminal outcome per item.
-service ProcessStream {
-  // Process is a bidirectional stream of independent items. Outcomes may be
-  // emitted out of input order, but every accepted item gets exactly one
+// CymbalProcess is the Node-facing Cymbal processing API. It accepts whole
+// canonical error-tracking events either as a bidirectional stream or as a
+// finite ordered batch.
+service CymbalProcess {
+  // ProcessStream is a bidirectional stream of independent items. Outcomes may
+  // be emitted out of input order, but every accepted item gets exactly one
   // terminal ProcessOutcome. Stream-level failures are reserved for protocol,
   // transport, or server-shutdown cases where item-level outcomes cannot be
   // maintained. Callers that require input-order results should use ProcessBatch.
-  rpc Process(stream ProcessItem) returns (stream ProcessOutcome);
+  rpc ProcessStream(stream ProcessItem) returns (stream ProcessOutcome);
+
+  // ProcessBatch returns outcomes in the same order as request.items. This keeps
+  // ordered ingestion frameworks simple at the cost of waiting for slower items
+  // before the batch response can complete.
+  rpc ProcessBatch(ProcessBatchRequest) returns (ProcessBatchResponse);
 
   // Subscribe opens a long-lived stream of service-state ticks for this Cymbal
   // instance. Callers use the latest ServiceState to avoid routing new work to
   // draining or overloaded instances.
-  rpc Subscribe(SubscribeRequest) returns (stream ServiceState);
-}
-
-// ProcessBatch is the Node-facing batch Cymbal processing API. It accepts a
-// finite batch and returns one terminal outcome per input item in input order.
-service ProcessBatch {
-  // Process returns outcomes in the same order as request.items. This keeps
-  // ordered ingestion frameworks simple at the cost of waiting for slower items
-  // before the batch response can complete.
-  rpc Process(ProcessBatchRequest) returns (ProcessBatchResponse);
-
-  // Subscribe opens a long-lived stream of service-state ticks for this Cymbal
-  // instance. It has the same semantics as ProcessStream.Subscribe.
   rpc Subscribe(SubscribeRequest) returns (stream ServiceState);
 }
 
