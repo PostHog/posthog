@@ -7649,6 +7649,13 @@ export interface MoveTileTileApi {
     id: number
 }
 
+export interface MoveTileRequestApi {
+    /** Destination dashboard ID. */
+    to_dashboard: number
+    /** Tile to move, identified by its dashboard tile ID. */
+    tile: MoveTileTileApi
+}
+
 export interface PatchedMoveTileRequestApi {
     /** Destination dashboard ID. */
     to_dashboard?: number
@@ -8047,6 +8054,18 @@ export type DashboardsDeleteTileParams = {
 export type DashboardsDeleteTileFormat = (typeof DashboardsDeleteTileFormat)[keyof typeof DashboardsDeleteTileFormat]
 
 export const DashboardsDeleteTileFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat
+}
+
+export type DashboardsMoveTileCreateFormat =
+    (typeof DashboardsMoveTileCreateFormat)[keyof typeof DashboardsMoveTileCreateFormat]
+
+export const DashboardsMoveTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

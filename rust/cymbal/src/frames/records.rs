@@ -12,6 +12,69 @@ use crate::{
 
 use super::{Context, Frame};
 
+const FRAME_TTL_JITTER_PERCENT: u32 = 10;
+
+#[derive(Debug, Clone, Copy)]
+pub struct FrameResultTtlPolicy {
+    resolved_ttl: Duration,
+    unresolved_ttl: Duration,
+}
+
+impl FrameResultTtlPolicy {
+    pub fn new(resolved_ttl: Duration, unresolved_ttl: Duration) -> Self {
+        Self {
+            resolved_ttl,
+            unresolved_ttl,
+        }
+    }
+
+    pub fn ttl_for_records(
+        &self,
+        id: &RawFrameId,
+        records: &[ErrorTrackingStackFrame],
+    ) -> Duration {
+        self.ttl_for_resolved_status(id, records.iter().all(|record| record.resolved))
+    }
+
+    pub fn ttl_for_resolved_status(&self, id: &RawFrameId, all_resolved: bool) -> Duration {
+        let base_ttl = if all_resolved {
+            self.resolved_ttl
+        } else {
+            self.unresolved_ttl
+        };
+
+        base_ttl + self.jitter_for(id, base_ttl)
+    }
+
+    fn jitter_for(&self, id: &RawFrameId, base_ttl: Duration) -> Duration {
+        if base_ttl <= Duration::zero() {
+            return Duration::zero();
+        }
+
+        let base_millis = base_ttl.num_milliseconds() as u64;
+        let max_jitter_millis = base_millis * u64::from(FRAME_TTL_JITTER_PERCENT) / 100;
+        if max_jitter_millis == 0 {
+            return Duration::zero();
+        }
+
+        Duration::milliseconds((stable_jitter_hash(id) % (max_jitter_millis + 1)) as i64)
+    }
+}
+
+fn stable_jitter_hash(id: &RawFrameId) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in id
+        .hash_id
+        .as_bytes()
+        .iter()
+        .chain(id.team_id.to_le_bytes().iter())
+    {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorTrackingStackFrame {
     pub id: FrameId,
@@ -76,7 +139,7 @@ impl ErrorTrackingStackFrame {
     pub async fn load_all<'c, E>(
         e: E,
         id: &RawFrameId,
-        result_ttl: Duration,
+        ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<Self>, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres> + Clone,
@@ -109,6 +172,7 @@ impl ErrorTrackingStackFrame {
         }
 
         let mut results = Vec::new();
+        let result_ttl = ttl_policy.ttl_for_resolved_status(id, res.iter().all(|f| f.resolved));
         if res.iter().any(|f| f.created_at < Utc::now() - result_ttl) {
             // If any resultant frame is too old, we should recalculate all of them
             return Ok(Vec::new());
@@ -150,5 +214,53 @@ impl ErrorTrackingStackFrame {
         }
 
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ttl_policy_applies_expected_ttl_with_deterministic_jitter() {
+        for (name, resolved_ttl, unresolved_ttl, all_resolved, min_ttl, max_ttl) in [
+            (
+                "resolved",
+                Duration::seconds(1800),
+                Duration::seconds(300),
+                true,
+                Duration::seconds(1800),
+                Duration::seconds(1980),
+            ),
+            (
+                "unresolved",
+                Duration::seconds(1800),
+                Duration::seconds(300),
+                false,
+                Duration::seconds(300),
+                Duration::seconds(330),
+            ),
+            (
+                "deterministic jitter",
+                Duration::seconds(100),
+                Duration::seconds(100),
+                true,
+                Duration::seconds(100),
+                Duration::seconds(110),
+            ),
+        ] {
+            let policy = FrameResultTtlPolicy::new(resolved_ttl, unresolved_ttl);
+            let id = RawFrameId::new("frame".to_string(), 1);
+
+            let ttl = policy.ttl_for_resolved_status(&id, all_resolved);
+
+            assert_eq!(
+                ttl,
+                policy.ttl_for_resolved_status(&id, all_resolved),
+                "{name}"
+            );
+            assert!(ttl >= min_ttl, "{name}");
+            assert!(ttl <= max_ttl, "{name}");
+        }
     }
 }
