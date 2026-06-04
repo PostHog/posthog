@@ -13,6 +13,9 @@ const esmModules = [
     '@medv',
     'monaco-editor',
     '@posthog/hedgehog-mode',
+    // @marsidev/react-turnstile ships ESM-only; the auth flow variant registry pulls it
+    // into test module graphs (including Exporter via the shared login ERROR_MESSAGES export).
+    '@marsidev/react-turnstile',
     'escape-string-regexp',
     '@tiptap',
     '@mathjax',

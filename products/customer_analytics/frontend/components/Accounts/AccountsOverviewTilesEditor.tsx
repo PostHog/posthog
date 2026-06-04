@@ -13,13 +13,16 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AccountColumnOption } from './accountsColumnConfigLogic'
 import {
-    ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS,
-    AccountsOverviewThresholdOperator,
     accountsOverviewTilesLogic,
     AccountsOverviewTile,
     AccountsOverviewTileMetric,
     AccountsOverviewTileMetricType,
 } from './accountsOverviewTilesLogic'
+import {
+    ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS,
+    AccountsOverviewThresholdOperator,
+    MAX_ACCOUNTS_OVERVIEW_TILES,
+} from './constants'
 
 const METRIC_TYPE_LABELS: Record<AccountsOverviewTileMetricType, string> = {
     count: 'Count of accounts',
@@ -147,6 +150,11 @@ export function AccountsOverviewTilesEditor({
                     type="secondary"
                     icon={<IconPlus />}
                     onClick={handleAddTile}
+                    disabledReason={
+                        tiles.length >= MAX_ACCOUNTS_OVERVIEW_TILES
+                            ? `You can add up to ${MAX_ACCOUNTS_OVERVIEW_TILES} tiles`
+                            : undefined
+                    }
                     data-attr="accounts-overview-tiles-add"
                 >
                     Add tile

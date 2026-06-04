@@ -83,10 +83,7 @@ function ProjectRateLimitSection(): JSX.Element {
                             )}
                         </LemonField>
 
-                        <p className="text-muted-foreground text-xs">
-                            The maximum number of exceptions accepted per time window. Leave the value empty for no
-                            limit.
-                        </p>
+                        <p className="text-muted-foreground text-xs">Leave the value empty for no limit.</p>
 
                         <div className="flex justify-start pt-2">
                             <LemonButton

@@ -30,6 +30,24 @@ POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 
+# Notification method the sandbox agent emits on a terminal failure. The agent
+# classifies upstream failures (rate limits, stream/connection drops, provider
+# errors) via classifyAgentError() and writes the category + raw message here, so
+# the PostHog side can surface the real cause instead of Temporal's opaque
+# "Activity task failed" wrapper.
+AGENT_ERROR_METHOD = "_posthog/error"
+
+
+@dataclass(frozen=True)
+class AgentError:
+    """A terminal error the sandbox agent reported in its S3 log."""
+
+    message: str
+    category: str | None = None
+
+    def describe(self) -> str:
+        return f"{self.category}: {self.message}" if self.category else self.message
+
 
 @dataclass(frozen=True)
 class CustomPromptSandboxContext:
@@ -258,11 +276,77 @@ async def _drain_final_log(
     printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_message:
         return final_message, final_log, final_lines, printed_lines
+    # Prefer the agent's own classified error over the generic terminal-status message
+    # (Temporal's "Activity task failed"). Only on FAILED — CANCELLED is a user action and
+    # COMPLETED-with-no-message is the empty-turn path, neither of which we want to relabel.
+    if refreshed_status == TaskRun.Status.FAILED:
+        agent_error = _extract_agent_error(final_log, skip_lines=original_skip_lines)
+        if agent_error is not None:
+            cause_text = agent_error.describe()
+            # Persist the real cause so the TaskRun stops showing "Activity task failed".
+            await _persist_task_run_error_message(str(task_run.id), cause_text)
+            raise RuntimeError(
+                f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
+                f"(cause: {cause_text})"
+            )
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
     raise RuntimeError(
         f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     )
+
+
+def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:
+    """Scan log lines for the agent's structured terminal-error notification.
+
+    Returns the last `_posthog/error` entry carrying a non-empty message (with the
+    classified `error_category` when the agent build provides it), or None when no
+    such entry exists — e.g. an older agent build or a non-agent failure — in which
+    case the caller falls back to the generic terminal-status message.
+    """
+    if not log_content:
+        return None
+    lines = log_content.strip().split("\n")
+    found: AgentError | None = None
+    for line in lines[skip_lines:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != AGENT_ERROR_METHOD:
+            continue
+        params = notification.get("params")
+        if not isinstance(params, dict):
+            continue
+        message = params.get("message")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        raw_category = params.get("error_category")
+        category = raw_category.strip() if isinstance(raw_category, str) and raw_category.strip() else None
+        found = AgentError(message=message.strip(), category=category)
+    return found
+
+
+def _update_task_run_error_message(run_id: str, message: str) -> None:
+    TaskRun.objects.filter(id=run_id).update(error_message=message)
+
+
+async def _persist_task_run_error_message(run_id: str, message: str) -> None:
+    """Best-effort write of the agent's real error onto the TaskRun. The raised
+    RuntimeError already carries the message for Temporal, so a failed write here
+    must not mask the underlying failure."""
+    try:
+        await sync_to_async(_update_task_run_error_message)(run_id, message)
+    except Exception:
+        logger.warning(
+            "custom_prompt - drain_final_log: failed to persist agent error to TaskRun run=%s",
+            run_id,
+            exc_info=True,
+        )
 
 
 def _stream_new_lines(

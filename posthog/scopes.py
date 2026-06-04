@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Literal, get_args
 
 ## API Scopes
@@ -237,6 +238,81 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
 # oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
 # the MCP codegen relies on (see `bin/build-mcp-oauth-scopes.py`).
 OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
+
+
+# OIDC + introspection are accepted independently of an app's scope ceiling:
+# they are identity / token-management scopes, not resource permissions. Mirrors
+# `OAuthValidator._ALWAYS_ALLOWED_SCOPES` in `posthog/api/oauth/views.py`.
+ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
+
+
+def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
+    """The scope set a request resolves against: the explicit `app_scopes` ceiling,
+    or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""
+    app = frozenset(app_scopes or [])
+    return app if app else UNPRIVILEGED_SCOPES
+
+
+def scopes_within_ceiling(
+    requested: Iterable[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> bool:
+    """Whether every requested scope is grantable under an app's scope ceiling.
+
+    The single source of truth for ceiling resolution: `/authorize`
+    (`OAuthValidator.validate_scopes`) and the hand-rolled agentic-provisioning
+    mint paths both call this so they enforce identical rules.
+
+    - OIDC + introspection (`ALWAYS_ALLOWED_SCOPES`) are always granted.
+    - An explicit `app_scopes` ceiling is an exhaustive allow-list: anything
+      outside it is rejected, including `*`.
+    - An empty `app_scopes` falls back to the broad `UNPRIVILEGED_SCOPES` default.
+
+    `allow_wildcard_under_empty_ceiling` is the only resolution difference between
+    the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
+    PostHog Code CLI) until wildcard retirement; provisioning leaves it `False`
+    (the default) since it never granted wildcard, so an unseeded ceiling must not
+    silently become one.
+    """
+    app = frozenset(app_scopes or [])
+    to_check = set(requested) - ALWAYS_ALLOWED_SCOPES
+    if not to_check:
+        return True
+    if app:
+        return "*" not in to_check and to_check.issubset(app)
+    allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
+    return to_check.issubset(allowed)
+
+
+def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
+    """Cap previously-granted scopes at an app's current ceiling (refresh-time).
+
+    Mirrors `OAuthValidator.get_original_scopes` so hand-rolled refresh flows
+    drop scopes that were valid when issued but fall outside a since-tightened
+    ceiling, rather than refreshing the broader set forever.
+
+    - Empty `app_scopes` (no cap) is a no-op: returns `original` as a list.
+    - A `*` token is left untouched (narrowing it would strip all resource
+      access; `*` retirement is handled separately).
+    - Otherwise returns the sorted intersection with the ceiling plus any
+      always-allowed scopes, or `None` when that intersection is empty (the
+      caller should reject with `invalid_grant` and force re-authorization).
+    """
+    original_list = list(original)
+    app = set(app_scopes or [])
+    if not app:
+        return original_list
+
+    original_set = set(original_list)
+    if "*" in original_set:
+        return original_list
+
+    narrowed = (original_set & app) | (original_set & ALWAYS_ALLOWED_SCOPES)
+    if not narrowed:
+        return None
+    return sorted(narrowed)
 
 
 def get_oauth_scopes_supported() -> list[str]:

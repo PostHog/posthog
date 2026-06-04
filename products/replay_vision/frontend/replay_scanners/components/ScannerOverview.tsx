@@ -14,14 +14,20 @@ import { ScannerInsightsChart } from './ScannerInsightsChart'
 function OverviewPanel({
     title,
     subtitle,
+    disabled,
     children,
 }: {
     title: string
     subtitle?: React.ReactNode
+    disabled?: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <div className="border rounded p-4 bg-surface-primary space-y-3">
+        <div
+            className={`border rounded p-4 space-y-3 ${
+                disabled ? 'bg-surface-secondary opacity-60' : 'bg-surface-primary'
+            }`}
+        >
             <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-medium">{title}</span>
                 {subtitle && <span className="text-xs text-muted tabular-nums">{subtitle}</span>}
@@ -72,11 +78,14 @@ function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: strin
 }
 
 function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { classifierTagStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scanner, classifierTagStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const { fixedRanked, freeformRanked, totalWithTags } = classifierTagStats
-    if (totalWithTags === 0) {
+    // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
+    // "disabled" copy while the config is still loading.
+    if (totalWithTags === 0 || !scanner || scanner.scanner_type !== 'classifier') {
         return null
     }
+    const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
 
     const renderRanked = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
         if (ranked.length === 0) {
@@ -104,21 +113,32 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
                 {renderRanked(fixedRanked, 'No fixed-vocabulary tags emitted yet.')}
             </OverviewPanel>
 
-            <OverviewPanel title="Top freeform tags" subtitle="outside configured vocabulary">
-                {renderRanked(freeformRanked, 'No freeform tags emitted.')}
+            <OverviewPanel
+                title="Top freeform tags"
+                subtitle={freeformAllowed ? 'outside configured vocabulary' : 'disabled'}
+                disabled={!freeformAllowed}
+            >
+                {freeformAllowed ? (
+                    renderRanked(freeformRanked, 'No freeform tags emitted yet.')
+                ) : (
+                    <div className="text-muted text-sm">
+                        Freeform tags are disabled for this scanner — the model can only pick from your configured
+                        vocabulary. Enable "Allow freeform tags" in the scanner config to let it propose new ones.
+                    </div>
+                )}
             </OverviewPanel>
         </div>
     )
 }
 
 function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores, scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const theme = useMemo(() => buildTheme(), [])
     if (!scorerSummary || !scorerHistogram) {
         return null
     }
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
+        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`}>
             <div className="h-40 flex flex-col">
                 <BarChart
                     labels={scorerHistogram.labels}

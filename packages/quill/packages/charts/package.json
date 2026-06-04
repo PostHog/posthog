@@ -21,6 +21,7 @@
     },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",
+        "@testing-library/dom": ">=9.3.4",
         "d3-array": "^3.2.4",
         "d3-color": "^3.1.0",
         "d3-scale": "^4.0.2",
@@ -30,7 +31,6 @@
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
-        "@testing-library/dom": ">=9.3.4",
         "@testing-library/react": "^14.3.1",
         "@types/d3-array": "^3.2.1",
         "@types/d3-color": "^3.1.3",
