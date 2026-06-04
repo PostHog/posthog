@@ -226,6 +226,23 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def return_entity_expr(self) -> ast.Expr:
         return entity_to_expr(self.return_event, self.team)
 
+    def relevant_event_type_expr(self, entity: RetentionEntity) -> ast.Expr:
+        """Event matcher with property filters stripped, for the scan-level pre-filter.
+
+        ``global_event_filters`` pre-filters the events scan to "relevant" events. Including an
+        entity's *property* filter here is redundant — the properties are re-applied inside the
+        per-actor aggregates that actually decide cohorting — and it is actively harmful: a
+        complex property predicate (e.g. a person-property map lookup wrapped in
+        ``parseDateTime64BestEffortOrNull``) in the events ``WHERE`` defeats ClickHouse's
+        primary-key analysis, dropping ``team_id`` pruning and forcing a full-table scan.
+        Restricting the pre-filter to the event *type* keeps the scan prunable.
+        """
+        if entity.type == EntityType.DATA_WAREHOUSE:
+            return ast.Constant(value=True)
+        clean_entity = entity.model_copy(deep=True)
+        clean_entity.properties = []
+        return entity_to_expr(clean_entity, self.team)
+
     @cached_property
     def aggregation_target_events_column(self) -> str:
         if self.group_type_index is not None:
@@ -239,8 +256,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         global_event_filters = self.events_where_clause(
             self.is_first_occurrence_matching_filters, self.is_first_ever_occurrence
         )
-        # Pre-filter events to only those we care about
-        is_relevant_event = ast.Or(exprs=[self.start_entity_expr, self.return_entity_expr])
+        # Pre-filter events to only the relevant event *types*. Property filters are applied
+        # inside the per-actor aggregates, not here — see relevant_event_type_expr for why
+        # keeping them out of the scan WHERE preserves primary-key (team_id) pruning.
+        is_relevant_event = ast.Or(
+            exprs=[
+                self.relevant_event_type_expr(self.start_event),
+                self.relevant_event_type_expr(self.return_event),
+            ]
+        )
         if not self.is_first_ever_occurrence:
             global_event_filters.append(is_relevant_event)
 

@@ -5530,6 +5530,52 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         # event property access should be present, not person property access
         self.assertIn("properties", sql)
 
+    def test_first_time_retention_entity_property_kept_out_of_scan_prefilter(self):
+        """An entity property on first-time retention must not leak into the events scan WHERE.
+
+        The scan pre-filter only needs the event *type*; the property is still applied inside the
+        per-actor aggregates. A complex property predicate in the scan WHERE (e.g. a person-property
+        map lookup) defeats ClickHouse's primary-key (team_id) analysis and forces a full-table scan,
+        so it must stay out of the pre-filter while results are unchanged.
+        """
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
+        from posthog.hogql.printer import prepare_and_print_ast
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(5)},
+                "retentionFilter": {
+                    "totalIntervals": 5,
+                    "retentionType": "retention_first_time",
+                    "targetEntity": {
+                        "id": "target_event",
+                        "type": "events",
+                        "properties": [{"key": "prop", "value": "correct", "type": "event"}],
+                    },
+                    "returningEntity": {"id": "returning_event", "type": "events"},
+                },
+            },
+        )
+        base_query = runner._base_query()
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+        sql, _ = prepare_and_print_ast(base_query, context, "clickhouse", pretty=True)
+
+        # The property filter is not dropped — it still gates the start-event aggregate.
+        self.assertIn("JSONExtractRaw(events.properties", sql)
+        # The events scan pre-filter is the final WHERE (the per-actor GROUP BY / HAVING follow it).
+        scan_where = sql.rsplit("WHERE", 1)[1]
+        # The pre-filter still restricts to the relevant event type...
+        self.assertIn("events.event", scan_where)
+        # ...but the property predicate must not appear there, or it would defeat team_id pruning.
+        self.assertNotIn("JSONExtractRaw", scan_where)
+        self.assertNotIn("events.properties", scan_where)
+
 
 class TestClickhouseRetentionGroupAggregation(
     RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest
