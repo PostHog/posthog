@@ -386,15 +386,18 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, metric_uuid, metrics_on_experiment, run_with_mocked_failure)
+            # (name, metric_uuid, metrics_on_experiment, run_with_mocked_failure, expected_result_rows)
             # Discovery-step failure: m1 in the recalc's discovered set but absent from the experiment (deleted
             # between discovery and calc). No result row written, only metric_errors.
-            ("discovery_failure", "m1", [], False),
-            # Calculation-step failure: m1 resolves, runner raises, writes both metric_errors and a FAILED result row.
-            ("calculation_failure", "m1", [_mean_metric("m1")], True),
+            ("discovery_failure", "m1", [], False, 0),
+            # Calculation-step failure: m1 resolves, runner raises, writes both metric_errors and exactly one
+            # FAILED result row (update_or_create overwrites on retry rather than inserting).
+            ("calculation_failure", "m1", [_mean_metric("m1")], True, 1),
         ]
     )
-    def test_retry_does_not_double_count(self, name: str, metric_uuid: str, metrics: list, mock_runner_failure: bool):
+    def test_retry_does_not_double_count(
+        self, name: str, metric_uuid: str, metrics: list, mock_runner_failure: bool, expected_result_rows: int
+    ):
         # Temporal retries the whole activity on transient failure. _store_result is idempotent (update_or_create
         # keyed on fingerprint + query_to) and metric_errors is keyed by metric_uuid, so a second run must leave
         # state identical to the first — no inflated counts, no duplicate result rows.
@@ -417,8 +420,12 @@ class TestCalculateActivity(BaseTest):
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
         assert metric_uuid in recalc.metric_errors
-        # One result row per (metric_uuid, fingerprint, query_to) regardless of retry count.
-        assert ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count() <= 1
+        # Exact count per case: 0 for discovery failures (no _store_result call), 1 for calc failures
+        # (one FAILED row, overwritten on retry rather than duplicated).
+        assert (
+            ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count()
+            == expected_result_rows
+        )
 
     @parameterized.expand(
         [
