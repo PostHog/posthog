@@ -217,3 +217,13 @@ class TestSettingsShape:
         field = config.incremental_fields[0]
         assert field["field"] == config.cursor_filter_property_field
         assert field["type"] == IncrementalFieldType.DateTime
+
+
+def test_missing_refresh_token_error_is_non_retryable():
+    """The ValueError raised when the config has no refresh token must match a non-retryable
+    pattern, otherwise the job retries a permanent misconfiguration forever."""
+    error_msg = "Hubspot refresh token not found for job 019cdc50-67a5-0000-c023-0d6a4e057e9b"
+    patterns = HubspotSource().get_non_retryable_errors()
+    assert any(pattern in error_msg for pattern in patterns), (
+        f"HubSpot error {error_msg!r} did not match any non-retryable pattern"
+    )
