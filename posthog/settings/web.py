@@ -447,6 +447,7 @@ SPECTACULAR_SETTINGS = {
         #    both the no-x-spec-enum-id type-hint path and the inline-choices ChoiceField
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
+        "CodingAgentEnum": "products.signals.backend.models.CodingAgent",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",

@@ -10908,6 +10908,18 @@ export namespace Schemas {
       initial_permission_mode?: CodexTaskRunCreateSchemaInitialPermissionModeEnum;
     }
 
+    /**
+     * * `posthog_code` - PostHog Code
+    * `cursor` - Cursor
+     */
+    export type CodingAgentEnum = typeof CodingAgentEnum[keyof typeof CodingAgentEnum];
+
+
+    export const CodingAgentEnum = {
+      PosthogCode: 'posthog_code',
+      Cursor: 'cursor',
+    } as const;
+
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
 
 
@@ -11860,6 +11872,26 @@ export namespace Schemas {
       access_key: string;
       /** @maxLength 500 */
       access_secret: string;
+    }
+
+    export interface CursorConnectionRequest {
+      /** Cursor API key for this team. Stored encrypted on the team's Cursor integration. */
+      api_key: string;
+    }
+
+    export interface CursorConnectionStatus {
+      /** Whether this team has a Cursor integration configured. */
+      connected: boolean;
+      /**
+         * Whether the connected Cursor account can see any repositories (GitHub connected at the Cursor account level). Null when not connected or the probe could not run.
+         * @nullable
+         */
+      has_repo_access?: boolean | null;
+      /**
+         * Whether the connected Cursor account is on a plan that can run cloud agents. False when Cursor reports `plan_required` (free tier). Null when not connected or the probe could not run.
+         * @nullable
+         */
+      plan_ok?: boolean | null;
     }
 
     export interface CustomerJourney {
@@ -20245,6 +20277,7 @@ export namespace Schemas {
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
+    * `cursor` - Cursor
     * `customerio-app` - Customerio App
     * `customerio-track` - Customerio Track
     * `customerio-webhook` - Customerio Webhook
@@ -20285,6 +20318,7 @@ export namespace Schemas {
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
+      Cursor: 'cursor',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
@@ -25002,6 +25036,33 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
+    }
+
+    export interface SignalTeamConfig {
+      readonly id: string;
+      default_autostart_priority?: AutonomyPriorityEnum;
+      /** Which coding agent acts on this team's signal reports: `posthog_code` (the internal Tasks runner) or `cursor` (an external Cursor cloud agent). Governs both the automatic autonomy path and the default for the manual dispatch button. Connecting Cursor does not change this — a team only routes to Cursor once this is set to `cursor`.
+
+      * `posthog_code` - PostHog Code
+      * `cursor` - Cursor */
+      default_coding_agent?: CodingAgentEnum;
+      /**
+         * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+         * @maxLength 255
+         * @nullable
+         */
+      default_slack_notification_channel?: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedSignalTeamConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalTeamConfig[];
     }
 
     export interface SnapshotHistoryEntry {
@@ -37248,14 +37309,40 @@ export namespace Schemas {
       release_to_everyone?: boolean;
     }
 
-    export interface SignalReportDispatchResponse {
+    export interface SignalDispatchRequest {
+      /** Which coding agent to dispatch this report to: `posthog_code` or `cursor`. Omit to use the team's configured default agent.
+
+      * `posthog_code` - PostHog Code
+      * `cursor` - Cursor */
+      agent?: CodingAgentEnum;
+    }
+
+    export interface SignalDispatchResponse {
+      /** The coding agent the report was dispatched to.
+
+      * `posthog_code` - PostHog Code
+      * `cursor` - Cursor */
+      agent: CodingAgentEnum;
       /**
-         * Id of the internal implementation Task started (or already running) for this report.
+         * For the Cursor path: identifier Cursor assigned to the dispatched cloud agent run.
          * @nullable
          */
-      task_id: string | null;
-      /** Dispatch outcome: 'started' for a new Task, or 'already_dispatched' if one already existed. */
-      status: string;
+      agent_id?: string | null;
+      /**
+         * A destination for the dispatched work: the Cursor agent run URL, or the internal Task URL.
+         * @nullable
+         */
+      agent_url?: string | null;
+      /**
+         * For the Cursor path: initial run status reported by Cursor (e.g. queued, running).
+         * @nullable
+         */
+      agent_status?: string | null;
+      /**
+         * For the PostHog Code path: id of the internal implementation Task that was started.
+         * @nullable
+         */
+      task_id?: string | null;
     }
 
     /**
@@ -42643,6 +42730,7 @@ export namespace Schemas {
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
+    * `cursor` - Cursor
     * `customerio-app` - Customerio App
     * `customerio-track` - Customerio Track
     * `customerio-webhook` - Customerio Webhook
@@ -42694,6 +42782,7 @@ export namespace Schemas {
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
+      Cursor: 'cursor',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
@@ -48224,6 +48313,7 @@ export namespace Schemas {
     * `azure-blob` - Azure Blob
     * `bing-ads` - Bing Ads
     * `clickup` - Clickup
+    * `cursor` - Cursor
     * `customerio-app` - Customerio App
     * `customerio-track` - Customerio Track
     * `customerio-webhook` - Customerio Webhook
@@ -48275,6 +48365,7 @@ export namespace Schemas {
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
       Clickup: 'clickup',
+      Cursor: 'cursor',
       CustomerioApp: 'customerio-app',
       CustomerioTrack: 'customerio-track',
       CustomerioWebhook: 'customerio-webhook',
@@ -49815,6 +49906,17 @@ export namespace Schemas {
     };
 
     export type SessionRecordingsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SignalsConfigListParams = {
     /**
      * Number of results to return per page.
      */

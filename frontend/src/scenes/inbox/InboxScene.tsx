@@ -6,6 +6,7 @@ import {
     IconArrowLeft,
     IconBug,
     IconCheck,
+    IconChevronDown,
     IconChevronRight,
     IconFilter,
     IconGear,
@@ -25,6 +26,7 @@ import {
     LemonDropdown,
     LemonInput,
     LemonMenuOverlay,
+    LemonModal,
     LemonSkeleton,
     LemonTabs,
     LemonTag,
@@ -52,12 +54,29 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CodingAgentEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { SignalCard } from './SignalCard'
 import { SignalGraphTab } from './SignalGraphTab'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
 import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
+
+const AGENT_LABEL: Record<CodingAgentEnumApi, string> = {
+    [CodingAgentEnumApi.Cursor]: 'Send to Cursor',
+    [CodingAgentEnumApi.PosthogCode]: 'Send to PostHog Code',
+}
+const AGENT_SHORT: Record<CodingAgentEnumApi, string> = {
+    [CodingAgentEnumApi.Cursor]: 'Cursor',
+    [CodingAgentEnumApi.PosthogCode]: 'PostHog Code',
+}
+const AGENT_TOOLTIP: Record<CodingAgentEnumApi, string> = {
+    [CodingAgentEnumApi.Cursor]: 'Runs as a Cursor cloud agent. Requires Cursor Pro and GitHub connected in Cursor.',
+    [CodingAgentEnumApi.PosthogCode]: "Runs in PostHog's hosted coding agent and opens a PR.",
+}
+const otherAgent = (agent: CodingAgentEnumApi): CodingAgentEnumApi =>
+    agent === CodingAgentEnumApi.Cursor ? CodingAgentEnumApi.PosthogCode : CodingAgentEnumApi.Cursor
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -530,11 +549,30 @@ function ReportDetailPane(): JSX.Element {
         reportSignalsLoading,
         selectedReportReviewers,
         canDispatch,
+        cursorEnabled,
         isDispatchingSelectedReport,
+        defaultCodingAgent,
+        cursorConnectionWarning,
+        showConnectModal,
+        cursorApiKeyDraft,
+        cursorConnectionLoading,
     } = useValues(inboxSceneLogic)
-    const { deleteReport, reingestReport, dispatchReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const {
+        deleteReport,
+        reingestReport,
+        requestDispatch,
+        saveTeamDefaultAgent,
+        setActiveDetailTab,
+        setShowConnectModal,
+        setCursorApiKeyDraft,
+        connectCursor,
+    } = useActions(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
+
+    // Without the Cursor flag there's only one agent, so the split button degrades to a plain
+    // "Send to PostHog Code" button (no chooser dropdown).
+    const primaryAgent = cursorEnabled ? defaultCodingAgent : CodingAgentEnumApi.PosthogCode
 
     const baseClasses = 'flex-1 p-4 min-w-0 h-full self-start bg-surface-primary flex flex-col overflow-y-auto'
 
@@ -632,16 +670,81 @@ function ReportDetailPane(): JSX.Element {
                                     type="secondary"
                                     size="small"
                                     icon={<IconSparkles />}
-                                    tooltip="Runs in PostHog's hosted coding agent and opens a PR"
+                                    tooltip={AGENT_TOOLTIP[primaryAgent]}
                                     loading={isDispatchingSelectedReport}
                                     disabledReason={isDispatchingSelectedReport ? 'Dispatching…' : undefined}
-                                    onClick={() => dispatchReport(selectedReport.id)}
+                                    onClick={() => requestDispatch(selectedReport.id, primaryAgent)}
                                     data-attr="dispatch-report-button"
                                     className="ml-auto"
+                                    sideAction={
+                                        cursorEnabled
+                                            ? {
+                                                  icon: <IconChevronDown />,
+                                                  dropdown: {
+                                                      placement: 'bottom-end',
+                                                      overlay: (
+                                                          <LemonMenuOverlay
+                                                              items={[
+                                                                  {
+                                                                      label: AGENT_LABEL[otherAgent(primaryAgent)],
+                                                                      tooltip: AGENT_TOOLTIP[otherAgent(primaryAgent)],
+                                                                      onClick: () =>
+                                                                          requestDispatch(
+                                                                              selectedReport.id,
+                                                                              otherAgent(primaryAgent)
+                                                                          ),
+                                                                  },
+                                                                  {
+                                                                      label: `Set ${AGENT_SHORT[otherAgent(primaryAgent)]} as team default`,
+                                                                      onClick: () =>
+                                                                          saveTeamDefaultAgent({
+                                                                              agent: otherAgent(primaryAgent),
+                                                                          }),
+                                                                  },
+                                                              ]}
+                                                          />
+                                                      ),
+                                                  },
+                                              }
+                                            : undefined
+                                    }
                                 >
-                                    Send to PostHog Code
+                                    {AGENT_LABEL[primaryAgent]}
                                 </LemonButton>
                             )}
+                            <LemonModal
+                                title="Connect Cursor"
+                                isOpen={showConnectModal}
+                                onClose={() => setShowConnectModal(false)}
+                                footer={
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => connectCursor({ apiKey: cursorApiKeyDraft })}
+                                        loading={cursorConnectionLoading}
+                                        disabledReason={!cursorApiKeyDraft ? 'Enter your Cursor API key' : undefined}
+                                        data-attr="connect-cursor-submit"
+                                    >
+                                        Connect
+                                    </LemonButton>
+                                }
+                            >
+                                {cursorConnectionWarning && (
+                                    <LemonBanner type="warning" className="mb-2">
+                                        {cursorConnectionWarning}
+                                    </LemonBanner>
+                                )}
+                                <p className="mb-2 max-w-md">
+                                    Paste your Cursor API key. It's stored encrypted for this project and used to launch
+                                    Cursor cloud agents from signal reports.
+                                </p>
+                                <LemonInput
+                                    type="password"
+                                    value={cursorApiKeyDraft}
+                                    onChange={setCursorApiKeyDraft}
+                                    placeholder="crsr_..."
+                                    data-attr="connect-cursor-input"
+                                />
+                            </LemonModal>
                             <More
                                 overlay={
                                     <LemonMenuOverlay
@@ -687,6 +790,11 @@ function ReportDetailPane(): JSX.Element {
                                 }
                             />
                         </div>
+                        {cursorConnectionWarning && (
+                            <LemonBanner type="warning" className="mt-3">
+                                {cursorConnectionWarning}
+                            </LemonBanner>
+                        )}
                     </div>
                 </div>
 

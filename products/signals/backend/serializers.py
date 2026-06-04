@@ -11,6 +11,7 @@ from posthog.temporal.common.client import sync_connect
 
 from .models import (
     AutonomyPriority,
+    CodingAgent,
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
@@ -149,12 +150,21 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "default_autostart_priority",
+            "default_coding_agent",
             "default_slack_notification_channel",
             "created_at",
             "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
         extra_kwargs = {
+            "default_coding_agent": {
+                "help_text": (
+                    "Which coding agent acts on this team's signal reports: `posthog_code` (the internal "
+                    "Tasks runner) or `cursor` (an external Cursor cloud agent). Governs both the automatic "
+                    "autonomy path and the default for the manual dispatch button. Connecting Cursor does not "
+                    "change this — a team only routes to Cursor once this is set to `cursor`."
+                )
+            },
             "default_slack_notification_channel": {
                 "help_text": (
                     "Default Slack channel for this team's signal inbox notifications, in the same "
@@ -163,16 +173,6 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                 )
             },
         }
-
-
-class SignalReportDispatchResponseSerializer(serializers.Serializer):
-    task_id = serializers.CharField(
-        allow_null=True,
-        help_text="Id of the internal implementation Task started (or already running) for this report.",
-    )
-    status = serializers.CharField(
-        help_text="Dispatch outcome: 'started' for a new Task, or 'already_dispatched' if one already existed.",
-    )
 
 
 class _UserSerializer(serializers.ModelSerializer):
@@ -443,3 +443,87 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         if len(value) > self.MAX_ENTRIES:
             raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
         return value
+
+
+class CursorConnectionRequestSerializer(serializers.Serializer):
+    api_key = serializers.CharField(
+        write_only=True,
+        help_text="Cursor API key for this team. Stored encrypted on the team's Cursor integration.",
+    )
+
+
+class CursorConnectionStatusSerializer(serializers.Serializer):
+    connected = serializers.BooleanField(
+        help_text="Whether this team has a Cursor integration configured.",
+    )
+    has_repo_access = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Whether the connected Cursor account can see any repositories (GitHub connected at the "
+            "Cursor account level). Null when not connected or the probe could not run."
+        ),
+    )
+    plan_ok = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Whether the connected Cursor account is on a plan that can run cloud agents. False when Cursor "
+            "reports `plan_required` (free tier). Null when not connected or the probe could not run."
+        ),
+    )
+
+
+class CursorDispatchResponseSerializer(serializers.Serializer):
+    agent_id = serializers.CharField(
+        allow_null=True,
+        help_text="Identifier Cursor assigned to the dispatched cloud agent run.",
+    )
+    agent_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="URL to the agent run in Cursor, when Cursor returns one.",
+    )
+    agent_status = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Initial run status reported by Cursor (e.g. queued, running).",
+    )
+
+
+class SignalDispatchRequestSerializer(serializers.Serializer):
+    agent = serializers.ChoiceField(
+        choices=CodingAgent.choices,
+        required=False,
+        help_text=(
+            "Which coding agent to dispatch this report to: `posthog_code` or `cursor`. "
+            "Omit to use the team's configured default agent."
+        ),
+    )
+
+
+class SignalDispatchResponseSerializer(serializers.Serializer):
+    agent = serializers.ChoiceField(
+        choices=CodingAgent.choices,
+        help_text="The coding agent the report was dispatched to.",
+    )
+    agent_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="For the Cursor path: identifier Cursor assigned to the dispatched cloud agent run.",
+    )
+    agent_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="A destination for the dispatched work: the Cursor agent run URL, or the internal Task URL.",
+    )
+    agent_status = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="For the Cursor path: initial run status reported by Cursor (e.g. queued, running).",
+    )
+    task_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="For the PostHog Code path: id of the internal implementation Task that was started.",
+    )

@@ -10,12 +10,59 @@
 import * as zod from 'zod'
 
 /**
+ * Team-level signal autonomy config (singleton per team).
+
+GET  /signals/config/  → retrieve
+POST /signals/config/  → update
+ */
+export const signalsConfigCreateBodyDefaultSlackNotificationChannelMax = 255
+
+export const SignalsConfigCreateBody = /* @__PURE__ */ zod.object({
+    default_autostart_priority: zod
+        .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+        .optional()
+        .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+    default_coding_agent: zod
+        .enum(['posthog_code', 'cursor'])
+        .describe('\* `posthog_code` - PostHog Code\n\* `cursor` - Cursor')
+        .optional()
+        .describe(
+            "Which coding agent acts on this team's signal reports: `posthog_code` (the internal Tasks runner) or `cursor` (an external Cursor cloud agent). Governs both the automatic autonomy path and the default for the manual dispatch button. Connecting Cursor does not change this — a team only routes to Cursor once this is set to `cursor`.\n\n\* `posthog_code` - PostHog Code\n\* `cursor` - Cursor"
+        ),
+    default_slack_notification_channel: zod
+        .string()
+        .max(signalsConfigCreateBodyDefaultSlackNotificationChannelMax)
+        .nullish()
+        .describe(
+            "Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply."
+        ),
+})
+
+/**
  * View and control signal processing pipeline state for a team.
  */
 export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
     timestamp: zod.iso
         .datetime({ offset: true })
         .describe('Pause the grouping pipeline until this timestamp (ISO 8601).'),
+})
+
+/**
+ * Dispatch this report to a coding agent.
+
+The manual dispatch surface is gated by the signals-report-dispatch flag; routing to Cursor
+additionally requires signals-cursor-dispatch. The agent comes from the request body
+(`posthog_code` | `cursor`), falling back to the team's `default_coding_agent`. Connecting
+Cursor never changes the default — a team only routes to Cursor once it's explicitly chosen.
+ */
+export const SignalsReportsDispatchCreateBody = /* @__PURE__ */ zod.object({
+    agent: zod
+        .enum(['posthog_code', 'cursor'])
+        .describe('\* `posthog_code` - PostHog Code\n\* `cursor` - Cursor')
+        .optional()
+        .describe(
+            "Which coding agent to dispatch this report to: `posthog_code` or `cursor`. Omit to use the team's configured default agent.\n\n\* `posthog_code` - PostHog Code\n\* `cursor` - Cursor"
+        ),
 })
 
 /**
@@ -65,6 +112,17 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
         ),
+})
+
+/**
+ * Get, set, or clear this team's Cursor connection (the key a settings UI configures, stored per team).
+
+POST sets/overwrites the key; DELETE disconnects (removes the team's Cursor integration). On GET
+(and after a POST) the connection is probed against Cursor so the UI can surface the Pro-plan and
+GitHub-not-connected walls at connect time rather than on first dispatch.
+ */
+export const SignalsReportsCursorConnectionCreateBody = /* @__PURE__ */ zod.object({
+    api_key: zod.string().describe("Cursor API key for this team. Stored encrypted on the team's Cursor integration."),
 })
 
 /**

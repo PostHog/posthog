@@ -3,7 +3,7 @@ import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
@@ -14,7 +14,9 @@ import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/N
 import { sourceWizardLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceWizardLogic'
 import SourceForm from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { CodingAgentEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { inboxSceneLogic } from './inboxSceneLogic'
 import { SessionAnalysisSetup } from './SessionAnalysisSetup'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesList } from './SourcesList'
@@ -83,7 +85,10 @@ export function SourcesModal(): JSX.Element {
                     ) : sessionAnalysisSetupOpen ? (
                         <SessionAnalysisSetup />
                     ) : (
-                        <SourcesList />
+                        <>
+                            <CodingAgentSettings />
+                            <SourcesList />
+                        </>
                     )}
                 </LemonModal.Content>
             </LemonModal>
@@ -92,6 +97,82 @@ export function SourcesModal(): JSX.Element {
                 document.body /* Needs to be in portal to be above ReactModalPortal */
             )}
         </>
+    )
+}
+
+function CodingAgentSettings(): JSX.Element | null {
+    const {
+        cursorEnabled,
+        defaultCodingAgent,
+        cursorConnected,
+        cursorConnectionWarning,
+        cursorConnectionLoading,
+        cursorApiKeyDraft,
+    } = useValues(inboxSceneLogic)
+    const { saveTeamDefaultAgent, connectCursor, disconnectCursor, setCursorApiKeyDraft } = useActions(inboxSceneLogic)
+
+    // Only meaningful when there's a choice of agent — i.e. Cursor is enabled.
+    if (!cursorEnabled) {
+        return null
+    }
+
+    return (
+        <div className="mb-5 pb-5 border-b border-border">
+            <h4 className="font-semibold mb-1">Coding agent</h4>
+            <p className="text-xs text-secondary mb-2">
+                Which agent acts on reports — the default for each report's button and for the automatic autonomy path.
+                Connecting Cursor doesn't change this; you choose the default here.
+            </p>
+            <LemonSelect
+                value={defaultCodingAgent}
+                onChange={(agent) => saveTeamDefaultAgent({ agent })}
+                options={[
+                    { value: CodingAgentEnumApi.PosthogCode, label: 'PostHog Code' },
+                    { value: CodingAgentEnumApi.Cursor, label: 'Cursor' },
+                ]}
+                data-attr="default-coding-agent-select"
+            />
+            <div className="mt-3">
+                {cursorConnected ? (
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm">Cursor connected</span>
+                        <LemonButton
+                            size="small"
+                            status="danger"
+                            onClick={() => disconnectCursor()}
+                            data-attr="disconnect-cursor-button"
+                        >
+                            Disconnect
+                        </LemonButton>
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-2">
+                        <LemonInput
+                            type="password"
+                            value={cursorApiKeyDraft}
+                            onChange={setCursorApiKeyDraft}
+                            placeholder="crsr_..."
+                            data-attr="settings-cursor-key-input"
+                        />
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            loading={cursorConnectionLoading}
+                            disabledReason={!cursorApiKeyDraft ? 'Enter your Cursor API key' : undefined}
+                            onClick={() => connectCursor({ apiKey: cursorApiKeyDraft })}
+                            data-attr="settings-connect-cursor-button"
+                        >
+                            Connect Cursor
+                        </LemonButton>
+                    </div>
+                )}
+                {cursorConnectionWarning && (
+                    <LemonBanner type="warning" className="mt-2">
+                        {cursorConnectionWarning}
+                    </LemonBanner>
+                )}
+            </div>
+        </div>
     )
 }
 

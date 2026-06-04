@@ -429,7 +429,6 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_ANALYTICS_RETENTION_DWH: 'retention-dwh', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-signals
-    SIGNALS_REPORT_DISPATCH: 'signals-report-dispatch', // owner: #team-signals
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations
     PRODUCT_SELECTION_SCREEN_VARIANT: 'product-selection-screen-variant', // owner: @fercgomes #team-growth multivariate=control,spotlight,multiproduct
     PRODUCT_SUPPORT_AI_SUGGESTION: 'product-support-ai-suggestion', // owner: @veryayskiy #team-conversations
@@ -475,6 +474,8 @@ export const FEATURE_FLAGS = {
     SHOW_DATA_PIPELINES_NAV_ITEM: 'show-data-pipelines-nav-item', // owner: @raquelmsmith
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
     SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON: 'show-replay-filters-feedback-button', // owner: @ksvat #team-replay
+    SIGNALS_CURSOR_DISPATCH: 'signals-cursor-dispatch', // owner: #team-signals
+    SIGNALS_REPORT_DISPATCH: 'signals-report-dispatch', // owner: #team-signals
     SIGNUP_AA_TEST: 'signup-aa-test', // owner: @andehen #team-experiments multivariate=control,test
     SLACK_DWH: 'slack-dwh', // owner: @MarconLP #team-warehouse-sources
     SNAPCHAT_ADS_SOURCE: 'snapchat-ads-source', // owner: @jabahamondes #team-web-analytics

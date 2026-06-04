@@ -1,0 +1,354 @@
+import json
+
+import pytest
+from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from rest_framework import status
+
+from posthog.models import Organization, Team
+from posthog.models.integration import Integration
+
+from products.signals.backend.cursor_dispatch import (
+    CURSOR_AGENTS_API_URL,
+    CursorConnectionHealth,
+    CursorDispatchContext,
+    CursorDispatchError,
+    agent_id_for_report,
+    build_cursor_agent_request,
+    resolve_cursor_api_key,
+)
+from products.signals.backend.models import CodingAgent, SignalReport, SignalReportArtefact, SignalTeamConfig
+
+
+def _context(**overrides) -> CursorDispatchContext:
+    base = {
+        "repository": "PostHog/posthog",
+        "title": "Checkout 500s",
+        "summary": "Users hit a 500 on the checkout page",
+        "report_url": "https://us.posthog.com/project/2/inbox/r1",
+        "default_branch": "main",
+        "priority": "P1",
+        "priority_reason": "Affects revenue",
+        "code_paths": ["billing/views.py"],
+        "commit_hashes": ["abc123"],
+    }
+    base.update(overrides)
+    return CursorDispatchContext(**base)
+
+
+class TestBuildCursorAgentRequest:
+    def test_maps_core_fields_onto_create_agent_body(self):
+        body = build_cursor_agent_request(_context(), agent_id="signal-report-r1")
+
+        assert body["repos"] == [{"url": "https://github.com/PostHog/posthog", "startingRef": "main"}]
+        assert body["autoCreatePR"] is True
+        assert body["agentId"] == "signal-report-r1"
+        assert "model" not in body
+
+    def test_prompt_includes_research_context(self):
+        text = build_cursor_agent_request(_context(), agent_id="x")["prompt"]["text"]
+
+        assert "Users hit a 500 on the checkout page" in text
+        assert "P1" in text
+        assert "Affects revenue" in text
+        assert "billing/views.py" in text
+        assert "abc123" in text
+        assert "https://us.posthog.com/project/2/inbox/r1" in text
+
+    def test_mcp_attached_only_when_token_present(self):
+        without_token = build_cursor_agent_request(_context(), agent_id="x")
+        assert "mcpServers" not in without_token
+
+        with_token = build_cursor_agent_request(_context(), agent_id="x", posthog_mcp_token="tok")
+        assert with_token["mcpServers"][0]["name"] == "posthog"
+        assert with_token["mcpServers"][0]["headers"]["Authorization"] == "Bearer tok"
+
+    def test_full_github_url_is_passed_through(self):
+        body = build_cursor_agent_request(_context(repository="https://github.com/foo/bar"), agent_id="x")
+        assert body["repos"][0]["url"] == "https://github.com/foo/bar"
+
+    def test_missing_repository_raises(self):
+        with pytest.raises(CursorDispatchError):
+            build_cursor_agent_request(_context(repository=None), agent_id="x")
+
+    def test_optional_fields_omitted_cleanly(self):
+        text = build_cursor_agent_request(
+            _context(priority=None, priority_reason=None, code_paths=[], commit_hashes=[]),
+            agent_id="x",
+        )["prompt"]["text"]
+
+        assert "Priority:" not in text
+        assert "Relevant files:" not in text
+        assert "Relevant commits:" not in text
+
+
+def test_agent_id_for_report_is_stable_idempotency_key():
+    assert agent_id_for_report("r1") == "bc-r1"
+
+
+FLAG_PATH = "products.signals.backend.views.posthoganalytics.feature_enabled"
+POST_PATH = "products.signals.backend.cursor_dispatch.requests.post"
+START_INTERNAL_PATH = "products.signals.backend.views.start_internal_implementation_task"
+PROBE_PATH = "products.signals.backend.views.probe_cursor_connection"
+
+
+class TestDispatchEndpoint(APIBaseTest):
+    def _url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/dispatch/"
+
+    def _set_team_default_agent(self, agent: str) -> None:
+        SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"default_coding_agent": agent})
+
+    def _create_report(self, *, with_repo: bool = True) -> SignalReport:
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout 500s",
+            summary="Users hit a 500 on the checkout page",
+            signal_count=3,
+            total_weight=1.5,
+        )
+        if with_repo:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                content=json.dumps({"repository": "PostHog/posthog", "reason": "matches the stack trace"}),
+            )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content=json.dumps({"priority": "P1", "explanation": "Affects revenue"}),
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
+            content=json.dumps(
+                {
+                    "signal_id": "s1",
+                    "relevant_code_paths": ["billing/views.py"],
+                    "relevant_commit_hashes": {"abc123": "introduced the bug"},
+                    "verified": True,
+                }
+            ),
+        )
+        return report
+
+    def test_flag_off_returns_404(self):
+        report = self._create_report()
+        with patch(FLAG_PATH, return_value=False):
+            response = self.client.post(self._url(str(report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_cannot_dispatch_another_teams_report(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other-org"), name="other-team")
+        other_report = SignalReport.objects.create(
+            team=other_team, status=SignalReport.Status.READY, title="x", summary="y", signal_count=1, total_weight=1.0
+        )
+        with patch(FLAG_PATH, return_value=True), self.settings(CURSOR_API_KEY="test-key"):
+            response = self.client.post(self._url(str(other_report.id)))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_explicit_cursor_but_no_key_returns_409(self):
+        report = self._create_report()
+        with patch(FLAG_PATH, return_value=True), self.settings(CURSOR_API_KEY=""):
+            response = self.client.post(self._url(str(report.id)), {"agent": "cursor"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+
+    def test_cursor_report_without_repository_returns_502(self):
+        report = self._create_report(with_repo=False)
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY="test-key"),
+            patch(POST_PATH) as mock_post,
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "cursor"}, format="json")
+        assert response.status_code == status.HTTP_502_BAD_GATEWAY
+        mock_post.assert_not_called()
+
+    def test_dispatch_posts_to_cursor_and_returns_agent(self):
+        report = self._create_report()
+        cursor_response = MagicMock(status_code=201)
+        cursor_response.json.return_value = {
+            "agent": {
+                "id": "bc-agent_123",
+                "url": "https://cursor.com/agents/bc-agent_123",
+                "status": "ACTIVE",
+            },
+            "run": {"id": "run-1", "status": "RUNNING"},
+        }
+
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY="test-key"),
+            patch(POST_PATH, return_value=cursor_response) as mock_post,
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "cursor"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "agent": "cursor",
+            "agent_id": "bc-agent_123",
+            "agent_url": "https://cursor.com/agents/bc-agent_123",
+            "agent_status": "ACTIVE",
+            "task_id": None,
+        }
+
+        mock_post.assert_called_once()
+        call = mock_post.call_args
+        assert call.args[0] == CURSOR_AGENTS_API_URL
+        assert call.kwargs["headers"]["Authorization"] == "Bearer test-key"
+
+        body = call.kwargs["json"]
+        assert body["repos"] == [{"url": "https://github.com/PostHog/posthog", "startingRef": "main"}]
+        assert body["autoCreatePR"] is True
+        assert body["agentId"] == f"bc-{report.id}"
+        prompt_text = body["prompt"]["text"]
+        assert "Users hit a 500 on the checkout page" in prompt_text
+        assert "P1" in prompt_text
+        assert "billing/views.py" in prompt_text
+        assert "abc123" in prompt_text
+
+    def _connection_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/cursor_connection/"
+
+    def test_cursor_connection_set_and_status(self):
+        health = CursorConnectionHealth(has_repo_access=True, plan_ok=True)
+        with patch(FLAG_PATH, return_value=True), patch(PROBE_PATH, return_value=health) as mock_probe:
+            # Not connected yet: no key, so the connection is never probed.
+            assert self.client.get(self._connection_url()).json()["connected"] is False
+            mock_probe.assert_not_called()
+
+            response = self.client.post(self._connection_url(), {"api_key": "crsr_team_key"}, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            body = response.json()
+            assert body["connected"] is True
+            assert body["has_repo_access"] is True
+            assert body["plan_ok"] is True
+
+            integration = Integration.objects.get(team=self.team, kind="cursor")
+            assert integration.sensitive_config.get("api_key") == "crsr_team_key"
+            assert self.client.get(self._connection_url()).json()["connected"] is True
+
+    def test_cursor_connection_surfaces_plan_wall(self):
+        Integration.objects.create(team=self.team, kind="cursor", sensitive_config={"api_key": "k"})
+        health = CursorConnectionHealth(has_repo_access=False, plan_ok=False)
+        with patch(FLAG_PATH, return_value=True), patch(PROBE_PATH, return_value=health):
+            body = self.client.get(self._connection_url()).json()
+        assert body["connected"] is True
+        assert body["plan_ok"] is False
+        assert body["has_repo_access"] is False
+
+    def test_cursor_connection_flag_off_returns_404(self):
+        with patch(FLAG_PATH, return_value=False):
+            assert self.client.get(self._connection_url()).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_resolve_prefers_team_integration_over_setting(self):
+        Integration.objects.create(team=self.team, kind="cursor", sensitive_config={"api_key": "team-key"})
+        with self.settings(CURSOR_API_KEY="setting-key"):
+            assert resolve_cursor_api_key(self.team) == "team-key"
+
+    def test_dispatch_uses_team_integration_key(self):
+        report = self._create_report()
+        Integration.objects.create(team=self.team, kind="cursor", sensitive_config={"api_key": "team-key"})
+        cursor_response = MagicMock(status_code=201)
+        cursor_response.json.return_value = {"agent": {"id": "bc-x", "url": "u", "status": "ACTIVE"}}
+
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY=""),
+            patch(POST_PATH, return_value=cursor_response) as mock_post,
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "cursor"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_post.call_args.kwargs["headers"]["Authorization"] == "Bearer team-key"
+
+    def test_duplicate_dispatch_returns_already_dispatched(self):
+        report = self._create_report()
+        conflict = MagicMock(status_code=409)
+        conflict.json.return_value = {"error": {"code": "agent_id_conflict", "message": "exists"}}
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY="test-key"),
+            patch(POST_PATH, return_value=conflict),
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "cursor"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["agent_status"] == "already_dispatched"
+        assert response.json()["agent_id"] == f"bc-{report.id}"
+
+    # --- Agent chooser: PostHog Code path and default routing ---
+
+    def test_default_agent_creates_internal_task_not_cursor(self):
+        # No agent in the body and the team default is posthog_code → internal Task, never Cursor.
+        report = self._create_report()
+        task = MagicMock(id="task-123")
+        with (
+            patch(FLAG_PATH, return_value=True),
+            patch(START_INTERNAL_PATH, return_value=task) as mock_start,
+            patch(POST_PATH) as mock_post,
+            self.settings(CURSOR_API_KEY="test-key"),
+        ):
+            response = self.client.post(self._url(str(report.id)))
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["agent"] == "posthog_code"
+        assert body["task_id"] == "task-123"
+        mock_start.assert_called_once()
+        mock_post.assert_not_called()
+
+    def test_explicit_posthog_code_creates_internal_task(self):
+        report = self._create_report()
+        task = MagicMock(id="task-9")
+        with (
+            patch(FLAG_PATH, return_value=True),
+            patch(START_INTERNAL_PATH, return_value=task) as mock_start,
+            patch(POST_PATH) as mock_post,
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "posthog_code"}, format="json")
+
+        assert response.json()["agent"] == "posthog_code"
+        mock_start.assert_called_once()
+        mock_post.assert_not_called()
+
+    def test_team_default_cursor_routes_empty_body_to_cursor(self):
+        self._set_team_default_agent(CodingAgent.CURSOR)
+        report = self._create_report()
+        cursor_response = MagicMock(status_code=201)
+        cursor_response.json.return_value = {"agent": {"id": "bc-x", "url": "u", "status": "ACTIVE"}}
+        with (
+            patch(FLAG_PATH, return_value=True),
+            self.settings(CURSOR_API_KEY="test-key"),
+            patch(POST_PATH, return_value=cursor_response) as mock_post,
+        ):
+            response = self.client.post(self._url(str(report.id)))
+
+        assert response.json()["agent"] == "cursor"
+        mock_post.assert_called_once()
+
+    def test_posthog_code_without_repository_returns_409(self):
+        report = self._create_report(with_repo=False)
+        with (
+            patch(FLAG_PATH, return_value=True),
+            patch(START_INTERNAL_PATH) as mock_start,
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "posthog_code"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        mock_start.assert_not_called()
+
+    def test_posthog_code_missing_github_integration_returns_409(self):
+        # Task.create_and_run raises ValueError when the team has no GitHub integration; the
+        # endpoint must surface it as an actionable 409, not an unhandled 500.
+        report = self._create_report()
+        with (
+            patch(FLAG_PATH, return_value=True),
+            patch(START_INTERNAL_PATH, side_effect=ValueError("Team 1 does not have a GitHub integration")),
+        ):
+            response = self.client.post(self._url(str(report.id)), {"agent": "posthog_code"}, format="json")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "GitHub integration" in response.json()["error"]

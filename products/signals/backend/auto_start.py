@@ -2,12 +2,27 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from django.conf import settings
+
 import structlog
+import posthoganalytics
 
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.models import SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
+from products.signals.backend.cursor_dispatch import (
+    SIGNALS_CURSOR_DISPATCH_FLAG,
+    CursorDispatchError,
+    dispatch_report_to_cursor,
+    resolve_cursor_api_key,
+)
+from products.signals.backend.models import (
+    CodingAgent,
+    SignalReport,
+    SignalReportTask,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -38,6 +53,17 @@ _PRIORITY_RANK: dict[Priority, int] = {
 
 def _priority_rank(priority: Priority) -> int:
     return _PRIORITY_RANK[priority]
+
+
+def _cursor_flag_enabled(distinct_id: str | None, organization_id: str) -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            SIGNALS_CURSOR_DISPATCH_FLAG,
+            str(distinct_id),
+            groups={"organization": organization_id},
+            send_feature_flag_events=False,
+        )
+    )
 
 
 def _build_autostart_task_description(
@@ -203,6 +229,37 @@ async def maybe_autostart_implementation_task(
     )
     if task_user is None:
         return
+
+    # Route by the team's chosen agent, NOT by Cursor connection state. Cursor being connected
+    # must not silently redirect autonomy — a team only routes to Cursor once it sets the default.
+    team_default_agent = team_config.default_coding_agent if team_config else CodingAgent.POSTHOG_CODE
+    if team_default_agent == CodingAgent.CURSOR and _cursor_flag_enabled(
+        task_user.distinct_id, str(team.organization_id)
+    ):
+        cursor_api_key = await database_sync_to_async(resolve_cursor_api_key, thread_sensitive=False)(team)
+        if cursor_api_key:
+            report = await SignalReport.objects.aget(id=report_id)
+            try:
+                # No SignalReportTask is created for the Cursor path: its `task` FK requires an
+                # internal Task. Dedup is handled by Cursor returning 409 on a duplicate agentId,
+                # which dispatch_report_to_cursor treats as already_dispatched.
+                await database_sync_to_async(dispatch_report_to_cursor, thread_sensitive=False)(
+                    report, api_key=cursor_api_key, site_url=settings.SITE_URL
+                )
+            except CursorDispatchError as error:
+                logger.warning(
+                    "signals auto-start cursor dispatch failed",
+                    report_id=report_id,
+                    team_id=team_id,
+                    repository=repository,
+                    error=str(error),
+                )
+            return
+        logger.warning(
+            "signals auto-start defaulted to cursor but no key resolved; falling back to internal",
+            report_id=report_id,
+            team_id=team_id,
+        )
 
     await database_sync_to_async(start_internal_implementation_task, thread_sensitive=False)(
         team=team,
