@@ -112,8 +112,15 @@ class TestResolveSlackUser:
         assert result.slack_email == "dev@example.com"
         mock_client.users_info.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "stale_refreshed_at",
+        [
+            pytest.param(lambda: timezone.now() - SLACK_USER_PROFILE_TTL - timedelta(minutes=1), id="stale_by_ttl"),
+            pytest.param(lambda: None, id="null_refreshed_at"),
+        ],
+    )
     @patch("posthog.models.integration.WebClient")
-    def test_refetches_when_profile_is_stale(self, mock_webclient_class):
+    def test_refetches_when_profile_is_stale(self, mock_webclient_class, stale_refreshed_at):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_info.return_value = {
@@ -124,14 +131,14 @@ class TestResolveSlackUser:
             }
         }
 
-        stale_at = timezone.now() - SLACK_USER_PROFILE_TTL - timedelta(minutes=1)
+        before = timezone.now()
         SlackUserProfileCache.objects.create(
             integration=self.integration,
             slack_user_id="U123",
             email="dev@example.com",
             display_name="Dev",
             real_name="Developer",
-            refreshed_at=stale_at,
+            refreshed_at=stale_refreshed_at(),
         )
 
         slack = SlackIntegration(self.integration)
@@ -143,7 +150,7 @@ class TestResolveSlackUser:
         profile = SlackUserProfileCache.objects.get(integration=self.integration, slack_user_id="U123")
         assert profile.display_name == "Dev (renamed)"
         assert profile.is_admin is True
-        assert profile.refreshed_at is not None and profile.refreshed_at > stale_at
+        assert profile.refreshed_at is not None and profile.refreshed_at >= before
 
     @patch("posthog.models.integration.WebClient")
     def test_persists_slack_profile_after_lookup(self, mock_webclient_class):
@@ -223,8 +230,15 @@ class TestLookupSlackUserIdByEmail:
         assert profile.email == "new@example.com"
         assert profile.refreshed_at is not None
 
+    @pytest.mark.parametrize(
+        "stale_refreshed_at",
+        [
+            pytest.param(lambda: timezone.now() - SLACK_USER_PROFILE_TTL - timedelta(minutes=1), id="stale_by_ttl"),
+            pytest.param(lambda: None, id="null_refreshed_at"),
+        ],
+    )
     @patch("posthog.models.integration.WebClient")
-    def test_refetches_email_lookup_when_profile_is_stale(self, mock_webclient_class):
+    def test_refetches_email_lookup_when_profile_is_stale(self, mock_webclient_class, stale_refreshed_at):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         mock_client.users_lookupByEmail.return_value = {
@@ -235,12 +249,12 @@ class TestLookupSlackUserIdByEmail:
             },
         }
 
-        stale_at = timezone.now() - SLACK_USER_PROFILE_TTL - timedelta(minutes=1)
+        before = timezone.now()
         SlackUserProfileCache.objects.create(
             integration=self.integration,
             slack_user_id="U123",
             email="dev@example.com",
-            refreshed_at=stale_at,
+            refreshed_at=stale_refreshed_at(),
         )
 
         slack = SlackIntegration(self.integration)
@@ -249,4 +263,7 @@ class TestLookupSlackUserIdByEmail:
         assert slack_user_id == "U999"
         mock_client.users_lookupByEmail.assert_called_once()
         refreshed_profile = SlackUserProfileCache.objects.get(integration=self.integration, slack_user_id="U999")
-        assert refreshed_profile.refreshed_at is not None and refreshed_profile.refreshed_at > stale_at
+        assert refreshed_profile.refreshed_at is not None and refreshed_profile.refreshed_at >= before
+        # The orphan row for the previous Slack user ID is purged so subsequent
+        # lookups land on the fresh row instead of re-firing the email lookup.
+        assert not SlackUserProfileCache.objects.filter(integration=self.integration, slack_user_id="U123").exists()
