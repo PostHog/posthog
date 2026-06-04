@@ -1567,34 +1567,50 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response.results[1]["labels"],
         )
 
-    def test_trends_resolved_compare_range_absent_without_compare(self):
-        self._create_test_events()
-
-        response = self._run_trends_query(
-            "2020-01-09", "2020-01-20", IntervalType.DAY, [EventsNode(event="$pageview")], TrendsFilter()
-        )
-
-        self.assertIsNone(response.resolved_compare_date_range)
-
-    def test_trends_resolved_compare_range_present_for_fixed_window_previous_period(self):
-        # "Last 7 days" + previous period still gets a resolved compare range — the field is
-        # populated whenever comparing, independent of whether the date preset is aligned.
+    @parameterized.expand(
+        [
+            # name, date_from, date_to, compare_filter, expected_from, expected_to
+            ("no_compare", "2020-01-09", "2020-01-20", None, None, None),
+            (
+                "previous_period",
+                "-7d",
+                None,
+                CompareFilter(compare=True),
+                datetime(2020, 1, 1, 0, 0, 0),
+                datetime(2020, 1, 8, 23, 59, 59, 999999),
+            ),
+            (
+                "explicit_compare_to",
+                "-7d",
+                None,
+                CompareFilter(compare=True, compare_to="-1w"),
+                datetime(2020, 1, 1, 0, 0, 0),
+                datetime(2020, 1, 8, 23, 59, 59, 999999),
+            ),
+        ]
+    )
+    def test_trends_resolved_compare_date_range(
+        self, _name, date_from, date_to, compare_filter, expected_from, expected_to
+    ):
         self._create_test_events()
         utc = zoneinfo.ZoneInfo("UTC")
 
         with freeze_time("2020-01-15T12:00:00Z"):
             response = self._run_trends_query(
-                "-7d",
-                None,
+                date_from,
+                date_to,
                 IntervalType.DAY,
                 [EventsNode(event="$pageview")],
                 TrendsFilter(),
-                compare_filters=CompareFilter(compare=True),
+                compare_filters=compare_filter,
             )
 
-        assert response.resolved_compare_date_range is not None
-        # -7d → current window 2020-01-08..2020-01-15; previous shifts back by the full span.
-        self.assertEqual(response.resolved_compare_date_range.date_from, datetime(2020, 1, 1, 0, 0, 0, tzinfo=utc))
+        if expected_from is None:
+            self.assertIsNone(response.resolved_compare_date_range)
+        else:
+            assert response.resolved_compare_date_range is not None
+            self.assertEqual(response.resolved_compare_date_range.date_from, expected_from.replace(tzinfo=utc))
+            self.assertEqual(response.resolved_compare_date_range.date_to, expected_to.replace(tzinfo=utc))
 
     def test_trends_compare_weeks(self):
         self._create_test_events()
