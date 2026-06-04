@@ -140,8 +140,8 @@ tools:
     signals-config-create:
         operation: signals_config_create
         enabled: false
-    signals-config-list:
-        operation: signals_config_list
+    signals-config-retrieve:
+        operation: signals_config_retrieve
         enabled: false
     signals-reports-cursor-connection-create:
         operation: signals_reports_cursor_connection_create
