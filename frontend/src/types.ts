@@ -5633,6 +5633,7 @@ export enum ActivityScope {
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
+    SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
 }
 
 export type CommentType = {

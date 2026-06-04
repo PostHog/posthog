@@ -10409,6 +10409,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `abandoned` - Abandoned
+    * `off-topic` - Off-topic
+     */
+    export type ClassificationsEnum = typeof ClassificationsEnum[keyof typeof ClassificationsEnum];
+
+
+    export const ClassificationsEnum = {
+      Abandoned: 'abandoned',
+      OffTopic: 'off-topic',
+    } as const;
+
+    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -20359,6 +20371,24 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    /**
+     * * `manual` - Manual only
+    * `1h` - Every hour
+    * `6h` - Every 6 hours
+    * `24h` - Every day
+    * `7d` - Every week
+     */
+    export type RefreshIntervalEnum = typeof RefreshIntervalEnum[keyof typeof RefreshIntervalEnum];
+
+
+    export const RefreshIntervalEnum = {
+      Manual: 'manual',
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+    } as const;
+
     export interface KnowledgeSource {
       readonly id: string;
       readonly team_id: number;
@@ -20378,6 +20408,14 @@ export namespace Schemas {
       readonly last_refresh_at: string | null;
       readonly last_refresh_status: LastRefreshStatusEnum;
       readonly last_refresh_error: string;
+      readonly refresh_interval: RefreshIntervalEnum;
+      /**
+         * When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.
+         * @nullable
+         */
+      readonly next_refresh_at: string | null;
+      /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
+      readonly has_unsafe_documents: boolean;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -25053,11 +25091,11 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
-      interval?: number;
+      interval: number;
       /**
          * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
@@ -26244,6 +26282,8 @@ export namespace Schemas {
       readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio: string;
     }
 
@@ -30878,6 +30918,34 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface PatchedSignalScoutConfig {
+      readonly id?: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name?: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -30949,8 +31017,8 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency?: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
       interval?: number;
@@ -32363,6 +32431,8 @@ export namespace Schemas {
       readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio?: string;
     }
 
@@ -37013,6 +37083,34 @@ export namespace Schemas {
     }
 
     /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface SignalScoutConfig {
+      readonly id: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      readonly created_at: string;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response.
@@ -39152,6 +39250,11 @@ export namespace Schemas {
          * @nullable
          */
       topic_id?: string | null;
+      /**
+         * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
+         * @minItems 1
+         */
+      classifications?: ClassificationsEnum[];
       /**
          * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
          * @minimum 1
@@ -43679,6 +43782,10 @@ export namespace Schemas {
 
     export type EnvironmentsUserInterviewsListParams = {
     /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -44585,6 +44692,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -44663,6 +44771,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     /**
@@ -44727,6 +44836,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -44793,6 +44903,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -49778,6 +49889,10 @@ export namespace Schemas {
     };
 
     export type UserInterviewsListParams = {
+    /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
     /**
      * Number of results to return per page.
      */
