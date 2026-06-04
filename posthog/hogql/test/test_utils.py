@@ -1,9 +1,11 @@
 from posthog.test.base import BaseTest
+from unittest import TestCase
 
 from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.utils import deserialize_hx_ast, ilike_matches, like_matches
 
 
@@ -516,3 +518,66 @@ class TestUtils(BaseTest):
                 }
             )
         self.assertEqual(str(e.exception), "Invalid or missing '__hx_ast' kind: Invalid")
+
+
+class TestPrettyPrintInTests(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "prewhere_stays_intact",
+                "SELECT 1 FROM events PREWHERE x WHERE y",
+                ["\nPREWHERE x", "\nWHERE y", "\nSELECT 1", "\nFROM events"],
+                ["PRE\nWHERE"],
+            ),
+            (
+                "all_top_level_keywords_split",
+                "SELECT a FROM t WHERE b GROUP BY c HAVING d QUALIFY q WINDOW w ORDER BY e LIMIT 1 OFFSET 2 SETTINGS x = 1",
+                [
+                    "\nSELECT a",
+                    "\nFROM t",
+                    "\nWHERE b",
+                    "\nGROUP BY",
+                    "\nHAVING d",
+                    "\nQUALIFY q",
+                    "\nWINDOW w",
+                    "\nORDER BY e",
+                    "\nLIMIT 1",
+                    "\nOFFSET 2",
+                    "\nSETTINGS x = 1",
+                ],
+                ["PRE\nWHERE"],
+            ),
+            (
+                "keyword_substring_of_token_not_split",
+                "SELECT 1 FROM UNLIMITED",
+                ["\nFROM UNLIMITED"],
+                ["UN\nLIMITED", "\nLIMITED", "\nLIMIT"],
+            ),
+            (
+                "keyword_already_at_line_start_not_doubled",
+                "SELECT a\n    FROM t\n    WHERE b\n    ORDER BY c",
+                ["\n    FROM t", "\n    WHERE b", "\n    ORDER BY c"],
+                ["\n    \nFROM", "\n    \nWHERE", "\n    \nORDER", "\n\nFROM"],
+            ),
+            (
+                "keyword_at_line_start_no_indent_not_doubled",
+                "SELECT a\nFROM t\nWHERE b",
+                ["SELECT a\nFROM t\nWHERE b"],
+                ["\n\nFROM", "\n\nWHERE"],
+            ),
+        ]
+    )
+    def test_keyword_newline_insertion(self, _name: str, query: str, present: list[str], absent: list[str]) -> None:
+        result = pretty_print_in_tests(query, 1)
+        for fragment in present:
+            self.assertIn(fragment, result)
+        for fragment in absent:
+            self.assertNotIn(fragment, result)
+
+    def test_normalizes_team_id(self) -> None:
+        result = pretty_print_in_tests("WHERE equals(events.team_id, 99999)", 99999)
+        self.assertIn("team_id, 420)", result)
+        self.assertNotIn("99999", result)
+
+    def test_none_query_returns_empty_string(self) -> None:
+        self.assertEqual(pretty_print_in_tests(None, 1), "")

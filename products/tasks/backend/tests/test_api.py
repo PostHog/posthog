@@ -1097,11 +1097,32 @@ class TestTaskAPI(BaseTaskAPITest):
             run_id=run_id,
             team_id=task.team.id,
             user_id=self.user.id,
+            posthog_mcp_scopes="full",
         )
 
         self.assertEqual(latest_run["task"], str(task.id))
         self.assertEqual(latest_run["status"], "queued")
         self.assertEqual(latest_run["environment"], "cloud")
+
+    @parameterized.expand(
+        [
+            ("run_source_omitted", None, "full"),
+            ("manual", {"run_source": "manual"}, "full"),
+            ("signal_report", {"run_source": "signal_report"}, "read_only"),
+        ]
+    )
+    @patch("products.tasks.backend.api.execute_task_processing_workflow")
+    def test_run_endpoint_resolves_mcp_scope_from_run_source(self, _name, payload, expected_scope, mock_workflow):
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            payload,
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual(mock_workflow.call_args.kwargs["posthog_mcp_scopes"], expected_scope)
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
     def test_run_endpoint_persists_sandbox_environment_id(self, mock_workflow):
@@ -1465,6 +1486,7 @@ class TestTaskAPI(BaseTaskAPITest):
             run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=self.user.id,
+            posthog_mcp_scopes="full",
         )
 
     @patch("products.tasks.backend.api.execute_task_processing_workflow")
@@ -1545,6 +1567,7 @@ class TestTaskAPI(BaseTaskAPITest):
             run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=self.user.id,
+            posthog_mcp_scopes="full",
         )
 
     @parameterized.expand(
