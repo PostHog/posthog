@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team, User
 
-from products.signals.backend.auto_start import maybe_autostart_implementation_task
+from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
 from products.signals.backend.cursor_dispatch import CursorDispatchError, CursorDispatchResult
 from products.signals.backend.models import CodingAgent, SignalReport, SignalReportTask, SignalTeamConfig
 from products.signals.backend.report_generation.research import (
@@ -81,7 +81,7 @@ def _priority() -> PriorityAssessment:
     return PriorityAssessment(explanation="Affects revenue.", priority=Priority.P1)
 
 
-def _reviewers() -> list[dict]:
+def _reviewers() -> list[ReviewerContent]:
     return [{"github_login": "octocat", "github_name": "Octo Cat", "relevant_commits": []}]
 
 

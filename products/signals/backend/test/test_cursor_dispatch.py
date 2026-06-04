@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -22,7 +23,7 @@ from products.signals.backend.models import CodingAgent, SignalReport, SignalRep
 
 
 def _context(**overrides) -> CursorDispatchContext:
-    base = {
+    base: dict[str, Any] = {
         "repository": "PostHog/posthog",
         "title": "Checkout 500s",
         "summary": "Users hit a 500 on the checkout page",
