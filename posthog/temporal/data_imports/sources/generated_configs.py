@@ -742,7 +742,7 @@ class SalesforceSourceConfig(config.Config):
 
 @config.config
 class SendGridSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
