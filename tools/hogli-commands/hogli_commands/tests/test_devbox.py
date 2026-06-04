@@ -3449,6 +3449,157 @@ class TestMutagenSyncWrappers:
         devbox_mutagen.sync_pause("hogli-workspace=devbox-test-user")
 
 
+class TestKeepaliveShim:
+    """Test the ssh keepalive shim that keeps sync alive across DERP path resets.
+
+    mutagen hardcodes `-oServerAliveCountMax=1`; a single missed keepalive during
+    a Tailscale path reset kills the sync. The shim rewrites the count upward and
+    is wired into the daemon via MUTAGEN_SSH_PATH (see mutagen.py).
+    """
+
+    def test_run_injects_mutagen_ssh_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Any daemon mutagen auto-starts as a child of _run inherits this env --
+        # the only channel that reaches the ssh-spawning daemon.
+        captured: dict[str, object] = {}
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            captured["env"] = kwargs.get("env")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        monkeypatch.setattr(devbox_mutagen.subprocess, "run", fake_run)
+        monkeypatch.setattr(devbox_mutagen, "_mutagen_bin", lambda: "/x/mutagen")
+
+        devbox_mutagen._run(["mutagen", "version"])
+
+        env = captured["env"]
+        assert isinstance(env, dict)
+        assert env["MUTAGEN_SSH_PATH"] == str(devbox_mutagen._SSH_SHIM_DIR)
+
+    def test_shim_rewrites_keepalive_count_and_passes_through(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        # End-to-end of the generated shim script: run it like mutagen would and
+        # assert it execs the real ssh with the count rewritten, everything else
+        # verbatim and in order.
+        shim_dir = tmp_path / "shim"
+        log = tmp_path / "args.log"
+        fake = tmp_path / "fakessh"
+        fake.write_text("#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > '" + str(log) + "'\n")
+        fake.chmod(0o755)
+
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen, "_resolve_real_ssh", lambda name: str(fake))
+        devbox_mutagen.ensure_ssh_shim()
+
+        incoming = [
+            "-oConnectTimeout=5",
+            "-oServerAliveInterval=10",
+            "-oServerAliveCountMax=1",
+            "nobody@host",
+            ".mutagen/agents/0.18.1/mutagen-agent",
+            "synchronizer",
+            "--log-level=info",
+        ]
+        result = subprocess.run([str(shim_dir / "ssh"), *incoming], capture_output=True, text=True)
+        assert result.returncode == 0
+
+        forwarded = log.read_text().splitlines()
+        bumped = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
+        expected = [bumped if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
+        assert forwarded == expected
+        assert "-oServerAliveCountMax=1" not in forwarded
+
+    def test_ensure_ssh_shim_writes_both_executables_and_is_idempotent(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        shim_dir = tmp_path / "shim"
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen, "_resolve_real_ssh", lambda name: f"/usr/bin/{name}")
+
+        devbox_mutagen.ensure_ssh_shim()
+        ssh, scp = shim_dir / "ssh", shim_dir / "scp"
+        assert ssh.exists() and scp.exists()
+        assert ssh.stat().st_mode & 0o111  # executable
+        assert f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}" in ssh.read_text()
+        assert 'exec "/usr/bin/scp"' in scp.read_text()
+
+        # Unchanged content must not rewrite the file (cheap, mtime-stable re-run).
+        before = ssh.stat().st_mtime_ns
+        devbox_mutagen.ensure_ssh_shim()
+        assert ssh.stat().st_mtime_ns == before
+
+    def test_resolve_real_ssh_never_returns_the_shim_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # A shim-dir ssh on PATH must never be picked, or the shim re-invokes
+        # itself forever. Force the PATH fallback by hiding standard locations.
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        (shim_dir / "ssh").write_text("#!/bin/sh\n")
+        monkeypatch.setattr(devbox_mutagen, "_SSH_SHIM_DIR", shim_dir)
+        monkeypatch.setattr(devbox_mutagen.os.path, "isfile", lambda p: False)
+        monkeypatch.setenv("PATH", str(shim_dir))
+
+        # Only the shim dir is on PATH and it's excluded, so nothing resolves and
+        # we fall back to the bare name -- crucially, never the shim's own ssh.
+        assert devbox_mutagen._resolve_real_ssh("ssh") == "ssh"
+
+    def test_daemon_uses_shim_matches_on_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setattr(devbox_mutagen, "_daemon_pids", lambda: [111, 222])
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_process_env",
+            lambda pid: {"MUTAGEN_SSH_PATH": str(tmp_path)} if pid == 222 else {"FOO": "bar"},
+        )
+        assert devbox_mutagen._daemon_uses_shim(tmp_path) is True
+
+        monkeypatch.setattr(devbox_mutagen, "_process_env", lambda pid: {"MUTAGEN_SSH_PATH": "/other"})
+        assert devbox_mutagen._daemon_uses_shim(tmp_path) is False
+
+    def test_ensure_daemon_fast_path_does_not_touch_daemon(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen, "ensure_ssh_shim", lambda: tmp_path)
+        monkeypatch.setattr(devbox_mutagen, "_daemon_uses_shim", lambda d: True)
+
+        def fail_run(*a: object, **k: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("daemon must not be reset when the shim is already active")
+
+        monkeypatch.setattr(devbox_mutagen, "_run", fail_run)
+        devbox_mutagen.ensure_daemon_with_shim()  # no exception, no daemon churn
+
+    def test_ensure_daemon_resets_when_shim_inactive(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        # A registered/launchd daemon's env can't carry the shim, so it must be
+        # stopped, unregistered (so the restart forks an env-inheriting child),
+        # then started fresh -- in that order.
+        monkeypatch.setattr(devbox_mutagen, "ensure_ssh_shim", lambda: tmp_path)
+        monkeypatch.setattr(devbox_mutagen, "_daemon_uses_shim", lambda d: False)
+        calls: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **k: calls.append(args[1:]) or subprocess.CompletedProcess(args, 0, "", ""),
+        )
+
+        devbox_mutagen.ensure_daemon_with_shim()
+
+        assert calls == [["daemon", "stop"], ["daemon", "unregister"], ["daemon", "start"]]
+
+    def test_ensure_daemon_warns_when_start_fails(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(devbox_mutagen, "ensure_ssh_shim", lambda: tmp_path)
+        monkeypatch.setattr(devbox_mutagen, "_daemon_uses_shim", lambda d: False)
+        monkeypatch.setattr(
+            devbox_mutagen,
+            "_run",
+            lambda args, **k: subprocess.CompletedProcess(args, 1, "", "boom"),
+        )
+
+        devbox_mutagen.ensure_daemon_with_shim()
+
+        out = capsys.readouterr().out
+        assert "keepalive shim" in out
+
+
 class TestConflictCount:
     """Test that conflict counts include mutagen's truncated remainder."""
 
@@ -3625,7 +3776,7 @@ class TestDevboxSyncCommand:
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
-        monkeypatch.setattr(devbox_sync.mutagen, "register_daemon", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
         monkeypatch.setattr(devbox_sync, "_ensure_ssh_config_for_workspace", lambda ws: None)
         monkeypatch.setattr(devbox_sync.mutagen, "ensure_user_mutagen_config", lambda: Path("/tmp/mutagen.yml"))
         monkeypatch.setattr(
@@ -3651,7 +3802,7 @@ class TestDevboxSyncCommand:
         monkeypatch.setattr(devbox_cli, "extract_workspace_label", lambda name: None)
         monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
-        monkeypatch.setattr(devbox_sync.mutagen, "register_daemon", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
         monkeypatch.setattr(devbox_sync, "_ensure_ssh_config_for_workspace", lambda ws: None)
         config_path = tmp_path / "mutagen.yml"
         config_path.write_text("sync: {}\n")
@@ -3685,7 +3836,7 @@ class TestDevboxSyncCommand:
             lambda ws: ("devbox-test-user", [{"name": "devbox-test-user"}]),
         )
         monkeypatch.setattr(devbox_sync.mutagen, "ensure_mutagen_installed", lambda **kw: None)
-        monkeypatch.setattr(devbox_sync.mutagen, "register_daemon", lambda: None)
+        monkeypatch.setattr(devbox_sync.mutagen, "ensure_daemon_with_shim", lambda: None)
         monkeypatch.setattr(devbox_sync.mutagen, "sync_list", lambda label_selector=None: [])
         monkeypatch.setattr(devbox_sync, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_sync, "get_workspace", lambda name, workspaces: {"name": name})

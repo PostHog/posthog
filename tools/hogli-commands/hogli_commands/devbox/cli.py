@@ -1094,7 +1094,7 @@ def devbox_setup(
         return
 
     mutagen.ensure_mutagen_installed(verbose=verbose)
-    mutagen.register_daemon()
+    mutagen.ensure_daemon_with_shim()
     mutagen.ensure_user_mutagen_config()
     maybe_configure_ssh(
         configure_ssh=configure_ssh,
