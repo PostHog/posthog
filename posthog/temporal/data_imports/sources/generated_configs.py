@@ -309,7 +309,11 @@ class CustomerIOSourceConfig(config.Config):
 
 @config.config
 class DatadogSourceConfig(config.Config):
-    pass
+    api_key: str
+    application_key: str
+    site: Literal[
+        "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"
+    ] = config.value(default="datadoghq.com")
 
 
 @config.config
