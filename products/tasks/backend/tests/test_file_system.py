@@ -77,14 +77,15 @@ class TestTaskFileSystem(BaseTaskAPITest):
         task_id = task.id
         self.assertEqual(FileSystem.objects.filter(team=self.team, type="task", ref=str(task_id)).count(), 1)
 
-        task.delete()
+        # Task.delete() is blocked; queryset.delete() bypasses the override and fires post_delete.
+        Task.objects.filter(pk=task_id).delete()
 
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="task", ref=str(task_id)).exists())
 
     def test_unfiled_sweep_does_not_file_tasks(self):
         self.create_task(title="My Task")
 
-        response = self.client.get("/api/projects/@current/desktop_file_system/unfiled/?type=task")
+        response = self.client.get(f"/api/projects/{self.team.id}/desktop_file_system/unfiled/?type=task")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="task").exists())
 
@@ -94,7 +95,7 @@ class TestTaskFileSystem(BaseTaskAPITest):
         entry = self._task_rows(task).get()
 
         # Deleting the tree entry soft-deletes the task and removes the row.
-        delete_response = self.client.delete(f"/api/projects/@current/desktop_file_system/{entry.id}/")
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{entry.id}/")
         self.assertEqual(delete_response.status_code, 200, delete_response.content)
         task.refresh_from_db()
         self.assertTrue(task.deleted)
@@ -102,7 +103,7 @@ class TestTaskFileSystem(BaseTaskAPITest):
 
         # Undo restores the task and recreates the row.
         undo_response = self.client.post(
-            "/api/projects/@current/desktop_file_system/undo_delete/",
+            f"/api/projects/{self.team.id}/desktop_file_system/undo_delete/",
             {"items": [{"type": "task", "ref": str(task.id), "path": entry.path}]},
             format="json",
         )
