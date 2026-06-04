@@ -31,25 +31,30 @@ def _run_activity(source_mock):
         sync_new_schemas_activity(SyncNewSchemasActivityInputs(source_id="src", team_id=1))
 
 
-def test_non_retryable_get_schemas_error_is_skipped():
-    """A non-retryable source error during discovery must be swallowed, not retried."""
+@pytest.mark.parametrize(
+    "error_msg,non_retryable,expected_exc",
+    [
+        (
+            "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})",
+            {"invalid_grant": None},
+            None,
+        ),
+        (
+            "UNAVAILABLE: transient network blip",
+            {"invalid_grant": None},
+            "transient network blip",
+        ),
+    ],
+    ids=["non_retryable_error_is_skipped", "unknown_error_propagates"],
+)
+def test_get_schemas_error_handling(error_msg, non_retryable, expected_exc):
     source_mock = mock.MagicMock()
     source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = Exception(
-        "('invalid_grant: Bad Request', {'error': 'invalid_grant', 'error_description': 'Bad Request'})"
-    )
-    source_mock.get_non_retryable_errors.return_value = {"invalid_grant": None}
+    source_mock.get_schemas.side_effect = Exception(error_msg)
+    source_mock.get_non_retryable_errors.return_value = non_retryable
 
-    # Should not raise — the error matches a non-retryable pattern and is skipped.
-    _run_activity(source_mock)
-
-
-def test_unknown_get_schemas_error_propagates():
-    """An error that is not classified as non-retryable must still propagate (and retry)."""
-    source_mock = mock.MagicMock()
-    source_mock.parse_config.return_value = {}
-    source_mock.get_schemas.side_effect = Exception("UNAVAILABLE: transient network blip")
-    source_mock.get_non_retryable_errors.return_value = {"invalid_grant": None}
-
-    with pytest.raises(Exception, match="transient network blip"):
+    if expected_exc is None:
         _run_activity(source_mock)
+    else:
+        with pytest.raises(Exception, match=expected_exc):
+            _run_activity(source_mock)
