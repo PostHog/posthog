@@ -1694,7 +1694,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
             if (isReplayURLSearchParams(params)) {
                 const updatedFilters = {
-                    ...(params.filters && !equal(params.filters, values.filters) ? params.filters : {}),
+                    // layer URL filters onto defaults, not the persisted state, so fields the URL
+                    // omits don't inherit stale values
+                    ...(params.filters && !equal(params.filters, values.filters)
+                        ? { ...getDefaultFilters(props.personUUID, props.pinnedFilters), ...params.filters }
+                        : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
                         ? { order_direction: params.order_direction }

@@ -56,7 +56,7 @@ Use `ingest_report_json` to short-circuit the research flow and drop a fully-res
 #    /api/users/<id>/signal_autonomy/ with their personal autostart_priority.
 
 # 2. Ingest a research-output fixture — creates a SignalReport, persists artefacts,
-#    triggers `_maybe_autostart_task_for_report`, then marks the report READY.
+#    triggers `maybe_autostart_implementation_task`, then marks the report READY.
 python manage.py ingest_report_json \
     products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
     --team-id 1
@@ -95,6 +95,59 @@ python manage.py select_repo --verbose
 ```
 
 Uses synthetic JS SDK signals by default. The agent uses `gh` CLI to explore candidates and pick the best match.
+
+## Signals agent (headless scout)
+
+Two commands cover the day-to-day loop on the headless `signals-scout-*` scouts.
+Background and architecture: `../scout_harness/AGENTS.md` and `../../skills/AGENTS.md`.
+
+### Running one scout locally
+
+`run_signals_scout` triggers a single `(team, skill)` run end-to-end without waiting
+for the Temporal coordinator. Inserts a `SignalScoutRun` row, opens a sandbox, pumps
+the agent loop until budget exhaustion or natural completion, finalizes the run.
+
+```bash
+# Single specialist run against a dogfood team
+python manage.py run_signals_scout \
+    --team-id 1 \
+    --skill-name signals-scout-llm-analytics
+
+# Pin a skill version (default: latest LLMSkill row for the team)
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general --skill-version 4
+
+# Optional: pin the sandbox repository
+python manage.py run_signals_scout --team-id 1 --skill-name signals-scout-general \
+    --repository posthog/posthog --verbose
+```
+
+The team must have a `SignalScoutConfig` row for the scout (the coordinator auto-creates
+one; the command also seeds it). Configs default to `emit=False` — the scout runs and
+logs but `emit_finding` writes nothing, so no finding reaches the Signals inbox until you
+flip `emit=True` on that scout's config (e.g. via the `signals-scout-config-update` MCP tool).
+
+### Canonical skill sync
+
+`sync_signals_scout_skills` forces a `sync_canonical_skills` pass without waiting for
+the next coordinator tick. Reads `products/signals/skills/signals-scout-*/` from disk
+and reconciles each scout against the team's `LLMSkill` rows.
+
+```bash
+# After merging a SKILL.md change — fan out to every dogfood team now
+python manage.py sync_signals_scout_skills --all-enabled
+
+# Onboard one team synchronously
+python manage.py sync_signals_scout_skills --team-id 1
+
+# See what would change without writing
+python manage.py sync_signals_scout_skills --all-enabled --dry-run
+```
+
+Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-authored rows
+left alone), `tombstoned` (rows the team already soft-deleted — left alone, never resurrected),
+`pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the
+coordinator stops dispatching them). Same function the coordinator and runner call lazily —
+this command is just the impatient path.
 
 ## Tips
 

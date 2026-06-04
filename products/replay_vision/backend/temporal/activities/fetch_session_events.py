@@ -65,7 +65,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
     payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
     if payload is None:
         raise IneligibleSessionError(
-            f"Session {inputs.session_id} has no events to analyze",
+            "No events to analyze",
             kind=IneligibleSessionKind.NO_EVENTS,
         )
 
@@ -78,25 +78,25 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     metadata = events_obj.get_metadata(session_id=session_id, team=team)
     if metadata is None:
         raise IneligibleSessionError(
-            f"No replay metadata found for session {session_id}",
+            "No replay metadata found",
             kind=IneligibleSessionKind.NO_RECORDING,
         )
     duration_seconds = float(metadata["duration"])
     if duration_seconds < MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
-            f"Session {session_id} is only {duration_seconds}s long; min is {MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S}s",
+            f"Only {duration_seconds}s long; min is {MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S}s",
             kind=IneligibleSessionKind.TOO_SHORT,
         )
     # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0.
     active_seconds = metadata.get("active_seconds") or 0
     if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
-            f"Session {session_id} has only {active_seconds}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            f"Only {active_seconds}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
             kind=IneligibleSessionKind.TOO_INACTIVE,
         )
     if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
         raise IneligibleSessionError(
-            f"Session {session_id} has {active_seconds}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            f"{active_seconds}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
             kind=IneligibleSessionKind.TOO_LONG,
         )
 

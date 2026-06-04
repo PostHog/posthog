@@ -108,7 +108,7 @@ def _query_search_analytics(
 
 
 def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
-    keys = row.get("keys", [])
+    keys = row["keys"]
     out: dict[str, Any] = {dim: keys[i] if i < len(keys) else None for i, dim in enumerate(dimensions)}
     if "date" in out and out["date"] is not None:
         out["date"] = dt.date.fromisoformat(out["date"])

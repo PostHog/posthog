@@ -144,7 +144,6 @@ class GoogleSearchConsoleSource(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "
                 "(clicks, impressions, CTR, average position). Requires a Google account with read access to the property."
             ),
-            unreleasedSource=True,
             releaseStatus="alpha",
             featureFlag="dwh-google-search-console",
             iconPath="/static/services/google-search-console.svg",

@@ -43,6 +43,7 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Data Modeling Endpoints](./references/models-endpoints.md)
 - [Error Tracking](./references/models-error-tracking.md)
 - [Flags & Experiments](./references/models-flags-experiments.md)
+- [Heatmaps (`heatmaps` data + `system.heatmaps_saved`)](./references/models-heatmaps.md)
 - [Hog Flows](./references/models-hog-flows.md)
 - [Hog Functions](./references/models-hog-functions.md)
 - [Integrations](./references/models-integrations.md)

@@ -15,52 +15,50 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     google_search_console_source,
 )
 
-
-def test_resolve_window_no_last_value_uses_full_history():
-    today = dt.date(2026, 4, 30)
-    start, end = _resolve_window(today, None)
-
-    assert start == _initial_start_date(today)
-    assert end == today - dt.timedelta(days=FRESHNESS_LAG_DAYS)
-    assert (today - start).days == HISTORY_DAYS
+TODAY = dt.date(2026, 4, 30)
 
 
-def test_resolve_window_clamps_old_last_value_to_history_floor():
-    today = dt.date(2026, 4, 30)
-    very_old = today - dt.timedelta(days=10_000)
-    start, _ = _resolve_window(today, very_old)
-
-    assert start == _initial_start_date(today)
-
-
-def test_resolve_window_uses_recent_last_value():
-    today = dt.date(2026, 4, 30)
-    last = today - dt.timedelta(days=10)
-    start, end = _resolve_window(today, last)
-
-    assert start == last
-    assert end == today - dt.timedelta(days=FRESHNESS_LAG_DAYS)
-
-
-def test_resolve_window_accepts_iso_string():
-    today = dt.date(2026, 4, 30)
-    start, _ = _resolve_window(today, "2026-04-15")
-    assert start == dt.date(2026, 4, 15)
+@pytest.mark.parametrize(
+    "last_value,expected_start",
+    [
+        # No last value → full history window from today backwards.
+        (None, _initial_start_date(TODAY)),
+        # Very old last value → clamped to the history floor.
+        (TODAY - dt.timedelta(days=10_000), _initial_start_date(TODAY)),
+        # Recent date → used as-is.
+        (TODAY - dt.timedelta(days=10), TODAY - dt.timedelta(days=10)),
+        # ISO string is accepted and parsed.
+        ("2026-04-15", dt.date(2026, 4, 15)),
+        # Datetime is accepted and truncated to its date.
+        (dt.datetime(2026, 4, 15, 12, 0, 0), dt.date(2026, 4, 15)),
+    ],
+)
+def test_resolve_window_start(last_value, expected_start):
+    start, end = _resolve_window(TODAY, last_value)
+    assert start == expected_start
+    assert end == TODAY - dt.timedelta(days=FRESHNESS_LAG_DAYS)
 
 
-def test_resolve_window_accepts_datetime():
-    today = dt.date(2026, 4, 30)
-    start, _ = _resolve_window(today, dt.datetime(2026, 4, 15, 12, 0, 0))
-    assert start == dt.date(2026, 4, 15)
+def test_resolve_window_full_history_spans_history_days():
+    # Sanity-check the constant — the no-last-value start is exactly `HISTORY_DAYS` back.
+    start, _ = _resolve_window(TODAY, None)
+    assert (TODAY - start).days == HISTORY_DAYS
 
 
-def test_iter_dates_inclusive_range():
-    dates = list(_iter_dates(dt.date(2026, 4, 1), dt.date(2026, 4, 3)))
-    assert dates == [dt.date(2026, 4, 1), dt.date(2026, 4, 2), dt.date(2026, 4, 3)]
-
-
-def test_iter_dates_empty_when_start_after_end():
-    assert list(_iter_dates(dt.date(2026, 4, 5), dt.date(2026, 4, 1))) == []
+@pytest.mark.parametrize(
+    "start,end,expected",
+    [
+        (
+            dt.date(2026, 4, 1),
+            dt.date(2026, 4, 3),
+            [dt.date(2026, 4, 1), dt.date(2026, 4, 2), dt.date(2026, 4, 3)],
+        ),
+        # start > end yields no dates.
+        (dt.date(2026, 4, 5), dt.date(2026, 4, 1), []),
+    ],
+)
+def test_iter_dates(start, end, expected):
+    assert list(_iter_dates(start, end)) == expected
 
 
 def test_row_to_dict_with_date_and_query():
@@ -165,7 +163,7 @@ def test_source_yields_rows_and_advances_dates(monkeypatch):
         fake_query,
     )
 
-    batches = list(response.items())  # type: ignore[arg-type]
+    batches = list(response.items())
 
     yielded_dates = [batch[0]["date"] for batch in batches]
     assert dt.date(2026, 4, 25) in yielded_dates
