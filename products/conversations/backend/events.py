@@ -85,25 +85,33 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
-def capture_ticket_created(ticket: Ticket) -> None:
-    properties = _get_ticket_base_properties(ticket)
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+def _enrich_with_org_groups(ticket: Ticket, team: Team, properties: dict, event_name: str) -> bool:
+    """Resolve the customer org's ``$groups`` onto ``properties``.
 
-    team = ticket.team
-    team_id = team.id
-    process_person = False
+    Returns whether the person profile should be processed. Lookup failures are
+    swallowed so analytics never block ticket operations.
+    """
     try:
         process_person, groups = _resolve_org_groups(ticket, team)
         if groups is not None:
             properties["$groups"] = groups
+        return process_person
     except Exception:
-        logger.exception("ticket_created_person_lookup_failed", team_id=team_id, ticket_id=str(ticket.id))
+        logger.exception(
+            "ticket_person_lookup_failed", event_name=event_name, team_id=team.id, ticket_id=str(ticket.id)
+        )
+        return False
 
+
+def _capture_ticket_event(ticket: Ticket, event_name: str, properties: dict, *, enrich_groups: bool = False) -> None:
+    team = ticket.team
+    # Only enrich events where org attribution matters (ticket created, customer reply).
+    # Group membership persists at ingestion, so re-sending $groups on every status/
+    # assignment change is redundant work and isn't worth the per-event person lookup.
+    process_person = _enrich_with_org_groups(ticket, team, properties, event_name) if enrich_groups else False
     capture_internal(
         token=team.api_token,
-        event_name="$conversation_ticket_created",
+        event_name=event_name,
         event_source=EVENT_SOURCE,
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
@@ -112,19 +120,21 @@ def capture_ticket_created(ticket: Ticket) -> None:
     )
 
 
+def capture_ticket_created(ticket: Ticket) -> None:
+    properties = _get_ticket_base_properties(ticket)
+    traits = ticket.anonymous_traits or {}
+    properties["customer_name"] = traits.get("name", "")
+    properties["customer_email"] = traits.get("email", "")
+
+    _capture_ticket_event(ticket, "$conversation_ticket_created", properties, enrich_groups=True)
+
+
 def capture_ticket_status_changed(ticket: Ticket, old_status: str, new_status: str) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties["old_status"] = old_status
     properties["new_status"] = new_status
 
-    capture_internal(
-        token=ticket.team.api_token,
-        event_name="$conversation_ticket_status_changed",
-        event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
-        timestamp=None,
-        properties=properties,
-    )
+    _capture_ticket_event(ticket, "$conversation_ticket_status_changed", properties)
 
 
 def capture_ticket_priority_changed(ticket: Ticket, old_priority: str | None, new_priority: str | None) -> None:
@@ -132,14 +142,7 @@ def capture_ticket_priority_changed(ticket: Ticket, old_priority: str | None, ne
     properties["old_priority"] = old_priority
     properties["new_priority"] = new_priority
 
-    capture_internal(
-        token=ticket.team.api_token,
-        event_name="$conversation_ticket_priority_changed",
-        event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
-        timestamp=None,
-        properties=properties,
-    )
+    _capture_ticket_event(ticket, "$conversation_ticket_priority_changed", properties)
 
 
 def capture_ticket_assigned(ticket: Ticket, assignee_type: str | None, assignee_id: str | None) -> None:
@@ -147,14 +150,7 @@ def capture_ticket_assigned(ticket: Ticket, assignee_type: str | None, assignee_
     properties["assignee_type"] = assignee_type
     properties["assignee_id"] = assignee_id
 
-    capture_internal(
-        token=ticket.team.api_token,
-        event_name="$conversation_ticket_assigned",
-        event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
-        timestamp=None,
-        properties=properties,
-    )
+    _capture_ticket_event(ticket, "$conversation_ticket_assigned", properties)
 
 
 def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, author_id: int | None) -> None:
@@ -165,14 +161,7 @@ def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, 
     properties["author_type"] = "team"
     properties["author_id"] = author_id
 
-    capture_internal(
-        token=ticket.team.api_token,
-        event_name="$conversation_message_sent",
-        event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
-        timestamp=None,
-        properties=properties,
-    )
+    _capture_ticket_event(ticket, "$conversation_message_sent", properties)
 
 
 def capture_message_received(ticket: Ticket, message_id: str, message_content: str) -> None:
@@ -185,11 +174,4 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["customer_name"] = traits.get("name", "")
     properties["customer_email"] = traits.get("email", "")
 
-    capture_internal(
-        token=ticket.team.api_token,
-        event_name="$conversation_message_received",
-        event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
-        timestamp=None,
-        properties=properties,
-    )
+    _capture_ticket_event(ticket, "$conversation_message_received", properties, enrich_groups=True)

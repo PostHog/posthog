@@ -461,3 +461,47 @@ class TestConversationEvents(BaseTest):
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["process_person_profile"] is False
         assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            ("status_changed", capture_ticket_status_changed, ["new", "pending"]),
+            ("priority_changed", capture_ticket_priority_changed, [None, "high"]),
+            ("assigned", capture_ticket_assigned, ["user", "123"]),
+            ("message_sent", capture_message_sent, ["msg-id", "content", 1]),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_non_enriched_events_skip_org_lookup(self, _name, capture_fn, extra_args, mock_get_persons, mock_capture):
+        """Only ticket created and customer reply resolve org $groups; the rest must skip the lookup entirely."""
+        capture_fn(self.ticket, *extra_args)
+
+        mock_get_persons.assert_not_called()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
+    @parameterized.expand(
+        [
+            ("ticket_created", capture_ticket_created, []),
+            ("message_received", capture_message_received, ["msg-id", "content"]),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_enriched_events_resolve_org_groups(self, _name, capture_fn, extra_args, mock_get_persons, mock_capture):
+        """Ticket created and customer reply attach $groups from the customer's org membership."""
+        from posthog.models.person.person import Person
+
+        person_org = Organization.objects.create(name="Person Org")
+        person_user = User.objects.create(email="customer@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_fn(self.ticket, *extra_args)
+
+        mock_get_persons.assert_called_once_with(self.team.id, [self.ticket.distinct_id])
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        assert call_kwargs["properties"]["$groups"]["organization"] == str(person_org.id)
