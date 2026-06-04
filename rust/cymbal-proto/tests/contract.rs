@@ -1,8 +1,8 @@
 use cymbal_proto::cymbal::{
     process::v1::{
         process_outcome, ProcessBatchRequest, ProcessBatchResponse, ProcessDone, ProcessDrop,
-        ProcessDropReason, ProcessError, ProcessErrorCode, ProcessErrorKind, ProcessItem,
-        ProcessOutcome, ServiceState, SubscribeRequest as ProcessSubscribeRequest,
+        ProcessDropReason, ProcessError, ProcessErrorKind, ProcessItem, ProcessOutcome,
+        ServiceState, SubscribeRequest as ProcessSubscribeRequest,
     },
     resolution::v1::{
         resolve_outcome, Accepted, Done, Error, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
@@ -48,8 +48,7 @@ fn process_outcome_carries_exactly_one_terminal_variant() {
         ProcessOutcome {
             id: "error-1".to_string(),
             result: Some(process_outcome::Result::Error(ProcessError {
-                kind: ProcessErrorKind::Invalid as i32,
-                code: ProcessErrorCode::InvalidPayload as i32,
+                kind: ProcessErrorKind::InvalidPayload as i32,
                 retryable: false,
                 retry_after_ms: 0,
                 message: "event_json could not be decoded".to_string(),
@@ -77,11 +76,9 @@ fn process_outcome_carries_exactly_one_terminal_variant() {
         decoded[2].result,
         Some(process_outcome::Result::Error(ProcessError {
             kind,
-            code,
             retryable: false,
             ..
-        })) if kind == ProcessErrorKind::Invalid as i32
-            && code == ProcessErrorCode::InvalidPayload as i32
+        })) if kind == ProcessErrorKind::InvalidPayload as i32
     ));
 }
 
@@ -89,13 +86,13 @@ fn process_outcome_carries_exactly_one_terminal_variant() {
 fn process_enums_keep_initial_wire_values() {
     assert_eq!(ProcessDropReason::SuppressedIssue as i32, 1);
     assert_eq!(ProcessDropReason::SuppressionRule as i32, 2);
-    assert_eq!(ProcessErrorKind::Invalid as i32, 1);
-    assert_eq!(ProcessErrorKind::Processing as i32, 2);
+    assert_eq!(ProcessErrorKind::InvalidPayload as i32, 1);
+    assert_eq!(ProcessErrorKind::ProcessingFailed as i32, 2);
     assert_eq!(ProcessErrorKind::Timeout as i32, 3);
-    assert_eq!(ProcessErrorKind::Dependency as i32, 4);
+    assert_eq!(ProcessErrorKind::DependencyUnavailable as i32, 4);
     assert_eq!(ProcessErrorKind::Internal as i32, 5);
-    assert_eq!(ProcessErrorCode::InvalidPayload as i32, 1);
-    assert_eq!(ProcessErrorCode::Unimplemented as i32, 7);
+    assert_eq!(ProcessErrorKind::Overloaded as i32, 6);
+    assert_eq!(ProcessErrorKind::Unimplemented as i32, 7);
 }
 
 #[test]
@@ -130,8 +127,7 @@ fn process_error_round_trips_retry_after_hint() {
     let outcome = ProcessOutcome {
         id: "retryable-1".to_string(),
         result: Some(process_outcome::Result::Error(ProcessError {
-            kind: ProcessErrorKind::Dependency as i32,
-            code: ProcessErrorCode::DependencyUnavailable as i32,
+            kind: ProcessErrorKind::DependencyUnavailable as i32,
             retryable: true,
             retry_after_ms: 250,
             message: "dependency unavailable".to_string(),
@@ -145,12 +141,10 @@ fn process_error_round_trips_retry_after_hint() {
         decoded.result,
         Some(process_outcome::Result::Error(ProcessError {
             kind,
-            code,
             retryable: true,
             retry_after_ms: 250,
             ..
-        })) if kind == ProcessErrorKind::Dependency as i32
-            && code == ProcessErrorCode::DependencyUnavailable as i32
+        })) if kind == ProcessErrorKind::DependencyUnavailable as i32
     ));
 }
 

@@ -88,37 +88,27 @@ enum ProcessDropReason {
 }
 
 // ProcessError means Cymbal could not produce a processed event. Invalid
-// payloads are represented as kind PROCESS_ERROR_KIND_INVALID with retryable
-// false. message and details_json are debug-safe diagnostics only and are not
-// control-flow surfaces.
+// payloads are represented as kind PROCESS_ERROR_KIND_INVALID_PAYLOAD with
+// retryable false. message and details_json are debug-safe diagnostics only and
+// are not control-flow surfaces.
 message ProcessError {
   ProcessErrorKind kind = 1;
-  ProcessErrorCode code = 2;
-  bool retryable = 3;
+  bool retryable = 2;
   // Optional server hint in milliseconds. A zero value means no hint.
-  uint32 retry_after_ms = 4;
-  string message = 5;
-  bytes details_json = 6;
+  uint32 retry_after_ms = 3;
+  string message = 4;
+  bytes details_json = 5;
 }
 
 enum ProcessErrorKind {
   PROCESS_ERROR_KIND_UNSPECIFIED = 0;
-  PROCESS_ERROR_KIND_INVALID = 1;
-  PROCESS_ERROR_KIND_PROCESSING = 2;
+  PROCESS_ERROR_KIND_INVALID_PAYLOAD = 1;
+  PROCESS_ERROR_KIND_PROCESSING_FAILED = 2;
   PROCESS_ERROR_KIND_TIMEOUT = 3;
-  PROCESS_ERROR_KIND_DEPENDENCY = 4;
+  PROCESS_ERROR_KIND_DEPENDENCY_UNAVAILABLE = 4;
   PROCESS_ERROR_KIND_INTERNAL = 5;
-}
-
-enum ProcessErrorCode {
-  PROCESS_ERROR_CODE_UNSPECIFIED = 0;
-  PROCESS_ERROR_CODE_INVALID_PAYLOAD = 1;
-  PROCESS_ERROR_CODE_PROCESSING_FAILED = 2;
-  PROCESS_ERROR_CODE_TIMEOUT = 3;
-  PROCESS_ERROR_CODE_DEPENDENCY_UNAVAILABLE = 4;
-  PROCESS_ERROR_CODE_INTERNAL = 5;
-  PROCESS_ERROR_CODE_OVERLOADED = 6;
-  PROCESS_ERROR_CODE_UNIMPLEMENTED = 7;
+  PROCESS_ERROR_KIND_OVERLOADED = 6;
+  PROCESS_ERROR_KIND_UNIMPLEMENTED = 7;
 }
 
 // SubscribeRequest opens a long-lived stream of ServiceState ticks. Callers
