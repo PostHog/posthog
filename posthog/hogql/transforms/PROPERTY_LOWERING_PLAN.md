@@ -16,7 +16,7 @@ This is a **general refactor of property handling, independent of any one consum
 
 Today the property→column decision is smeared across the codebase: the printer's `visit_property_type`
 (+ `_get_optimized_property_group_call` and the skip-index comparison rewrites in `clickhouse.py:536-901`)
-picks the physical column at *print time*, while the property swapper wraps the read in its scalar cast a step
+picks the physical column at _print time_, while the property swapper wraps the read in its scalar cast a step
 earlier. Two passes, plus a handful of optimizers, all keyed off `PropertyType` nodes that survive deep into
 printing. That smearing is the root cause of a class of bugs and blocks generalization:
 
@@ -34,7 +34,7 @@ printer becomes mechanical and downstream transforms manipulate ordinary typed c
 The printer builds the property-group and JSONExtract lowering as **raw strings**, not AST:
 `printer/types.py:39` emits `f"{has_expr} ? {value_expr} : null"` — a `? :` ternary that **no HogQL AST node
 reproduces**. So the lowering pass emits a **result-equivalent** form (`if(has(g,k), g[k], null)` via
-`ast.ArrayAccess`; ClickHouse's `?:` *is* `if()`), which prints differently but returns identical results.
+`ast.ArrayAccess`; ClickHouse's `?:` _is_ `if()`), which prints differently but returns identical results.
 
 Therefore the verification bar for this refactor is **result-equivalence** (the execution/equivalence tests +
 regenerated `.ambr` snapshots), **not** byte-identical snapshots. Do not try to make the lowered SQL match the
@@ -44,7 +44,7 @@ printer string-for-string — it can't, and shouldn't.
 
 1. **Structured resolver — DONE, tested.**
    `posthog/hogql/transforms/property_lowering.py` :: `resolve_materialized_property_source(field_type,
-   property_name, context) -> MaterializedPropertySource | None`. Mirrors the printer's priority
+property_name, context) -> MaterializedPropertySource | None`. Mirrors the printer's priority
    (`base.py:1273-1334`): static `mat_*` → `dmat` slot → first property-group column, else `None` (JSON
    fallback). Carries `is_nullable` + the four skip-index flags for stage 3.
    Tests: `posthog/hogql/transforms/test/test_property_lowering.py` (4 passing).
@@ -66,13 +66,13 @@ printer string-for-string — it can't, and shouldn't.
    - Returns `None` (printer keeps handling it) for: already-repointed `joined_subquery`, any
      `restricted_properties` on the team, empty chain, or a non-`TableType`/`TableAliasType` wrapper
      (VirtualTableType PoE, ColumnAliasedTableType, subquery types) — these are stage-3 coverage expansions.
-   Verified by **execution result-equivalence** in `test_property_lowering.py`
-   (`TestLowerPropertyTypeResultEquivalence`, 10 cases): printer's `visit_property_type` vs. lowered AST,
-   executed against ClickHouse, identical rows — across JSON fallback, ENABLED/OPTIMIZED groups,
-   AUTO/LEGACY_NULL_AS_STRING mat columns, deep chains, and a full SELECT+WHERE transform that also asserts
-   **zero `PropertyType` nodes remain** after the pass.
-   Caveat — `clear_types`: `LowerProperties` must construct `CloningVisitor(clear_types=False)`; the default
-   `True` wipes every node's resolved type and printing then fails ("FROM clause ... before type resolution").
+     Verified by **execution result-equivalence** in `test_property_lowering.py`
+     (`TestLowerPropertyTypeResultEquivalence`, 10 cases): printer's `visit_property_type` vs. lowered AST,
+     executed against ClickHouse, identical rows — across JSON fallback, ENABLED/OPTIMIZED groups,
+     AUTO/LEGACY_NULL_AS_STRING mat columns, deep chains, and a full SELECT+WHERE transform that also asserts
+     **zero `PropertyType` nodes remain** after the pass.
+     Caveat — `clear_types`: `LowerProperties` must construct `CloningVisitor(clear_types=False)`; the default
+     `True` wipes every node's resolved type and printing then fails ("FROM clause ... before type resolution").
 
 3. **Integrate + scalar cast — DONE, tested.**
    This refactor is **general and independent of the events-predicate pushdown** — the pushdown was only the
@@ -82,7 +82,7 @@ printer string-for-string — it can't, and shouldn't.
      `toBool`) for single-key event/person properties, reading the type the swapper already resolves into
      `context.property_swapper.event_properties[name]["type"]` (`_property_cast_type` + `_apply_property_cast`,
      mirroring `PropertySwapper._field_type_to_property_call`). So the cast and column-selection are one pass.
-   - **Ordering resolved by running lowering *before* the swapper** (`printer/utils.py`, new `lower_properties`
+   - **Ordering resolved by running lowering _before_ the swapper** (`printer/utils.py`, new `lower_properties`
      step right after pushdown, before `swap_properties`). The conflict dissolves: lowered properties are no
      longer `PropertyType`, so the swapper no-ops on them and only coerces the tail it still owns (group props
      via lazy joins, PoE virtual-table person props). No double-cast.
@@ -93,7 +93,7 @@ printer string-for-string — it can't, and shouldn't.
      are stable because they derive from the HogQL-dialect prepare, which the CH-only lowering never touches).
 
 4. **Deletions + coverage expansion — NEXT (deferred, safe to do incrementally).**
-   - Lowering currently *coexists* with the printer's `visit_property_type` lowering and the swapper's
+   - Lowering currently _coexists_ with the printer's `visit_property_type` lowering and the swapper's
      property-cast branch — it handles the common cases (events/persons direct, single + deep chains), they
      handle the tail it returns `None` for. Both can stay until lowering covers 100%.
    - Expand coverage to the `None` cases (group props via lazy joins, PoE VirtualTableType person props,
@@ -110,7 +110,7 @@ printer string-for-string — it can't, and shouldn't.
 ## Related / context
 
 - Nullable materialized columns (`is_nullable`) already exist as an opt-in. They are **orthogonal** to this
-  refactor: the lowering pass *carries* the `nullIf` wrapping (because legacy columns are non-nullable);
-  only the *final deletion* of that wrapping + the comparison-undo optimizers is bounded on a legacy-column
+  refactor: the lowering pass _carries_ the `nullIf` wrapping (because legacy columns are non-nullable);
+  only the _final deletion_ of that wrapping + the comparison-undo optimizers is bounded on a legacy-column
   backfill. Do not block the lowering pass on nullable.
 - Dialect-gate the lowering to ClickHouse — the same AST is also printed back to HogQL / Postgres / DuckDB.
