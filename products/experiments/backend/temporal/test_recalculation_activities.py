@@ -6,6 +6,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
+
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -114,20 +116,21 @@ class TestRecalculationActivities(BaseTest):
         ]
     )
     def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_types):
-        exp = self._experiment(flag_key=f"discover-{name}")
-        exp.metrics = primary
-        exp.metrics_secondary = secondary
-        exp.save()
-        for uuid, metric_type in saved:
-            self._attach_saved_metric(exp, uuid, metric_type)
-        recalc = self._recalc(exp)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key=f"discover-{name}")
+            exp.metrics = primary
+            exp.metrics_secondary = secondary
+            exp.save()
+            for uuid, metric_type in saved:
+                self._attach_saved_metric(exp, uuid, metric_type)
+            recalc = self._recalc(exp)
 
-        metrics = _discover(str(recalc.id))
+            metrics = _discover(str(recalc.id))
 
-        recalc.refresh_from_db()
-        assert set(recalc.metric_uuids) == expected_uuids
-        assert {m.metric_uuid for m in metrics} == expected_uuids
-        assert {m.metric_type for m in metrics} == expected_types
+            recalc.refresh_from_db()
+            assert set(recalc.metric_uuids) == expected_uuids
+            assert {m.metric_uuid for m in metrics} == expected_uuids
+            assert {m.metric_type for m in metrics} == expected_types
 
     @parameterized.expand(
         [
@@ -151,22 +154,23 @@ class TestRecalculationActivities(BaseTest):
         ]
     )
     def test_update_progress(self, name: str, update_kwargs: dict, expected_status: str, expects_query_to: bool):
-        recalc = self._recalc(self._experiment(flag_key=f"progress-{name}"))
-        returned = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+        with team_scope(self.team.id, canonical=True):
+            recalc = self._recalc(self._experiment(flag_key=f"progress-{name}"))
+            returned = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
 
-        recalc.refresh_from_db()
-        assert recalc.status == expected_status
+            recalc.refresh_from_db()
+            assert recalc.status == expected_status
 
-        if expects_query_to:
-            assert recalc.started_at is not None
-            assert recalc.total_metrics == update_kwargs["total_metrics"]
-            assert recalc.metric_uuids == update_kwargs["metric_uuids"]
-            assert recalc.query_to is not None
-            # Returns the query_to it set (ISO string) so the workflow can thread it into calc activities.
-            assert returned == recalc.query_to.isoformat()
-        else:
-            assert recalc.completed_at is not None
-            assert returned is None
+            if expects_query_to:
+                assert recalc.started_at is not None
+                assert recalc.total_metrics == update_kwargs["total_metrics"]
+                assert recalc.metric_uuids == update_kwargs["metric_uuids"]
+                assert recalc.query_to is not None
+                # Returns the query_to it set (ISO string) so the workflow can thread it into calc activities.
+                assert returned == recalc.query_to.isoformat()
+            else:
+                assert recalc.completed_at is not None
+                assert returned is None
 
 
 _QUERY_TO = "2026-05-29T12:00:00+00:00"
@@ -218,94 +222,102 @@ class TestCalculateActivity(BaseTest):
         return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, total_metrics=total)
 
     def test_metric_not_found_fails_at_discovery(self):
-        exp = self._experiment(flag_key="calc-missing", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key="calc-missing", metrics=[_mean_metric("m1")])
+            recalc = self._recalc(exp)
 
-        result = _calculate(exp.id, "does-not-exist", str(recalc.id), _QUERY_TO)
+            result = _calculate(exp.id, "does-not-exist", str(recalc.id), _QUERY_TO)
 
-        assert result.success is False
-        assert result.error_step == "discovery"
-        recalc.refresh_from_db()
-        assert recalc.failed_metrics == 1
-        assert "does-not-exist" in recalc.errors
+            assert result.success is False
+            assert result.error_step == "discovery"
+            recalc.refresh_from_db()
+            assert recalc.failed_metrics == 1
+            assert "does-not-exist" in recalc.metric_errors
 
     def test_bad_metric_type_fails_at_calculation(self):
         # Legacy metrics never reach this workflow, so there's no discovery-time type guard; an unexpected
         # metric_type raises while building the metric and surfaces as a calculation-step failure.
-        exp = self._experiment(
-            flag_key="calc-badtype",
-            metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
-        )
-        recalc = self._recalc(exp)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(
+                flag_key="calc-badtype",
+                metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
+            )
+            recalc = self._recalc(exp)
 
-        result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
+            result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
 
-        assert result.success is False
-        assert result.error_step == "calculation"
-        recalc.refresh_from_db()
-        assert recalc.failed_metrics == 1
-        assert "m-bad" in recalc.errors
+            assert result.success is False
+            assert result.error_step == "calculation"
+            recalc.refresh_from_db()
+            assert recalc.failed_metrics == 1
+            assert "m-bad" in recalc.metric_errors
 
     def test_missing_start_date_fails(self):
-        exp = self._experiment(flag_key="calc-no-start", with_start_date=False, metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key="calc-no-start", with_start_date=False, metrics=[_mean_metric("m1")])
+            recalc = self._recalc(exp)
 
-        result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-        assert result.success is False
-        recalc.refresh_from_db()
-        assert recalc.failed_metrics == 1
+            assert result.success is False
+            recalc.refresh_from_db()
+            assert recalc.failed_metrics == 1
 
     def test_saved_metric_is_resolvable(self):
         # A saved/shared metric (uuid only on saved_metric.query) must be found by the calc lookup; otherwise it
         # would wrongly fail at the discovery step. We force a calculation error so the run reaches the metric via
         # the saved-metric branch but fails for a non-lookup reason.
-        exp = self._experiment(flag_key="calc-saved")
-        saved = ExperimentSavedMetric.objects.create(
-            team=self.team,
-            name="saved-s1",
-            query=_mean_metric("s1"),
-        )
-        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
-        recalc = self._recalc(exp)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key="calc-saved")
+            saved = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                name="saved-s1",
+                query=_mean_metric("s1"),
+            )
+            ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
+            recalc = self._recalc(exp)
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
-            mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-            result = _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
+                result = _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
 
-        # Found the saved metric (did not fail at discovery) but failed during calculation.
-        assert result.success is False
-        assert result.error_step == "calculation"
-        recalc.refresh_from_db()
-        assert "s1" in recalc.errors
+            # Found the saved metric (did not fail at discovery) but failed during calculation.
+            assert result.success is False
+            assert result.error_step == "calculation"
+            recalc.refresh_from_db()
+            assert "s1" in recalc.metric_errors
 
     def test_concurrent_failures_do_not_lose_error_entries(self):
-        exp = self._experiment(flag_key="calc-concurrent")
-        recalc = self._recalc(exp, total=2)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key="calc-concurrent")
+            recalc = self._recalc(exp, total=2)
 
-        _calculate(exp.id, "missing-a", str(recalc.id), _QUERY_TO)
-        _calculate(exp.id, "missing-b", str(recalc.id), _QUERY_TO)
+            _calculate(exp.id, "missing-a", str(recalc.id), _QUERY_TO)
+            _calculate(exp.id, "missing-b", str(recalc.id), _QUERY_TO)
 
-        recalc.refresh_from_db()
-        assert recalc.failed_metrics == 2
-        assert set(recalc.errors.keys()) == {"missing-a", "missing-b"}
+            recalc.refresh_from_db()
+            assert recalc.failed_metrics == 2
+            assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
 
     def test_unexpected_error_calls_capture_exception_and_caps_message(self):
-        exp = self._experiment(flag_key="calc-capture", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp)
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key="calc-capture", metrics=[_mean_metric("m1")])
+            recalc = self._recalc(exp)
 
-        with (
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
-            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
-        ):
-            mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
-            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            with (
+                patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+                patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+            ):
+                mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
+                result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-        assert result.success is False
-        assert mock_capture.called
-        assert result.error_message is not None
-        assert len(result.error_message) <= 2000
-        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
-        assert row.status == ExperimentMetricResult.Status.FAILED
-        assert row.error_message is not None
-        assert len(row.error_message) <= 2000
+            assert result.success is False
+            assert mock_capture.called
+            assert result.error_message is not None
+            assert len(result.error_message) <= 2000
+            row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+            assert row.status == ExperimentMetricResult.Status.FAILED
+            assert row.error_message is not None
+            assert len(row.error_message) <= 2000

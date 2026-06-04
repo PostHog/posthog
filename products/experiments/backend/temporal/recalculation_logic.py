@@ -172,11 +172,11 @@ def _record_failure(recalculation_id: str, metric_uuid: str, step: str, message:
     capped = message[:_MAX_ERROR_MESSAGE_LENGTH]
     with transaction.atomic():
         recalc = ExperimentMetricsRecalculation.objects.select_for_update().get(id=recalculation_id)
-        errors = recalc.errors or {}
-        errors[metric_uuid] = {"step": step, "message": capped, "timestamp": timezone.now().isoformat()}
-        recalc.errors = errors
+        metric_errors = recalc.metric_errors or {}
+        metric_errors[metric_uuid] = {"step": step, "message": capped, "timestamp": timezone.now().isoformat()}
+        recalc.metric_errors = metric_errors
         recalc.failed_metrics = F("failed_metrics") + 1
-        recalc.save(update_fields=["errors", "failed_metrics"])
+        recalc.save(update_fields=["metric_errors", "failed_metrics"])
 
 
 def _record_success(recalculation_id: str) -> None:
