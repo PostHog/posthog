@@ -112,10 +112,13 @@ describe('projectNoticeLogic', () => {
             expect(reverseProxyCheckerLogic.isMounted()).toBe(false)
         })
 
-        it('does not mount the proxy checker outside the nudge window', async () => {
+        it.each([
+            { label: 'day of month is > 7', date: new Date(2026, 3, 15), dismissed: false },
+            { label: 'notice is dismissed', date: new Date(2026, 3, 3), dismissed: true },
+        ])('does not mount the proxy checker when $label', async ({ date, dismissed }) => {
             jest.useFakeTimers()
-            jest.setSystemTime(new Date(2026, 3, 15)) // April 15
-            getItemSpy.mockImplementation(() => null)
+            jest.setSystemTime(date)
+            getItemSpy.mockImplementation((key: string) => (dismissed && key === DISMISS_KEY ? 'true' : null))
 
             const logic = projectNoticeLogic()
             logic.mount()

@@ -178,7 +178,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 // stamp $lib_custom_api_host on events — reverseProxyCheckerLogic detects that.
                 // Reading it here keeps the "set up a reverse proxy" nudge from contradicting the
                 // onboarding checklist, which already marks the task complete on the same signal.
-                (state) => reverseProxyCheckerLogic.findMounted()?.selectors.hasReverseProxy(state) ?? false,
+                // null = not yet checked; we only nudge once detection confirms there's no proxy.
+                (state) => reverseProxyCheckerLogic.findMounted()?.selectors.hasReverseProxy(state) ?? null,
             ],
             (
                 organization,
@@ -242,8 +243,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     shouldFetchProxyRecords() &&
                     proxyRecords !== null &&
                     proxyRecords.length === 0 &&
-                    // ...and not when a self-managed proxy is already routing events.
-                    !hasReverseProxy
+                    // ...and only once the checker has confirmed there's no self-managed proxy
+                    // routing events. While it's still null (not yet checked) we hold the nudge
+                    // back to avoid flashing it at DIY-proxy users before detection resolves.
+                    hasReverseProxy === false
                 ) {
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {
