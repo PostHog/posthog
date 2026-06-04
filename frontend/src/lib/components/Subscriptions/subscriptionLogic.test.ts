@@ -195,4 +195,33 @@ describe('subscriptionLogic', () => {
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscriptionErrors.prompt).toBeUndefined()
     })
+
+    it('clears a carried-over insight selection when saving an AI subscription', async () => {
+        // Opening the AI flow from a dashboard pre-populates dashboard_export_insights;
+        // those must not be sent, else the backend rejects insights without a dashboard.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': (req, res, ctx) => {
+                    capturedBody = req.body as Partial<SubscriptionType>
+                    return res(ctx.json({ id: 42, ...capturedBody } as SubscriptionType))
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+            dashboard_export_insights: [1, 2, 3],
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.dashboard_export_insights).toEqual([])
+        expect(capturedBody?.dashboard).toBeUndefined()
+        expect(capturedBody?.insight).toBeUndefined()
+    })
 })

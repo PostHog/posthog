@@ -176,6 +176,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     ...subscription,
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
+                    // AI subscriptions have no dashboard, so a carried-over insight selection would
+                    // trip the backend's "insights without a dashboard" guard. Clear it.
+                    dashboard_export_insights: isAi ? [] : subscription.dashboard_export_insights,
                     prompt: isAi ? subscription.prompt?.trim() : subscription.prompt,
                 }
 
