@@ -57,7 +57,7 @@ aws-sdk-s3 = { workspace = true }
 chrono = { workspace = true }
 lz-str = { workspace = true }
 lz4 = { workspace = true }
-multer = "3.0"
+multer = "3.1" # TODO: revert — selective build validation
 futures = { workspace = true }
 sha2 = { workspace = true }
 
