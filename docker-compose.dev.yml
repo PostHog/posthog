@@ -272,6 +272,9 @@ services:
         environment:
             DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_DB_NAME:-posthog}
             PERSONS_DATABASE_URL: postgres://posthog:posthog@db:5432/${POSTHOG_PERSONS_DB_NAME:-posthog}
+            # Error tracking requires PersonHog — point at the local gRPC router
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
         depends_on:
             kafka:
                 condition: service_started
@@ -279,6 +282,8 @@ services:
                 condition: service_healthy
             db:
                 condition: service_healthy
+            personhog-router:
+                condition: service_started
         healthcheck:
             test: ['CMD', 'curl', '-f', 'http://localhost:6738/_ready']
             interval: 5s
