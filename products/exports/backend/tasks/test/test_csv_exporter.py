@@ -381,6 +381,16 @@ class TestCSVExporter(APIBaseTest):
             }
             assert expected_bits == actual_bits
 
+    def test_query_supports_limit_ignores_unknown_trends_filter_keys(self) -> None:
+        # Regression: a persisted trendsFilter carrying an additive or leaked key
+        # (e.g. `yAxis`) must not fail QuerySchemaRoot validation in the export path.
+        query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+            "trendsFilter": {"showLegend": True, "yAxis": {"label": "Revenue"}},
+        }
+        assert csv_exporter._query_supports_limit(query) is True
+
     @patch("products.exports.backend.tasks.csv_exporter.make_api_call")
     def test_raises_expected_error_when_json_is_none(self, patched_api_call: Any) -> None:
         mock_response = Mock()

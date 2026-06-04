@@ -6606,7 +6606,7 @@ class AssistantTrendsBreakdownFilter(BaseModel):
 
 class AssistantTrendsFilter(BaseModel):
     model_config = ConfigDict(
-        extra="forbid",
+        extra="ignore",
     )
     aggregationAxisFormat: AggregationAxisFormat | None = Field(
         default=AggregationAxisFormat.NUMERIC,
@@ -9519,7 +9519,7 @@ class TrendsAlertConfig(BaseModel):
 
 class TrendsFilter(BaseModel):
     model_config = ConfigDict(
-        extra="forbid",
+        extra="ignore",
     )
     aggregationAxisFormat: AggregationAxisFormat | None = Field(
         default=AggregationAxisFormat.NUMERIC,

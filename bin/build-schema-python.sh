@@ -16,6 +16,11 @@ datamodel-codegen \
 # Re-apply discriminator keywords to array items dropped by datamodel-code-generator
 python3 bin/patch-schema-array-discriminators.py
 
+# Relax `extra="forbid"` to `extra="ignore"` on filter models that validate
+# persisted/replayed query JSON, so additive or leaked keys stay forward-compatible
+# across rolling deploys, exports, and actor drilldowns.
+python3 bin/patch-schema-forward-compatible-filters.py
+
 # Format and lint
 ruff format posthog/schema.py
 ruff check --fix posthog/schema.py
