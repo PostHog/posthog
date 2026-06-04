@@ -462,7 +462,7 @@ class TestUiParityStrings(SimpleTestCase):
                 False,
                 True,
                 "a day ago",
-                "You have the latest available. Click 'Releases ↗' above to check for any since.",
+                "You have the latest available.",
             ),
             (
                 "recent_with_age",

@@ -1,55 +1,11 @@
-import { Code, ConnectError } from '@connectrpc/connect'
-
 import { InternalPerson, TeamId } from '../../types'
-import { logger } from '../../utils/logger'
 import {
     InternalPersonWithDistinctId,
     PersonReadRepository,
 } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PersonHogClient } from './client'
+import { withRetry } from './grpc-retry'
 import { timedGrpc } from './metrics'
-
-const RETRYABLE_CODES = new Set([
-    Code.Unavailable,
-    Code.DeadlineExceeded,
-    Code.ResourceExhausted,
-    Code.Aborted,
-    Code.Internal,
-    Code.Unknown,
-])
-
-function isRetryable(error: unknown): boolean {
-    return error instanceof ConnectError && RETRYABLE_CODES.has(error.code)
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/**
- * Retry a function with exponential backoff on transient gRPC errors.
- * Non-transient errors are thrown immediately.
- */
-async function withRetry<T>(fn: () => Promise<T>, maxRetries: number = 2, initialDelayMs: number = 50): Promise<T> {
-    let lastError: unknown
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-        try {
-            return await fn()
-        } catch (error) {
-            lastError = error
-            if (!isRetryable(error) || attempt === maxRetries) {
-                throw error
-            }
-            logger.warn('[PersonHogPersonReadRepository] Retryable gRPC error, retrying', {
-                attempt: attempt + 1,
-                maxRetries,
-                error: String(error),
-            })
-            await sleep(initialDelayMs * Math.pow(2, attempt))
-        }
-    }
-    throw lastError
-}
 
 /**
  * Read-only person repository backed by personhog gRPC. No Postgres
@@ -63,7 +19,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
     ) {}
 
     async fetchPerson(teamId: number, distinctId: string, callerTag?: string): Promise<InternalPerson | undefined> {
-        const results = await withRetry(() =>
+        const results = await withRetry('PersonHogPersonReadRepository.fetchPerson', () =>
             timedGrpc(this.clientLabel, 'fetchPerson', () =>
                 this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }], callerTag)
             )
@@ -75,7 +31,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         teamPersons: { teamId: TeamId; distinctId: string }[],
         callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
-        return withRetry(() =>
+        return withRetry('PersonHogPersonReadRepository.fetchPersonsByDistinctIds', () =>
             timedGrpc(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag)
             )
@@ -86,7 +42,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         teamPersons: { teamId: TeamId; personId: string }[],
         callerTag?: string
     ): Promise<InternalPerson[]> {
-        return withRetry(() =>
+        return withRetry('PersonHogPersonReadRepository.fetchPersonsByPersonIds', () =>
             timedGrpc(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons, callerTag)
             )
@@ -99,7 +55,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         options?: { limitPerPerson?: number },
         callerTag?: string
     ): Promise<Record<string, string[]>> {
-        return withRetry(() =>
+        return withRetry('PersonHogPersonReadRepository.fetchDistinctIdsForPersons', () =>
             timedGrpc(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
                 this.grpcClient.persons.getDistinctIdsForPersons(
                     teamId,

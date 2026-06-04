@@ -1847,6 +1847,8 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     "default_cuped_enabled",
                     "default_cuped_lookback_days",
                     "default_minimum_detectable_effect",
+                    "default_sequential_testing_enabled",
+                    "default_sequential_tuning_parameter",
                 ]
 
         team = self.get_object()
