@@ -67,9 +67,7 @@ class _TurnLimitReviewer:
         pass
 
     def review(self, *args: object, **kwargs: object) -> dict:
-        raise RuntimeError(
-            "Claude Code returned an error result: Reached maximum number of turns (5)"
-        )
+        raise RuntimeError("Claude Code returned an error result: Reached maximum number of turns (5)")
 
 
 @pytest.mark.parametrize(
