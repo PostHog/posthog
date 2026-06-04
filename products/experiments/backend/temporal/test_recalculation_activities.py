@@ -172,6 +172,51 @@ class TestRecalculationActivities(BaseTest):
                 assert recalc.completed_at is not None
                 assert returned is None
 
+    def test_mark_started_is_first_write_wins_on_retry(self):
+        # Temporal retries the start activity (network blip, worker crash) — the second attempt must NOT move
+        # query_to/started_at forward. If it did, any calc activity already in flight from the first attempt
+        # would persist ExperimentMetricResult rows with the old query_to, while the recalc row points at the
+        # new one — orphaning those rows from the API's perspective.
+        with team_scope(self.team.id, canonical=True):
+            recalc = self._recalc(self._experiment(flag_key="progress-retry-start"))
+            update_kwargs = {
+                "status": "in_progress",
+                "total_metrics": 3,
+                "metric_uuids": ["m1", "m2", "m3"],
+                "mark_started": True,
+            }
+
+            first = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+            recalc.refresh_from_db()
+            first_query_to = recalc.query_to
+            first_started_at = recalc.started_at
+
+            second = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+            recalc.refresh_from_db()
+
+            # DB state unchanged after retry — the conditional UPDATE matched zero rows.
+            assert recalc.query_to == first_query_to
+            assert recalc.started_at == first_started_at
+            # Both attempts return the same canonical query_to so the workflow threads the same value either way.
+            assert first == second == first_query_to.isoformat()
+
+    def test_mark_completed_is_first_write_wins_on_retry(self):
+        # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.
+        with team_scope(self.team.id, canonical=True):
+            recalc = self._recalc(self._experiment(flag_key="progress-retry-finish"))
+            update_kwargs = {"status": "completed", "mark_completed": True}
+
+            _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+            recalc.refresh_from_db()
+            first_completed_at = recalc.completed_at
+            first_status = recalc.status
+
+            _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+            recalc.refresh_from_db()
+
+            assert recalc.completed_at == first_completed_at
+            assert recalc.status == first_status
+
 
 _QUERY_TO = "2026-05-29T12:00:00+00:00"
 
