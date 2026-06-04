@@ -183,9 +183,7 @@ jobs:
                       exit 1
                   fi
 
-                  git tag "$release_tag" "$COMMIT_HASH"
-                  git push origin "$release_tag"
-                  gh workflow run release.yml --ref "$release_tag" -f tag="$release_tag" -f source=release-cli -f release_commit="$COMMIT_HASH"
+                  gh workflow run release.yml --ref master -f tag="$release_tag" -f source=release-cli -f release_commit="$COMMIT_HASH"
                   echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
 
             - name: Send failure event to PostHog

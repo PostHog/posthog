@@ -63,14 +63,15 @@ jobs:
         timeout-minutes: 10
         outputs:
             val: ${{ steps.plan.outputs.manifest }}
-            tag: ${{ (inputs.source == 'release-cli' && inputs.tag != 'dry-run' && inputs.tag) || '' }}
-            tag-flag: ${{ inputs.source == 'release-cli' && inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}', inputs.tag) || '' }}
-            publishing: ${{ inputs.source == 'release-cli' && inputs.tag && inputs.tag != 'dry-run' }}
+            tag: ${{ (inputs.tag != 'dry-run' && inputs.tag) || '' }}
+            tag-flag: ${{ inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}', inputs.tag) || '' }}
+            publishing: ${{ inputs.tag && inputs.tag != 'dry-run' }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
             - name: Validate release dispatch
               if: ${{ inputs.tag && inputs.tag != 'dry-run' }}
@@ -79,13 +80,13 @@ jobs:
                   RELEASE_COMMIT: ${{ inputs.release_commit }}
                   RELEASE_SOURCE: ${{ inputs.source }}
               run: |
-                  if [ "$RELEASE_SOURCE" != "release-cli" ] || [ "$DISPATCH_ACTOR" != "github-actions[bot]" ]; then
-                      echo "::error::Publishing dispatches must come from the Release CLI workflow"
+                  if [ -z "$RELEASE_COMMIT" ] || [ "$(git rev-parse HEAD)" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::Release workflow is not running at the release commit"
                       exit 1
                   fi
 
-                  if [ -z "$RELEASE_COMMIT" ] || [ "$(git rev-parse HEAD)" != "$RELEASE_COMMIT" ]; then
-                      echo "::error::Release workflow is not running at the release commit"
+                  if [ "$RELEASE_SOURCE" = "release-cli" ] && [ "$DISPATCH_ACTOR" != "github-actions[bot]" ]; then
+                      echo "::error::Release CLI dispatches must be triggered by GitHub Actions"
                       exit 1
                   fi
             - name: Install dist
@@ -105,7 +106,7 @@ jobs:
             # but also really annoying to build CI around when it needs secrets to work right.)
             - id: plan
               env:
-                  DIST_COMMAND: ${{ (inputs.source == 'release-cli' && inputs.tag && inputs.tag != 'dry-run' && format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }}
+                  DIST_COMMAND: ${{ (inputs.tag && inputs.tag != 'dry-run' && format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }}
               run: |
                   dist $DIST_COMMAND --output-format=json > plan-dist-manifest.json
                   echo "dist ran successfully"
@@ -150,6 +151,7 @@ jobs:
                   git config --global core.longpaths true
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
             - name: Install Rust non-interactively if not already installed
               if: ${{ matrix.container }}
@@ -210,6 +212,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
             - name: Install cached dist
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -243,14 +246,26 @@ jobs:
                   path: |
                       ${{ steps.cargo-dist.outputs.paths }}
                       ${{ env.BUILD_MANIFEST_NAME }}
+
+    authorize-manual-release:
+        needs:
+            - plan
+        if: ${{ needs.plan.outputs.publishing == 'true' && inputs.source != 'release-cli' }}
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 5
+        environment: Release
+        steps:
+            - run: echo "Manual cargo-dist release approved"
+
     # Determines if we should publish/announce
     host:
         needs:
             - plan
             - build-local-artifacts
             - build-global-artifacts
+            - authorize-manual-release
         # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
-        if: ${{ always() && needs.plan.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
+        if: ${{ always() && needs.plan.outputs.publishing == 'true' && (inputs.source == 'release-cli' || needs.authorize-manual-release.result == 'success') && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 15
         outputs:
@@ -265,6 +280,7 @@ jobs:
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
                   token: ${{ steps.app-token.outputs.token }}
             - name: Install cached dist
@@ -309,7 +325,7 @@ jobs:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
                   ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
-                  RELEASE_COMMIT: '${{ github.sha }}'
+                  RELEASE_COMMIT: '${{ inputs.release_commit || github.sha }}'
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
@@ -331,6 +347,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ inputs.release_commit || github.sha }}
                   sparse-checkout: .nvmrc
                   sparse-checkout-cone-mode: false
             - name: Fetch npm packages
