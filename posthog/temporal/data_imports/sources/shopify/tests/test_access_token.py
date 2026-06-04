@@ -37,8 +37,8 @@ def test_get_access_token_4xx_is_non_retryable(status_code):
     )
 
 
-@pytest.mark.parametrize("status_code", [500, 502, 503])
-def test_get_access_token_5xx_stays_retryable(status_code):
+@pytest.mark.parametrize("status_code", [429, 500, 502, 503])
+def test_get_access_token_transient_stays_retryable(status_code):
     with _patched_token_call(_mock_response(status_code, ok=False)):
         with pytest.raises(Exception) as exc_info:
             _get_shopify_access_token("store", "client-id", "client-secret")
@@ -46,7 +46,7 @@ def test_get_access_token_5xx_stays_retryable(status_code):
     error_message = str(exc_info.value)
     patterns = ShopifySource().get_non_retryable_errors()
     assert not any(pattern in error_message for pattern in patterns), (
-        f"5xx token error '{error_message}' should remain retryable"
+        f"transient token error '{error_message}' should remain retryable"
     )
 
 
