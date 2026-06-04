@@ -28,6 +28,12 @@ mark-changed = "all"
 globs = [".sqlx/**"]
 mark-changed = "all"
 
+# CI workflow files outside the workspace — not crate source.
+# (rust-images.yml is handled above as it drives image builds.)
+[[path-rule]]
+globs = ["../.github/**"]
+mark-changed = []
+
 # Proto files trigger the two build-script crates that read them.
 [[path-rule]]
 globs = ["../proto/**"]

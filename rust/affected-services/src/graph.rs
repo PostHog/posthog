@@ -45,7 +45,7 @@ struct TempWorktree {
 }
 
 impl TempWorktree {
-    fn create(base_ref: &str, checkout_paths: &[&str]) -> Result<Self> {
+    fn create(base_ref: &str) -> Result<Self> {
         let path = tempfile::Builder::new()
             .prefix("affected-services-")
             .tempdir()
@@ -53,42 +53,26 @@ impl TempWorktree {
             .keep();
         let path_s = path.to_string_lossy();
 
+        // Disable sparse checkout before creating the worktree so it doesn't
+        // inherit the parent's sparse-checkout filter (CI uses sparse checkout
+        // for the main working tree).
+        let _ = Command::new("git")
+            .args(["config", "--local", "core.sparseCheckout", "false"])
+            .output();
+
         let out = Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "--detach",
-                "--no-checkout",
-                path_s.as_ref(),
-                base_ref,
-            ])
+            .args(["worktree", "add", "--detach", path_s.as_ref(), base_ref])
             .output()
             .context("failed to create git worktree")?;
+
+        // Re-enable sparse checkout for the parent worktree
+        let _ = Command::new("git")
+            .args(["config", "--local", "core.sparseCheckout", "true"])
+            .output();
+
         anyhow::ensure!(
             out.status.success(),
             "git worktree add failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-
-        // Override core.sparseCheckout for this command only — the parent
-        // worktree (CI sparse checkout) sets it in the shared git config,
-        // which would otherwise filter the checkout to an incomplete set.
-        let out = Command::new("git")
-            .args([
-                "-c",
-                "core.sparseCheckout=false",
-                "-C",
-                path_s.as_ref(),
-                "checkout",
-                "HEAD",
-                "--",
-            ])
-            .args(checkout_paths)
-            .output()
-            .context("failed to checkout worktree paths")?;
-        anyhow::ensure!(
-            out.status.success(),
-            "git checkout in worktree failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
 
@@ -114,7 +98,7 @@ impl Drop for TempWorktree {
 }
 
 pub fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option<PackageGraph> {
-    let worktree = match TempWorktree::create(base_ref, &[workspace_subdir]) {
+    let worktree = match TempWorktree::create(base_ref) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("warning: could not create worktree at {base_ref}: {e}");
