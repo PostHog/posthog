@@ -47,9 +47,8 @@ NON_RETRYABLE_ERROR_TYPES = ()
 
 @functools.cache
 def _get_session() -> aioboto3.Session:
-    # Built lazily on first use, never at import time: aioboto3.Session() eagerly resolves
-    # botocore/AWS profile config, and this module is imported during Django startup — an
-    # unset or dangling AWS_PROFILE would otherwise crash boot with ProfileNotFound.
+    # Lazy, not module scope: building the session resolves AWS profile config, and this
+    # module is on the Django boot path — a dangling AWS_PROFILE would otherwise crash boot.
     return aioboto3.Session()
 
 

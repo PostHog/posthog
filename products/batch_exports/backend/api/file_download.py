@@ -42,9 +42,8 @@ _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
 
 @functools.cache
 def _get_session() -> boto3.Session:
-    # Built lazily on first use, never at import time: boto3.Session() eagerly resolves
-    # botocore/AWS profile config, and this module is imported during Django startup — an
-    # unset or dangling AWS_PROFILE would otherwise crash boot with ProfileNotFound.
+    # Lazy, not module scope: building the session resolves AWS profile config, and this
+    # module is on the Django boot path — a dangling AWS_PROFILE would otherwise crash boot.
     return boto3.Session()
 
 
