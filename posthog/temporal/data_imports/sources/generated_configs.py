@@ -853,7 +853,8 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class TrelloSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_token: str
 
 
 @config.config
