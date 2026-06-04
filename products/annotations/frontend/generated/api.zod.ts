@@ -13,6 +13,7 @@ import * as zod from 'zod'
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export const annotationsCreateBodyContentMax = 8192
+
 export const annotationsCreateBodyEmojiMax = 16
 
 export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
@@ -58,6 +59,7 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export const annotationsUpdateBodyContentMax = 8192
+
 export const annotationsUpdateBodyEmojiMax = 16
 
 export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
@@ -103,6 +105,7 @@ export const AnnotationsUpdateBody = /* @__PURE__ */ zod.object({
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export const annotationsPartialUpdateBodyContentMax = 8192
+
 export const annotationsPartialUpdateBodyEmojiMax = 16
 
 export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
