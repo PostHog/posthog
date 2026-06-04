@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads import SnapchatResumeConfig, _iter_rows
+from posthog.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
 
 
 class _FakeResource:
@@ -334,6 +335,8 @@ class TestIterRowsMultiChunkStats:
 
 
 class TestNonRetryableErrors:
+    _patterns = SnapchatAdsSource().get_non_retryable_errors()
+
     @parameterized.expand(
         [
             # Real requests HTTPError strings from Snapchat's Marketing API.
@@ -343,10 +346,7 @@ class TestNonRetryableErrors:
         ]
     )
     def test_permanent_client_errors_are_non_retryable(self, error_msg: str) -> None:
-        from posthog.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
-
-        patterns = SnapchatAdsSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in patterns), (
+        assert any(pattern in error_msg for pattern in self._patterns), (
             f"Snapchat error '{error_msg}' did not match any non-retryable pattern"
         )
 
@@ -357,9 +357,6 @@ class TestNonRetryableErrors:
         ]
     )
     def test_transient_errors_stay_retryable(self, error_msg: str) -> None:
-        from posthog.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
-
-        patterns = SnapchatAdsSource().get_non_retryable_errors()
-        assert not any(pattern in error_msg for pattern in patterns), (
+        assert not any(pattern in error_msg for pattern in self._patterns), (
             f"Snapchat error '{error_msg}' should remain retryable"
         )
