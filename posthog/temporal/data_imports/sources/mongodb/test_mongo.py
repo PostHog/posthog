@@ -337,6 +337,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
+            # Cluster unreachable for the whole selection timeout — persistent connectivity issue.
+            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            (
+                "no_replica_set_members",
+                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -346,8 +353,8 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("server_selection_timeout", "No servers found yet, Timeout: 5.0s"),
             ("connection_reset", "connection closed"),
+            ("network_timeout", "NetworkTimeout: timed out reading from socket"),
         ]
     )
     def test_transient_errors_are_retryable(self, _name, error_msg):
@@ -357,11 +364,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("code_name", "AuthenticationFailed"),
-            ("message", "Authentication failed"),
+            ("code_name", "AuthenticationFailed", "password"),
+            ("message", "Authentication failed", "password"),
+            ("unreachable_no_servers", "No servers found yet", "allowlist"),
+            ("unreachable_no_replica_set", "No replica set members found yet", "allowlist"),
         ]
     )
-    def test_auth_pattern_has_friendly_message(self, _name, pattern):
+    def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
         message = self.non_retryable[pattern]
         assert message is not None
-        assert "password" in message.lower()
+        assert expected_substring in message.lower()
