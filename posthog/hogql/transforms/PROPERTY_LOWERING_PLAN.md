@@ -45,17 +45,31 @@ printer string-for-string — it can't, and shouldn't.
    Tests: `posthog/hogql/transforms/test/test_property_lowering.py` (4 passing).
    This is the single source of truth the printer, the lowering pass, and the pushdown collector will share.
 
-2. **Lower-to-AST — NEXT.**
-   `lower_property_type(pt, context) -> ast.Expr`, built from the stage-1 source:
+2. **Lower-to-AST — DONE, tested.**
+   `property_lowering.py` :: `lower_property_type(pt, context) -> ast.Expr | None`, built from the stage-1
+   source, plus the `LowerProperties` CloningVisitor and `lower_properties(node, context)` entry point:
    - `materialized_column` (non-nullable, non-`$ai_*`): `nullIf(nullIf(Field(col),''),'null')`
-     (single `nullIf` under `LEGACY_NULL_AS_STRING`); nullable / `$ai_*` / `dmat`: bare `Field(col)`.
+     (single `nullIf` under `LEGACY_NULL_AS_STRING`); nullable / `$ai_*` single-key / `dmat`: bare `Field(col)`.
    - `property_group`: `if(has(Field(g), key), ArrayAccess(Field(g), key), null)`.
-   - `None`: `JSONExtract`-trim-quotes over the raw `properties` Field (mirror `_unsafe_json_extract_trim_quotes`).
+   - `None` (fallback): `JSONExtract`-trim-quotes over the raw `properties` Field — built from `JSONExtractRaw`
+     / `nullIf` / `replaceRegexpAll`, all of which ARE registered HogQL functions (verified), so the AST
+     prints. The printer reaches these via raw strings, but as `ast.Call` they print equivalently.
    - deep chain (`a.b`): wrap the head result in the JSONExtract form for `chain[1:]`.
-   Verify by **execution result-equivalence** (lowered vs. un-lowered query return identical rows) across
-   every materialization mode, using the `materialized()` / property-group / dmat test fixtures.
+   - Physical mat/dmat/group columns aren't HogQL schema fields, so `_synthetic_column_field` augments a copy
+     of the table with a `DatabaseField` and points a fresh `FieldType` at it (same trick as the pushdown's
+     `_inner_table_type_with_materialized_columns`), preserving any alias so the printed prefix is unchanged.
+   - Returns `None` (printer keeps handling it) for: already-repointed `joined_subquery`, any
+     `restricted_properties` on the team, empty chain, or a non-`TableType`/`TableAliasType` wrapper
+     (VirtualTableType PoE, ColumnAliasedTableType, subquery types) — these are stage-3 coverage expansions.
+   Verified by **execution result-equivalence** in `test_property_lowering.py`
+   (`TestLowerPropertyTypeResultEquivalence`, 10 cases): printer's `visit_property_type` vs. lowered AST,
+   executed against ClickHouse, identical rows — across JSON fallback, ENABLED/OPTIMIZED groups,
+   AUTO/LEGACY_NULL_AS_STRING mat columns, deep chains, and a full SELECT+WHERE transform that also asserts
+   **zero `PropertyType` nodes remain** after the pass.
+   Caveat — `clear_types`: `LowerProperties` must construct `CloningVisitor(clear_types=False)`; the default
+   `True` wipes every node's resolved type and printing then fails ("FROM clause ... before type resolution").
 
-3. **Re-home optimizations + integrate — AFTER 2.**
+3. **Re-home optimizations + integrate — NEXT.**
    - Move `_get_optimized_property_group_call` and the skip-index comparison rewrites (`clickhouse.py:536-901`)
      into the lowering (they emit the optimized concrete form directly), reading the index flags off the
      stage-1 source.

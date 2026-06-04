@@ -1,11 +1,12 @@
 from dataclasses import dataclass
 from typing import Literal, cast
 
-from posthog.schema import PropertyGroupsMode
+from posthog.schema import MaterializationMode, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
@@ -91,3 +92,185 @@ def resolve_materialized_property_source(
             return MaterializedPropertySource(kind="property_group", column=group_column, is_nullable=True)
 
     return None
+
+
+def lower_property_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.Expr | None:
+    """Concrete column AST equivalent to the SQL the ClickHouse printer emits for a `properties.$x` access.
+
+    Returns the lowered expression — a bare/`nullIf`-wrapped materialized column, a property-group map access,
+    or a `JSONExtract` over the raw blob — built only from registered HogQL functions so it survives printing.
+    Returns ``None`` when the access can't be safely lowered here (already repointed into a joined subquery,
+    property-level access control in play, or an unusual table wrapper); the caller then leaves the original
+    ``PropertyType`` in place for the printer.
+
+    Equivalence bar is **result-equivalence, not byte-identical**: the printer string-builds the property-group
+    read as a `? :` ternary and the JSON read with literal (non-parameterized) constants, neither of which any
+    AST node reproduces. The lowered form (`if(has(g,k), g[k], null)`, parameterized constants) prints
+    differently but evaluates identically.
+    """
+    # Already repointed into a joined subquery: the printer reads it as a plain aliased column.
+    if property_type.joined_subquery is not None:
+        return None
+
+    # Property-level access control rewrites the read into a JSONDropKeys-wrapped blob extract in the printer.
+    # Leave those to the printer for now rather than duplicate the restriction logic here.
+    if context.restricted_properties:
+        return None
+
+    chain = property_type.chain
+    if not chain:
+        return None
+
+    base_field_type = property_type.field_type
+    # Only plain physical tables (optionally aliased) can host the synthetic mat/dmat/group columns.
+    if _underlying_table_type(base_field_type.table_type) is None:
+        return None
+
+    first_key = str(chain[0])
+    deeper_keys = [str(link) for link in chain[1:]]
+
+    source = resolve_materialized_property_source(base_field_type, first_key, context)
+
+    if source is None:
+        # No physical backing: JSONExtractRaw over the raw blob for the full chain.
+        return _json_extract_trim_quotes_expr(_blob_field(base_field_type), [first_key, *deeper_keys])
+
+    head = _materialized_head_expr(source, base_field_type, first_key, is_single=not deeper_keys, context=context)
+    if head is None:
+        return None
+    if not deeper_keys:
+        return head
+    # Deeper keys read the materialized value as a JSON string, same as the printer's chain[1:] handling.
+    return _json_extract_trim_quotes_expr(head, deeper_keys)
+
+
+def _materialized_head_expr(
+    source: MaterializedPropertySource,
+    base_field_type: ast.FieldType,
+    first_key: str,
+    *,
+    is_single: bool,
+    context: HogQLContext,
+) -> ast.Expr | None:
+    """The chain[0] read for a materialized source — mirrors the branches in BasePrinter.visit_property_type."""
+    if source.kind == "property_group":
+        # `has(g, k) ? g[k] : null` — guard the map read so a missing key returns NULL, not the '' map default.
+        has_field = _synthetic_column_field(base_field_type, source.column, is_nullable=True)
+        get_field = _synthetic_column_field(base_field_type, source.column, is_nullable=True)
+        if has_field is None or get_field is None:
+            return None
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="has", args=[has_field, ast.Constant(value=first_key)]),
+                ast.ArrayAccess(array=get_field, property=ast.Constant(value=first_key)),
+                ast.Constant(value=None),
+            ],
+        )
+
+    column_field = _synthetic_column_field(base_field_type, source.column, is_nullable=source.is_nullable)
+    if column_field is None:
+        return None
+
+    # Nullable columns (dmat, nullable mat) and the index-friendly $ai single-key columns are read bare.
+    if source.is_nullable or (is_single and first_key in AI_PROPERTIES_WITHOUT_NULLIF):
+        return column_field
+
+    # Non-nullable materialized column: scrub the '' / 'null' string sentinels back to NULL.
+    scrubbed_empty = ast.Call(name="nullIf", args=[column_field, ast.Constant(value="")])
+    if context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
+        return scrubbed_empty
+    return ast.Call(name="nullIf", args=[scrubbed_empty, ast.Constant(value="null")])
+
+
+def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str]) -> ast.Expr:
+    """AST form of clickhouse.kafka_engine.json_extract_trim_quotes(field, *keys)."""
+    extract = ast.Call(
+        name="JSONExtractRaw",
+        args=[field_expr, *[ast.Constant(value=key) for key in keys]],
+    )
+    scrubbed = ast.Call(
+        name="nullIf",
+        args=[
+            ast.Call(name="nullIf", args=[extract, ast.Constant(value="")]),
+            ast.Constant(value="null"),
+        ],
+    )
+    return ast.Call(name="replaceRegexpAll", args=[scrubbed, ast.Constant(value='^"|"$'), ast.Constant(value="")])
+
+
+def _blob_field(base_field_type: ast.FieldType) -> ast.Field:
+    """A Field over the raw JSON blob column (`properties` / `person_properties`), reusing its resolved type."""
+    return ast.Field(chain=[base_field_type.name], type=base_field_type)
+
+
+def _synthetic_column_field(base_field_type: ast.FieldType, column_name: str, *, is_nullable: bool) -> ast.Field | None:
+    """A typed Field for a physical ClickHouse column that isn't a HogQL schema field.
+
+    Mat/dmat/property-group columns live on the table physically but aren't in the HogQL schema, so a plain
+    Field won't resolve. Synthesize a DatabaseField on a copy of the table and point a fresh FieldType at it,
+    preserving any alias wrapper so the printed table prefix (`events.` / `e.`) is unchanged. Mirrors the
+    pushdown transform's `_inner_table_type_with_materialized_columns`.
+    """
+    table_type = _augment_table_type(base_field_type.table_type, column_name, is_nullable=is_nullable)
+    if table_type is None:
+        return None
+    return ast.Field(chain=[column_name], type=ast.FieldType(name=column_name, table_type=table_type))
+
+
+def _augment_table_type(
+    table_type: ast.Type, column_name: str, *, is_nullable: bool
+) -> ast.TableType | ast.TableAliasType | None:
+    if isinstance(table_type, ast.TableAliasType):
+        inner = table_type.table_type
+        if not isinstance(inner, ast.TableType):
+            return None
+        return ast.TableAliasType(
+            alias=table_type.alias, table_type=_augment_plain_table_type(inner, column_name, is_nullable)
+        )
+    if isinstance(table_type, ast.TableType):
+        return _augment_plain_table_type(table_type, column_name, is_nullable)
+    return None
+
+
+def _augment_plain_table_type(table_type: ast.TableType, column_name: str, is_nullable: bool) -> ast.TableType:
+    table = table_type.table
+    if table.has_field(column_name):
+        return table_type
+    synthetic = DatabaseField(name=column_name, nullable=is_nullable)
+    augmented = table.model_copy(update={"fields": {**table.fields, column_name: synthetic}})
+    return ast.TableType(table=augmented)
+
+
+def _underlying_table_type(table_type: ast.Type) -> ast.TableType | None:
+    if isinstance(table_type, ast.TableAliasType):
+        table_type = table_type.table_type
+    if isinstance(table_type, ast.TableType):
+        return table_type
+    return None
+
+
+class LowerProperties(CloningVisitor):
+    """Replaces `properties.$x` Field accesses with the concrete column AST the printer would emit.
+
+    Runs on a resolved ClickHouse AST. After this pass, the lowered accesses are ordinary typed column
+    expressions (no `PropertyType`), so downstream transforms — notably the events-predicate pushdown — can
+    project and repoint them like any other column.
+    """
+
+    def __init__(self, context: HogQLContext):
+        # Keep resolved types — the lowered AST is printed directly, no re-resolution runs after this pass.
+        super().__init__(clear_types=False)
+        self.context = context
+
+    def visit_field(self, node: ast.Field) -> ast.Expr:
+        if isinstance(node.type, ast.PropertyType):
+            lowered = lower_property_type(node.type, self.context)
+            if lowered is not None:
+                return lowered
+        return super().visit_field(node)
+
+
+def lower_properties(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+    """Lower every materializable `properties.$x` access in a resolved ClickHouse AST to concrete column AST."""
+    return LowerProperties(context).visit(node)
