@@ -334,14 +334,7 @@ where
     newline_delim(skip_blank_lines, |line| {
         let parsed = serde_json::from_str(line)
             .map_err(|e| {
-                // Include the full failing line so users can locate the
-                // offending row in their source file and see the field that
-                // tripped the parse — the column-only diagnostic from serde
-                // isn't navigable on its own. `newline_delim` short-circuits
-                // on the first parse error in a chunk, so we log at most one
-                // full line per failed chunk attempt regardless of batch size.
-                let user_msg =
-                    format!("{} | Failing line: {line}", T::user_facing_parse_error(&e),);
+                let user_msg = T::user_facing_parse_error(&e);
                 anyhow::Error::from(e).context(UserError::new(user_msg))
             })
             .context("Failed to json parse line")?;
@@ -515,31 +508,6 @@ mod tests {
         assert!(
             msg.contains("comma"),
             "Missing comma should be mentioned: {msg}"
-        );
-    }
-
-    /// Customer-facing pain point: the previous error told the user *what*
-    /// was wrong but not *which row* it was on. Embedding the failing line
-    /// in the user message lets them search their source file for the
-    /// offending row and see the field that tripped the parse.
-    #[test]
-    fn test_parse_error_includes_failing_line() {
-        use crate::error::get_user_message;
-
-        let data = b"{\"id\": 1, \"name\": \"alice\"}\n\
-                     {\"id\": 2, \"name\": null}\n"
-            .to_vec();
-
-        let err = json_nd::<TestData>(false)(data).unwrap_err();
-        let msg = get_user_message(&err);
-
-        assert!(
-            msg.contains("Failing line:"),
-            "user message must label the failing line so it's clearly the offending row: {msg}"
-        );
-        assert!(
-            msg.contains("\"id\": 2") && msg.contains("null"),
-            "user message must echo the failing line verbatim so the user can grep for it: {msg}"
         );
     }
 }
