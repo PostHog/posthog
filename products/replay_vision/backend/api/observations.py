@@ -278,6 +278,7 @@ class _OrderByFilter(django_filters.CharFilter):
             return qs.order_by(("-" if descending else "") + key, "id")
         if key == "result_score":
             # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- static SQL literal, no interpolation.
             qs = qs.annotate(
                 _order_score=RawSQL(
                     "CASE WHEN jsonb_typeof(scanner_result -> 'model_output' -> 'score') = 'number' "
@@ -288,6 +289,7 @@ class _OrderByFilter(django_filters.CharFilter):
             expr = F("_order_score").desc(nulls_last=True) if descending else F("_order_score").asc(nulls_last=True)
             return qs.order_by(expr, "id")
         if key == "scanner_version":
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- static SQL literal, no interpolation.
             qs = qs.annotate(
                 _order_version=RawSQL(
                     "CASE WHEN jsonb_typeof(scanner_snapshot -> 'scanner_version') = 'number' "
@@ -335,6 +337,7 @@ class _MultiChoiceFilter(django_filters.CharFilter):
             if invalid:
                 key = self._error_key or self.field_name
                 raise ValidationError({key: f"Invalid value(s) {invalid}; allowed: {sorted(self._valid_choices)}."})
+        # nosemgrep: orm-field-injection -- `field_name` is a class-init constant; `values` validated above.
         return qs.filter(**{f"{self.field_name}__in": values})
 
 

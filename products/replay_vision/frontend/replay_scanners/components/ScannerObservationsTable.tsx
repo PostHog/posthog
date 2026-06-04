@@ -117,7 +117,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     <ObservationResultSummary observation={obs} />
                 </div>
             ),
-            sorter: scannerType === 'scorer' || scannerType === 'monitor',
+            sorter: scannerType === 'scorer' || scannerType === 'monitor' ? true : undefined,
         },
         {
             title: 'Version',
