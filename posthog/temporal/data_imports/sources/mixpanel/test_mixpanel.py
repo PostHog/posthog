@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 import orjson
@@ -288,6 +289,7 @@ class TestSingleRequestEndpoints:
             assert list(mp._fetch_annotations("us", "u", "s", "123", LOGGER)) == []
 
 
+@freeze_time("2024-06-04")
 class TestGetRowsExportWindow:
     def _captured_window(self, **kwargs) -> tuple[date, date]:
         with patch.object(mp, "_iter_export", return_value=iter([])) as mock_iter:
@@ -300,7 +302,7 @@ class TestGetRowsExportWindow:
         start_date, end_date = self._captured_window(
             should_use_incremental_field=True, db_incremental_field_last_value=future
         )
-        assert start_date == end_date == datetime.now(UTC).date()
+        assert start_date == end_date == date(2024, 6, 4)
 
     def test_past_cursor_used_as_start(self) -> None:
         past = int(datetime(2020, 1, 1, tzinfo=UTC).timestamp())
@@ -308,7 +310,7 @@ class TestGetRowsExportWindow:
             should_use_incremental_field=True, db_incremental_field_last_value=past
         )
         assert start_date == date(2020, 1, 1)
-        assert end_date == datetime.now(UTC).date()
+        assert end_date == date(2024, 6, 4)
 
 
 class TestMixpanelSource:
