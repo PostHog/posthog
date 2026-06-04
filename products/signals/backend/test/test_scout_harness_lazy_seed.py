@@ -66,15 +66,25 @@ class TestDiscoverCanonicalSkills:
         skills = discover_canonical_skills(tmp_path)
         assert [s.name for s in skills] == ["signals-scout-foo"]
 
-    def test_parses_allowed_tools_when_present(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        "frontmatter_key",
+        [
+            # Backwards-compat form. Predates the agentskills.io spec alignment in this
+            # codebase and is still in use by other PHS skills.
+            "allowed_tools",
+            # Spec form per agentskills.io — preferred for new canonical skills.
+            "allowed-tools",
+        ],
+    )
+    def test_parses_allowed_tools_in_either_frontmatter_form(self, tmp_path: Path, frontmatter_key: str) -> None:
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
-            frontmatter="""
+            frontmatter=f"""
                 ---
                 name: signals-scout-bar
                 description: bar skill
-                allowed_tools:
+                {frontmatter_key}:
                   - remember
                   - search_scratchpad
                 ---
@@ -84,7 +94,57 @@ class TestDiscoverCanonicalSkills:
         skills = discover_canonical_skills(tmp_path)
         assert skills[0].allowed_tools == ("remember", "search_scratchpad")
 
-    def test_parses_bundled_files_under_references_and_scripts(self, tmp_path: Path) -> None:
+    def test_rejects_both_allowed_tools_keys_set(self, tmp_path: Path) -> None:
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter="""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                allowed-tools:
+                  - remember
+                allowed_tools:
+                  - search_scratchpad
+                ---
+            """,
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="both 'allowed-tools' and 'allowed_tools'"):
+            discover_canonical_skills(tmp_path)
+
+    @pytest.mark.parametrize(
+        "allowed_tools_value",
+        [
+            # YAML null — `allowed-tools:` with no value.
+            "",
+            " false",
+            ' ""',
+        ],
+    )
+    def test_rejects_falsy_non_list_allowed_tools(self, tmp_path: Path, allowed_tools_value: str) -> None:
+        # A falsy-but-invalid value must fail fast, not silently fall back to `[]`
+        # (which means "no tool narrowing" and would broaden tool access).
+        _write_canonical_skill(
+            tmp_path,
+            dir_name="signals-scout-bar",
+            frontmatter=f"""
+                ---
+                name: signals-scout-bar
+                description: bar skill
+                allowed-tools:{allowed_tools_value}
+                ---
+            """,
+            body="# Bar\n",
+        )
+        with pytest.raises(CanonicalSkillParseError, match="must be a list of strings"):
+            discover_canonical_skills(tmp_path)
+
+    def test_parses_bundled_files_under_allowed_subdirs(self, tmp_path: Path) -> None:
+        # `_ALLOWED_BUNDLE_SUBDIRS` is kept in lockstep with `hogli build:skills` —
+        # `references/` and `scripts/` only. `assets/` and any other subdir are intentionally
+        # ignored: silently bundling them here while the AI plugin build skips them would
+        # produce different runtime behavior from the same source skill.
         _write_canonical_skill(
             tmp_path,
             dir_name="signals-scout-bar",
@@ -98,6 +158,8 @@ class TestDiscoverCanonicalSkills:
             bundled_files={
                 "references/playbook.md": "# Playbook\n",
                 "scripts/check.py": "print('hi')\n",
+                "assets/template.txt": "hello {{name}}\n",
+                "extras/notes.txt": "ignored\n",
             },
         )
         skills = discover_canonical_skills(tmp_path)
@@ -105,6 +167,9 @@ class TestDiscoverCanonicalSkills:
         assert "references/playbook.md" in files_by_path
         assert files_by_path["references/playbook.md"].content == "# Playbook\n"
         assert "scripts/check.py" in files_by_path
+        # Files outside the allowlist must not leak in — guards the consumer divergence.
+        assert "assets/template.txt" not in files_by_path
+        assert "extras/notes.txt" not in files_by_path
 
     def test_missing_frontmatter_raises(self, tmp_path: Path) -> None:
         skill_dir = tmp_path / "signals-scout-foo"
