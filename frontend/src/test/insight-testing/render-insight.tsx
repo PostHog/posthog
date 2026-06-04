@@ -86,6 +86,8 @@ export interface RenderInsightProps {
     featureFlags?: Record<string, string | boolean>
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** Render as a fixed-height dashboard/card tile rather than the full insight page. */
+    embedded?: boolean
 }
 
 function InsightWrapper({
@@ -93,11 +95,13 @@ function InsightWrapper({
     showFilters = false,
     context,
     inSharedMode,
+    embedded,
 }: {
     query: InsightQuery
     showFilters: boolean
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    embedded?: boolean
 }): JSX.Element {
     const [vizQuery, setVizQuery] = useState<InsightVizNode>({
         kind: NodeKind.InsightVizNode,
@@ -119,6 +123,7 @@ function InsightWrapper({
             setQuery={setVizQuery}
             context={context}
             inSharedMode={inSharedMode}
+            embedded={embedded}
         />
     )
 }
@@ -132,6 +137,7 @@ export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof
             showFilters={props.showFilters ?? true}
             context={props.context}
             inSharedMode={props.inSharedMode}
+            embedded={props.embedded}
         />
     )
 }

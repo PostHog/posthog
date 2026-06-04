@@ -2,6 +2,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
@@ -61,6 +63,36 @@ describe('projectNoticeLogic', () => {
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadRecords'])
+
+            logic.unmount()
+        })
+    })
+
+    describe('unverified email banner CTA', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                },
+                post: {
+                    '/api/users/request_email_verification/': [200, { success: true }],
+                },
+            })
+            initKeaTests()
+        })
+
+        it('mounts verifyEmailLogic so the CTA reaches its request loader', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the
+            // verify-email scene — without this connection the CTA action dispatches into an unmounted
+            // logic and silently no-ops.
+            expect(verifyEmailLogic.isMounted()).toBe(true)
+
+            await expectLogic(verifyEmailLogic, () => {
+                verifyEmailLogic.actions.requestVerificationLink('test-uuid')
+            }).toDispatchActions(['requestVerificationLink', 'requestVerificationLinkSuccess'])
 
             logic.unmount()
         })
