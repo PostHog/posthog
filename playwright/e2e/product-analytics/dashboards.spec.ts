@@ -237,9 +237,14 @@ test.describe('Dashboards', () => {
         await test.step('verify navigation to dashboards list (not "Not found")', async () => {
             await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
             await expect(page.getByText('Not found')).not.toBeVisible()
-            // Scope to the table: the deletion toast also contains the name, and the
-            // row lingers briefly until delayedDeleteDashboard prunes it — an unscoped
-            // getByText matches both and trips strict mode instead of retrying away.
+            // Reload so the list is rebuilt from the server, which excludes deleted
+            // dashboards. The in-memory dashboardsModel can keep a stale row visible
+            // (the list selector doesn't filter `deleted`, and an in-flight load can
+            // re-merge it after delayedDeleteDashboard prunes it), so an unscoped or
+            // even table-scoped assertion against live state is racy. Scope to the
+            // table to exclude the "deleted" toast, which also contains the name.
+            await page.reload()
+            await expect(page.getByTestId('dashboards-table')).toBeVisible()
             await expect(page.getByTestId('dashboards-table').getByText(dashboardName)).not.toBeVisible()
         })
     })
