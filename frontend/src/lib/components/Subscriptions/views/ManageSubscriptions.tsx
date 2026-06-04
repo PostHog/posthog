@@ -43,6 +43,10 @@ export function SubscriptionListItem({
     const enabled = isSubscriptionEnabled(subscription)
     const sideActionBusy = isDelivering || isToggling
 
+    const aiPrompt = subscription.resource_type === 'ai_prompt' ? subscription.prompt : null
+    const aiPromptTruncated = aiPrompt && aiPrompt.length > PROMPT_PREVIEW_MAX_CHARS
+    const aiPromptPreview = aiPromptTruncated ? `${aiPrompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…` : aiPrompt
+
     return (
         <LemonButton
             type="secondary"
@@ -93,19 +97,9 @@ export function SubscriptionListItem({
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
                     <div className={`font-medium ${enabled ? 'text-link' : 'text-muted'}`}>{subscription.title}</div>
-                    {subscription.resource_type === 'ai_prompt' && subscription.prompt ? (
-                        <Tooltip
-                            title={
-                                subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS ? subscription.prompt : undefined
-                            }
-                        >
-                            <div className="text-sm text-text-3000 italic">
-                                {`"${
-                                    subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS
-                                        ? `${subscription.prompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…`
-                                        : subscription.prompt
-                                }"`}
-                            </div>
+                    {aiPrompt ? (
+                        <Tooltip title={aiPromptTruncated ? aiPrompt : undefined}>
+                            <div className="text-sm text-text-3000 italic">{`"${aiPromptPreview}"`}</div>
                         </Tooltip>
                     ) : null}
                     <div className="text-sm text-text-3000">
