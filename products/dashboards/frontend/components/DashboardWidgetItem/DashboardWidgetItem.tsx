@@ -20,7 +20,16 @@ import {
     tryGetDashboardWidgetCatalogEntry,
     type ResolvedDashboardWidgetCatalogEntry,
 } from '../../widget_types/catalog'
-import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
+import {
+    userCanMutateErrorTrackingIssuesOnDashboard,
+    userHasDashboardWidgetProductAccess,
+} from '../../widgetProductAccess'
+import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../../widgets/constants'
+import type {
+    WidgetIssueMetadataContext,
+    WidgetIssueMetadataDelta,
+} from '../../widgets/error_tracking/applyWidgetIssueMetadataChange'
 import {
     getDashboardWidgetDefinition,
     type DashboardWidgetComponentProps,
@@ -35,11 +44,19 @@ type DashboardWidgetItemProps = {
     tile: DashboardTile<QueryBasedInsightModel>
     placement: DashboardPlacement
     dashboardId?: number | null
+    canEditDashboard?: boolean
     result: unknown
     loading: boolean
     error?: string | null
     lastFetchedAt?: number
     onRefresh: () => void
+    onRefreshWidgetData?: (tileId: number) => void
+    onApplyWidgetIssueMetadataChange?: (
+        tileId: number,
+        issueId: string,
+        delta: WidgetIssueMetadataDelta,
+        context: WidgetIssueMetadataContext
+    ) => void
     onUpdateWidgetTile?: (patch: {
         config?: Record<string, unknown>
         name?: string
@@ -113,10 +130,13 @@ function DashboardWidgetItemContent({
     error,
     lastFetchedAt,
     onRefresh,
+    onRefreshWidgetData,
+    onApplyWidgetIssueMetadataChange,
     onUpdateWidgetTile,
     toggleShowDescription,
     onDragHandleMouseDown,
     showEditingControls,
+    canEditDashboard,
     onDuplicate,
     onRemove,
     onMoveToDashboard,
@@ -140,6 +160,8 @@ function DashboardWidgetItemContent({
             ? headerCatalogEntry.titleHref
             : undefined
 
+    const canUpdateWidgetTileConfig = !!onUpdateWidgetTile && !!canEditDashboard
+
     const componentProps: DashboardWidgetComponentProps = {
         tileId: tile.id,
         config: widget.config,
@@ -147,13 +169,22 @@ function DashboardWidgetItemContent({
         loading,
         error,
         onRefresh,
-        onUpdateConfig: onUpdateWidgetTile
+        onRefreshData: onRefreshWidgetData ? () => onRefreshWidgetData(tile.id) : undefined,
+        onApplyIssueMetadataChange: onApplyWidgetIssueMetadataChange
+            ? (issueId, delta, context) => {
+                  onApplyWidgetIssueMetadataChange(tile.id, issueId, delta, context)
+              }
+            : undefined,
+        canMutateErrorTrackingIssues: userCanMutateErrorTrackingIssuesOnDashboard(!!canEditDashboard),
+        onUpdateConfig: canUpdateWidgetTileConfig
             ? async (config) => {
                   await onUpdateWidgetTile({ config })
               }
             : undefined,
     }
 
+    const TileFilters = definition?.TileFilters
+    const { isAvailable: showTileFilters } = useWidgetAvailability(headerCatalogEntry.availability)
     const EditModal = definition?.EditModal
 
     const hasDashboardSectionActions =
@@ -243,6 +274,16 @@ function DashboardWidgetItemContent({
                 }
                 onDragHandleMouseDown={onDragHandleMouseDown}
             />
+            {!showSharedPlaceholder && showTileFilters && TileFilters ? (
+                <TileFilters
+                    tileId={tile.id}
+                    config={widget.config}
+                    onUpdateConfig={componentProps.onUpdateConfig}
+                    disabledReason={
+                        canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
+                    }
+                />
+            ) : null}
             {showSharedPlaceholder ? (
                 <WidgetCardSharedPlaceholderBody
                     copy={headerCatalogEntry.sharedPlaceholder ?? DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER}
@@ -296,11 +337,14 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             tile,
             placement,
             dashboardId,
+            canEditDashboard,
             result,
             loading,
             error,
             lastFetchedAt,
             onRefresh,
+            onRefreshWidgetData,
+            onApplyWidgetIssueMetadataChange,
             onUpdateWidgetTile,
             toggleShowDescription,
             showResizeHandles,
@@ -369,7 +413,10 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     error={error}
                     lastFetchedAt={lastFetchedAt}
                     onRefresh={onRefresh}
+                    onRefreshWidgetData={onRefreshWidgetData}
+                    onApplyWidgetIssueMetadataChange={onApplyWidgetIssueMetadataChange}
                     onUpdateWidgetTile={onUpdateWidgetTile}
+                    canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
                     onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}

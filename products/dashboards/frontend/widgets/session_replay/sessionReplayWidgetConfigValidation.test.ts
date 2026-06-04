@@ -3,6 +3,7 @@ import { ApiError } from 'lib/api-error'
 import { sessionReplayWidgetConfigSchema } from '../../widget_types/configSchemas'
 import {
     parseSessionReplayWidgetConfigApiError,
+    patchSessionReplayWidgetFilterFields,
     validateSessionReplayWidgetConfigInput,
 } from './sessionReplayWidgetConfigValidation'
 
@@ -11,7 +12,7 @@ describe('validateSessionReplayWidgetConfigInput', () => {
         const result = validateSessionReplayWidgetConfigInput({
             limit: 30,
             orderBy: 'start_time',
-            dateFrom: '-7d',
+            orderDirection: 'DESC',
             filterTestAccounts: true,
             baseConfig: sessionReplayWidgetConfigSchema.parse({}),
         })
@@ -22,36 +23,59 @@ describe('validateSessionReplayWidgetConfigInput', () => {
         }
     })
 
-    it('accepts valid config', () => {
+    it('accepts valid config and preserves tile filter fields from base config', () => {
         const result = validateSessionReplayWidgetConfigInput({
             limit: 10,
             orderBy: 'start_time',
-            dateFrom: '-7d',
+            orderDirection: 'ASC',
             filterTestAccounts: true,
-            baseConfig: sessionReplayWidgetConfigSchema.parse({}),
+            baseConfig: sessionReplayWidgetConfigSchema.parse({
+                dateRange: { date_from: '-30d' },
+                widgetFilters: {
+                    'qf-1': {
+                        filterId: 'qf-1',
+                        propertyName: '$browser',
+                        optionId: 'opt-1',
+                        operator: 'exact',
+                        value: 'Chrome',
+                    },
+                },
+            }),
         })
 
         expect(result.success).toBe(true)
         if (result.success) {
             expect(result.config.limit).toBe(10)
-            expect(result.config.dateRange).toEqual({ date_from: '-7d' })
+            expect(result.config.orderDirection).toBe('ASC')
+            expect(result.config.dateRange).toEqual({ date_from: '-30d' })
             expect(result.config.filterTestAccounts).toBe(true)
+            expect(result.config.widgetFilters?.['qf-1']).toMatchObject({
+                propertyName: '$browser',
+                value: 'Chrome',
+            })
         }
     })
+})
 
-    it('accepts short date range', () => {
-        const result = validateSessionReplayWidgetConfigInput({
-            limit: 10,
-            orderBy: 'start_time',
-            dateFrom: '-1h',
-            filterTestAccounts: true,
-            baseConfig: sessionReplayWidgetConfigSchema.parse({}),
+describe('patchSessionReplayWidgetFilterFields', () => {
+    it('updates date range without clearing widget filters', () => {
+        const config = sessionReplayWidgetConfigSchema.parse({
+            dateRange: { date_from: '-7d' },
+            widgetFilters: {
+                'qf-1': {
+                    filterId: 'qf-1',
+                    propertyName: '$browser',
+                    optionId: 'opt-1',
+                    operator: 'exact',
+                    value: 'Chrome',
+                },
+            },
         })
 
-        expect(result.success).toBe(true)
-        if (result.success) {
-            expect(result.config.dateRange).toEqual({ date_from: '-1h' })
-        }
+        const next = patchSessionReplayWidgetFilterFields(config, { dateFrom: '-30d' })
+
+        expect(next.dateRange).toEqual({ date_from: '-30d' })
+        expect(next.widgetFilters?.['qf-1']).toMatchObject({ value: 'Chrome' })
     })
 })
 
