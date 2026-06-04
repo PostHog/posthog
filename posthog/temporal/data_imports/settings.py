@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     calculate_table_size_activity,
     check_billing_limits_activity,
+    check_for_in_flight_run_activity,
     create_external_data_job_model_activity,
     create_source_templates,
     import_data_activity_sync,
@@ -38,6 +39,7 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     create_external_data_job_model_activity,
+    check_for_in_flight_run_activity,
     update_external_data_job_model,
     import_data_activity_sync,
     create_source_templates,

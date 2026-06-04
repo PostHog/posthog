@@ -33,7 +33,9 @@ from posthog.temporal.data_imports.workflow_activities.check_billing_limits impo
     check_billing_limits_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+    CheckForInFlightRunActivityInputs,
     CreateExternalDataJobModelActivityInputs,
+    check_for_in_flight_run_activity,
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
@@ -245,6 +247,30 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: ExternalDataWorkflowInputs):
         assert inputs.external_data_schema_id is not None
+
+        # Skip this scheduled run if a prior run's load (the decoupled V3 merge) is
+        # still in flight. The schedule's SKIP overlap policy only covers the producer
+        # workflow, not the consumer, so without this guard the reset_table() below
+        # would delete the working Delta table while that consumer is still writing it
+        # and corrupt the table. Returning here — before any ExternalDataJob is created
+        # — leaves no job/status to reconcile; the schedule just fires again next tick.
+        # An explicit resync (reset_pipeline) is a deliberate override and is exempt.
+        if not inputs.reset_pipeline:
+            prior_run_in_flight = await workflow.execute_activity(
+                check_for_in_flight_run_activity,
+                CheckForInFlightRunActivityInputs(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id),
+                start_to_close_timeout=dt.timedelta(minutes=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if prior_run_in_flight:
+                workflow.logger.info(
+                    "Skipping scheduled run: a prior load is still in flight for this schema",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "source_id": str(inputs.external_data_source_id),
+                    },
+                )
+                return
 
         update_inputs = UpdateExternalDataJobStatusInputs(
             job_id=None,

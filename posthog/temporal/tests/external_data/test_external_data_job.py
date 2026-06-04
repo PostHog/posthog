@@ -1,6 +1,7 @@
 import uuid
 import functools
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from typing import Optional
 
 import pytest
@@ -8,6 +9,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.test import override_settings
+from django.utils import timezone
 
 import boto3
 import psycopg
@@ -37,7 +39,9 @@ from posthog.temporal.data_imports.sources.stripe.settings import ENDPOINTS as S
 from posthog.temporal.data_imports.workflow_activities.calculate_table_size import calculate_table_size_activity
 from posthog.temporal.data_imports.workflow_activities.check_billing_limits import check_billing_limits_activity
 from posthog.temporal.data_imports.workflow_activities.create_job_model import (
+    CheckForInFlightRunActivityInputs,
     CreateExternalDataJobModelActivityInputs,
+    check_for_in_flight_run_activity,
     create_external_data_job_model_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
@@ -252,6 +256,54 @@ def test_create_external_job_activity_emit_signals_respects_ai_consent(
     )
     result = activity_environment.run(create_external_data_job_model_activity, inputs)
     assert result.emit_signals_enabled is expected
+
+
+def _create_source_for_in_flight(team):
+    return ExternalDataSource.objects.create(
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        team=team,
+        status="running",
+        source_type="Postgres",
+    )
+
+
+@pytest.mark.parametrize(
+    "status,pipeline_version,age_hours,expected",
+    [
+        (ExternalDataJob.Status.RUNNING, ExternalDataJob.PipelineVersion.V3, 1, True),
+        (ExternalDataJob.Status.COMPLETED, ExternalDataJob.PipelineVersion.V3, 1, False),
+        (ExternalDataJob.Status.FAILED, ExternalDataJob.PipelineVersion.V3, 1, False),
+        (ExternalDataJob.Status.RUNNING, ExternalDataJob.PipelineVersion.V2, 1, False),
+        (ExternalDataJob.Status.RUNNING, ExternalDataJob.PipelineVersion.V3, 48, False),
+    ],
+)
+@pytest.mark.django_db(transaction=True)
+def test_check_for_in_flight_run_activity(activity_environment, team, status, pipeline_version, age_hours, expected):
+    source = _create_source_for_in_flight(team)
+    schema = _create_schema("in_flight_test", source, team)
+    job = ExternalDataJob.objects.create(
+        team_id=team.id,
+        pipeline_id=source.pk,
+        schema_id=schema.id,
+        status=status,
+        rows_synced=0,
+        pipeline_version=pipeline_version,
+    )
+    ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=age_hours))
+
+    inputs = CheckForInFlightRunActivityInputs(team_id=team.id, schema_id=schema.id)
+    assert activity_environment.run(check_for_in_flight_run_activity, inputs) is expected
+
+
+@pytest.mark.django_db(transaction=True)
+def test_check_for_in_flight_run_activity_no_prior_job(activity_environment, team):
+    source = _create_source_for_in_flight(team)
+    schema = _create_schema("no_prior_run", source, team)
+
+    inputs = CheckForInFlightRunActivityInputs(team_id=team.id, schema_id=schema.id)
+    assert activity_environment.run(check_for_in_flight_run_activity, inputs) is False
 
 
 @pytest.mark.django_db(transaction=True)

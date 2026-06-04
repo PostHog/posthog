@@ -1,9 +1,11 @@
 import uuid
 import typing
 import dataclasses
+from datetime import timedelta
 from typing import Any
 
 from django.db import close_old_connections
+from django.utils import timezone
 
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
@@ -176,3 +178,39 @@ def create_external_data_job_model_activity(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"
         )
         raise
+
+
+# A V3 load (the merge step) runs in a decoupled consumer that keeps writing the
+# working Delta table after the producer workflow has finished. The schedule's
+# SKIP overlap policy only sees the producer workflow, so it won't stop the next
+# scheduled run from starting while a prior run's load is still in flight — and
+# that new run's reset_table() would delete the working Delta table out from under
+# the lagging consumer, orphaning a commit with no protocol/metadata and wedging
+# the table. Bounded by a staleness window so an orphaned RUNNING job (e.g. from a
+# dead consumer) can't suppress runs forever.
+IN_FLIGHT_RUN_MAX_AGE = timedelta(hours=24)
+
+
+@dataclasses.dataclass
+class CheckForInFlightRunActivityInputs:
+    team_id: int
+    schema_id: uuid.UUID
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {"team_id": self.team_id, "schema_id": self.schema_id}
+
+
+@activity.defn
+def check_for_in_flight_run_activity(inputs: CheckForInFlightRunActivityInputs) -> bool:
+    bind_contextvars(team_id=inputs.team_id)
+    close_old_connections()
+
+    cutoff = timezone.now() - IN_FLIGHT_RUN_MAX_AGE
+    return ExternalDataJob.objects.filter(
+        team_id=inputs.team_id,
+        schema_id=inputs.schema_id,
+        status=ExternalDataJob.Status.RUNNING,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
+        created_at__gte=cutoff,
+    ).exists()
