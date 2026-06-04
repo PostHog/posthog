@@ -948,4 +948,11 @@ class LowerProperties(CloningVisitor):
 
 def lower_properties(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Lower every materializable `properties.$x` access in a resolved ClickHouse AST to concrete column AST."""
+    # Legacy non-HogQL queries (data-deletion predicates, legacy insight fragments) splice this SQL into a query
+    # whose table scope is fixed, so the printer must emit *unqualified* materialized columns (no `events.` prefix)
+    # — see BasePrinter._get_all_materialized_property_sources' `table_prefix=None` branch. The synthetic fields this
+    # pass builds are always table-qualified, so leave these queries entirely to the printer's value-read +
+    # comparison-optimizer path (which handles the unqualified case correctly).
+    if context.within_non_hogql_query:
+        return node
     return cast(_T_AST, LowerProperties(context).visit(node))
