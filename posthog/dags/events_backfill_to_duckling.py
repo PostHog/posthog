@@ -181,11 +181,15 @@ def _get_cluster() -> ClickhouseCluster:
 
 
 @retry(
-    # Deep enough to outlast a cold colocated-node provision (minutes) or a brief
-    # warm-pool exhaustion under a burst: up to ~5 minutes or 12 attempts. A
-    # shallow 3-attempt/~10s budget would surface the very ConnectionTimeout this
-    # feature exists to remove. statement_timeout (set per connection) is separate.
-    stop=stop_after_delay(300) | stop_after_attempt(12),
+    # The duckgres CP now absorbs a warm-pool miss by blocking the connect itself
+    # up to ~5m (DUCKGRES_K8S_WARM_ACQUIRE_TIMEOUT) for a colocated worker — so a
+    # single attempt can run the full connect_timeout (330s). The retry budget here
+    # is the BACKSTOP for fast failures (network blip, CP pod rolled mid-handshake,
+    # or the CP giving up after its block): the delay cap must exceed one full
+    # attempt so a second one can actually run, hence 700s (~2 attempts) rather
+    # than 300s (which a single 330s attempt would exhaust, making retries a no-op).
+    # statement_timeout (set per connection) is separate.
+    stop=stop_after_delay(700) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
     reraise=True,
