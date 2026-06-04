@@ -9,7 +9,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
@@ -311,8 +311,14 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
+            ("enabled", "disabled", 1),
+            ("enabled", "enabled,disabled", 2),
+            ("enabled", "true", 1),
             ("enabled", "false", 1),
+            ("enabled", "1", 1),
+            ("enabled", "0", 1),
             ("scanner_type", ScannerType.CLASSIFIER, 1),
+            ("scanner_type", f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}", 2),
             ("emits_signals", "true", 1),
         ]
     )
@@ -330,12 +336,115 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
 
+    @parameterized.expand(
+        [
+            ("enabled=bogus", "enabled"),
+            ("scanner_type=does_not_exist", "scanner_type"),
+            ("order_by=nope", "order_by"),
+            ("created_by=alice", "created_by"),
+        ]
+    )
+    def test_invalid_filter_or_order_returns_400(self, query: str, attr: str) -> None:
+        resp = self.client.get(f"{self.scanners_url}?{query}")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json().get("attr"), attr)
+
+    @parameterized.expand(
+        [
+            ("prompt match", "dead", ["beta"]),
+            ("description match", "first", ["alpha"]),
+            ("case-insensitive name match", "AmMa", ["gamma"]),
+        ]
+    )
+    def test_search_matches_name_description_or_prompt(
+        self, _label: str, query: str, expected_names: list[str]
+    ) -> None:
+        self._create_scanner(name="alpha", description="first scanner")
+        self._create_scanner(name="beta", description="something else", scanner_config={"prompt": "find dead ends"})
+        self._create_scanner(name="gamma", description="third")
+        resp = self.client.get(f"{self.scanners_url}?search={query}")
+        self.assertEqual([r["name"] for r in resp.json()["results"]], expected_names)
+
+    def test_created_by_filter_multi_value(self) -> None:
+        other_user = User.objects.create_and_join(self.team.organization, "other@example.com", "pw")
+        a = self._create_scanner(name="a")
+        a.created_by = self.user
+        a.save(update_fields=["created_by"])
+        b = self._create_scanner(name="b")
+        b.created_by = other_user
+        b.save(update_fields=["created_by"])
+        self._create_scanner(name="c")
+        resp = self.client.get(f"{self.scanners_url}?created_by={self.user.id},{other_user.id}")
+        names = sorted(r["name"] for r in resp.json()["results"])
+        self.assertEqual(names, ["a", "b"])
+
     def test_order_by_descending(self) -> None:
         self._create_scanner(name="a-scanner")
         self._create_scanner(name="b-scanner")
         resp = self.client.get(f"{self.scanners_url}?order_by=-name")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
+
+    def test_order_by_sampling_rate(self) -> None:
+        self._create_scanner(name="low", sampling_rate=0.1)
+        self._create_scanner(name="mid", sampling_rate=0.5)
+        self._create_scanner(name="high", sampling_rate=1.0)
+        resp = self.client.get(f"{self.scanners_url}?order_by=sampling_rate")
+        self.assertEqual([r["name"] for r in resp.json()["results"]], ["low", "mid", "high"])
+
+    def test_creators_endpoint_respects_per_scanner_access_control(self) -> None:
+        other = User.objects.create_and_join(self.team.organization, "hidden@example.com", "pw")
+        visible = self._create_scanner(name="visible")
+        visible.created_by = self.user
+        visible.save(update_fields=["created_by"])
+        hidden = self._create_scanner(name="hidden")
+        hidden.created_by = other
+        hidden.save(update_fields=["created_by"])
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.get(f"{self.scanners_url}creators/")
+        self.assertEqual(resp.status_code, 200)
+        ids = [u["id"] for u in resp.json()["creators"]]
+        self.assertEqual(ids, [self.user.id])
+
+    def test_creators_endpoint_returns_distinct_users(self) -> None:
+        other = User.objects.create_and_join(self.team.organization, "other@example.com", "pw")
+        a = self._create_scanner(name="a")
+        a.created_by = self.user
+        a.save(update_fields=["created_by"])
+        b = self._create_scanner(name="b")
+        b.created_by = other
+        b.save(update_fields=["created_by"])
+        c = self._create_scanner(name="c")
+        c.created_by = self.user
+        c.save(update_fields=["created_by"])
+        self._create_scanner(name="d")
+
+        resp = self.client.get(f"{self.scanners_url}creators/")
+        self.assertEqual(resp.status_code, 200)
+        ids = sorted(u["id"] for u in resp.json()["creators"])
+        self.assertEqual(ids, sorted([self.user.id, other.id]))
+
+    def test_order_by_created_by_falls_back_through_name_then_email(self) -> None:
+        alice = User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
+        bob = User.objects.create_and_join(
+            self.organization, "bob@example.com", None, first_name="", last_name="Bobson"
+        )
+        carol = User.objects.create_and_join(self.organization, "carol@example.com", None, first_name="", last_name="")
+        for owner, name in [(alice, "a"), (bob, "b"), (carol, "c")]:
+            s = self._create_scanner(name=name)
+            s.created_by = owner
+            s.save(update_fields=["created_by"])
+        resp = self.client.get(f"{self.scanners_url}?order_by=created_by")
+        self.assertEqual([r["name"] for r in resp.json()["results"]], ["a", "b", "c"])
+
+    def test_order_by_enabled(self) -> None:
+        self._create_scanner(name="on")
+        self._create_scanner(name="off", enabled=False)
+        resp = self.client.get(f"{self.scanners_url}?order_by=-enabled")
+        self.assertEqual([r["name"] for r in resp.json()["results"]], ["on", "off"])
 
     def _patch_deny_session_recording(self):
         return patch(

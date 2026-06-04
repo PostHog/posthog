@@ -1,10 +1,23 @@
 """MCP analytics intent clustering — Temporal workflow exports.
 
-This module is the registration seam for the ``mcp-analytics-task-queue``
-worker. Workflows and activities are added here as subsequent PRs land them;
-the empty lists below are intentional in PR #4 so the worker registers the
-queue without yet exposing any handlers.
+Registered against ``settings.MCPA_TASK_QUEUE`` by
+``posthog/management/commands/start_temporal_worker.py``.
 """
 
-MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS: list = []
-MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES: list = []
+from posthog.temporal.mcp_analytics.intent_clustering.activities import compute_intent_clusters_activity
+from posthog.temporal.mcp_analytics.intent_clustering.workflow import DailyIntentClusteringWorkflow
+
+MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS = [
+    DailyIntentClusteringWorkflow,
+]
+
+MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES = [
+    compute_intent_clusters_activity,
+]
+
+__all__ = [
+    "DailyIntentClusteringWorkflow",
+    "MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES",
+    "MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS",
+    "compute_intent_clusters_activity",
+]

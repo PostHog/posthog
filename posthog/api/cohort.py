@@ -66,7 +66,7 @@ from posthog.models.cohort.util import (
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.filters.filter import Filter
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
-from posthog.models.person.util import validate_person_uuids_exist
+from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
@@ -1475,15 +1475,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_id must be a valid UUID")
 
         # Check if person exists and belongs to this team
-        try:
-            person_uuid = (
-                # nosemgrep: no-direct-persons-db-orm
-                Person.objects.db_manager(READ_DB_FOR_PERSONS)
-                .get(team_id=self.team_id, uuid=person_id)
-                .uuid  # nosemgrep: no-direct-persons-db-orm
-            )  # nosemgrep: no-direct-persons-db-orm
-        except Person.DoesNotExist:
+        person = get_person_by_uuid(team_id=self.team_id, uuid=person_id)
+        if person is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
+        person_uuid = person.uuid
 
         # Remove is idempotent - succeeds even if person wasn't in cohort (handles CH/PG sync issues)
         cohort.remove_user_by_uuid(str(person_uuid), team_id=self.team_id)
