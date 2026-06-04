@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -51,9 +51,14 @@ class TestFreshsalesSource:
 
         fields = {f.name: f for f in config.fields}
         assert set(fields) == {"domain", "api_key"}
-        assert fields["domain"].type == SourceFieldInputConfigType.TEXT
-        assert fields["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert fields["api_key"].secret is True
+
+        domain_field = fields["domain"]
+        api_key_field = fields["api_key"]
+        assert isinstance(domain_field, SourceFieldInputConfig)
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert domain_field.type == SourceFieldInputConfigType.TEXT
+        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
+        assert api_key_field.secret is True
 
     def test_get_schemas_full_refresh_only(self) -> None:
         schemas = FreshsalesSource().get_schemas(_config(), team_id=1)

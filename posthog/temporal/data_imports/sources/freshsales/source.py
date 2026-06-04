@@ -60,6 +60,7 @@ Both are available under **Profile settings → API settings** in Freshsales.
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="yourcompany",
+                        secret=False,
                     ),
                     SourceFieldInputConfig(
                         name="api_key",
