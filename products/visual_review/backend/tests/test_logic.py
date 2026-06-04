@@ -1673,7 +1673,10 @@ class TestRerunGithubJob:
     def repo(self, team):
         return logic.create_repo(team_id=team.id, repo_external_id=55555, repo_full_name="org/test-repo")
 
-    def _make_run(self, repo: "Repo", commit_sha: str = "abc123def456") -> "Run":
+    def _make_run(self, repo: "Repo", commit_sha: str = "abc123def456", workflow_run_id: str | None = "98765") -> "Run":
+        metadata: dict = {"github_check_run_id": "72855643533"}
+        if workflow_run_id is not None:
+            metadata["github_run_id"] = workflow_run_id
         run, _ = logic.create_run(
             repo_id=repo.id,
             team_id=repo.team_id,
@@ -1682,7 +1685,7 @@ class TestRerunGithubJob:
             branch="feature",
             pr_number=1,
             snapshots=[],
-            metadata={"github_check_run_id": "72855643533"},
+            metadata=metadata,
         )
         return run
 
@@ -1692,17 +1695,36 @@ class TestRerunGithubJob:
         assert success is False
         assert error == "Invalid check run ID"
 
+    def test_rejects_when_workflow_run_id_missing(self, repo):
+        run = self._make_run(repo, workflow_run_id=None)
+        success, error = logic._rerun_github_job(run, "72855643533")
+        assert success is False
+        assert error == "Workflow run ID not recorded for this run"
+
     def test_rejects_when_sha_does_not_match(self, repo, mocker):
         run = self._make_run(repo, commit_sha="abc123")
         mock_response = mocker.MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"head_sha": "different_sha_entirely"}
+        mock_response.json.return_value = {"head_sha": "different_sha_entirely", "run_id": 98765}
         mocker.patch("products.visual_review.backend.logic._github_api_request", return_value=mock_response)
 
         success, error = logic._rerun_github_job(run, "72855643533")
 
         assert success is False
         assert error == "Check run does not belong to this commit"
+
+    def test_rejects_when_workflow_run_does_not_match(self, repo, mocker):
+        commit_sha = "abc123def456"
+        run = self._make_run(repo, commit_sha=commit_sha, workflow_run_id="98765")
+        mock_response = mocker.MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"head_sha": commit_sha, "run_id": 11111}
+        mocker.patch("products.visual_review.backend.logic._github_api_request", return_value=mock_response)
+
+        success, error = logic._rerun_github_job(run, "72855643533")
+
+        assert success is False
+        assert error == "CI job does not belong to this run's workflow"
 
     def test_rejects_when_check_run_fetch_fails(self, repo, mocker):
         run = self._make_run(repo)
@@ -1716,20 +1738,20 @@ class TestRerunGithubJob:
         assert error is not None
         assert "404" in error
 
-    def test_triggers_rerun_when_sha_matches(self, repo, mocker):
+    def test_triggers_rerun_when_sha_and_workflow_match(self, repo, mocker):
         commit_sha = "abc123def456"
-        run = self._make_run(repo, commit_sha=commit_sha)
+        run = self._make_run(repo, commit_sha=commit_sha, workflow_run_id="98765")
 
-        check_run_response = mocker.MagicMock()
-        check_run_response.status_code = 200
-        check_run_response.json.return_value = {"head_sha": commit_sha}
+        job_response = mocker.MagicMock()
+        job_response.status_code = 200
+        job_response.json.return_value = {"head_sha": commit_sha, "run_id": 98765}
 
         rerun_response = mocker.MagicMock()
         rerun_response.status_code = 201
 
         mocker.patch(
             "products.visual_review.backend.logic._github_api_request",
-            side_effect=[check_run_response, rerun_response],
+            side_effect=[job_response, rerun_response],
         )
 
         success, error = logic._rerun_github_job(run, "72855643533")

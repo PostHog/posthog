@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
-import { clampIntegerBounds, INT32_MAX, INT32_MIN, preprocessSchema } from '../src/preprocess.mjs'
+import {
+    clampIntegerBounds,
+    INT32_MAX,
+    INT32_MIN,
+    preprocessSchema,
+    schemaAllowsNull,
+    stripNullDefaults,
+} from '../src/preprocess.mjs'
 
 describe('clampIntegerBounds', () => {
     it('clamps i64 bounds to int32 range on a type: integer schema', () => {
@@ -90,6 +97,100 @@ describe('clampIntegerBounds', () => {
         expect(() => clampIntegerBounds(undefined)).not.toThrow()
         expect(() => clampIntegerBounds(42)).not.toThrow()
         expect(() => clampIntegerBounds('string')).not.toThrow()
+    })
+})
+
+describe('schemaAllowsNull', () => {
+    it.each([
+        ['nullable: true', { nullable: true }],
+        ['type: null', { type: 'null' }],
+        ['type array with null', { type: ['string', 'null'] }],
+        ['anyOf with null variant', { anyOf: [{ type: 'string' }, { type: 'null' }] }],
+        ['oneOf with null variant', { oneOf: [{ type: 'integer' }, { type: 'null' }] }],
+        ['nested anyOf with null', { anyOf: [{ anyOf: [{ type: 'null' }] }] }],
+        ['untyped Any (bare object)', {}],
+        ['untyped Any with title only', { title: 'Value' }],
+    ])('returns true for %s', (_label, schema) => {
+        expect(schemaAllowsNull(schema)).toBe(true)
+    })
+
+    it.each([
+        ['plain string', { type: 'string' }],
+        ['$ref', { $ref: '#/components/schemas/Foo' }],
+        ['enum without null', { enum: ['a', 'b'] }],
+        ['const', { const: 42 }],
+        ['object with properties', { properties: { id: { type: 'integer' } } }],
+        ['anyOf without null', { anyOf: [{ type: 'string' }, { type: 'integer' }] }],
+        ['allOf with $ref', { allOf: [{ $ref: '#/components/schemas/Foo' }] }],
+    ])('returns false for %s', (_label, schema) => {
+        expect(schemaAllowsNull(schema)).toBe(false)
+    })
+
+    it('returns false for non-objects', () => {
+        expect(schemaAllowsNull(null)).toBe(false)
+        expect(schemaAllowsNull(undefined)).toBe(false)
+        expect(schemaAllowsNull('string')).toBe(false)
+        expect(schemaAllowsNull(42)).toBe(false)
+    })
+})
+
+describe('stripNullDefaults', () => {
+    it('drops default:null from a 3.1 anyOf-null property', () => {
+        const schema = {
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+            default: null,
+            title: 'Label',
+        }
+        stripNullDefaults(schema)
+        expect(schema).toEqual({
+            anyOf: [{ type: 'string' }, { type: 'null' }],
+            title: 'Label',
+        })
+    })
+
+    it('drops default:null from a 3.0 nullable property', () => {
+        const schema = { type: 'string', nullable: true, default: null }
+        stripNullDefaults(schema)
+        expect(schema).toEqual({ type: 'string', nullable: true })
+    })
+
+    it('drops default:null from an untyped Any property', () => {
+        const schema = { default: null, title: 'Value' }
+        stripNullDefaults(schema)
+        expect(schema).toEqual({ title: 'Value' })
+    })
+
+    it('leaves default:null on a non-nullable typed property alone', () => {
+        const schema = { type: 'string', default: null }
+        stripNullDefaults(schema)
+        expect(schema).toEqual({ type: 'string', default: null })
+    })
+
+    it('leaves non-null defaults alone', () => {
+        const schema = { type: 'string', default: 'hello' }
+        stripNullDefaults(schema)
+        expect(schema).toEqual({ type: 'string', default: 'hello' })
+    })
+
+    it('recurses into nested properties', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                label: { anyOf: [{ type: 'string' }, { type: 'null' }], default: null },
+                value: { default: null, title: 'Value' },
+                name: { type: 'string' },
+            },
+        }
+        stripNullDefaults(schema)
+        expect(schema.properties.label).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] })
+        expect(schema.properties.value).toEqual({ title: 'Value' })
+        expect(schema.properties.name).toEqual({ type: 'string' })
+    })
+
+    it('is a no-op on null / undefined / primitives', () => {
+        expect(() => stripNullDefaults(null)).not.toThrow()
+        expect(() => stripNullDefaults(undefined)).not.toThrow()
+        expect(() => stripNullDefaults(42)).not.toThrow()
     })
 })
 

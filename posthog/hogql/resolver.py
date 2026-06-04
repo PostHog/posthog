@@ -1606,6 +1606,13 @@ class Resolver(CloningVisitor):
         elif node.name.lower() == "assumenotnull":
             return_type.nullable = False
 
+        if self.context.type_observability is not None:
+            self.context.type_observability.record_function_call(
+                function_name=node.name,
+                return_type=return_type,
+                signatures_present=bool(func_meta and func_meta.signatures),
+            )
+
         node.type = ast.CallType(
             name=node.name,
             arg_types=arg_types,

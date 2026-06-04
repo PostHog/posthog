@@ -7,9 +7,13 @@ import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
-
-export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
-export type AccountsOverviewThresholdOperator = (typeof ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS)[number]
+import {
+    ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
+    AccountsOverviewThresholdOperator,
+    DEFAULT_TILES,
+    MAX_ACCOUNTS_OVERVIEW_TILES,
+    NUMERIC_FIELD_TYPES,
+} from './constants'
 
 export type AccountsOverviewTileMetric =
     | { type: 'count' }
@@ -34,16 +38,6 @@ export interface AccountsOverviewTile {
 export interface TileFilter {
     tileId: string
     expression: string
-}
-
-const NUMERIC_FIELD_TYPES = new Set(['integer', 'float', 'decimal'])
-
-const DEFAULT_TILES: AccountsOverviewTile[] = [{ id: 'default-accounts', label: 'Accounts', metric: { type: 'count' } }]
-
-const teamIdForPersistence = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = {
-    persist: true,
-    prefix: `${teamIdForPersistence}_customer_analytics_accounts_overview__`,
 }
 
 // Strip a trailing `AS alias` from a HogQL fragment — column entries in the
@@ -162,12 +156,15 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     reducers(() => ({
         tiles: [
             DEFAULT_TILES,
-            persistConfig,
+            ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
             {
                 addTile: (
                     state: AccountsOverviewTile[],
                     { tile }: { tile: Omit<AccountsOverviewTile, 'id'> & { id?: string } }
-                ) => [...state, { ...tile, id: tile.id || uuidv4() }],
+                ) =>
+                    state.length >= MAX_ACCOUNTS_OVERVIEW_TILES
+                        ? state
+                        : [...state, { ...tile, id: tile.id || uuidv4() }],
                 updateTile: (
                     state: AccountsOverviewTile[],
                     { id, tile }: { id: string; tile: Omit<AccountsOverviewTile, 'id'> }

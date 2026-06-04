@@ -11,12 +11,14 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 
-class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
+class ExperimentFunnelActorsQueryBuilder:
     """
     Builds actors query for experiment funnels with exposure filtering.
 
-    Extends ExperimentQueryBuilder to reuse exposure filtering logic while
-    adding actor-specific selection and filtering.
+    Composes the extracted exposure and funnel fragment builders to reuse
+    exposure filtering and funnel step logic while adding actor-specific
+    selection and filtering. The actors query has a different output contract
+    from aggregate experiment results, so that selection/filtering lives here.
 
     Query structure:
     1. exposures CTE: First exposure per entity (same as main query)
@@ -40,7 +42,19 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
         funnel_step_breakdown: str | int | float,
         include_recordings: bool,
     ):
-        super().__init__(
+        self.team = team
+        self.metric = metric
+        self.date_range_query = date_range_query
+        self.entity_key = entity_key
+        self.funnel_step = funnel_step
+        self.funnel_step_breakdown = funnel_step_breakdown
+        self.include_recordings = include_recordings
+
+        # Compose an ExperimentQueryBuilder to source the shared exposure and
+        # funnel fragment builders. The funnel fragment builder reaches through
+        # an ExperimentQueryBuilder for shared metric/exposure state, so we keep
+        # one here rather than re-deriving that state.
+        self._query_builder = ExperimentQueryBuilder(
             team=team,
             feature_flag_key=feature_flag_key,
             exposure_config=exposure_config,
@@ -51,9 +65,6 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
             entity_key=entity_key,
             metric=metric,
         )
-        self.funnel_step = funnel_step
-        self.funnel_step_breakdown = funnel_step_breakdown
-        self.include_recordings = include_recordings
 
     def build_actors_query(self) -> ast.SelectQuery:
         """
@@ -83,8 +94,8 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
         This mirrors the main experiment query structure but focuses on
         individual users rather than aggregate statistics.
         """
-        # Use parent class methods to build exposure and metric CTEs
-        exposure_select_query = self._get_exposure_query()
+        # Build exposure CTE from the shared exposure fragment builder
+        exposure_select_query = self._query_builder._exposure_query_builder().select_query()
 
         # Build metric events CTE
         metric_events_cte = self._build_metric_events_cte()
@@ -120,7 +131,7 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
 
         Includes step_0 (exposure), step_1, step_2, ... (metric events)
         """
-        # Ensure metric is ExperimentFunnelMetric (validated in parent constructor)
+        # Ensure metric is ExperimentFunnelMetric (guaranteed by the constructor signature)
         assert isinstance(self.metric, ExperimentFunnelMetric), "metric must be ExperimentFunnelMetric"
 
         # Get date range predicates
@@ -130,8 +141,8 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
         # Build funnel steps filter
         funnel_steps_filter = funnel_steps_to_filter(self.team, self.metric.series)
 
-        # Build exposure predicate
-        exposure_predicate = self._build_exposure_event_predicate()
+        # Build exposure predicate from the shared exposure fragment builder
+        exposure_predicate = self._query_builder._exposure_query_builder().build_exposure_event_predicate()
 
         # Parse base query without step columns
         query = cast(
@@ -159,10 +170,10 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
             ),
         )
 
-        # Add step columns dynamically using parent class method
-        # Parent's _build_funnel_step_columns() returns [step_0, step_1, step_2, ...]
+        # Add step columns dynamically using the shared funnel fragment builder
+        # build_funnel_step_columns() returns [step_0, step_1, step_2, ...]
         # We skip step_0 (exposure) since it's not needed in metric_events CTE
-        all_step_columns = self._build_funnel_step_columns()
+        all_step_columns = self._query_builder._funnel_query_builder().build_funnel_step_columns()
         step_columns = all_step_columns[1:]  # Skip step_0, keep step_1, step_2, ...
         query.select.extend(step_columns)
 
@@ -175,7 +186,7 @@ class ExperimentFunnelActorsQueryBuilder(ExperimentQueryBuilder):
         Uses aggregate_funnel_array UDF with exposure as step 0.
         Includes matched_events_array for recording support.
         """
-        # Ensure metric is ExperimentFunnelMetric (validated in parent constructor)
+        # Ensure metric is ExperimentFunnelMetric (guaranteed by the constructor signature)
         assert isinstance(self.metric, ExperimentFunnelMetric), "metric must be ExperimentFunnelMetric"
 
         # Determine if unordered funnel (needs temporal filter)
