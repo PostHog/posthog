@@ -4,7 +4,7 @@ use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
 use reqwest::Url;
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{info, warn};
 
 use serde::{Deserialize, Serialize};
 
@@ -63,7 +63,9 @@ impl CredentialProvider for HomeDirProvider {
 
 /// Reads credentials atomically from a single source. Tries the process env first; if the
 /// required variables aren't there and an explicit `--env-file` path was supplied, tries that
-/// file next. `host` is optional and is only read from the same source that supplied the rest.
+/// file next. A missing `--env-file` is a warning, not a fatal error — we skip it and let the
+/// caller fall back to other credential sources. `host` is optional and is only read from the
+/// same source that supplied the rest.
 pub struct EnvVarProvider {
     pub env_file: Option<PathBuf>,
 }
@@ -85,14 +87,20 @@ impl CredentialProvider for EnvVarProvider {
             return Ok(t);
         }
         if let Some(path) = &self.env_file {
-            let file = load_dotenv(path)?;
-            if let Some(t) = try_source(|n| file.get(n).cloned()) {
-                return Ok(t);
+            if path.exists() {
+                let file = load_dotenv(path)?;
+                if let Some(t) = try_source(|n| file.get(n).cloned()) {
+                    return Ok(t);
+                }
+                anyhow::bail!(
+                    "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
+                    path.display()
+                )
             }
-            anyhow::bail!(
-                "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
+            warn!(
+                "Env file {} not found; falling back to default credential sources",
                 path.display()
-            )
+            );
         }
         anyhow::bail!("Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env")
     }
@@ -330,5 +338,20 @@ mod tests {
         let token = provider.get_credentials().unwrap();
         assert_eq!(token.token, "phx_from_file");
         assert_eq!(token.env_id, "222");
+    }
+
+    #[test]
+    fn provider_skips_missing_env_file_without_read_error() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        clear_env();
+
+        let provider = EnvVarProvider {
+            env_file: Some(PathBuf::from("/definitely/not/a/real/path/.env")),
+        };
+        // A missing env file must not surface a file-read error — it falls through to the
+        // generic "not in process env" message so the caller can try other sources.
+        let err = provider.get_credentials().unwrap_err().to_string();
+        assert!(err.contains("in process env"));
+        assert!(!err.contains("env file"));
     }
 }
