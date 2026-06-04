@@ -2040,6 +2040,28 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         return {"authorization": f"Bearer {raw_key}"}
 
+    def _insight_payload(self) -> dict:
+        insight = Insight.objects.create(team=self.team, created_by=self.user)
+        return {
+            "insight": insight.id,
+            "target_type": "email",
+            "target_value": "insight@posthog.com",
+            "frequency": "weekly",
+            "interval": 1,
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Insight sub",
+        }
+
+    def _create_subscription_for(self, resource_kind: str) -> int:
+        if resource_kind == "ai_prompt":
+            self._enable_ai()
+            payload = self._make_ai_payload()
+        else:
+            payload = self._insight_payload()
+        created = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        return created.json()["id"]
+
     @parameterized.expand(
         [
             # AI prompt subscriptions run HogQL, so a scoped key needs query:read on top of
@@ -2057,21 +2079,49 @@ class TestAISubscriptionAPI(APILicensedTest):
             self._enable_ai()
             payload = self._make_ai_payload()
         else:
-            insight = Insight.objects.create(team=self.team, created_by=self.user)
-            payload = {
-                "insight": insight.id,
-                "target_type": "email",
-                "target_value": "insight@posthog.com",
-                "frequency": "weekly",
-                "interval": 1,
-                "start_date": "2022-01-01T00:00:00",
-                "title": "Insight sub",
-            }
+            payload = self._insight_payload()
         response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             payload,
             headers=self._scoped_key_headers(scopes),
         )
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            # Mutating or test-delivering an existing AI subscription re-runs the HogQL pipeline,
+            # so it needs query:read too; the same actions on an insight subscription do not.
+            ("patch_ai_without", "ai_prompt", "patch", ["subscription:write"], status.HTTP_403_FORBIDDEN),
+            ("patch_ai_with", "ai_prompt", "patch", ["subscription:write", "query:read"], status.HTTP_200_OK),
+            ("deliver_ai_without", "ai_prompt", "test_delivery", ["subscription:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "deliver_ai_with",
+                "ai_prompt",
+                "test_delivery",
+                ["subscription:write", "query:read"],
+                status.HTTP_202_ACCEPTED,
+            ),
+            ("deliver_insight", "insight", "test_delivery", ["subscription:write"], status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_scoped_key_existing_subscription_requires_query_read_only_for_ai(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, action, scopes, expected_status
+    ):
+        self._mock_temporal(mock_sync)
+        cache.clear()  # avoid test-delivery throttle state leaking across parameterized cases
+        sub_id = self._create_subscription_for(resource_kind)
+        headers = self._scoped_key_headers(scopes)
+        if action == "patch":
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+                {"title": "Updated title"},
+                headers=headers,
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/",
+                headers=headers,
+            )
         assert response.status_code == expected_status, response.json()
 
     def test_creates_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):

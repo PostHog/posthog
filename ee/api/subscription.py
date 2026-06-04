@@ -792,13 +792,27 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     ordering = ["-created_at"]
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
-        # AI prompt subscriptions run LLM-generated HogQL and deliver the results, so a scoped
-        # key needs query read access too — subscription:write alone would let a key exfiltrate
-        # analytics it could not otherwise read. Returns None for everything else so the default
-        # scope derivation is untouched; session auth bypasses API-scope checks entirely.
-        if request.method in ("POST", "PUT", "PATCH") and request.data.get("prompt"):
-            return [f"{self.scope_object}:write", "query:read"]
-        return None
+        # Reads use the default scope derivation; session auth bypasses API-scope checks entirely.
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return None
+        # Every write needs subscription:write. Writes that create or operate on an AI prompt
+        # subscription (create, update/re-enable, test-delivery) also need query:read: they run
+        # LLM-generated HogQL and deliver the results, so subscription:write alone would let a
+        # scoped key exfiltrate analytics it could not otherwise read.
+        scopes = [f"{self.scope_object}:write"]
+        if self._write_touches_ai_subscription(request, view):
+            scopes.append("query:read")
+        return scopes
+
+    def _write_touches_ai_subscription(self, request, view) -> bool:
+        if request.data.get("prompt"):  # create (or a body that sets a prompt)
+            return True
+        # Mutating or test-delivering an existing subscription — resolve its kind by pk. Keyed on
+        # prompt presence (the same signal safely_get_queryset uses), fail-closed across teams.
+        pk = view.kwargs.get("pk")
+        return bool(pk) and (
+            Subscription.objects.filter(pk=pk).exclude(prompt__isnull=True).exclude(prompt="").exists()
+        )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
@@ -905,7 +919,9 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         detail=True,
         url_path="test-delivery",
         throttle_classes=[SubscriptionTestDeliveryThrottle],
-        required_scopes=["subscription:write"],
+        # Scope is resolved dynamically in dangerously_get_required_scopes so AI subscriptions
+        # also require query:read (test-delivery runs the AI HogQL pipeline). A static
+        # required_scopes here would short-circuit that check.
     )
     def test_delivery(self, request, **kwargs):
         subscription = self.get_object()
