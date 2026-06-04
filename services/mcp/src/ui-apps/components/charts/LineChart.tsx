@@ -61,12 +61,16 @@ export function LineChart({ series, labels, showLegend = true, yAxisLabel }: Lin
 
     const quillSeries: QuillSeries[] = useMemo(
         () =>
-            series.map((s, i) => ({
-                key: s.label || `series-${i}`,
-                label: s.label,
-                data: s.points.map((p) => p.y),
-                color: palette[i % palette.length],
-            })),
+            series.map((s, i) => {
+                const color = palette[i % palette.length]
+                return {
+                    key: s.label || `series-${i}`,
+                    label: s.label,
+                    data: s.points.map((p) => p.y),
+                    // Omit when undefined so the chart falls back to `theme.colors` by index.
+                    ...(color ? { color } : {}),
+                }
+            }),
         [series, palette]
     )
 
@@ -79,7 +83,11 @@ export function LineChart({ series, labels, showLegend = true, yAxisLabel }: Lin
                     theme={theme}
                     config={{
                         xAxis: { tickFormatter: (value) => formatDate(value) },
-                        yAxis: { label: yAxisLabel, showGrid: true, tickFormatter: (value) => formatNumber(value) },
+                        yAxis: {
+                            ...(yAxisLabel ? { label: yAxisLabel } : {}),
+                            showGrid: true,
+                            tickFormatter: (value) => formatNumber(value),
+                        },
                     }}
                 />
             </div>

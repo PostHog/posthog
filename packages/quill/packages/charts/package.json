@@ -19,6 +19,9 @@
         "./story-helpers": "./src/story-helpers.tsx",
         "./package.json": "./package.json"
     },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json"
+    },
     "dependencies": {
         "@floating-ui/react": "^0.27.19",
         "d3-array": "^3.2.4",
