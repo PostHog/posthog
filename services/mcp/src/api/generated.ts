@@ -6698,6 +6698,14 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export type SearchMatchTypeEnum = typeof SearchMatchTypeEnum[keyof typeof SearchMatchTypeEnum];
+
+
+    export const SearchMatchTypeEnum = {
+      Exact: 'exact',
+      Similar: 'similar',
+    } as const;
+
     /**
      * @nullable
      */
@@ -6805,6 +6813,8 @@ export namespace Schemas {
       readonly alerts: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface Text {
@@ -26348,6 +26358,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
       readonly view_count: number;
       /** Up to 3 of the most recent users who viewed this insight in the time window. */
@@ -29061,6 +29073,8 @@ export namespace Schemas {
       readonly alerts?: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at?: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedInsightVariable {
@@ -42289,7 +42303,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
@@ -47877,7 +47891,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
