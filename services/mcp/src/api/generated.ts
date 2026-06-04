@@ -10411,6 +10411,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `abandoned` - Abandoned
+    * `off-topic` - Off-topic
+     */
+    export type ClassificationsEnum = typeof ClassificationsEnum[keyof typeof ClassificationsEnum];
+
+
+    export const ClassificationsEnum = {
+      Abandoned: 'abandoned',
+      OffTopic: 'off-topic',
+    } as const;
+
+    /**
      * * `claude` - claude
      */
     export type ClaudeRuntimeAdapterEnum = typeof ClaudeRuntimeAdapterEnum[keyof typeof ClaudeRuntimeAdapterEnum];
@@ -20361,6 +20373,24 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    /**
+     * * `manual` - Manual only
+    * `1h` - Every hour
+    * `6h` - Every 6 hours
+    * `24h` - Every day
+    * `7d` - Every week
+     */
+    export type RefreshIntervalEnum = typeof RefreshIntervalEnum[keyof typeof RefreshIntervalEnum];
+
+
+    export const RefreshIntervalEnum = {
+      Manual: 'manual',
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+    } as const;
+
     export interface KnowledgeSource {
       readonly id: string;
       readonly team_id: number;
@@ -20380,6 +20410,14 @@ export namespace Schemas {
       readonly last_refresh_at: string | null;
       readonly last_refresh_status: LastRefreshStatusEnum;
       readonly last_refresh_error: string;
+      readonly refresh_interval: RefreshIntervalEnum;
+      /**
+         * When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.
+         * @nullable
+         */
+      readonly next_refresh_at: string | null;
+      /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
+      readonly has_unsafe_documents: boolean;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -26246,6 +26284,8 @@ export namespace Schemas {
       readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio: string;
     }
 
@@ -32365,6 +32405,8 @@ export namespace Schemas {
       readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio?: string;
     }
 
@@ -39155,6 +39197,11 @@ export namespace Schemas {
          */
       topic_id?: string | null;
       /**
+         * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
+         * @minItems 1
+         */
+      classifications?: ClassificationsEnum[];
+      /**
          * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
          * @minimum 1
          * @maximum 50
@@ -43680,6 +43727,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsUserInterviewsListParams = {
+    /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
     /**
      * Number of results to return per page.
      */
@@ -49780,6 +49831,10 @@ export namespace Schemas {
     };
 
     export type UserInterviewsListParams = {
+    /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
     /**
      * Number of results to return per page.
      */
