@@ -378,13 +378,11 @@ export const accountsLogic = kea<accountsLogicType>([
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.setSearchQuery(query)
             const trimmed = query.trim()
-            if (trimmed) {
-                posthog.capture(AccountsEvents.Searched, {
-                    query_length: trimmed.length,
-                    has_query: true,
-                    active_filter_count: values.activeFilterCount,
-                })
-            }
+            posthog.capture(AccountsEvents.Searched, {
+                query_length: trimmed.length,
+                has_query: !!trimmed,
+                active_filter_count: values.activeFilterCount,
+            })
         },
         reportFilterChange: ({ filterType }) => {
             const properties: Record<string, unknown> = {
