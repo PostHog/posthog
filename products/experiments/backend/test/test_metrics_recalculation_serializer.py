@@ -16,8 +16,6 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
             "experiment_id": 7,
             "status": "in_progress",
             "total_metrics": 3,
-            "completed_metrics": 1,
-            "failed_metrics": 0,
             "metric_errors": {"m1": {"step": "calculation", "message": "boom"}},
             "trigger": "manual",
             "created_at": "2026-05-28T10:00:00Z",
@@ -27,14 +25,14 @@ class TestExperimentMetricsRecalculationSerializer(BaseTest):
         data = ExperimentMetricsRecalculationSerializer(payload).data
         assert data["status"] == "in_progress"
         assert data["total_metrics"] == 3
-        assert data["completed_metrics"] == 1
-        assert data["failed_metrics"] == 0
         assert data["experiment_id"] == 7
         assert data["trigger"] == "manual"
         assert data["completed_at"] is None
         # Field is metric_errors (not errors) to avoid shadowing DRF's Serializer.errors property.
         assert data["metric_errors"] == {"m1": {"step": "calculation", "message": "boom"}}
         assert "errors" not in data
+        assert "completed_metrics" not in data
+        assert "failed_metrics" not in data
 
     def test_serializes_model_instance(self):
         # Read off a real model instance, not a dict. Locks in that metric_errors round-trips through DRF

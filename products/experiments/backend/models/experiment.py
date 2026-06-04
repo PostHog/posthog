@@ -367,8 +367,6 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
 
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
     total_metrics = models.PositiveIntegerField(default=0)
-    completed_metrics = models.PositiveIntegerField(default=0)
-    failed_metrics = models.PositiveIntegerField(default=0)
     metric_errors = models.JSONField(default=dict)
     # Internal: written by the discovery activity, used by the service to recompute recalc fingerprints. Not exposed by the API serializer.
     metric_uuids = models.JSONField(default=list)
@@ -404,4 +402,4 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_experimentmetricsrecalculation"
 
     def __str__(self):
-        return f"ExperimentMetricsRecalculation(exp={self.experiment_id}, status={self.status}, {self.completed_metrics}/{self.total_metrics})"
+        return f"ExperimentMetricsRecalculation(exp={self.experiment_id}, status={self.status}, total={self.total_metrics})"
