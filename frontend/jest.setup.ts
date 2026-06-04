@@ -1,13 +1,6 @@
 import 'jest-canvas-mock'
-import 'whatwg-fetch'
 
 import { configure } from '@testing-library/react'
-import { TextDecoder, TextEncoder } from 'util'
-
-// Jest/JSDom don't know about TextEncoder but the browsers we support do
-// https://github.com/jsdom/jsdom/issues/2524
-global.TextDecoder = TextDecoder as any
-global.TextEncoder = TextEncoder as any
 
 window.scrollTo = jest.fn()
 window.matchMedia = jest.fn(
