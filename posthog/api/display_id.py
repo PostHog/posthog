@@ -33,5 +33,5 @@ def patch_model_serializer_display_id_pk() -> None:
             return DisplayIDField, {"read_only": True}
         return field_class, field_kwargs
 
-    ModelSerializer.build_standard_field = build_standard_field  # type: ignore[method-assign]
+    ModelSerializer.build_standard_field = build_standard_field  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
     setattr(ModelSerializer, _PATCHED_FLAG, True)
