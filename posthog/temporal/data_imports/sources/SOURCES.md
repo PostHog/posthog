@@ -73,6 +73,7 @@ the row lists both.
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
+| launchdarkly     | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
 | linkedin_ads     | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
@@ -189,7 +190,6 @@ doesn't conflict with concurrent PRs.
 - iterable
 - jira
 - kafka
-- launchdarkly
 - lever
 - marketo
 - microsoft_teams
