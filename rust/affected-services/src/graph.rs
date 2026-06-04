@@ -16,20 +16,8 @@ pub fn find_repo_root() -> Result<PathBuf> {
 }
 
 pub fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
-    // Compute the actual merge base so we don't pick up unrelated master
-    // commits when the PR base SHA is behind the branch's rebase point.
-    let merge_base_out = Command::new("git")
-        .args(["merge-base", base_ref, "HEAD"])
-        .output()
-        .context("failed to run git merge-base")?;
-    let diff_base = if merge_base_out.status.success() {
-        String::from_utf8(merge_base_out.stdout)?.trim().to_string()
-    } else {
-        base_ref.to_string()
-    };
-
     let out = Command::new("git")
-        .args(["diff", "--name-only", &format!("{diff_base}...HEAD")])
+        .args(["diff", "--name-only", &format!("{base_ref}...HEAD")])
         .output()
         .context("failed to run git diff")?;
     anyhow::ensure!(
@@ -87,17 +75,20 @@ impl TempWorktree {
             .context("failed to create git worktree")?;
 
         // Restore the original sparse checkout setting
-        match prev_sparse.as_deref() {
-            Some(val) => {
-                let _ = Command::new("git")
-                    .args(["config", "--local", "core.sparseCheckout", val])
-                    .output();
-            }
-            None => {
-                let _ = Command::new("git")
-                    .args(["config", "--local", "--unset", "core.sparseCheckout"])
-                    .output();
-            }
+        let restore_ok = match prev_sparse.as_deref() {
+            Some(val) => Command::new("git")
+                .args(["config", "--local", "core.sparseCheckout", val])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false),
+            None => Command::new("git")
+                .args(["config", "--local", "--unset", "core.sparseCheckout"])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false),
+        };
+        if !restore_ok {
+            eprintln!("warning: failed to restore core.sparseCheckout — CI checkout config may be corrupted");
         }
 
         anyhow::ensure!(
