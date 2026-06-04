@@ -4911,6 +4911,34 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-list": {
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List scout configs",
+        "title": "List scout configs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-config-update": {
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a scout config",
+        "title": "Update a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-emit-signal": {
         "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.",
         "category": "Signals",

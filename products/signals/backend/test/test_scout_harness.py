@@ -239,8 +239,9 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
     # Agent close-out is persisted on the bridge row so future runs can dedupe
     # against non-emitting runs via the runs-list ILIKE filter.
     assert bridge.summary == "I would investigate /checkout 500s next."
-    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam)
-    assert config.enabled is False
+    config = await database_sync_to_async(SignalScoutConfig.objects.get)(team=ateam, skill_name="signals-scout-errors")
+    # Auto-created configs default to enabled (the dogfood flag is the team-level gate).
+    assert config.enabled is True
     assert bridge.scout_config_id == config.id
 
 
@@ -286,7 +287,9 @@ async def test_missing_skill_does_not_create_run_row(ateam):
 @pytest.mark.django_db
 async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
     # Seed an in-progress run for the same (team, skill) so the skip-if-running guard fires.
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
+    config = await database_sync_to_async(SignalScoutConfig.objects.create)(
+        team=ateam, skill_name="signals-scout-errors"
+    )
     task_run = await database_sync_to_async(_make_task_run)(ateam)
     # Force the TaskRun into IN_PROGRESS so the running-check returns True.
     await database_sync_to_async(TaskRun.objects.filter(id=task_run.id).update)(status=TaskRun.Status.IN_PROGRESS)
@@ -415,7 +418,7 @@ def test_to_summary_and_detail_surface_task_url_from_bridge():
         name=f"surface-team-{random.randint(1, 99999)}",
     )
     with team_scope(team.id, canonical=True):
-        config = SignalScoutConfig.objects.create(team=team)
+        config = SignalScoutConfig.objects.create(team=team, skill_name="signals-scout-errors")
         task_run = _make_task_run(team)
         run = SignalScoutRun.objects.create(
             task_run=task_run,
