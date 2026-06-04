@@ -41,6 +41,7 @@ def resolve_cursor_api_key(team: Team) -> str | None:
 
 
 CURSOR_AGENTS_API_URL = "https://api.cursor.com/v1/agents"
+CURSOR_REPOSITORIES_API_URL = "https://api.cursor.com/v1/repositories"
 CURSOR_AGENT_WEB_URL_BASE = "https://cursor.com/agents"
 CURSOR_REQUEST_TIMEOUT_SECONDS = 30
 
@@ -51,6 +52,48 @@ DEFAULT_BRANCH = "main"
 
 class CursorDispatchError(Exception):
     """Raised when dispatching a report to Cursor cannot proceed or fails."""
+
+
+class CursorPlanRequiredError(CursorDispatchError):
+    """Cursor rejected the cloud-agent call because the account needs a paid plan (free tier)."""
+
+
+@dataclass
+class CursorConnectionHealth:
+    # None = the probe could not determine the state (not connected, network/parse error).
+    has_repo_access: bool | None
+    plan_ok: bool | None
+
+
+def probe_cursor_connection(api_key: str) -> CursorConnectionHealth:
+    """Surface the two predictable Cursor onboarding walls at connect time, not on first dispatch.
+
+    Hits Cursor's repositories endpoint: a 403 means the account is on the free tier (no cloud
+    agents); an empty repo list means GitHub is not connected at the Cursor account level. Network
+    or parse errors return unknown (None) so the UI can stay quiet rather than claim a wall it can't see.
+    """
+    try:
+        response = requests.get(
+            CURSOR_REPOSITORIES_API_URL,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=CURSOR_REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return CursorConnectionHealth(has_repo_access=None, plan_ok=None)
+
+    if response.status_code == 403:
+        return CursorConnectionHealth(has_repo_access=False, plan_ok=False)
+    if response.status_code >= 400:
+        return CursorConnectionHealth(has_repo_access=None, plan_ok=None)
+
+    try:
+        data = response.json()
+    except ValueError:
+        return CursorConnectionHealth(has_repo_access=None, plan_ok=True)
+
+    repos = data.get("repositories") if isinstance(data, dict) else data
+    has_repos = bool(repos) if isinstance(repos, list) else None
+    return CursorConnectionHealth(has_repo_access=has_repos, plan_ok=True)
 
 
 @dataclass
@@ -223,6 +266,12 @@ def dispatch_report_to_cursor(
             agent_id=existing_id,
             agent_url=f"{CURSOR_AGENT_WEB_URL_BASE}/{existing_id}",
             agent_status="already_dispatched",
+        )
+
+    if response.status_code == 403:
+        raise CursorPlanRequiredError(
+            "Cursor rejected the request — the connected Cursor account needs a Pro plan "
+            "(and GitHub connected) to run cloud agents."
         )
 
     if response.status_code >= 400:

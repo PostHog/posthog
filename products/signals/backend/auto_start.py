@@ -16,7 +16,13 @@ from products.signals.backend.cursor_dispatch import (
     dispatch_report_to_cursor,
     resolve_cursor_api_key,
 )
-from products.signals.backend.models import SignalReport, SignalReportTask, SignalTeamConfig, SignalUserAutonomyConfig
+from products.signals.backend.models import (
+    CodingAgent,
+    SignalReport,
+    SignalReportTask,
+    SignalTeamConfig,
+    SignalUserAutonomyConfig,
+)
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -135,6 +141,47 @@ def _resolve_autostart_assignee(
     return None
 
 
+def start_internal_implementation_task(
+    *,
+    team: Team,
+    report_id: str,
+    title: str,
+    summary: str,
+    repository: str,
+    assignee: User,
+    priority: PriorityAssessment | None = None,
+) -> Task:
+    """Create and run an internal implementation Task (the PostHog Code runner) for a report.
+
+    Shared by the autonomy auto-start path and the manual dispatch endpoint so both produce
+    an identical Task + SignalReportTask(IMPLEMENTATION) link, surfaced via implementation-PR tracking.
+    """
+    task = Task.create_and_run(
+        team=team,
+        title=title,
+        description=_build_autostart_task_description(
+            report_id=report_id, summary=summary, repository=repository, priority=priority
+        ),
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        user_id=assignee.id,
+        repository=repository,
+        signal_report_id=report_id,
+        posthog_mcp_scopes="read_only",
+        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+    )
+    task_run = task.runs.order_by("-created_at").first()
+    if task_run is None:
+        raise RuntimeError(f"Task {task.id} started without producing a TaskRun")
+
+    SignalReportTask.objects.create(
+        team_id=team.id,
+        report_id=report_id,
+        task=task,
+        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+    )
+    return task
+
+
 async def maybe_autostart_implementation_task(
     *,
     team_id: int,
@@ -180,46 +227,43 @@ async def maybe_autostart_implementation_task(
     if task_user is None:
         return
 
-    cursor_api_key = await database_sync_to_async(resolve_cursor_api_key, thread_sensitive=False)(team)
-    if cursor_api_key and _cursor_flag_enabled(task_user.distinct_id, str(team.organization_id)):
-        report = await SignalReport.objects.aget(id=report_id)
-        try:
-            # No SignalReportTask is created for the Cursor path: its `task` FK requires an
-            # internal Task. Dedup is handled by Cursor returning 409 on a duplicate agentId,
-            # which dispatch_report_to_cursor treats as already_dispatched.
-            await database_sync_to_async(dispatch_report_to_cursor, thread_sensitive=False)(
-                report, api_key=cursor_api_key, site_url=settings.SITE_URL
-            )
-        except CursorDispatchError as error:
-            logger.warning(
-                "signals auto-start cursor dispatch failed",
-                report_id=report_id,
-                team_id=team_id,
-                repository=repository,
-                error=str(error),
-            )
-        return
+    # Route by the team's chosen agent, NOT by Cursor connection state. Cursor being connected
+    # must not silently redirect autonomy — a team only routes to Cursor once it sets the default.
+    team_default_agent = team_config.default_coding_agent if team_config else CodingAgent.POSTHOG_CODE
+    if team_default_agent == CodingAgent.CURSOR and _cursor_flag_enabled(
+        task_user.distinct_id, str(team.organization_id)
+    ):
+        cursor_api_key = await database_sync_to_async(resolve_cursor_api_key, thread_sensitive=False)(team)
+        if cursor_api_key:
+            report = await SignalReport.objects.aget(id=report_id)
+            try:
+                # No SignalReportTask is created for the Cursor path: its `task` FK requires an
+                # internal Task. Dedup is handled by Cursor returning 409 on a duplicate agentId,
+                # which dispatch_report_to_cursor treats as already_dispatched.
+                await database_sync_to_async(dispatch_report_to_cursor, thread_sensitive=False)(
+                    report, api_key=cursor_api_key, site_url=settings.SITE_URL
+                )
+            except CursorDispatchError as error:
+                logger.warning(
+                    "signals auto-start cursor dispatch failed",
+                    report_id=report_id,
+                    team_id=team_id,
+                    repository=repository,
+                    error=str(error),
+                )
+            return
+        logger.warning(
+            "signals auto-start defaulted to cursor but no key resolved; falling back to internal",
+            report_id=report_id,
+            team_id=team_id,
+        )
 
-    task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
+    await database_sync_to_async(start_internal_implementation_task, thread_sensitive=False)(
         team=team,
-        title=title,
-        description=_build_autostart_task_description(
-            report_id=report_id, summary=summary, repository=repository, priority=priority
-        ),
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        user_id=task_user.id,
-        repository=repository,
-        signal_report_id=report_id,
-        posthog_mcp_scopes="read_only",
-        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
-    )
-    task_run = await task.runs.order_by("-created_at").afirst()
-    if task_run is None:
-        raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
-
-    await SignalReportTask.objects.acreate(
-        team_id=team_id,
         report_id=report_id,
-        task=task,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        title=title,
+        summary=summary,
+        repository=repository,
+        assignee=task_user,
+        priority=priority,
     )

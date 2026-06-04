@@ -1,7 +1,7 @@
 import random
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -12,7 +12,7 @@ from posthog.models import Organization, Team, User
 
 from products.signals.backend.auto_start import maybe_autostart_implementation_task
 from products.signals.backend.cursor_dispatch import CursorDispatchError, CursorDispatchResult
-from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.models import CodingAgent, SignalReport, SignalReportTask, SignalTeamConfig
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -24,6 +24,7 @@ ASSIGNEE_PATH = "products.signals.backend.auto_start._resolve_autostart_assignee
 FLAG_PATH = "products.signals.backend.auto_start.posthoganalytics.feature_enabled"
 DISPATCH_PATH = "products.signals.backend.auto_start.dispatch_report_to_cursor"
 CREATE_AND_RUN_PATH = "products.tasks.backend.models.Task.create_and_run"
+SIGNAL_REPORT_TASK_CREATE_PATH = "products.signals.backend.auto_start.SignalReportTask.objects.create"
 
 
 @pytest_asyncio.fixture
@@ -84,6 +85,10 @@ def _reviewers() -> list[dict]:
     return [{"github_login": "octocat", "github_name": "Octo Cat", "relevant_commits": []}]
 
 
+async def _set_default_agent(team, agent) -> None:
+    await sync_to_async(SignalTeamConfig.objects.update_or_create)(team=team, defaults={"default_coding_agent": agent})
+
+
 async def _run(team, report, user):
     await maybe_autostart_implementation_task(
         team_id=team.id,
@@ -97,9 +102,17 @@ async def _run(team, report, user):
     )
 
 
+def _internal_task_mock() -> MagicMock:
+    task = MagicMock()
+    task.id = "task-1"
+    task.runs.order_by.return_value.first.return_value = MagicMock()
+    return task
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_routes_to_cursor_when_flag_on_and_key_set(ateam, areport, auser):
+async def test_routes_to_cursor_when_team_default_is_cursor(ateam, areport, auser):
+    await _set_default_agent(ateam, CodingAgent.CURSOR)
     with (
         patch(ASSIGNEE_PATH, return_value=auser),
         patch(FLAG_PATH, return_value=True),
@@ -123,9 +136,55 @@ async def test_routes_to_cursor_when_flag_on_and_key_set(ateam, areport, auser):
     assert task_exists is False
 
 
+# The decoupling: Cursor is connected (key resolves) and the flag is on, but the team default is
+# NOT cursor — autonomy must still use the internal runner, never Cursor.
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("set_default_explicitly", [True, False])
+async def test_cursor_connected_but_default_not_cursor_uses_internal(ateam, areport, auser, set_default_explicitly):
+    if set_default_explicitly:
+        await _set_default_agent(ateam, CodingAgent.POSTHOG_CODE)
+    with (
+        patch(ASSIGNEE_PATH, return_value=auser),
+        patch(FLAG_PATH, return_value=True),
+        patch(DISPATCH_PATH) as mock_dispatch,
+        patch(CREATE_AND_RUN_PATH, return_value=_internal_task_mock()) as mock_create_and_run,
+        patch(SIGNAL_REPORT_TASK_CREATE_PATH, new=MagicMock()),
+        override_settings(CURSOR_API_KEY="test-key", SITE_URL="https://us.posthog.com"),
+    ):
+        await _run(ateam, areport, auser)
+
+    mock_create_and_run.assert_called_once()
+    mock_dispatch.assert_not_called()
+
+
+# Default is cursor, but a routing prerequisite is missing (flag off, or no resolvable key) →
+# fall back to the internal runner rather than silently dropping the report.
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("flag_enabled,cursor_key", [(False, "test-key"), (True, "")])
+async def test_default_cursor_falls_back_to_internal_when_prereqs_missing(
+    ateam, areport, auser, flag_enabled, cursor_key
+):
+    await _set_default_agent(ateam, CodingAgent.CURSOR)
+    with (
+        patch(ASSIGNEE_PATH, return_value=auser),
+        patch(FLAG_PATH, return_value=flag_enabled),
+        patch(DISPATCH_PATH) as mock_dispatch,
+        patch(CREATE_AND_RUN_PATH, return_value=_internal_task_mock()) as mock_create_and_run,
+        patch(SIGNAL_REPORT_TASK_CREATE_PATH, new=MagicMock()),
+        override_settings(CURSOR_API_KEY=cursor_key, SITE_URL="https://us.posthog.com"),
+    ):
+        await _run(ateam, areport, auser)
+
+    mock_create_and_run.assert_called_once()
+    mock_dispatch.assert_not_called()
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_cursor_dispatch_error_is_swallowed(ateam, areport, auser):
+    await _set_default_agent(ateam, CodingAgent.CURSOR)
     with (
         patch(ASSIGNEE_PATH, return_value=auser),
         patch(FLAG_PATH, return_value=True),
@@ -137,33 +196,3 @@ async def test_cursor_dispatch_error_is_swallowed(ateam, areport, auser):
 
     mock_dispatch.assert_called_once()
     mock_create_and_run.assert_not_called()
-
-
-def _internal_task_mock() -> MagicMock:
-    task = MagicMock()
-    task.id = "task-1"
-    task.runs.order_by.return_value.afirst = AsyncMock(return_value=MagicMock())
-    return task
-
-
-SIGNAL_REPORT_TASK_CREATE_PATH = "products.signals.backend.auto_start.SignalReportTask.objects.acreate"
-
-
-# Cursor routing requires BOTH the flag on and a resolvable key; if either is missing
-# (flag off, or no key), it falls back to the internal Tasks runner.
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize("flag_enabled,cursor_key", [(False, "test-key"), (True, "")])
-async def test_uses_internal_task_when_not_routed(ateam, areport, auser, flag_enabled, cursor_key):
-    with (
-        patch(ASSIGNEE_PATH, return_value=auser),
-        patch(FLAG_PATH, return_value=flag_enabled),
-        patch(DISPATCH_PATH) as mock_dispatch,
-        patch(CREATE_AND_RUN_PATH, return_value=_internal_task_mock()) as mock_create_and_run,
-        patch(SIGNAL_REPORT_TASK_CREATE_PATH, new=AsyncMock()),
-        override_settings(CURSOR_API_KEY=cursor_key, SITE_URL="https://us.posthog.com"),
-    ):
-        await _run(ateam, areport, auser)
-
-    mock_create_and_run.assert_called_once()
-    mock_dispatch.assert_not_called()

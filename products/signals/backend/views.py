@@ -51,16 +51,21 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.auto_start import start_internal_implementation_task
 from products.signals.backend.cursor_dispatch import (
     CURSOR_INTEGRATION_KIND,
     SIGNALS_CURSOR_DISPATCH_FLAG,
     CursorDispatchError,
+    CursorPlanRequiredError,
+    build_cursor_dispatch_context,
     dispatch_report_to_cursor,
+    probe_cursor_connection,
     resolve_cursor_api_key,
 )
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
+    CodingAgent,
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
@@ -78,7 +83,8 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.serializers import (
     CursorConnectionRequestSerializer,
     CursorConnectionStatusSerializer,
-    CursorDispatchResponseSerializer,
+    SignalDispatchRequestSerializer,
+    SignalDispatchResponseSerializer,
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteSerializer,
     SignalReportSerializer,
@@ -308,16 +314,16 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return ["task:write"]
 
     def _get_config(self) -> SignalTeamConfig:
-        try:
-            return SignalTeamConfig.objects.get(team=self.team)
-        except SignalTeamConfig.DoesNotExist:
-            raise exceptions.NotFound("No signal config exists for this team.")
+        # Singleton per team; created on first read so the default-agent / autonomy settings
+        # are always editable, even for teams that never had a config row.
+        config, _ = SignalTeamConfig.objects.get_or_create(team=self.team)
+        return config
 
-    @extend_schema(exclude=True)
+    @extend_schema(responses={200: SignalTeamConfigSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
         return Response(SignalTeamConfigSerializer(self._get_config()).data)
 
-    @extend_schema(exclude=True)
+    @extend_schema(request=SignalTeamConfigSerializer, responses={200: SignalTeamConfigSerializer})
     def create(self, request: Request, *args, **kwargs) -> Response:
         config = self._get_config()
         serializer = SignalTeamConfigSerializer(config, data=request.data, partial=True)
@@ -926,37 +932,124 @@ class SignalReportViewSet(
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
+    def _cursor_dispatch_flag_enabled(self, request) -> bool:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SIGNALS_CURSOR_DISPATCH_FLAG,
+                str(request.user.distinct_id),
+                groups={"organization": str(self.team.organization_id)},
+                send_feature_flag_events=False,
+            )
+        )
+
     @extend_schema(
-        request=None,
-        responses={200: CursorDispatchResponseSerializer},
+        request=SignalDispatchRequestSerializer,
+        responses={200: SignalDispatchResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="dispatch_to_cursor", required_scopes=["task:write"])
-    def dispatch_to_cursor(self, request, pk=None, **kwargs):
-        """Dispatch this report to a Cursor Cloud Agent. Behind the signals-cursor-dispatch flag."""
-        if not posthoganalytics.feature_enabled(
-            SIGNALS_CURSOR_DISPATCH_FLAG,
-            str(request.user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            send_feature_flag_events=False,
-        ):
+    @action(detail=True, methods=["post"], url_path="dispatch", required_scopes=["task:write"])
+    def dispatch_report(self, request, pk=None, **kwargs):
+        """Dispatch this report to a coding agent. Behind the signals-cursor-dispatch flag.
+
+        The agent comes from the request body (`posthog_code` | `cursor`), falling back to the
+        team's `default_coding_agent`. Connecting Cursor never changes the default — a team only
+        routes to Cursor once the default is set to `cursor` or an explicit `agent=cursor` is passed.
+        """
+        if not self._cursor_dispatch_flag_enabled(request):
             raise NotFound()
 
+        request_serializer = SignalDispatchRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+
+        agent = request_serializer.validated_data.get("agent")
+        if not agent:
+            team_config = SignalTeamConfig.objects.filter(team=self.team).first()
+            agent = team_config.default_coding_agent if team_config else CodingAgent.POSTHOG_CODE
+
+        report = cast(SignalReport, self.get_object())
+
+        if agent == CodingAgent.CURSOR:
+            return self._dispatch_report_to_cursor(report)
+        return self._dispatch_report_to_posthog_code(request, report)
+
+    def _dispatch_report_to_cursor(self, report: SignalReport) -> Response:
         api_key = resolve_cursor_api_key(self.team)
         if not api_key:
             return Response(
                 {"error": "Cursor is not connected for this team."},
                 status=status.HTTP_409_CONFLICT,
             )
-
-        report = cast(SignalReport, self.get_object())
-
         try:
             result = dispatch_report_to_cursor(report, api_key=api_key, site_url=settings.SITE_URL)
+        except CursorPlanRequiredError as e:
+            return Response({"error": str(e)}, status=status.HTTP_402_PAYMENT_REQUIRED)
         except CursorDispatchError as e:
             logger.warning("signals.cursor_dispatch.failed", report_id=str(report.id), error=str(e))
             return Response({"error": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
 
-        return Response(CursorDispatchResponseSerializer(result).data)
+        return Response(
+            SignalDispatchResponseSerializer(
+                {
+                    "agent": CodingAgent.CURSOR,
+                    "agent_id": result.agent_id,
+                    "agent_url": result.agent_url,
+                    "agent_status": result.agent_status,
+                }
+            ).data
+        )
+
+    def _dispatch_report_to_posthog_code(self, request, report: SignalReport) -> Response:
+        # Idempotent like the Cursor path: a report already has at most one implementation Task.
+        existing = (
+            SignalReportTask.objects.filter(
+                team=self.team,
+                report_id=report.id,
+                relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            )
+            .select_related("task")
+            .first()
+        )
+        if existing is not None:
+            return Response(
+                SignalDispatchResponseSerializer(
+                    {
+                        "agent": CodingAgent.POSTHOG_CODE,
+                        "task_id": str(existing.task_id),
+                        "agent_status": "already_dispatched",
+                    }
+                ).data
+            )
+
+        repository = build_cursor_dispatch_context(report, settings.SITE_URL).repository
+        if not repository:
+            return Response(
+                {"error": "Report has no selected repository to act on."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            task = start_internal_implementation_task(
+                team=self.team,
+                report_id=str(report.id),
+                title=report.title or "Signal report",
+                summary=report.summary or "",
+                repository=repository,
+                assignee=request.user,
+            )
+        except ValueError as e:
+            # PostHog Code needs a GitHub integration on the team to open a PR. Surface it as an
+            # actionable conflict rather than an unhandled 500.
+            logger.warning("signals.posthog_code_dispatch.precondition_failed", report_id=str(report.id), error=str(e))
+            return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(
+            SignalDispatchResponseSerializer(
+                {
+                    "agent": CodingAgent.POSTHOG_CODE,
+                    "task_id": str(task.id),
+                    "agent_status": "started",
+                }
+            ).data
+        )
 
     @extend_schema(
         request=CursorConnectionRequestSerializer,
@@ -964,13 +1057,12 @@ class SignalReportViewSet(
     )
     @action(detail=False, methods=["get", "post"], url_path="cursor_connection", required_scopes=["task:write"])
     def cursor_connection(self, request, **kwargs):
-        """Get or set this team's Cursor connection (the key a settings UI configures, stored per team)."""
-        if not posthoganalytics.feature_enabled(
-            SIGNALS_CURSOR_DISPATCH_FLAG,
-            str(request.user.distinct_id),
-            groups={"organization": str(self.team.organization_id)},
-            send_feature_flag_events=False,
-        ):
+        """Get or set this team's Cursor connection (the key a settings UI configures, stored per team).
+
+        On GET (and after a POST) the connection is probed against Cursor so the UI can surface the
+        Pro-plan and GitHub-not-connected walls at connect time rather than on first dispatch.
+        """
+        if not self._cursor_dispatch_flag_enabled(request):
             raise NotFound()
 
         if request.method == "POST":
@@ -982,8 +1074,15 @@ class SignalReportViewSet(
                 defaults={"sensitive_config": {"api_key": serializer.validated_data["api_key"]}},
             )
 
+        api_key = resolve_cursor_api_key(self.team)
         connected = Integration.objects.filter(team=self.team, kind=CURSOR_INTEGRATION_KIND).exists()
-        return Response(CursorConnectionStatusSerializer({"connected": connected}).data)
+        status_payload: dict = {"connected": connected, "has_repo_access": None, "plan_ok": None}
+        if connected and api_key:
+            health = probe_cursor_connection(api_key)
+            status_payload["has_repo_access"] = health.has_repo_access
+            status_payload["plan_ok"] = health.plan_ok
+
+        return Response(CursorConnectionStatusSerializer(status_payload).data)
 
 
 @extend_schema_view(
