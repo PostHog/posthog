@@ -87,20 +87,29 @@ impl CredentialProvider for EnvVarProvider {
             return Ok(t);
         }
         if let Some(path) = &self.env_file {
-            if path.exists() {
-                let file = load_dotenv(path)?;
-                if let Some(t) = try_source(|n| file.get(n).cloned()) {
-                    return Ok(t);
+            match load_dotenv(path) {
+                Ok(file) => {
+                    if let Some(t) = try_source(|n| file.get(n).cloned()) {
+                        return Ok(t);
+                    }
+                    anyhow::bail!(
+                        "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
+                        path.display()
+                    )
                 }
-                anyhow::bail!(
-                    "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
-                    path.display()
-                )
+                // A missing file is non-fatal: warn and fall back to other sources. Any other
+                // read failure (e.g. permissions) is a real problem and still propagates.
+                Err(e)
+                    if e.downcast_ref::<std::io::Error>()
+                        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    warn!(
+                        "Env file {} not found; falling back to default credential sources",
+                        path.display()
+                    );
+                }
+                Err(e) => return Err(e),
             }
-            warn!(
-                "Env file {} not found; falling back to default credential sources",
-                path.display()
-            );
         }
         anyhow::bail!("Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env")
     }
