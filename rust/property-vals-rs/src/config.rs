@@ -48,9 +48,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub length_caps: LengthCaps,
 
-    #[envconfig(default = "0")]
-    pub merger_seen_cache_capacity: usize,
-
     #[envconfig(default = "60")]
     pub kafka_produce_timeout_secs: u64,
 
