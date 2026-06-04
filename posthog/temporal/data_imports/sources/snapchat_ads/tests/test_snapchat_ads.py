@@ -331,3 +331,35 @@ class TestIterRowsMultiChunkStats:
         assert captured_calls[0]["initial_paginator_state"] == {
             "next_link": "https://adsapi.snapchat.com/v1/stats?chunk=1&cursor=midchunk",
         }
+
+
+class TestNonRetryableErrors:
+    @parameterized.expand(
+        [
+            # Real requests HTTPError strings from Snapchat's Marketing API.
+            "404 Client Error: Not Found for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
+            "401 Client Error: Unauthorized for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
+            "403 Client Error: Forbidden for url: https://adsapi.snapchat.com/v1/adaccounts/abc/stats",
+        ]
+    )
+    def test_permanent_client_errors_are_non_retryable(self, error_msg: str) -> None:
+        from posthog.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
+
+        patterns = SnapchatAdsSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in patterns), (
+            f"Snapchat error '{error_msg}' did not match any non-retryable pattern"
+        )
+
+    @parameterized.expand(
+        [
+            "500 Server Error: Internal Server Error for url: https://adsapi.snapchat.com/v1/stats",
+            "429 Client Error: Too Many Requests for url: https://adsapi.snapchat.com/v1/stats",
+        ]
+    )
+    def test_transient_errors_stay_retryable(self, error_msg: str) -> None:
+        from posthog.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
+
+        patterns = SnapchatAdsSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in patterns), (
+            f"Snapchat error '{error_msg}' should remain retryable"
+        )
