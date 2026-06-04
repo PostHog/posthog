@@ -28,6 +28,7 @@ import {
     readConfig,
     readResult,
 } from '../components/ObservationCard'
+import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import {
     failureKindDescription,
     modelLabel,
@@ -278,9 +279,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                     )}
 
                     {(observation.status === 'pending' || observation.status === 'running') && (
-                        <div className="text-muted text-sm">
-                            {observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}
-                        </div>
+                        <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} />
                     )}
                 </section>
 
