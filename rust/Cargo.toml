@@ -37,6 +37,7 @@ members = [
   "cymbal",
   "cymbal-proto",
   "cymbal-resolution",
+  "cymbal-worker",
   "embedding-worker",
   "common/geoip",
   "common/hogvm",

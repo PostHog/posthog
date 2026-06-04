@@ -1,0 +1,23 @@
+[package]
+name = "cymbal-worker"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+common-kafka = { path = "../common/kafka" }
+common-types = { path = "../common/types" }
+envconfig = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+temporal-sdk = { package = "squads-temporal-sdk", version = "0.1.0-alpha.1" }
+squads-temporal-sdk-core = "0.1.0-alpha.1"
+squads-temporal-sdk-core-api = "0.1.0-alpha.1"
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

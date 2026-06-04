@@ -239,6 +239,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-worker:
+        shell: |-
+            bin/wait-for-docker temporal && \
+            bin/start-rust-service cymbal-worker
+        capability: cymbal_temporal_worker
+        ready_pattern: 'starting cymbal Temporal worker'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \

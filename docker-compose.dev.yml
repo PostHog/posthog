@@ -474,6 +474,7 @@ services:
                 # startup for every output it produces to (see analytics/outputs/registry.ts).
                 # Auto-create only fires on producer-first writes, so pre-create them here.
                 TOPICS="document_embeddings_input \
+                    document_embedding_results \
                     clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \

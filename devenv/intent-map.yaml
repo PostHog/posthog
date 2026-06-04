@@ -43,6 +43,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    cymbal_temporal_worker:
+        description: 'Rust Temporal worker for Cymbal workflows and activities'
+        requires: [core_infra]
+        docker_profiles: [temporal]
+
     flag_evaluation:
         description: 'Fast feature flag evaluation service'
         requires: [core_infra]
@@ -222,6 +227,7 @@ intents:
             [
                 event_ingestion,
                 error_symbolication,
+                cymbal_temporal_worker,
                 embedding_service,
                 property_definitions,
                 property_values,
