@@ -1782,6 +1782,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                 }
             },
+            [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
+                // Keep this tab's cached insight in sync when it's renamed/updated from another surface
+                // (saved insights list, insight view, dashboard). Without this the tab holds a stale insight
+                // and a later save from here clobbers the newer name/description with that stale state.
+                const activeTab = values.activeTab
+                if (activeTab?.insight && activeTab.insight.short_id === item.short_id) {
+                    actions.updateTab({
+                        ...activeTab,
+                        name: item.name ?? activeTab.name,
+                        description: item.description ?? activeTab.description,
+                        // Merge over the existing insight so tab-only fields (e.g. query) survive
+                        // a partial payload from a list response.
+                        insight: { ...activeTab.insight, ...item },
+                    })
+                }
+            },
             deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
                 if (values.activeTab?.view?.id === viewId && !values.activeTab?.draft) {
                     actions.createTab()

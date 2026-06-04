@@ -6,6 +6,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { insightsModel } from '~/models/insightsModel'
 import { useMocks } from '~/mocks/jest'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
@@ -824,6 +825,39 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.activeTab?.name).toEqual('Untitled')
             expect(logic.values.activeTab?.description).toEqual('')
+        })
+
+        it('syncs the active tab when the insight is renamed from another surface', async () => {
+            await loadInsight()
+            insightsModel.mount()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...MOCK_INSIGHT,
+                name: 'Renamed elsewhere',
+                description: 'Updated elsewhere',
+            } as QueryBasedInsightModel)
+
+            await expectLogic(logic).toDispatchActions(['updateTab'])
+
+            expect(logic.values.activeTab?.name).toEqual('Renamed elsewhere')
+            expect(logic.values.activeTab?.description).toEqual('Updated elsewhere')
+            expect(logic.values.editingInsight?.name).toEqual('Renamed elsewhere')
+            expect(logic.values.editingInsight?.description).toEqual('Updated elsewhere')
+        })
+
+        it('ignores rename broadcasts for a different insight', async () => {
+            await loadInsight()
+            insightsModel.mount()
+
+            insightsModel.actions.renameInsightSuccess({
+                ...MOCK_INSIGHT,
+                short_id: 'zzz999' as InsightShortId,
+                name: 'Some other insight',
+            } as QueryBasedInsightModel)
+
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(logic.values.activeTab?.name).toEqual(MOCK_INSIGHT.name)
         })
     })
 
