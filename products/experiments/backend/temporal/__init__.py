@@ -5,7 +5,7 @@ from products.experiments.backend.temporal.recalculation_activities import (
 )
 
 # The workflow is registered in a later PR; until then the package exposes no workflows.
-WORKFLOWS: list = []
+WORKFLOWS: list[type] = []
 ACTIVITIES = [
     discover_experiment_metrics,
     calculate_experiment_metric_for_recalculation,
