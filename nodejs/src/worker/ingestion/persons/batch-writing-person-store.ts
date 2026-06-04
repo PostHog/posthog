@@ -15,7 +15,7 @@ import {
     Team,
 } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '../../../utils/db/error'
+import { MessageSizeTooLarge } from '../../../utils/db/error'
 import { logger } from '../../../utils/logger'
 import { BatchWritingStore } from '../stores/batch-writing-store'
 import {
@@ -775,14 +775,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             this.fetchPromisesForChecking.set(cacheKey, keyPromise)
         }
 
-        // Recover from transient persons-Postgres unavailability so this best-effort, fire-and-forget
-        // warmer can't crash the worker. The failure is not masked: consumers still observe the
-        // rejection on their per-key promise and retry it in the per-distinct-id pipeline — we only
-        // swallow the redundant fire-and-forget copy. Any other error is rethrown so an unexpected
-        // failure (e.g. a broken query) surfaces instead of being silently masked.
+        // Recover from a retriable failure (e.g. transient persons-Postgres unavailability) so this
+        // best-effort, fire-and-forget warmer can't crash the worker. The failure is not masked:
+        // consumers still observe the rejection on their per-key promise and retry it in the
+        // per-distinct-id pipeline — we only swallow the redundant fire-and-forget copy. We recover
+        // only on an explicit `isRetriable === true`, not the pipeline's `!== false`: an unflagged
+        // error (e.g. a broken query) should rethrow and crash loudly rather than be silently masked.
         await batchFetchPromise.catch((error) => {
-            if (error instanceof DependencyUnavailableError) {
-                logger.warn('⚠️', 'prefetchPersons failed on transient persons-Postgres error', {
+            if (error?.isRetriable === true) {
+                logger.warn('⚠️', 'prefetchPersons failed on a retriable persons-Postgres error', {
                     error: String(error),
                 })
                 return
