@@ -38,20 +38,21 @@ class MetricRecalculationResult:
 
 @dataclasses.dataclass
 class RecalculationProgressUpdate:
-    """Input for updating recalculation progress.
+    """Input for the start and finish lifecycle steps.
 
-    Used only for the start step (status=in_progress, total_metrics, metric_uuids, query_to, mark_started)
-    and the finish step (final status, mark_completed). Per-metric counter/error updates are folded into the
-    calculate activity's own transaction instead.
+    Start step: status=in_progress, total_metrics, metric_uuids, mark_started=True. The activity itself
+    stamps query_to and started_at under a first-write-wins guard.
+
+    Finish step: status=completed|failed, mark_completed=True. The activity stamps completed_at, also
+    first-write-wins.
+
+    Per-metric counters and error entries are not carried here — they're written by the calculate activity
+    in the same transaction as the result row.
     """
 
     recalculation_id: str
     status: str | None = None
     total_metrics: int | None = None
     metric_uuids: list[str] | None = None
-    query_to: str | None = None  # ISO datetime string; the single data-window end shared by all metrics in the run
-    increment_completed: bool = False
-    increment_failed: bool = False
-    error_info: dict[str, str | None] | None = None
     mark_started: bool = False
     mark_completed: bool = False

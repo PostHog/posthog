@@ -30,9 +30,5 @@ def test_progress_update_defaults():
     assert update.status is None
     assert update.total_metrics is None
     assert update.metric_uuids is None
-    assert update.query_to is None
-    assert update.increment_completed is False
-    assert update.increment_failed is False
-    assert update.error_info is None
     assert update.mark_started is False
     assert update.mark_completed is False
