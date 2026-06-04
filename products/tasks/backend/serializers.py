@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from croniter import croniter
+from django_display_ids.contrib.rest_framework import DisplayIDField
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
@@ -98,6 +99,10 @@ class TaskSerializer(serializers.ModelSerializer):
     )
     latest_run = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
+    display_id = DisplayIDField(
+        help_text="Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). "
+        "Encodes the task UUID and can be used in place of it on detail endpoints."
+    )
 
     title = serializers.CharField(
         max_length=255,
@@ -133,6 +138,7 @@ class TaskSerializer(serializers.ModelSerializer):
         model = Task
         fields = [
             "id",
+            "display_id",
             "task_number",
             "slug",
             "title",
@@ -156,6 +162,7 @@ class TaskSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
+            "display_id",
             "task_number",
             "slug",
             "archived_at",

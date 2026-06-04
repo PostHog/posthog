@@ -395,31 +395,36 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         raise NotImplementedError()
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
-        """
-        Default object lookup. If the model defines a ``display_id_prefix`` (via DisplayIDModel),
-        the URL identifier is resolved as a Stripe-style display ID, a UUID, or a slug (slug only
-        when the model has a slug field) against the already team-scoped ``queryset`` — so any such
-        model is addressable by its ``display_id`` with no per-view code. The object returned here
-        is still run through ``check_object_permissions`` by ``get_object``.
+        raise NotImplementedError()
 
-        Models without a ``display_id_prefix`` raise ``NotImplementedError`` to preserve DRF's
-        default primary-key lookup, exactly as before.
+    def _get_object_by_display_id(self, queryset: QuerySet) -> Any:
+        """
+        Resolve the URL identifier as a Stripe-style display ID, a UUID, or a slug (slug only when
+        the model has a slug field) for any model that sets a ``display_id_prefix`` (via
+        DisplayIDModel), against the already team-scoped ``queryset``.
+
+        Lives here rather than in ``safely_get_object`` so it applies even when a viewset overrides
+        ``safely_get_object`` for its own identifiers (e.g. Conversations tickets keep a separate
+        ticket_number lookup and don't need to know about display IDs at all).
+
+        Returns the resolved object, or ``None`` when the model has no prefix or the identifier
+        isn't one the resolver handles — so the normal ``safely_get_object`` / default lookup still
+        runs. The caller (``get_object``) runs ``check_object_permissions`` on the result.
         """
         if getattr(queryset.model, "display_id_prefix", None) is None:
-            raise NotImplementedError()
+            return None
 
         lookup = self.lookup_url_kwarg or self.lookup_field
         value = self.kwargs.get(lookup)
         if value is None:
-            raise NotImplementedError()
+            return None
 
         try:
             return resolve_object(queryset.model, str(value), queryset=queryset)
         except ObjectNotFoundError:
             raise NotFound()
         except DisplayIDLookupError:
-            # Not a display ID / UUID / slug — defer to DRF's default primary-key lookup.
-            raise NotImplementedError()
+            return None
 
     def get_object(self):
         """
@@ -434,12 +439,16 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         queryset = self.filter_queryset(self.get_queryset())
 
-        try:
-            obj = self.safely_get_object(queryset)
-            if not obj:
-                raise NotFound()
-        except NotImplementedError:
-            return super().get_object()
+        # Resolve display IDs (and UUIDs/slugs) for models that opt in via display_id_prefix,
+        # before any per-view safely_get_object so it works without per-view code.
+        obj = self._get_object_by_display_id(queryset)
+        if obj is None:
+            try:
+                obj = self.safely_get_object(queryset)
+                if not obj:
+                    raise NotFound()
+            except NotImplementedError:
+                return super().get_object()
 
         # Ensure we always check permissions
         self.check_object_permissions(self.request, obj)

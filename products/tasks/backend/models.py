@@ -25,6 +25,7 @@ from django.utils import timezone as django_timezone
 
 import structlog
 import posthoganalytics
+from django_display_ids.models import DisplayIDModel
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
@@ -51,7 +52,12 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
     return schema.model_json_schema()
 
 
-class Task(DeletedMetaFields, models.Model):
+class Task(DeletedMetaFields, DisplayIDModel):
+    # Setting display_id_prefix is all it takes to get a Stripe-style `display_id`
+    # (e.g. "task_2aUyqjCzEIiEcYMKj7TZtw") encoding the UUID `id` — no extra column, no
+    # migration. Exposed via `task.display_id` and resolvable on the API by display ID.
+    display_id_prefix = "task"
+
     class OriginProduct(models.TextChoices):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"

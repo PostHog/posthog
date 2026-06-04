@@ -17,6 +17,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone as django_timezone
 
 import jwt
+from django_display_ids import decode_display_id, encode_display_id
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -743,6 +744,39 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["title"], "Test Task")
         self.assertEqual(data["description"], "Test Description")
+
+    def test_retrieve_task_includes_display_id(self):
+        task = self.create_task("Test Task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        display_id = response.json()["display_id"]
+        self.assertEqual(display_id, task.display_id)
+        self.assertTrue(display_id.startswith("task_"))
+        # It must round-trip back to the task's UUID.
+        _prefix, decoded_uuid = decode_display_id(display_id)
+        self.assertEqual(decoded_uuid, task.id)
+
+    def test_retrieve_task_by_display_id(self):
+        task = self.create_task("Test Task")
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.display_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(task.id))
+
+    def test_retrieve_task_by_display_id_unknown_uuid_returns_404(self):
+        display_id = encode_display_id("task", uuid.uuid4())
+
+        response = self.client.get(f"/api/projects/@current/tasks/{display_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_retrieve_task_by_display_id_wrong_prefix_returns_404(self):
+        task = self.create_task("Test Task")
+        foreign_display_id = encode_display_id("cus", task.id)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{foreign_display_id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_retrieve_task_with_latest_run(self):
         task = self.create_task("Test Task")

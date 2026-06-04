@@ -393,11 +393,6 @@ export interface TicketPersonApi {
  */
 export interface TicketApi {
     readonly id: string
-    /**
-     * Stripe-style human-readable identifier (e.g. `tkt_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the ticket UUID and can be used in place of it on detail endpoints.
-     * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
-     */
-    readonly display_id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
     readonly channel_detail: ChannelDetailEnumApi | null
@@ -476,11 +471,6 @@ export interface PaginatedTicketListApi {
  */
 export interface PatchedTicketApi {
     readonly id?: string
-    /**
-     * Stripe-style human-readable identifier (e.g. `tkt_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the ticket UUID and can be used in place of it on detail endpoints.
-     * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
-     */
-    readonly display_id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
     readonly channel_detail?: ChannelDetailEnumApi | null
