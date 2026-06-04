@@ -90,6 +90,7 @@ export type SettingId =
     | 'activity-log-org-level-settings'
     | 'activity-log-settings'
     | 'ai-observability-byok'
+    | 'ai-observability-parser-recipes'
     | 'allow-impersonation'
     | 'approval-policies'
     | 'authentication-domains'

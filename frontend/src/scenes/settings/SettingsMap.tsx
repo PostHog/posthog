@@ -1,5 +1,6 @@
 import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
+import { ParserRecipesSettings } from '@posthog/products-ai-observability/frontend/settings/ParserRecipesSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
 import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
@@ -351,6 +352,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LLMProviderKeysSettings />,
                 docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
                 keywords: ['llm', 'provider', 'api key', 'openai', 'anthropic', 'gemini', 'playground'],
+            },
+            {
+                id: 'ai-observability-parser-recipes',
+                title: 'Custom parsing',
+                description:
+                    "Add recipes that normalize provider message shapes the built-in recipes don't cover. They apply when rendering traces.",
+                component: <ParserRecipesSettings />,
+                flag: 'LLM_ANALYTICS_RECIPE_NORMALIZER',
+                keywords: ['parser', 'recipe', 'normalize', 'trace', 'provider', 'custom parsing', 'content'],
             },
         ],
     },
