@@ -5,7 +5,7 @@ use futures::stream::{self, StreamExt, TryStreamExt};
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
@@ -23,10 +23,12 @@ impl PersonLookup for PostgresStorage {
         person_id: i64,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_person_by_id".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -35,7 +37,7 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
                    properties_last_updated_at::text as "properties_last_updated_at?",
                    properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
@@ -55,10 +57,12 @@ impl PersonLookup for PostgresStorage {
 
     async fn get_person_by_uuid(&self, team_id: i64, uuid: Uuid) -> StorageResult<Option<Person>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_person_by_uuid".to_string()),
             ("pool".to_string(), POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -67,7 +71,7 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
+            SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties?",
                    properties_last_updated_at::text as "properties_last_updated_at?",
                    properties_last_operation::text as "properties_last_operation?",
                    created_at, version, is_identified,
@@ -89,16 +93,19 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         person_ids: &[i64],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>> {
         if person_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_persons_by_ids".to_string()),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -120,9 +127,10 @@ impl PersonLookup for PostgresStorage {
                 let rows = sqlx::query_as!(
                     Person,
                     r#"
-                    SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
-                           properties_last_updated_at::text as "properties_last_updated_at?",
-                           properties_last_operation::text as "properties_last_operation?",
+                    SELECT id, uuid, team_id::bigint as "team_id!",
+                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
+                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -130,7 +138,8 @@ impl PersonLookup for PostgresStorage {
                     WHERE team_id = $1 AND id = ANY($2)
                     "#,
                     team_id as i32,
-                    &chunk
+                    &chunk,
+                    include_properties
                 )
                 .fetch_all(&mut *conn)
                 .await?;
@@ -147,6 +156,7 @@ impl PersonLookup for PostgresStorage {
             &[
                 ("operation".to_string(), "get_persons_by_ids".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -158,16 +168,19 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         uuids: &[Uuid],
+        include_properties: bool,
     ) -> StorageResult<Vec<Person>> {
         if uuids.is_empty() {
             return Ok(Vec::new());
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "get_persons_by_uuids".to_string()),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -189,9 +202,10 @@ impl PersonLookup for PostgresStorage {
                 let rows = sqlx::query_as!(
                     Person,
                     r#"
-                    SELECT id, uuid, team_id::bigint as "team_id!", properties::text as "properties!",
-                           properties_last_updated_at::text as "properties_last_updated_at?",
-                           properties_last_operation::text as "properties_last_operation?",
+                    SELECT id, uuid, team_id::bigint as "team_id!",
+                           CASE WHEN $3::boolean THEN properties::text ELSE NULL END as "properties?",
+                           CASE WHEN $3::boolean THEN properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                           CASE WHEN $3::boolean THEN properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                            created_at, version, is_identified,
                            CASE WHEN is_user_id IS NULL THEN NULL ELSE (is_user_id != 0) END as is_user_id,
                            last_seen_at
@@ -199,7 +213,8 @@ impl PersonLookup for PostgresStorage {
                     WHERE team_id = $1 AND uuid = ANY($2)
                     "#,
                     team_id as i32,
-                    &chunk
+                    &chunk,
+                    include_properties
                 )
                 .fetch_all(&mut *conn)
                 .await?;
@@ -216,6 +231,7 @@ impl PersonLookup for PostgresStorage {
             &[
                 ("operation".to_string(), "get_persons_by_uuids".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -229,6 +245,7 @@ impl PersonLookup for PostgresStorage {
         distinct_id: &str,
     ) -> StorageResult<Option<Person>> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -236,6 +253,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -244,7 +262,7 @@ impl PersonLookup for PostgresStorage {
         let row = sqlx::query_as!(
             Person,
             r#"
-            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties!",
+            SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
                    p.properties_last_updated_at::text as "properties_last_updated_at?",
                    p.properties_last_operation::text as "properties_last_operation?",
                    p.created_at, p.version, p.is_identified,
@@ -268,12 +286,14 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         distinct_ids: &[String],
+        include_properties: bool,
     ) -> StorageResult<Vec<(String, Option<Person>)>> {
         if distinct_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -281,6 +301,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -306,9 +327,9 @@ impl PersonLookup for PostgresStorage {
                     let rows = sqlx::query!(
                         r#"
                         SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-                               p.properties::text as "properties!",
-                               p.properties_last_updated_at::text as "properties_last_updated_at?",
-                               p.properties_last_operation::text as "properties_last_operation?",
+                               CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
+                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                                p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                                CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                                p.last_seen_at,
@@ -318,7 +339,8 @@ impl PersonLookup for PostgresStorage {
                         WHERE p.team_id = $1 AND d.distinct_id = ANY($2)
                         "#,
                         team_id as i32,
-                        &chunk
+                        &chunk,
+                        include_properties
                     )
                     .fetch_all(&mut *conn)
                     .await?;
@@ -358,6 +380,7 @@ impl PersonLookup for PostgresStorage {
                     "get_persons_by_distinct_ids_in_team".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             found.len() as f64,
         );
@@ -374,10 +397,12 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "delete_persons".to_string()),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -434,6 +459,7 @@ impl PersonLookup for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -441,6 +467,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -490,12 +517,14 @@ impl PersonLookup for PostgresStorage {
     async fn get_persons_by_distinct_ids_cross_team(
         &self,
         team_distinct_ids: &[(i64, String)],
+        include_properties: bool,
     ) -> StorageResult<Vec<((i64, String), Option<Person>)>> {
         if team_distinct_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -503,6 +532,7 @@ impl PersonLookup for PostgresStorage {
             ),
             ("pool".to_string(), BULK_POOL_LABEL.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -512,13 +542,12 @@ impl PersonLookup for PostgresStorage {
         let team_ids: Vec<i32> = team_distinct_ids.iter().map(|(t, _)| *t as i32).collect();
         let distinct_ids: Vec<String> = team_distinct_ids.iter().map(|(_, d)| d.clone()).collect();
 
-        // Use query!() since we need distinct_id alongside Person fields
         let rows = sqlx::query!(
             r#"
             SELECT p.id, p.uuid as "uuid!", p.team_id::bigint as "team_id!",
-                   p.properties::text as "properties!",
-                   p.properties_last_updated_at::text as "properties_last_updated_at?",
-                   p.properties_last_operation::text as "properties_last_operation?",
+                   CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as "properties?",
+                   CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as "properties_last_updated_at?",
+                   CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as "properties_last_operation?",
                    p.created_at as "created_at!", p.version, p.is_identified as "is_identified!",
                    CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,
                    p.last_seen_at,
@@ -529,7 +558,8 @@ impl PersonLookup for PostgresStorage {
                 ON d.team_id = batch.team_id AND d.distinct_id = batch.distinct_id
             "#,
             &team_ids,
-            &distinct_ids
+            &distinct_ids,
+            include_properties
         )
         .fetch_all(&mut *conn)
         .await?;
@@ -542,6 +572,7 @@ impl PersonLookup for PostgresStorage {
                     "get_persons_by_distinct_ids_cross_team".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -597,6 +628,7 @@ async fn delete_persons_by_ids_chunk(
         ),
         ("pool".to_string(), "bulk_primary".to_string()),
         ("client".to_string(), client.to_string()),
+        ("method".to_string(), current_method_name().to_string()),
     ];
     let _chunk_timer = common_metrics::timing_guard(DB_QUERY_DURATION, &chunk_labels);
 
@@ -623,6 +655,7 @@ async fn delete_persons_by_ids_chunk(
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), current_method_name().to_string()),
         ],
         did_result.rows_affected() as f64,
     );
@@ -648,6 +681,7 @@ async fn delete_persons_by_ids_chunk(
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), current_method_name().to_string()),
         ],
         result.rows_affected() as f64,
     );

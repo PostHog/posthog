@@ -432,7 +432,7 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null
-    /** HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -788,6 +788,8 @@ export interface DataWarehouseSyncWarningApi {
     message: string
     /** Name of the ExternalDataSchema responsible for syncing the table */
     schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
     /** Source type, e.g. "Stripe", "Hubspot" */
     source_type: string
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
@@ -1563,6 +1565,8 @@ export interface TrendsFilterApi {
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
     smoothingIntervals?: number | null
+    /** On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value. */
+    stackBreakdownValues?: boolean | null
     /** Custom label rendered under the X axis. */
     xAxisLabel?: string | null
     /** Custom label rendered alongside the Y axis. */
@@ -3545,7 +3549,6 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
-    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -3865,6 +3868,32 @@ export interface Response26Api {
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
     types?: unknown[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface Response27Api {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: 'AccountsQuery'
+    limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types: string[]
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -4855,7 +4884,7 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
 export interface HogQLQueryApi {
-    /** Optional direct external data source id for running against a specific source */
+    /** Optional id of a direct external data source (access_method='direct') to run against instead of ClickHouse. Warehouse import sources are not valid here. */
     connectionId?: string | null
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -6531,6 +6560,56 @@ export interface EndpointsUsageTableQueryApi {
     version?: number | null
 }
 
+export interface AccountsQueryResponseApi {
+    columns: unknown[]
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: 'AccountsQuery'
+    limit: number
+    /** When `metrics` is set on the query, the aggregated values in the same order. */
+    metricsResults?: (number | null)[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset: number
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: unknown[][]
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
+    warnings?: DataWarehouseSyncWarningApi[] | null
+}
+
+export interface AccountsQueryApi {
+    accountExecutive?: string | number | null
+    accountOwner?: string | number | null
+    allRolesUnassigned?: boolean | null
+    csm?: string | number | null
+    /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+    filterExpression?: string | null
+    kind?: 'AccountsQuery'
+    limit?: number | null
+    /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+    metrics?: string[] | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    orderBy?: string[] | null
+    response?: AccountsQueryResponseApi | null
+    search?: string | null
+    select?: string[] | null
+    tagNames?: string[] | null
+    tags?: QueryLogTagsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type DataTableNodeApiResponse =
     | { [key: string]: unknown }
     | ResponseApi
@@ -6559,6 +6638,7 @@ export type DataTableNodeApiResponse =
     | Response24Api
     | Response25Api
     | Response26Api
+    | Response27Api
     | null
 
 export interface DataTableNodeApi {
@@ -6665,6 +6745,7 @@ export interface DataTableNodeApi {
         | TracesQueryApi
         | TraceQueryApi
         | EndpointsUsageTableQueryApi
+        | AccountsQueryApi
     tags?: QueryLogTagsApi | null
     /** version of the node, used for schema migrations */
     version?: number | null

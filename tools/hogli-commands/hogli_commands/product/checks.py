@@ -62,13 +62,22 @@ def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
 
 
 def _pattern_targets_public_surface(pattern: str) -> bool:
-    """True if a tach expose pattern targets backend.facade or backend.presentation.
+    """True if a tach expose pattern targets a product's public surface.
+
+    Public surface is backend.facade, backend.presentation, or backend.routes —
+    the last being the product-local route registration entry point that core
+    imports to assemble the API router. It is a public composition hook, not an
+    internal leak, so it does not mark a product as un-isolatable.
 
     Strips backslashes first so it works on both the on-disk TOML form (`\\.`,
     two literal backslashes) and Python-string fixtures (single backslash).
     """
     normalized = pattern.replace("\\", "")
-    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+    return (
+        normalized.startswith("backend.facade")
+        or normalized.startswith("backend.presentation")
+        or normalized.startswith("backend.routes")
+    )
 
 
 def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
@@ -98,11 +107,30 @@ def is_isolated_product(backend_dir: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _targets_facade_or_presentation(pattern: str) -> bool:
+    """True if a pattern targets backend.facade or backend.presentation specifically.
+
+    Narrower than `_pattern_targets_public_surface`, which also accepts
+    backend.routes. A routes-only block is a registration hook, not a canonical
+    facade surface, so it must not be treated as one (it would otherwise demand
+    facade/contracts.py isolation scaffolding the product may not have).
+    """
+    normalized = pattern.replace("\\", "")
+    return normalized.startswith("backend.facade") or normalized.startswith("backend.presentation")
+
+
 def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
-    """Canonical = every expose pattern targets backend.facade or backend.presentation."""
+    """Canonical = a public-surface block that actually exposes facade/presentation.
+
+    Every pattern must be public surface (facade/presentation/routes) and at
+    least one must be facade/presentation — so a routes-only registration block
+    does not get treated as a canonical facade alternation entry.
+    """
     if not expose_patterns:
         return False
-    return all(_pattern_targets_public_surface(p) for p in expose_patterns)
+    if not all(_pattern_targets_public_surface(p) for p in expose_patterns):
+        return False
+    return any(_targets_facade_or_presentation(p) for p in expose_patterns)
 
 
 def _names_from_pattern(pattern: str) -> set[str]:
@@ -824,6 +852,101 @@ class ProductYamlOwnersCheck(ProductCheck):
         return result
 
 
+class OrphanedTestFilesCheck(ProductCheck):
+    """Flag pytest test files that no CI runner will pick up.
+
+    Walks the product directory for `test_*.py` / `*_test.py` and checks each
+    is reachable from either:
+      - the pytest paths listed in `backend:test`, or
+      - a known external runner via `_EXTERNAL_RUNNER_PREFIXES` (e.g. `dags/`
+        directories are picked up by ci-dagster.yml, regardless of the
+        product's package.json).
+
+    Without this check, moving a test file to (say) `products/foo/scripts/test/`
+    or forgetting to add it to `backend:test` silently strands the tests —
+    they collect cleanly when run by hand but never run in CI.
+    """
+
+    label = "test file coverage"
+
+    # Directories whose test files are run by workflows other than the product
+    # matrix. Keep in sync with the workflows under `.github/workflows/` that
+    # invoke pytest against product paths.
+    _EXTERNAL_RUNNER_PREFIXES = (
+        "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
+    )
+    # Per-product exemptions — paths that another workflow targets directly
+    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    _PRODUCT_SPECIFIC_EXEMPTIONS = {
+        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        "batch_exports": ("backend/tests/temporal/",),
+        "tasks": ("backend/temporal/",),
+    }
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        # Find every test file under the product.
+        test_files = sorted(
+            p.relative_to(ctx.product_dir).as_posix()
+            for pattern in ("test_*.py", "*_test.py")
+            for p in ctx.product_dir.rglob(pattern)
+            if "__pycache__" not in p.parts
+        )
+        if not test_files:
+            return CheckResult(skip=True)
+
+        # Extract the pytest paths from backend:test, if present.
+        package_json = ctx.product_dir / "package.json"
+        scripts = {}
+        if package_json.exists():
+            try:
+                scripts = json.loads(package_json.read_text()).get("scripts", {})
+            except json.JSONDecodeError:
+                pass  # PackageJsonScriptsCheck reports the invalid JSON
+        test_script = scripts.get("backend:test", "")
+        base_script = test_script.split("||")[0].strip() if test_script else ""
+        if base_script.startswith("pytest"):
+            pytest_paths = _parse_pytest_paths(base_script)
+        else:
+            pytest_paths = []
+
+        def _covered_by(rel: str, path: str) -> bool:
+            # pytest path can be a file ("backend/test_max_tools.py") or a
+            # directory ("backend/" or "scripts/test"). Treat as a prefix
+            # match against the trailing slash to avoid "backend/" eating
+            # "backend_tools/foo.py".
+            if rel == path:
+                return True
+            return rel.startswith(path.rstrip("/") + "/")
+
+        result = CheckResult()
+        per_product = self._PRODUCT_SPECIFIC_EXEMPTIONS.get(ctx.name, ())
+        orphans = []
+        for rel in test_files:
+            if any(_covered_by(rel, p) for p in self._EXTERNAL_RUNNER_PREFIXES):
+                continue
+            if any(_covered_by(rel, p) for p in per_product):
+                continue
+            if any(_covered_by(rel, p) for p in pytest_paths):
+                continue
+            orphans.append(rel)
+
+        if orphans:
+            result.lines.append(
+                f"✗ {len(orphans)} test file(s) not reachable from backend:test or any known external runner"
+            )
+            for o in orphans:
+                result.lines.append(f"  → {o}")
+            result.issues.extend(
+                f"Test file {o} is not covered by backend:test pytest paths or a known "
+                "external runner (e.g. ci-dagster.yml for dags/). It will never run in CI"
+                for o in orphans
+            )
+            result.file = f"products/{ctx.name}/package.json"
+        else:
+            result.lines.append("✓ ok")
+        return result
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -832,4 +955,5 @@ CHECKS: list[ProductCheck] = [
     FileFolderConflictsCheck(),
     TachCheck(),
     IsolationChainCheck(),
+    OrphanedTestFilesCheck(),
 ]

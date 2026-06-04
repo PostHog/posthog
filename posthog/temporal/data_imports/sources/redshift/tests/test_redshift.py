@@ -10,6 +10,7 @@ from posthog.temporal.data_imports.sources.generated_configs import RedshiftSour
 from posthog.temporal.data_imports.sources.redshift.redshift import (
     RedshiftColumn,
     RedshiftImplementation,
+    _build_query,
     filter_redshift_incremental_fields,
 )
 from posthog.temporal.data_imports.sources.redshift.source import _REDSHIFT_IMPLEMENTATION, RedshiftSource
@@ -81,6 +82,48 @@ class TestFilterIncrementalFields:
     def test_excludes_non_incremental_types(self, data_type):
         result = filter_redshift_incremental_fields([("col", data_type, True)])
         assert result == []
+
+
+class TestBuildQueryEnabledColumns:
+    @pytest.mark.parametrize(
+        "enabled_columns,primary_keys,expected_select",
+        [
+            (None, ["id"], "SELECT * FROM"),
+            (["email"], ["id"], 'SELECT "email", "id" FROM'),
+            ([], None, "SELECT * FROM"),
+            ([], ["id"], 'SELECT "id" FROM'),
+        ],
+    )
+    def test_full_refresh_projection(self, enabled_columns, primary_keys, expected_select):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=False,
+            table_type=None,
+            incremental_field=None,
+            incremental_field_type=None,
+            db_incremental_field_last_value=None,
+            enabled_columns=enabled_columns,
+            primary_keys=primary_keys,
+        )
+        rendered = composed.as_string()
+        assert rendered.startswith(expected_select)
+
+    def test_incremental_projection_retains_incremental_field(self):
+        composed = _build_query(
+            schema="public",
+            table_name="users",
+            should_use_incremental_field=True,
+            table_type=None,
+            incremental_field="created_at",
+            incremental_field_type=IncrementalFieldType.DateTime,
+            db_incremental_field_last_value="2025-01-01",
+            enabled_columns=["email"],
+            primary_keys=["id"],
+        )
+        rendered = composed.as_string()
+        assert rendered.startswith('SELECT "email", "id", "created_at" FROM')
+        assert 'WHERE "created_at"' in rendered
 
 
 class TestRedshiftColumnToArrowField:

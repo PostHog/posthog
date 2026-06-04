@@ -499,6 +499,12 @@ export type AssistantTool =
     | 'call_mcp_server'
     | 'search_llm_traces'
     | 'run_hog_eval_test'
+    | 'list_llm_skills'
+    | 'get_llm_skill'
+    | 'get_llm_skill_file'
+    | 'create_llm_skill'
+    | 'update_llm_skill'
+    | 'archive_llm_skill'
     | 'diagnose_proxy'
     | 'web_analytics_doctor'
     | 'marketing_diagnose_setup'
@@ -508,6 +514,7 @@ export type AssistantTool =
     | 'marketing_audit_utm'
     | 'marketing_suggest_conversion_goals'
     | 'marketing_suggest_utm_mappings'
+    | 'summarize_replay_vision_summaries'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

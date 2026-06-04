@@ -9,7 +9,14 @@ use crate::aggregator::Aggregator;
 use crate::config::Config;
 use crate::metrics_consts::*;
 use crate::producer::Producer;
-use crate::types::{IngestableEvent, TupleKey};
+use crate::seen_cache::SeenCache;
+use crate::types::{IngestableEvent, PropertyType, TupleKey};
+
+#[derive(Clone, Copy, Default)]
+pub struct ReductionConfig {
+    pub max_values_per_key: usize,
+    pub seen_cache_capacity: usize,
+}
 
 /// One worker loop. Each pod runs one worker per input topic.
 ///
@@ -24,14 +31,18 @@ pub async fn worker_loop<E, P, F>(
     producer: P,
     handle: lifecycle::Handle,
     fan_out_fn: F,
+    worker: &'static str,
+    reduction: ReductionConfig,
 ) where
     E: IngestableEvent,
     P: Producer,
-    F: Fn(&E) -> Vec<TupleKey>,
+    F: Fn(&E) -> Vec<(TupleKey, u64)>,
 {
     let _guard = handle.process_scope();
 
     let mut aggregator = Aggregator::new();
+    let seen_cache = (reduction.seen_cache_capacity > 0)
+        .then(|| SeenCache::new(reduction.seen_cache_capacity, worker));
     // One Offset handle per partition: the latest message we've consumed.
     // On successful flush we call .store() on each, which advances the
     // consumer's stored offset; auto-commit ships it to the broker.
@@ -45,7 +56,7 @@ pub async fn worker_loop<E, P, F>(
         tokio::select! {
             _ = handle.shutdown_recv() => {
                 info!("worker received shutdown; draining final flush");
-                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_SHUTDOWN).await;
+                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_SHUTDOWN, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
                 if let Err(e) = consumer.commit() {
                     warn!(error = %e, "kafka sync commit at shutdown failed; falling back to broker auto-commit");
                 }
@@ -53,22 +64,22 @@ pub async fn worker_loop<E, P, F>(
             }
             _ = flush_timer.tick() => {
                 handle.report_healthy();
-                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER).await;
+                flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
             }
             recv = consumer.json_recv::<E>() => {
                 handle.report_healthy();
                 match recv {
                     Ok((event, offset)) => {
-                        metrics::counter!(EVENTS_RECEIVED).increment(1);
+                        metrics::counter!(EVENTS_RECEIVED, "worker" => worker).increment(1);
 
                         if config.should_process(event.team_id()) {
                             let tuples = fan_out_fn(&event);
-                            metrics::counter!(TUPLES_AGGREGATED).increment(tuples.len() as u64);
-                            for t in tuples {
-                                aggregator.add(t, 1);
+                            metrics::counter!(TUPLES_AGGREGATED, "worker" => worker).increment(tuples.len() as u64);
+                            for (t, count) in tuples {
+                                aggregator.add(t, count);
                             }
                         } else {
-                            metrics::counter!(EVENTS_FILTERED).increment(1);
+                            metrics::counter!(EVENTS_FILTERED, "worker" => worker).increment(1);
                         }
 
                         pending_offsets.insert(offset.partition(), offset);
@@ -79,6 +90,9 @@ pub async fn worker_loop<E, P, F>(
                                 &mut pending_offsets,
                                 &producer,
                                 FLUSH_REASON_BACKPRESSURE,
+                                worker,
+                                reduction.max_values_per_key,
+                                seen_cache.as_ref(),
                             ).await;
                         }
                     }
@@ -86,7 +100,7 @@ pub async fn worker_loop<E, P, F>(
                         // SingleTopicConsumer auto-stores poison-pill offsets.
                     }
                     Err(RecvErr::Kafka(e)) => {
-                        metrics::counter!(KAFKA_RECV_ERRORS).increment(1);
+                        metrics::counter!(KAFKA_RECV_ERRORS, "worker" => worker).increment(1);
                         warn!(error = %e, "kafka recv error");
                     }
                 }
@@ -104,23 +118,48 @@ pub(crate) async fn flush<P: Producer>(
     pending_offsets: &mut HashMap<i32, Offset>,
     producer: &P,
     reason: &'static str,
+    worker: &'static str,
+    max_values_per_key: usize,
+    seen_cache: Option<&SeenCache>,
 ) {
     if aggregator.is_empty() && pending_offsets.is_empty() {
         return;
     }
 
-    let snapshot: Vec<(TupleKey, u64)> = aggregator.drain().into_iter().collect();
+    let mut snapshot: Vec<(TupleKey, u64)> = aggregator.drain().into_iter().collect();
+    if max_values_per_key > 0 {
+        snapshot = cap_top_k(snapshot, max_values_per_key, worker);
+    }
 
-    metrics::counter!(FLUSH_TOTAL, "reason" => reason).increment(1);
-    metrics::histogram!(FLUSH_TUPLES).record(snapshot.len() as f64);
+    let to_emit: Vec<(TupleKey, u64)> = match seen_cache {
+        Some(cache) => snapshot
+            .into_iter()
+            .filter(|(tuple, _)| !cache.seen(tuple))
+            .collect(),
+        None => snapshot,
+    };
 
-    if let Err(e) = producer.produce(snapshot.clone()).await {
-        metrics::counter!(PRODUCER_FLUSH_FAILED).increment(1);
-        error!(error = %e, "produce failed; restoring counts, retrying next flush");
-        for (tuple, count) in snapshot {
-            aggregator.add(tuple, count);
+    metrics::counter!(FLUSH_TOTAL, "reason" => reason, "worker" => worker).increment(1);
+    metrics::histogram!(FLUSH_TUPLES, "worker" => worker).record(to_emit.len() as f64);
+
+    for (_, count) in &to_emit {
+        metrics::histogram!(FLUSH_TUPLE_COUNT, "worker" => worker).record(*count as f64);
+    }
+
+    if !to_emit.is_empty() {
+        if let Err(e) = producer.produce(to_emit.clone()).await {
+            metrics::counter!(PRODUCER_FLUSH_FAILED, "worker" => worker).increment(1);
+            error!(error = %e, "produce failed; restoring counts, retrying next flush");
+            for (tuple, count) in to_emit {
+                aggregator.add(tuple, count);
+            }
+            return;
         }
-        return;
+        if let Some(cache) = seen_cache {
+            for (tuple, _) in &to_emit {
+                cache.insert(tuple);
+            }
+        }
     }
 
     // Produce succeeded; advance the stored offset for each partition we
@@ -128,10 +167,44 @@ pub(crate) async fn flush<P: Producer>(
     // within ~5s; shutdown forces a sync commit.
     for (_partition, offset) in pending_offsets.drain() {
         if let Err(e) = offset.store() {
-            metrics::counter!(OFFSET_STORE_FAILED).increment(1);
+            metrics::counter!(OFFSET_STORE_FAILED, "worker" => worker).increment(1);
             warn!(error = %e, "failed to store offset; auto-commit will be a no-op for this partition until the next successful flush");
         }
     }
+}
+
+/// Cap each (team, type, key, event) to its `k` highest-count values, dropping
+/// the rest. Keys with `<= k` distinct values are untouched, so low-cardinality
+/// keys keep everything; only high-cardinality keys lose their long tail.
+type CapGroup = (i64, PropertyType, String, String);
+
+fn cap_top_k(
+    snapshot: Vec<(TupleKey, u64)>,
+    k: usize,
+    worker: &'static str,
+) -> Vec<(TupleKey, u64)> {
+    let mut by_key: HashMap<CapGroup, Vec<(TupleKey, u64)>> = HashMap::new();
+    for entry in snapshot {
+        let group = (
+            entry.0.team_id,
+            entry.0.property_type,
+            entry.0.property_key.clone(),
+            entry.0.event_name.clone(),
+        );
+        by_key.entry(group).or_default().push(entry);
+    }
+
+    let mut out = Vec::new();
+    for (_, mut values) in by_key {
+        if values.len() > k {
+            values.select_nth_unstable_by(k, |a, b| b.1.cmp(&a.1));
+            let dropped = values.len() - k;
+            values.truncate(k);
+            metrics::counter!(TOP_K_DROPPED, "worker" => worker).increment(dropped as u64);
+        }
+        out.extend(values);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -209,6 +282,7 @@ mod tests {
             property_type: PropertyType::Event,
             property_key: key.to_string(),
             property_value: value.to_string(),
+            event_name: String::new(),
         }
     }
 
@@ -218,6 +292,59 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cap_top_k_keeps_keys_under_the_cap() {
+        let snap = vec![
+            (tuple(2, "$browser", "Chrome"), 5),
+            (tuple(2, "$browser", "Firefox"), 1),
+            (tuple(2, "$browser", "Safari"), 1),
+        ];
+        let out = cap_top_k(snap, 10, "test");
+        assert_eq!(
+            out.len(),
+            3,
+            "a key with fewer than k values keeps all of them"
+        );
+    }
+
+    #[test]
+    fn cap_top_k_drops_tail_of_high_card_key() {
+        let snap = vec![
+            (tuple(2, "$insert_id", "a"), 1),
+            (tuple(2, "$insert_id", "b"), 9),
+            (tuple(2, "$insert_id", "c"), 5),
+            (tuple(2, "$insert_id", "d"), 1),
+        ];
+        let out = cap_top_k(snap, 2, "test");
+        assert_eq!(out.len(), 2);
+        let counts: Vec<u64> = out.iter().map(|(_, c)| *c).collect();
+        assert!(
+            counts.contains(&9) && counts.contains(&5),
+            "keeps the two highest counts"
+        );
+    }
+
+    #[test]
+    fn cap_top_k_caps_each_key_independently() {
+        let snap = vec![
+            (tuple(2, "$browser", "Chrome"), 3),
+            (tuple(2, "$insert_id", "a"), 1),
+            (tuple(2, "$insert_id", "b"), 2),
+            (tuple(2, "$insert_id", "c"), 3),
+        ];
+        let out = cap_top_k(snap, 2, "test");
+        let browser = out
+            .iter()
+            .filter(|(t, _)| t.property_key == "$browser")
+            .count();
+        let insert = out
+            .iter()
+            .filter(|(t, _)| t.property_key == "$insert_id")
+            .count();
+        assert_eq!(browser, 1, "low-card key untouched");
+        assert_eq!(insert, 2, "high-card key capped to k");
+    }
+
     #[tokio::test]
     async fn successful_flush_drains_aggregator() {
         let mut agg = Aggregator::new();
@@ -225,7 +352,16 @@ mod tests {
 
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new();
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
 
         assert!(agg.is_empty());
         assert_eq!(producer.call_count(), 1);
@@ -239,7 +375,16 @@ mod tests {
 
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
 
         assert_eq!(
             agg.len(),
@@ -256,10 +401,28 @@ mod tests {
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
 
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
         assert!(!agg.is_empty());
 
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
         assert!(agg.is_empty());
         assert_eq!(producer.call_count(), 2);
     }
@@ -269,7 +432,16 @@ mod tests {
         let mut agg = Aggregator::new();
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new();
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
         assert_eq!(producer.call_count(), 0);
     }
 
@@ -280,11 +452,29 @@ mod tests {
 
         let mut pending: HashMap<i32, Offset> = HashMap::new();
         let producer = MockProducer::new().fail_on(1);
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
 
         agg.add(tuple(2, "k1", "v1"), 1);
 
-        flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            None,
+        )
+        .await;
 
         let batch = producer.last_items();
         assert_eq!(batch.len(), 1);
@@ -300,11 +490,146 @@ mod tests {
         let producer = MockProducer::new().fail_on(1).fail_on(2).fail_on(3);
 
         for _ in 0..3 {
-            flush(&mut agg, &mut pending, &producer, FLUSH_REASON_TIMER).await;
+            flush(
+                &mut agg,
+                &mut pending,
+                &producer,
+                FLUSH_REASON_TIMER,
+                "test",
+                0,
+                None,
+            )
+            .await;
         }
 
         assert_eq!(agg.len(), 1);
         assert_eq!(producer.call_count(), 3);
+    }
+
+    #[tokio::test]
+    async fn seen_cache_suppresses_already_emitted_tuples() {
+        let cache = SeenCache::new(1000, "test");
+        let mut pending: HashMap<i32, Offset> = HashMap::new();
+        let producer = MockProducer::new();
+
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "k", "v"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(producer.last_items().len(), 1, "first sight is emitted");
+
+        agg.add(tuple(2, "k", "v"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(
+            producer.call_count(),
+            1,
+            "an already-cached tuple is suppressed, so there is no second produce"
+        );
+        assert!(
+            agg.is_empty(),
+            "suppressed tuples still drain the aggregator"
+        );
+    }
+
+    #[tokio::test]
+    async fn seen_cache_reemits_after_produce_failure() {
+        let cache = SeenCache::new(1000, "test");
+        let mut pending: HashMap<i32, Offset> = HashMap::new();
+        let producer = MockProducer::new().fail_on(1);
+
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "k", "v"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(agg.len(), 1, "failed produce restores the tuple for retry");
+
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(producer.call_count(), 2);
+        assert_eq!(
+            producer.last_items().len(),
+            1,
+            "a tuple forgotten on produce failure is re-emitted, not lost to the cache"
+        );
+    }
+
+    #[tokio::test]
+    async fn seen_cache_emits_new_values_and_suppresses_repeats() {
+        let cache = SeenCache::new(1000, "test");
+        let mut pending: HashMap<i32, Offset> = HashMap::new();
+        let producer = MockProducer::new();
+
+        let mut agg = Aggregator::new();
+        agg.add(tuple(2, "k", "a"), 1);
+        agg.add(tuple(2, "k", "b"), 1);
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        assert_eq!(
+            producer.last_items().len(),
+            2,
+            "distinct new tuples all emit"
+        );
+
+        agg.add(tuple(2, "k", "a"), 1); // already seen
+        agg.add(tuple(2, "k", "c"), 1); // new
+        flush(
+            &mut agg,
+            &mut pending,
+            &producer,
+            FLUSH_REASON_TIMER,
+            "test",
+            0,
+            Some(&cache),
+        )
+        .await;
+        let batch = producer.last_items();
+        assert_eq!(
+            batch.len(),
+            1,
+            "only the new value emits; the repeat is suppressed"
+        );
+        assert_eq!(batch[0].0.property_value, "c");
     }
 
     fn arb_property_type() -> impl Strategy<Value = PropertyType> {
@@ -321,8 +646,9 @@ mod tests {
             property_type in arb_property_type(),
             property_key in "[a-c]{1,2}",
             property_value in "[x-z]{1,2}",
+            event_name in "[a-b]{0,2}",
         ) -> TupleKey {
-            TupleKey { team_id, property_type, property_key, property_value }
+            TupleKey { team_id, property_type, property_key, property_value, event_name }
         }
     }
 
@@ -373,6 +699,9 @@ mod tests {
                             &mut pending,
                             &producer,
                             FLUSH_REASON_TIMER,
+                            "test",
+                            0,
+                            None,
                         ));
                     }
                 }

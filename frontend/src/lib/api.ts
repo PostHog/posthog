@@ -123,6 +123,7 @@ import {
     Experiment,
     ExportedAssetType,
     ExternalDataJob,
+    ExternalDataSchemaWithSource,
     ExternalDataSource,
     ExternalDataSourceConnectionOption,
     ExternalDataSourceCreatePayload,
@@ -540,6 +541,11 @@ export class ApiRequest {
     }
 
     // # File System
+    // These endpoints operate on the "web" surface — the tree shown in this app's sidebar.
+    // Surface is server-controlled per route (clients can't send it): the `file_system*`
+    // routes are pinned to "web" server-side, while the separate `desktop_file_system*` routes
+    // (used by a different app, not this frontend) serve the "desktop" surface. So every call
+    // from this frontend is implicitly and exclusively scoped to "web".
     public fileSystem(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('file_system')
     }
@@ -728,6 +734,23 @@ export class ApiRequest {
 
     public logsExport(projectId?: ProjectType['id']): ApiRequest {
         return this.logs(projectId).addPathComponent('export')
+    }
+
+    // # Metrics
+    public metrics(projectId?: ProjectType['id']): ApiRequest {
+        return this.environmentsDetail(projectId).addPathComponent('metrics')
+    }
+
+    public metricsHasMetrics(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('has_metrics')
+    }
+
+    public metricsQuery(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('query')
+    }
+
+    public metricsValues(projectId?: ProjectType['id']): ApiRequest {
+        return this.metrics(projectId).addPathComponent('values')
     }
 
     // # Tracing
@@ -1001,6 +1024,10 @@ export class ApiRequest {
     // # OrganizationMembers
     public organizationMembers(): ApiRequest {
         return this.organizations().current().addPathComponent('members')
+    }
+
+    public organizationMembersForAccount(): ApiRequest {
+        return this.projectsDetail().addPathComponent('organization_members')
     }
 
     public organizationMember(uuid: OrganizationMemberType['user']['uuid']): ApiRequest {
@@ -2785,7 +2812,51 @@ const api = {
         },
     },
 
+    metrics: {
+        async hasMetrics(): Promise<boolean> {
+            return new ApiRequest()
+                .metricsHasMetrics()
+                .get()
+                .then((response) => Boolean(response.hasMetrics))
+        },
+        async query({
+            query,
+            signal,
+        }: {
+            query: {
+                metricName: string
+                aggregation: 'sum' | 'avg' | 'count' | 'p95'
+                dateFrom: string
+                dateTo?: string
+            }
+            signal?: AbortSignal
+        }): Promise<{ results: { time: string; value: number }[] }> {
+            return new ApiRequest().metricsQuery().create({ signal, data: { query } })
+        },
+        async values({
+            search,
+            limit,
+            signal,
+        }: {
+            search?: string
+            limit?: number
+            signal?: AbortSignal
+        } = {}): Promise<{ results: { name: string; metric_type: string }[] }> {
+            return new ApiRequest()
+                .metricsValues()
+                .withQueryString({ value: search ?? '', limit: limit ?? 100 })
+                .get({ signal })
+        },
+    },
+
     tracing: {
+        async hasSpans(): Promise<boolean> {
+            return new ApiRequest()
+                .tracingSpans()
+                .withAction('has_spans')
+                .get()
+                .then((response) => Boolean(response.hasSpans))
+        },
         async listSpans(
             query: {
                 dateRange?: { date_from?: string | null; date_to?: string | null }
@@ -2993,6 +3064,9 @@ const api = {
         } = {}): Promise<{ primary_properties: Record<string, string> }> {
             const params = names && names.length > 0 ? toParams({ names }, true) : ''
             return new ApiRequest().eventDefinitions().withAction('primary_properties').withQueryString(params).get()
+        },
+        async byName({ name }: { name: string }): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().withAction('by_name').withQueryString(toParams({ name })).get()
         },
         async getMetrics({
             eventDefinitionId,
@@ -3460,6 +3534,16 @@ const api = {
         async listAll(params: ListOrganizationMembersParams = {}): Promise<OrganizationMemberType[]> {
             const url = new ApiRequest().organizationMembers().withQueryString(params).assembleFullUrl()
             return api.loadPaginatedResults<OrganizationMemberType>(url)
+        },
+
+        async listForOrg(
+            organizationId: OrganizationType['id'],
+            params: { limit?: number; offset?: number } = {}
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
+            return await new ApiRequest()
+                .organizationMembersForAccount()
+                .withQueryString({ organization_id: organizationId, ...params })
+                .get()
         },
 
         async delete(uuid: OrganizationMemberType['user']['uuid']): Promise<PaginatedResponse<void>> {
@@ -4053,17 +4137,20 @@ const api = {
                 offset = 0,
                 limit = 100,
                 orderBy = '-created_at',
+                search,
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
                 orderBy?: SymbolSetOrder
+                search?: string
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
                 const queryString = {
                     order_by: orderBy,
                     status,
                     offset,
                     limit,
+                    search,
                 }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
@@ -4951,8 +5038,8 @@ const api = {
         async repositories(): Promise<{ repositories: string[] }> {
             return await new ApiRequest().tasks().withAction('repositories').get()
         },
-        async get(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).get()
+        async get(id: Task['id'], params: Record<string, any> = {}): Promise<Task> {
+            return await new ApiRequest().task(id).withQueryString(params).get()
         },
         async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
@@ -4970,11 +5057,11 @@ const api = {
             return await new ApiRequest().task(id).withAction('run').create()
         },
         runs: {
-            async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
-                return await new ApiRequest().taskRuns(taskId).get()
+            async list(taskId: Task['id'], params: Record<string, any> = {}): Promise<PaginatedResponse<TaskRun>> {
+                return await new ApiRequest().taskRuns(taskId).withQueryString(params).get()
             },
-            async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
-                return await new ApiRequest().taskRun(taskId, runId).get()
+            async get(taskId: Task['id'], runId: TaskRun['id'], params: Record<string, any> = {}): Promise<TaskRun> {
+                return await new ApiRequest().taskRun(taskId, runId).withQueryString(params).get()
             },
             async getLogs(taskId: Task['id'], runId: TaskRun['id']): Promise<string> {
                 const run = await new ApiRequest().taskRun(taskId, runId).get()
@@ -5525,6 +5612,64 @@ const api = {
                 .withAction('check_cdc_prerequisites')
                 .create({ data: payload })
         },
+        async check_cdc_prerequisites_for_source(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_management_mode: 'posthog' | 'self_managed'
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+            }
+        ): Promise<{ valid: boolean; errors: string[] }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('check_cdc_prerequisites_for_source')
+                .create({ data: payload })
+        },
+        async enable_cdc(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_management_mode: 'posthog' | 'self_managed'
+                cdc_slot_name?: string | null
+                cdc_publication_name?: string | null
+                cdc_auto_drop_slot?: boolean
+                cdc_lag_warning_threshold_mb?: number
+                cdc_lag_critical_threshold_mb?: number
+            }
+        ): Promise<{ success: boolean }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('enable_cdc')
+                .create({ data: payload })
+        },
+        async disable_cdc(sourceId: ExternalDataSource['id']): Promise<{ success: boolean }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('disable_cdc').create()
+        },
+        async cdc_status(sourceId: ExternalDataSource['id']): Promise<{
+            enabled: boolean
+            management_mode?: 'posthog' | 'self_managed'
+            slot_name?: string
+            publication_name?: string
+            lag_warning_threshold_mb?: number
+            lag_critical_threshold_mb?: number
+            slot_exists?: boolean
+            publication_exists?: boolean
+            lag_bytes?: number | null
+        }> {
+            return await new ApiRequest().externalDataSource(sourceId).withAction('cdc_status').get()
+        },
+        async update_cdc_settings(
+            sourceId: ExternalDataSource['id'],
+            payload: {
+                cdc_auto_drop_slot?: boolean
+                cdc_lag_warning_threshold_mb?: number
+                cdc_lag_critical_threshold_mb?: number
+            }
+        ): Promise<{ success: boolean }> {
+            return await new ApiRequest()
+                .externalDataSource(sourceId)
+                .withAction('update_cdc_settings')
+                .create({ data: payload })
+        },
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,
@@ -5646,6 +5791,9 @@ const api = {
     },
 
     externalDataSchemas: {
+        async get(schemaId: ExternalDataSourceSchema['id']): Promise<ExternalDataSchemaWithSource> {
+            return await new ApiRequest().externalDataSourceSchema(schemaId).get()
+        },
         async update(
             schemaId: ExternalDataSourceSchema['id'],
             data: Partial<ExternalDataSourceSchema>
@@ -6060,8 +6208,15 @@ const api = {
         async update(alertId: AlertType['id'], data: Partial<AlertTypeWrite>): Promise<AlertType> {
             return await new ApiRequest().alert(alertId).update({ data })
         },
-        async list(insightId?: InsightModel['id']): Promise<PaginatedResponse<AlertType>> {
-            return await new ApiRequest().alerts(undefined, insightId).get()
+        async list(
+            insightId?: InsightModel['id'],
+            params: { limit?: number; offset?: number } = {}
+        ): Promise<CountedPaginatedResponse<AlertType>> {
+            const queryParams: Record<string, any> = { ...params }
+            if (insightId !== undefined) {
+                queryParams.insight_id = insightId
+            }
+            return await new ApiRequest().alerts().withQueryString(toParams(queryParams)).get()
         },
         async delete(alertId: AlertType['id']): Promise<void> {
             return await new ApiRequest().alert(alertId).delete()
@@ -6616,6 +6771,13 @@ const api = {
             rich_content?: Record<string, unknown> | null
         }): Promise<{ id: string; ticket_number: number }> {
             return await new ApiRequest().conversationsTickets().withAction('compose').create({ data })
+        },
+
+        async bulkUpdateStatus(ids: string[], ticketStatus: string): Promise<{ updated: number; ids: string[] }> {
+            return await new ApiRequest()
+                .conversationsTickets()
+                .withAction('bulk_update_status')
+                .create({ data: { ids, status: ticketStatus } })
         },
     },
 

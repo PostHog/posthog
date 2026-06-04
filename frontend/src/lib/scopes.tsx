@@ -30,7 +30,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'deployment', objectName: 'Deployment', objectPlural: 'deployments' },
     { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
@@ -70,6 +69,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
+    { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {
@@ -139,6 +139,7 @@ export const API_SCOPES: APIScope[] = [
             ),
         },
     },
+    { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {

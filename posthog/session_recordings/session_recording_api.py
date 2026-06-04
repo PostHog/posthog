@@ -46,6 +46,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
 from posthog.schema import (
+    HideViewedRecordings,
     MatchedRecordingEvent,
     MatchingEventsResponse,
     ProductIntentContext,
@@ -540,6 +541,34 @@ def list_recordings_response(
     return response
 
 
+class _SessionRecordingListViewShim:
+    """Minimal view shim so SessionRecordingSerializer skips list-view N+1 loads."""
+
+    action = "list"
+
+
+def session_recording_list_serializer_context(team: Team) -> dict[str, Any]:
+    return {"view": _SessionRecordingListViewShim(), "get_team": lambda: team}
+
+
+def run_recordings_list_query(
+    query: RecordingsQuery,
+    *,
+    user: User | None,
+    team: Team,
+    allow_event_property_expansion: bool = False,
+) -> dict[str, Any]:
+    """Fetch and serialize recordings the same way as SessionRecordingViewSet.list."""
+    listing_result = list_recordings_from_query(
+        query=query,
+        user=user,
+        team=team,
+        allow_event_property_expansion=allow_event_property_expansion,
+    )
+    response = list_recordings_response(listing_result, context=session_recording_list_serializer_context(team))
+    return cast(dict[str, Any], response.data)
+
+
 def ensure_not_weak(etag: str) -> str:
     """
     minio at least doesn't like weak etags, so we need to strip the W/ prefix if it exists.
@@ -693,6 +722,23 @@ class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
 
     def _get_rates(self) -> dict[str, dict[str, str]]:
         return listing_rates()
+
+
+def get_replay_listing_throttle_error(request, view) -> str | None:
+    """Return a client-facing error when replay listing throttles would block this request."""
+    auth_type = _request_auth_type(request)
+    for throttle_cls in (ListingBurstRateThrottle, ListingSustainedRateThrottle):
+        throttle = throttle_cls()
+        if throttle.allow_request(request, view):
+            continue
+        wait = throttle.wait()
+        scope = throttle.scope or "listing"
+        SESSION_RECORDING_THROTTLED.labels(location=scope, auth_type=auth_type).inc()
+        if wait:
+            return f"Rate limit exceeded. Expected available in {wait} seconds."
+        return "Rate limit exceeded. Try again later."
+    # None: both listing burst and sustained throttles allowed the request.
+    return None
 
 
 class SharingTokenReplayThrottle(SimpleRateThrottle):
@@ -1988,11 +2034,22 @@ def list_recordings_from_query(
 
             query_for_list = query.model_copy(update=query_updates)
 
+            # Resolve the "hide viewed recordings" filter into a server-side exclusion set, so pagination
+            # and the cursor operate on the filtered set. Skip when explicit session_ids are requested
+            # (pinned recordings, comment search) since those are intentional and shouldn't be hidden.
+            session_ids_to_exclude: list[str] = []
+            if query_for_list.session_ids is None:
+                with timer("load_viewed_recordings_to_exclude"):
+                    session_ids_to_exclude = _viewed_session_ids_to_exclude(
+                        query_for_list.hide_viewed_recordings, user, team
+                    )
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
                 hogql_query_modifiers=None,
                 allow_event_property_expansion=allow_event_property_expansion,
+                session_ids_to_exclude=session_ids_to_exclude,
             ).run()
             ch_session_recordings = query_result.results
 
@@ -2091,6 +2148,42 @@ def current_user_viewed(recording_ids_in_list: list[str], user: User | None, tea
         .values_list("session_id", flat=True)
     )
     return viewed_session_recordings
+
+
+# The exclusion list is inlined into the ClickHouse query, so an unbounded set (e.g. a large team in
+# 'any-user' mode) could exceed max_query_size and make the query fail or run slowly. Cap it; the
+# client-side filter still hides any viewed recordings beyond the cap.
+MAX_VIEWED_SESSION_IDS_TO_EXCLUDE = 10_000
+
+
+def _viewed_session_ids_to_exclude(
+    hide_viewed_recordings: HideViewedRecordings | None, user: User | None, team: Team
+) -> list[str]:
+    """
+    Resolve the "hide viewed recordings" filter into the set of session_ids to exclude server-side,
+    so pagination and the result cursor operate on the already-filtered set.
+
+    - 'current-user': recordings this user has viewed (empty when there is no user, e.g. Celery callers)
+    - 'any-user': recordings any team member has viewed
+
+    Not bounded by date: SessionRecordingViewed only stores the view time (created_at), which does not
+    correspond to the recording's start_time, so a date bound would exclude/include the wrong rows.
+    Bounded by count: see MAX_VIEWED_SESSION_IDS_TO_EXCLUDE. Ordered by session_id so the truncation
+    is deterministic across paginated requests rather than returning an arbitrary slice each time.
+    """
+    queryset = SessionRecordingViewed.objects.filter(team=team)
+    if hide_viewed_recordings == HideViewedRecordings.CURRENT_USER:
+        if not user:
+            return []
+        queryset = queryset.filter(user=user)
+    elif hide_viewed_recordings != HideViewedRecordings.ANY_USER:
+        return []
+
+    return list(
+        queryset.values_list("session_id", flat=True)
+        .distinct()
+        .order_by("session_id")[:MAX_VIEWED_SESSION_IDS_TO_EXCLUDE]
+    )
 
 
 def create_openai_messages(system_content: str, user_content: str) -> list[ChatCompletionMessageParam]:
