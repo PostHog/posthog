@@ -13,7 +13,7 @@ WHERE team_id IN %(team_ids)s
   AND event IN ('$pageview', '$screen')
   AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
 GROUP BY team_id
-HAVING countIf(position(properties, '"$lib_custom_api_host"') > 0) = 0
+HAVING countIf(JSONHas(properties, '$lib_custom_api_host')) = 0
 """
 
 

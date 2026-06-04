@@ -6,12 +6,13 @@
             "type": "number"
         },
         "widgets": {
-            "description": "Widget tiles to add atomically (1–10). Use a single-element list to add one widget.",
+            "description": "Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).",
             "items": {
-                "properties": {
-                    "config": {
-                        "anyOf": [
-                            {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "Configuration for the error tracking list widget.",
                                 "properties": {
                                     "dateRange": {
                                         "anyOf": [
@@ -86,7 +87,88 @@
                                 },
                                 "type": "object"
                             },
-                            {
+                            "description": {
+                                "description": "Optional markdown description shown when show_description is enabled.",
+                                "type": "string"
+                            },
+                            "layouts": {
+                                "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+                                "properties": {
+                                    "sm": {
+                                        "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "xs": {
+                                        "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional custom display name for the widget tile."
+                            },
+                            "show_description": {
+                                "description": "Whether to show the description on the dashboard tile.",
+                                "type": "boolean"
+                            },
+                            "widget_type": {
+                                "enum": ["error_tracking_list"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["widget_type", "config"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "config": {
+                                "description": "Configuration for the session replay list widget.",
                                 "properties": {
                                     "dateRange": {
                                         "anyOf": [
@@ -154,88 +236,86 @@
                                     }
                                 },
                                 "type": "object"
-                            }
-                        ],
-                        "description": "Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list."
-                    },
-                    "description": {
-                        "description": "Optional markdown description shown when show_description is enabled.",
-                        "type": "string"
-                    },
-                    "layouts": {
-                        "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
-                        "properties": {
-                            "sm": {
-                                "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
-                                "properties": {
-                                    "h": {
-                                        "description": "Height in grid rows.",
-                                        "type": "number"
-                                    },
-                                    "w": {
-                                        "description": "Width in grid columns. The desktop grid is 12 columns wide.",
-                                        "type": "number"
-                                    },
-                                    "x": {
-                                        "description": "Column position in the dashboard grid (0-indexed).",
-                                        "type": "number"
-                                    },
-                                    "y": {
-                                        "description": "Row position in the dashboard grid (0-indexed).",
-                                        "type": "number"
-                                    }
-                                },
-                                "type": "object"
                             },
-                            "xs": {
-                                "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
-                                "properties": {
-                                    "h": {
-                                        "description": "Height in grid rows.",
-                                        "type": "number"
-                                    },
-                                    "w": {
-                                        "description": "Width in grid columns. The desktop grid is 12 columns wide.",
-                                        "type": "number"
-                                    },
-                                    "x": {
-                                        "description": "Column position in the dashboard grid (0-indexed).",
-                                        "type": "number"
-                                    },
-                                    "y": {
-                                        "description": "Row position in the dashboard grid (0-indexed).",
-                                        "type": "number"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        },
-                        "type": "object"
-                    },
-                    "name": {
-                        "anyOf": [
-                            {
-                                "maxLength": 400,
+                            "description": {
+                                "description": "Optional markdown description shown when show_description is enabled.",
                                 "type": "string"
                             },
-                            {
-                                "type": "null"
+                            "layouts": {
+                                "description": "Optional react-grid-layout positions keyed by breakpoint (sm, xs).",
+                                "properties": {
+                                    "sm": {
+                                        "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
+                                    "xs": {
+                                        "description": "Layout for the small (mobile) breakpoint. The grid is 1 column wide.",
+                                        "properties": {
+                                            "h": {
+                                                "description": "Height in grid rows.",
+                                                "type": "number"
+                                            },
+                                            "w": {
+                                                "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                                "type": "number"
+                                            },
+                                            "x": {
+                                                "description": "Column position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            },
+                                            "y": {
+                                                "description": "Row position in the dashboard grid (0-indexed).",
+                                                "type": "number"
+                                            }
+                                        },
+                                        "type": "object"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "name": {
+                                "anyOf": [
+                                    {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Optional custom display name for the widget tile."
+                            },
+                            "show_description": {
+                                "description": "Whether to show the description on the dashboard tile.",
+                                "type": "boolean"
+                            },
+                            "widget_type": {
+                                "enum": ["session_replay_list"],
+                                "type": "string"
                             }
-                        ],
-                        "description": "Optional custom display name for the widget tile."
-                    },
-                    "show_description": {
-                        "description": "Whether to show the description on the dashboard tile.",
-                        "type": "boolean"
-                    },
-                    "widget_type": {
-                        "description": "Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.",
-                        "maxLength": 64,
-                        "type": "string"
+                        },
+                        "required": ["widget_type", "config"],
+                        "type": "object"
                     }
-                },
-                "required": ["widget_type", "config"],
-                "type": "object"
+                ]
             },
             "maxItems": 10,
             "minItems": 1,
