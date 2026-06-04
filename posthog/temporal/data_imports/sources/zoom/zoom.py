@@ -162,10 +162,10 @@ def _list_all_user_ids(client: ZoomClient, logger: FilteringBoundLogger) -> list
             response.raise_for_status()
 
         body = response.json()
+        # Direct access: a user without an id is a malformed response that should
+        # fail loudly rather than silently drop the user (and its meetings/webinars).
         for user in body.get("users") or []:
-            user_id = user.get("id")
-            if user_id:
-                user_ids.append(user_id)
+            user_ids.append(user["id"])
 
         token = body.get("next_page_token") or ""
         if not token:

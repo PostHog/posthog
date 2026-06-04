@@ -54,7 +54,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:
