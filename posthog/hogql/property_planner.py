@@ -398,7 +398,8 @@ def _materialized_table_info(field_type: ast.FieldType, context: HogQLContext) -
     if not isinstance(table, ast.TableType):
         return None
 
-    table_name = table.resolve_database_table(context).to_printed_hogql()
+    resolved_table = table.resolve_database_table(context)
+    table_name = "person" if isinstance(resolved_table, RawPersonsTable) else resolved_table.to_printed_hogql()
     if table_name not in MATERIALIZATION_VALID_TABLES:
         return None
 

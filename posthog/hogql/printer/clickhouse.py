@@ -785,7 +785,10 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(table, ast.TableType):
             return None
 
-        if table.resolve_database_table(self.context).to_printed_hogql() not in MATERIALIZATION_VALID_TABLES:
+        if (
+            table.resolve_database_table(self.context).to_printed_clickhouse(self.context)
+            not in MATERIALIZATION_VALID_TABLES
+        ):
             return None
 
         return (
