@@ -119,7 +119,9 @@ class WorkflowRun:
     conclusion: WorkflowConclusion | None
     run_started_at: datetime
     updated_at: datetime
-    duration_seconds: int
+    # None until the run completes — the curated builder only computes a duration
+    # for completed runs (see workflow_runs.build_query).
+    duration_seconds: int | None
 
 
 @dataclass(frozen=True)
