@@ -89,6 +89,14 @@ function CrawlConfigFields({ crawlMode }: { crawlMode: string }): JSX.Element | 
     )
 }
 
+const REFRESH_INTERVAL_OPTIONS = [
+    { value: 'manual', label: 'Manual only' },
+    { value: '1h', label: 'Every hour' },
+    { value: '6h', label: 'Every 6 hours' },
+    { value: '24h', label: 'Every day' },
+    { value: '7d', label: 'Every week' },
+]
+
 function RefreshStatusCell({ source }: { source: KnowledgeSource }): JSX.Element | null {
     if (source.source_type !== 'url') {
         return null
@@ -97,12 +105,17 @@ function RefreshStatusCell({ source }: { source: KnowledgeSource }): JSX.Element
         return <span className="text-muted">—</span>
     }
     return (
-        <div>
+        <div className="flex flex-col gap-0.5">
             <TZLabel time={source.last_refresh_at} />
             {source.last_refresh_status === 'error' ? (
                 <LemonTag type="danger" title={source.last_refresh_error || undefined}>
                     refresh failed
                 </LemonTag>
+            ) : null}
+            {source.next_refresh_at ? (
+                <span className="text-xs text-muted">
+                    next <TZLabel time={source.next_refresh_at} />
+                </span>
             ) : null}
         </div>
     )
@@ -182,7 +195,17 @@ export function BusinessKnowledgeScene(): JSX.Element {
                         key: 'name',
                         render: (_, row) => (
                             <div className="flex flex-col">
-                                <strong>{row.name}</strong>
+                                <span className="flex items-center gap-1">
+                                    <strong>{row.name}</strong>
+                                    {row.has_unsafe_documents ? (
+                                        <LemonTag
+                                            type="danger"
+                                            title="One or more documents were flagged unsafe by the content classifier and are excluded from agent search."
+                                        >
+                                            unsafe content
+                                        </LemonTag>
+                                    ) : null}
+                                </span>
                                 {row.source_type === 'url' && row.source_url ? (
                                     <Link
                                         to={row.source_url}
@@ -373,6 +396,13 @@ export function BusinessKnowledgeScene(): JSX.Element {
                                     </LemonField>
                                     <CrawlModeHelp />
                                     <CrawlConfigFields crawlMode={urlSource.crawl_mode} />
+                                    <LemonField
+                                        name="refresh_interval"
+                                        label="Auto-refresh"
+                                        info="How often PostHog re-fetches this source in the background after the initial crawl."
+                                    >
+                                        <LemonSelect options={REFRESH_INTERVAL_OPTIONS} />
+                                    </LemonField>
                                 </Form>
                             ),
                         },
@@ -455,6 +485,13 @@ export function BusinessKnowledgeScene(): JSX.Element {
                             />
                         </LemonField>
                         <CrawlConfigFields crawlMode={editUrlSource.crawl_mode} />
+                        <LemonField
+                            name="refresh_interval"
+                            label="Auto-refresh"
+                            info="How often PostHog re-fetches this source in the background. Changing it alone does not trigger an immediate re-crawl."
+                        >
+                            <LemonSelect options={REFRESH_INTERVAL_OPTIONS} />
+                        </LemonField>
                         <p className="text-xs text-muted">
                             Changing the URL or crawl settings will trigger a re-crawl.
                         </p>
