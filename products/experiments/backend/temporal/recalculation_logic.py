@@ -4,6 +4,7 @@ The thin ``@temporalio.activity.defn`` entrypoints live in ``recalculation_activ
 module holds the DB-touching ``_*_sync`` implementations plus the pure helpers they compose from.
 """
 
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +12,7 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -54,27 +56,47 @@ _MAX_ERROR_MESSAGE_LENGTH = 2000
 # ---------------------------------------------------------------------------
 
 
-def _get_recalc_team_id(recalculation_id: str) -> int:
-    """Resolve the team_id for a recalc without entering scope yet (chicken-and-egg)."""
-    team_id = (
+@dataclasses.dataclass(frozen=True)
+class _RecalcState:
+    """The recalc row fields the activities cross-check their inputs against.
+
+    Loaded once at the top of each activity via a single unscoped SELECT — same query count as just reading
+    team_id, but the extra columns let the calculate activity assert its (experiment_id, metric_uuid, query_to)
+    inputs match the row state instead of trusting whatever the workflow passed.
+    """
+
+    team_id: int
+    experiment_id: int
+    metric_uuids: list[str]
+    query_to: datetime | None
+
+
+def _get_recalc_state(recalculation_id: str) -> _RecalcState:
+    """Resolve the recalc row's identifying fields without entering scope yet (chicken-and-egg)."""
+    row = (
         ExperimentMetricsRecalculation.objects.unscoped()
         .filter(id=recalculation_id)
-        .values_list("team_id", flat=True)
+        .values("team_id", "experiment_id", "metric_uuids", "query_to")
         .first()
     )
-    if team_id is None:
+    if row is None:
         raise ExperimentMetricsRecalculation.DoesNotExist(
             f"ExperimentMetricsRecalculation {recalculation_id} not found"
         )
-    return team_id
+    return _RecalcState(
+        team_id=row["team_id"],
+        experiment_id=row["experiment_id"],
+        metric_uuids=row["metric_uuids"] or [],
+        query_to=row["query_to"],
+    )
 
 
 @database_sync_to_async
 def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
     close_old_connections()
 
-    team_id = _get_recalc_team_id(recalculation_id)
-    with team_scope(team_id, canonical=True):
+    state = _get_recalc_state(recalculation_id)
+    with team_scope(state.team_id, canonical=True):
         recalculation = ExperimentMetricsRecalculation.objects.select_related("experiment").get(id=recalculation_id)
         experiment = recalculation.experiment
 
@@ -121,8 +143,8 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
     close_old_connections()
 
-    team_id = _get_recalc_team_id(update.recalculation_id)
-    with team_scope(team_id, canonical=True):
+    state = _get_recalc_state(update.recalculation_id)
+    with team_scope(state.team_id, canonical=True):
         # Start: write the data-window end + started_at + initial state under a first-write-wins guard so a
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
@@ -270,9 +292,33 @@ def _calculate_experiment_metric_for_recalculation_sync(
     close_old_connections()
 
     query_to_dt = datetime.fromisoformat(query_to)
-    team_id = _get_recalc_team_id(recalculation_id)
+    state = _get_recalc_state(recalculation_id)
 
-    with team_scope(team_id, canonical=True):
+    # Defense-in-depth at the activity boundary: the workflow constructs all four args from its own state,
+    # so a mismatch here means a workflow bug, not a data issue. Fail non-retryable so Temporal terminates
+    # the run promptly rather than burning retries on a deterministic failure.
+    if experiment_id != state.experiment_id:
+        raise ApplicationError(
+            f"experiment_id {experiment_id} does not match recalc.experiment_id {state.experiment_id}",
+            non_retryable=True,
+        )
+    if metric_uuid not in state.metric_uuids:
+        raise ApplicationError(
+            f"metric_uuid {metric_uuid} is not in recalc {recalculation_id}'s metric set",
+            non_retryable=True,
+        )
+    if state.query_to is None:
+        raise ApplicationError(
+            f"recalc {recalculation_id} has no query_to set — calculate activity ran before start activity",
+            non_retryable=True,
+        )
+    if query_to_dt != state.query_to:
+        raise ApplicationError(
+            f"query_to {query_to_dt.isoformat()} does not match recalc.query_to {state.query_to.isoformat()}",
+            non_retryable=True,
+        )
+
+    with team_scope(state.team_id, canonical=True):
         try:
             experiment = Experiment.objects.get(id=experiment_id, deleted=False)
         except Experiment.DoesNotExist:

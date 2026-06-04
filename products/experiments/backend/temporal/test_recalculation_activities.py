@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -5,6 +7,7 @@ from unittest.mock import patch
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.scoping import team_scope
 
@@ -263,21 +266,35 @@ class TestCalculateActivity(BaseTest):
             exp.save()
         return exp
 
-    def _recalc(self, exp: Experiment, total: int = 1) -> ExperimentMetricsRecalculation:
-        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, total_metrics=total)
+    def _recalc(
+        self, exp: Experiment, *, metric_uuids: list[str], total: int | None = None
+    ) -> ExperimentMetricsRecalculation:
+        """Create a recalc row in the post-discovery + post-start state, so the calculate activity's
+        input-validation guards (metric_uuids membership, query_to set) are satisfied as the workflow
+        would have set them."""
+        return ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            metric_uuids=metric_uuids,
+            total_metrics=total if total is not None else len(metric_uuids),
+            query_to=datetime.fromisoformat(_QUERY_TO),
+        )
 
-    def test_metric_not_found_fails_at_discovery(self):
+    def test_metric_disappeared_between_discovery_and_calc(self):
+        # Discovery included m1 in the recalc's metric set (so input validation passes), but the experiment
+        # was edited and m1 is no longer present — the calc activity's inner lookup must surface this as a
+        # discovery-step failure rather than crashing.
         with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-missing", metrics=[_mean_metric("m1")])
-            recalc = self._recalc(exp)
+            exp = self._experiment(flag_key="calc-missing", metrics=[])
+            recalc = self._recalc(exp, metric_uuids=["m1"])
 
-            result = _calculate(exp.id, "does-not-exist", str(recalc.id), _QUERY_TO)
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
             assert result.success is False
             assert result.error_step == "discovery"
             recalc.refresh_from_db()
             assert len(recalc.metric_errors) == 1
-            assert "does-not-exist" in recalc.metric_errors
+            assert "m1" in recalc.metric_errors
 
     def test_bad_metric_type_fails_at_calculation(self):
         # Legacy metrics never reach this workflow, so there's no discovery-time type guard; an unexpected
@@ -287,7 +304,7 @@ class TestCalculateActivity(BaseTest):
                 flag_key="calc-badtype",
                 metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
             )
-            recalc = self._recalc(exp)
+            recalc = self._recalc(exp, metric_uuids=["m-bad"])
 
             result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
 
@@ -300,7 +317,7 @@ class TestCalculateActivity(BaseTest):
     def test_missing_start_date_fails(self):
         with team_scope(self.team.id, canonical=True):
             exp = self._experiment(flag_key="calc-no-start", with_start_date=False, metrics=[_mean_metric("m1")])
-            recalc = self._recalc(exp)
+            recalc = self._recalc(exp, metric_uuids=["m1"])
 
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -320,7 +337,7 @@ class TestCalculateActivity(BaseTest):
                 query=_mean_metric("s1"),
             )
             ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
-            recalc = self._recalc(exp)
+            recalc = self._recalc(exp, metric_uuids=["s1"])
 
             with patch(
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
@@ -335,9 +352,11 @@ class TestCalculateActivity(BaseTest):
             assert "s1" in recalc.metric_errors
 
     def test_concurrent_failures_do_not_lose_error_entries(self):
+        # Two metrics discovered, neither resolvable in the experiment by the time calc runs — exercises the
+        # discovery-step failure path under concurrent activities to confirm the metric_errors merge is race-safe.
         with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-concurrent")
-            recalc = self._recalc(exp, total=2)
+            exp = self._experiment(flag_key="calc-concurrent", metrics=[])
+            recalc = self._recalc(exp, metric_uuids=["missing-a", "missing-b"])
 
             _calculate(exp.id, "missing-a", str(recalc.id), _QUERY_TO)
             _calculate(exp.id, "missing-b", str(recalc.id), _QUERY_TO)
@@ -348,10 +367,11 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, metric_uuid_called, metrics_on_experiment, run_with_mocked_failure)
-            # Discovery-step failure: metric_uuid not present on the experiment, no result row, only metric_errors.
-            ("discovery_failure", "does-not-exist", [_mean_metric("m1")], False),
-            # Calculation-step failure: metric resolves, runner raises, writes both metric_errors and a FAILED result row.
+            # (name, metric_uuid, metrics_on_experiment, run_with_mocked_failure)
+            # Discovery-step failure: m1 in the recalc's discovered set but absent from the experiment (deleted
+            # between discovery and calc). No result row written, only metric_errors.
+            ("discovery_failure", "m1", [], False),
+            # Calculation-step failure: m1 resolves, runner raises, writes both metric_errors and a FAILED result row.
             ("calculation_failure", "m1", [_mean_metric("m1")], True),
         ]
     )
@@ -361,7 +381,7 @@ class TestCalculateActivity(BaseTest):
         # state identical to the first — no inflated counts, no duplicate result rows.
         with team_scope(self.team.id, canonical=True):
             exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
-            recalc = self._recalc(exp)
+            recalc = self._recalc(exp, metric_uuids=[metric_uuid])
 
             def _run() -> None:
                 if mock_runner_failure:
@@ -382,10 +402,55 @@ class TestCalculateActivity(BaseTest):
             # One result row per (metric_uuid, fingerprint, query_to) regardless of retry count.
             assert ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count() <= 1
 
+    @parameterized.expand(
+        [
+            # (name, build_kwargs, expected_error_fragment)
+            # The workflow constructs all four args from its own state, so any mismatch here means a workflow
+            # bug. The activity must fail non-retryable (no point in retrying a deterministic failure).
+            (
+                "experiment_id_mismatch",
+                {"experiment_id_offset": 9999},
+                "does not match recalc.experiment_id",
+            ),
+            (
+                "metric_uuid_not_in_set",
+                {"metric_uuid_override": "not-in-recalc-set"},
+                "is not in recalc",
+            ),
+            (
+                "query_to_mismatch",
+                {"query_to_override": "2030-01-01T00:00:00+00:00"},
+                "does not match recalc.query_to",
+            ),
+            (
+                "query_to_unset_on_recalc",
+                {"clear_query_to": True},
+                "has no query_to set",
+            ),
+        ]
+    )
+    def test_input_validation_fails_non_retryable(self, name: str, build_kwargs: dict, expected_fragment: str):
+        with team_scope(self.team.id, canonical=True):
+            exp = self._experiment(flag_key=f"validation-{name}", metrics=[_mean_metric("m1")])
+            recalc = self._recalc(exp, metric_uuids=["m1"])
+            if build_kwargs.get("clear_query_to"):
+                recalc.query_to = None
+                recalc.save(update_fields=["query_to"])
+
+            call_experiment_id = exp.id + build_kwargs.get("experiment_id_offset", 0)
+            call_metric_uuid = build_kwargs.get("metric_uuid_override", "m1")
+            call_query_to = build_kwargs.get("query_to_override", _QUERY_TO)
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(call_experiment_id, call_metric_uuid, str(recalc.id), call_query_to)
+
+            assert expected_fragment in str(exc_info.value)
+            assert exc_info.value.non_retryable is True
+
     def test_unexpected_error_calls_capture_exception_and_caps_message(self):
         with team_scope(self.team.id, canonical=True):
             exp = self._experiment(flag_key="calc-capture", metrics=[_mean_metric("m1")])
-            recalc = self._recalc(exp)
+            recalc = self._recalc(exp, metric_uuids=["m1"])
 
             with (
                 patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
