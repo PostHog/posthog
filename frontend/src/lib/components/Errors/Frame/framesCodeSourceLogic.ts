@@ -80,7 +80,15 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                     return
                 }
 
-                const result = await resolveMethod(parsed.owner, parsed.repository, codeSample, fileName)
+                let result: Awaited<ReturnType<typeof resolveMethod>>
+                try {
+                    result = await resolveMethod(parsed.owner, parsed.repository, codeSample, fileName)
+                } catch {
+                    // Source-link enrichment is best-effort. A transient resolver failure (e.g. the
+                    // provider's code-search API timing out and returning a 504) must degrade to
+                    // "no source link" rather than rejecting the whole batch as an uncaught error.
+                    return
+                }
 
                 if (!result.url) {
                     // Nothing to provide here
