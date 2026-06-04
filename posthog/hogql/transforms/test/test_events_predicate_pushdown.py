@@ -1555,6 +1555,17 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             "mixed_events_and_joined_predicate",
             f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND session.$session_duration >= 0 ORDER BY timestamp",
         ),
+        (
+            # A clause-level ARRAY JOIN multiplies rows before the LIMIT applies, so pushing the LIMIT into the
+            # events subquery (which runs before the ARRAY JOIN) would change the row count. Must decline.
+            "array_join_clause",
+            f"SELECT n, session.$session_duration AS d FROM events ARRAY JOIN [1, 2] AS n WHERE {_RANGE}",
+        ),
+        (
+            # A total aggregation (no GROUP BY) consumes the whole filtered set before the LIMIT. Must decline.
+            "aggregate_no_group_by",
+            f"SELECT count() AS c, max(session.$session_duration) AS d FROM events WHERE {_RANGE}",
+        ),
     ]
 
     @parameterized.expand(DECLINE_SHAPES)
