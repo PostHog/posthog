@@ -10,6 +10,9 @@ on:
 permissions:
     contents: read
 
+env:
+    SAMPO_VERSION: 0.17.4
+
 concurrency:
     group: release-cli
     cancel-in-progress: false
@@ -101,11 +104,11 @@ jobs:
               uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
               with:
                   path: ~/.cargo/bin/sampo
-                  key: sampo-${{ runner.os }}-${{ runner.arch }}
+                  key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
 
             - name: Install Sampo CLI
               if: steps.cache-sampo.outputs.cache-hit != 'true'
-              run: cargo install sampo
+              run: cargo install sampo --version "$SAMPO_VERSION" --locked
 
             - name: Prepare release with Sampo
               id: prepare-release
