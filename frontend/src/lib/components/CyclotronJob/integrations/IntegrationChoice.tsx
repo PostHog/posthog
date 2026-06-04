@@ -10,6 +10,7 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
+import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
 import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
 
 // Side-effect import: register all integration setups
@@ -38,13 +39,7 @@ export function IntegrationChoice({
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
-    // Coerce both sides to Number — `integration.id` comes from the API as a JSON number,
-    // but `value` can arrive as a string when the form is hydrated from a source's stored
-    // `job_inputs` (Postgres JSONB preserves whatever was originally written, and some
-    // sources end up persisting integration IDs as strings). Without the coercion, the
-    // strict-equality lookup silently misses a perfectly valid integration and trips the
-    // "no longer available" banner below for every loaded source.
-    const integrationKind = integrationsOfKind?.find((integration) => Number(integration.id) === Number(value))
+    const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
 
     // The stored value points to an integration that's no longer available (deleted, or
     // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
@@ -130,7 +125,7 @@ export function IntegrationChoice({
                                       />
                                   ),
                                   onClick: () => onChange?.(integ.id),
-                                  active: integ.id === value,
+                                  active: matchesIntegrationIdValue(integ.id, value),
                                   label: integ.display_name,
                               })) || []),
                           ],
