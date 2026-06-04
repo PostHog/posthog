@@ -97,6 +97,9 @@ tools:
             - updated_at
         requires_ai_consent: true
         feature_flag: replay-vision
+    vision-scanners-creators-retrieve:
+        operation: vision_scanners_creators_retrieve
+        enabled: false
     vision-scanners-delete:
         operation: vision_scanners_destroy
         enabled: true
