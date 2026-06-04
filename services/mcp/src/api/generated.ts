@@ -2868,7 +2868,7 @@ export namespace Schemas {
 
     export interface LifecycleFilter {
       showLegend?: boolean | null;
-      /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
+      /** Show per-band percentages on each segment label. On its own it renders a bare percentage (e.g. `42%`); combined with `showValuesOnSeries` it renders `580 (42%)`. */
       showPercentagesOnSeries?: boolean | null;
       showValuesOnSeries?: boolean | null;
       stacked?: boolean | null;
