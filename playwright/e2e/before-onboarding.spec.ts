@@ -1,18 +1,16 @@
-import { expect, test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Before Onboarding', () => {
-    test.beforeAll(async ({ request }) => {
-        await request.patch('/api/projects/1/', {
-            data: { completed_snippet_onboarding: false },
-            headers: { Authorization: 'Bearer e2e_demo_api_key' },
-        })
+    // A fresh workspace has incomplete onboarding by default, so we don't skip it here —
+    // this exercises reaching settings pages before any product is set up.
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ no_demo_data: true })
     })
 
-    test.afterAll(async ({ request }) => {
-        await request.patch('/api/projects/1/', {
-            data: { completed_snippet_onboarding: true },
-            headers: { Authorization: 'Bearer e2e_demo_api_key' },
-        })
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
     })
 
     test('Navigate to a settings page even when a product has not been set up', async ({ page }) => {

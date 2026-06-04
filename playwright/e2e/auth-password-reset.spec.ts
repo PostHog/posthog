@@ -1,12 +1,18 @@
 import { LoginPage } from '../page-models/loginPage'
-import { expect, test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
 test.describe('Password Reset', () => {
     let loginPage: LoginPage
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    test.beforeEach(async ({ page }) => {
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await page.click('[data-attr=new-account-menu-button]')
         await page.click('[data-attr=new-account-menu-logout-button]')
         await expect(page).toHaveURL('/login')
