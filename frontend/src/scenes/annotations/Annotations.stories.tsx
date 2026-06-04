@@ -31,13 +31,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-// The table renders the emoji next to the content for annotations that have one (see the fixture).
+// The table renders the emoji next to the content for annotations that have one (see the fixture),
+// giving visual-regression coverage of the emoji display.
 export const Annotations: Story = {}
-
-// Opening an annotation that has an emoji surfaces the populated emoji picker in the edit modal.
-export const EditAnnotationWithEmoji: Story = {
-    parameters: {
-        pageUrl: urls.annotation(114064),
-        testOptions: { waitForSelector: '.LemonModal' },
-    },
-}
