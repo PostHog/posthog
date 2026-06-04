@@ -132,13 +132,13 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
 }
 
 function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores, scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const theme = useMemo(() => buildTheme(), [])
     if (!scorerSummary || !scorerHistogram) {
         return null
     }
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
+        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`}>
             <div className="h-40 flex flex-col">
                 <BarChart
                     labels={scorerHistogram.labels}

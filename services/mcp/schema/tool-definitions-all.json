@@ -2678,6 +2678,111 @@
             "readOnlyHint": true
         }
     },
+    "heatmaps-events": {
+        "description": "Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you can open the session recordings that produced a hotspot.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Get sessions behind heatmap coordinates",
+        "title": "Get sessions behind heatmap coordinates",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-list": {
+        "description": "Aggregated heatmap interactions captured on a page. Filter by `url_exact` (one page) or `url_pattern` (regex across pages), a date window (`date_from`/`date_to`, data is retained 90 days), and optionally a viewport range (`viewport_width_min`/`viewport_width_max`, CSS px) to isolate a device class. Set `type` to 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. For clicks each result is a point — `pointer_relative_x` (0..1 across the viewport), `pointer_y` (absolute pixels down the page), and a `count`; 'scrolldepth' returns reach buckets instead. For the click types the response also includes a `fold` summary — `pct_below_fold` (share of non-fixed interactions that landed below the user's initial viewport, i.e. required scrolling), `below_fold_count`, `total_count`, and the `median_viewport_height` (the typical fold line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick` hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "List heatmap interactions for a page",
+        "title": "List heatmap interactions for a page",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-create": {
+        "description": "Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render of the page at each target width — poll `heatmaps-saved-get` until `status` is 'completed'; the rendered page (with data overlaid) is then viewable by the user in the PostHog UI. Provide `widths` (CSS px, 100-3000) to control which viewports are rendered, or omit it for sensible defaults. The URL must be exact — wildcards are not allowed.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Create a saved heatmap",
+        "title": "Create a saved heatmap",
+        "required_scopes": ["heatmap:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-get": {
+        "description": "Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the PostHog UI.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Get a saved heatmap",
+        "title": "Get a saved heatmap",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-list": {
+        "description": "List saved heatmaps for the project. A saved heatmap pins a page URL plus a set of viewport widths and (for type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`, `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is viewable by the user in the PostHog UI.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "List saved heatmaps",
+        "title": "List saved heatmaps",
+        "required_scopes": ["heatmap:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-regenerate": {
+        "description": "Re-run screenshot generation for a saved heatmap of type 'screenshot' by its `short_id`. Clears the existing renders and re-renders at every target width; `status` returns to 'processing'. Use when a page has changed or a render failed.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Regenerate a saved heatmap screenshot",
+        "title": "Regenerate a saved heatmap screenshot",
+        "required_scopes": ["heatmap:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
+    "heatmaps-saved-update": {
+        "description": "Update a saved heatmap by its `short_id`. Send only the fields to change — rename via `name`, change `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call). Changing the `url` of a 'screenshot' heatmap triggers a fresh render.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Update a saved heatmap",
+        "title": "Update a saved heatmap",
+        "required_scopes": ["heatmap:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "heatmaps-mcp"
+    },
     "hog-flows-logs-retrieve": {
         "description": "Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG, LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.",
         "category": "Workflows",
@@ -4911,6 +5016,34 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-list": {
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List scout configs",
+        "title": "List scout configs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-config-update": {
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a scout config",
+        "title": "Update a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-emit-signal": {
         "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.",
         "category": "Signals",
@@ -5052,7 +5185,7 @@
         }
     },
     "subscriptions-create": {
-        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and interval (the multiplier, e.g. 2 with weekly means every 2 weeks; required, minimum 1 — use 1 for no multiplier). byweekday, start_date, and until_date are optional. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
         "category": "Core",
         "feature": "core",
         "summary": "Create subscription",
@@ -5191,6 +5324,20 @@
             "readOnlyHint": true
         }
     },
+    "survey-launch": {
+        "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Launch a survey now.",
+        "title": "Launch a survey now.",
+        "required_scopes": ["survey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "survey-stats": {
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
@@ -5203,6 +5350,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "survey-stop": {
+        "description": "Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with `archived=true` instead.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Stop a survey now.",
+        "title": "Stop a survey now.",
+        "required_scopes": ["survey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "survey-update": {
@@ -5220,11 +5381,11 @@
         }
     },
     "surveys-get-all": {
-        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
+        "description": "List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nCompanion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)",
         "category": "Surveys",
         "feature": "surveys",
-        "summary": "Get all surveys in the project with optional filtering.",
-        "title": "Get all surveys in the project with optional filtering.",
+        "summary": "List surveys in the project (server-side search + filters).",
+        "title": "List surveys in the project (server-side search + filters).",
         "required_scopes": ["survey:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5243,6 +5404,34 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-responses-list": {
+        "description": "List individual responses for a specific survey. Question text is already resolved server-side — callers do not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of executing raw SQL against `survey sent` events.\nCommon patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.\nFor person properties on respondents, follow up with persons-get using the row's distinct_id — this tool only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` / `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving between pages can shift boundaries).",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "List individual survey responses with resolved question text.",
+        "title": "List individual survey responses with resolved question text.",
+        "required_scopes": ["survey:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-summarize-responses-create": {
+        "description": "Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or question_index to get a per-question theme summary. Omit both to get the survey-wide headline summary instead — the endpoint dispatches automatically based on what you pass.\nPass force_refresh=true in the body to bypass cached summaries. Per-question summaries are cached on the survey object; headline summaries are cached on the survey row.\nUse this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use surveys-responses-list instead.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Summarize survey responses (per question, or survey-wide headline).",
+        "title": "Summarize survey responses (per question, or survey-wide headline).",
+        "required_scopes": ["survey:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": true
         }
@@ -5687,7 +5876,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interviews-list": {
-        "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic — use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview.",
+        "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic — use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview. Pass `classifications` (comma-separated; any of `abandoned`, `off-topic`) to return only responses carrying any of those classifications — e.g. `classifications=abandoned` to find drop-offs.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "List user interview responses",
@@ -5698,6 +5887,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interviews-partial-update": {
+        "description": "Replace the searchable `classifications` on a single interview response. The valid classifications are `abandoned` and `off-topic`. `abandoned` is auto-derived from the transcript when the response is recorded; use this to correct it or to apply `off-topic`, which is never auto-set. Sending `classifications` replaces the entire list — pass the full desired set, not a delta, so include the auto-derived `abandoned` if you want to keep it. Filter by these later via the `classifications` parameter on `user-interviews-list` and `user-interviews-search`.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Set classifications on an interview response",
+        "title": "Set classifications on an interview response",
+        "required_scopes": ["user_interview:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "user-interviews"
     },
@@ -5717,7 +5921,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interviews-search": {
-        "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
+        "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Filter by `classifications` (any of `abandoned`, `off-topic`) to restrict the search to responses carrying those; combines with `topic_id` as AND. Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Semantic search across interview responses",
