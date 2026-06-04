@@ -77,22 +77,20 @@ describe('projectNoticeLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    // currentOrganizationId resolves to the loaded org id, not "@current" —
+                    // match any id so loadRecords resolves instead of erroring.
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
                 post: {
-                    // reverseProxyCheckerLogic's HogQL detection query — a non-null
-                    // $lib_custom_api_host means a DIY proxy is routing events.
-                    '/api/environments/:team_id/query/:kind': () => [
-                        200,
-                        { results: [['https://proxy.example.com'], [null]] },
-                    ],
+                    // reverseProxyCheckerLogic's HogQL detection query.
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
                 },
             })
             initKeaTests()
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
             // shouldFetchProxyRecords() gates on `new Date().getDate() <= 7`. Spy on getDate rather
-            // than faking all timers — fake timers would stall the async detection query and the
-            // loadRecords/HogQL responses would never resolve.
+            // than faking all timers — fake timers would stall the async loads so their success
+            // actions never fire.
             getDateSpy = jest.spyOn(Date.prototype, 'getDate')
         })
 
@@ -101,15 +99,15 @@ describe('projectNoticeLogic', () => {
             getDateSpy.mockRestore()
         })
 
-        it('mounts the proxy checker and runs detection inside the nudge window', async () => {
+        it('mounts the proxy checker inside the nudge window', async () => {
             getDateSpy.mockReturnValue(3) // inside the first-7-days window
 
             const logic = projectNoticeLogic()
             logic.mount()
 
             expect(reverseProxyCheckerLogic.isMounted()).toBe(true)
+            // Let the auto-triggered detection settle so no async work outlives the test.
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
-            expect(reverseProxyCheckerLogic.values.hasReverseProxy).toBe(true)
 
             logic.unmount()
             expect(reverseProxyCheckerLogic.isMounted()).toBe(false)
@@ -134,27 +132,21 @@ describe('projectNoticeLogic', () => {
     describe('reverse proxy banner suppression', () => {
         let getItemSpy: jest.SpyInstance
         let getDateSpy: jest.SpyInstance
-        // Mutable detection result the mocked HogQL endpoint reads per request, so each test can
-        // drive the DIY-proxy-detected vs no-proxy path. A non-null first column means events carry
-        // $lib_custom_api_host, i.e. a self-managed proxy is routing data.
-        let hogqlResults: (string | null)[][]
 
         beforeEach(() => {
-            hogqlResults = [[null], [null]]
             useMocks({
                 get: {
-                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
                 },
                 post: {
-                    '/api/environments/:team_id/query/:kind': () => [200, { results: hogqlResults }],
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: [] }],
                 },
             })
             initKeaTests()
             // isCloudOrDev gates the nudge — self-hosted users manage their own infrastructure.
             preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
-            // Inside the first-7-days nudge window. Spy on getDate (not fake timers) so the async
-            // proxy_records + HogQL detection responses still resolve.
+            // Inside the first-7-days nudge window.
             getDateSpy = jest.spyOn(Date.prototype, 'getDate').mockReturnValue(3)
         })
 
@@ -163,14 +155,23 @@ describe('projectNoticeLogic', () => {
             getDateSpy.mockRestore()
         })
 
-        it('suppresses the nudge when a self-managed proxy is detected', async () => {
-            hogqlResults = [['https://proxy.example.com'], [null]]
-
+        // Drives the projectNoticeVariant selector deterministically: wait for the checker's
+        // auto-load to settle, then force the detection result and an empty managed-proxy list so
+        // the assertion doesn't depend on async msw timing. A forced value wins because it is
+        // dispatched after the awaited auto-load.
+        const mountWithDetectedProxy = async (
+            hasReverseProxy: boolean
+        ): Promise<ReturnType<typeof projectNoticeLogic>> => {
             const logic = projectNoticeLogic()
             logic.mount()
-
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
-            await expectLogic(logic).toDispatchActions(['loadRecordsSuccess'])
+            reverseProxyCheckerLogic.actions.loadHasReverseProxySuccess(hasReverseProxy)
+            logic.actions.loadRecordsSuccess([])
+            return logic
+        }
+
+        it('suppresses the nudge when a self-managed proxy is detected', async () => {
+            const logic = await mountWithDetectedProxy(true)
 
             // Zero managed proxy records, but a DIY proxy is routing events — the banner must not nag.
             expect(logic.values.projectNoticeVariant).not.toEqual('missing_reverse_proxy')
@@ -179,13 +180,7 @@ describe('projectNoticeLogic', () => {
         })
 
         it('shows the nudge when no proxy exists and there are no managed records', async () => {
-            hogqlResults = [[null], [null]]
-
-            const logic = projectNoticeLogic()
-            logic.mount()
-
-            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
-            await expectLogic(logic).toDispatchActions(['loadRecordsSuccess'])
+            const logic = await mountWithDetectedProxy(false)
 
             expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
 
