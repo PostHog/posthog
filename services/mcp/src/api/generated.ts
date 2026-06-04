@@ -20359,6 +20359,24 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    /**
+     * * `manual` - Manual only
+    * `1h` - Every hour
+    * `6h` - Every 6 hours
+    * `24h` - Every day
+    * `7d` - Every week
+     */
+    export type RefreshIntervalEnum = typeof RefreshIntervalEnum[keyof typeof RefreshIntervalEnum];
+
+
+    export const RefreshIntervalEnum = {
+      Manual: 'manual',
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+    } as const;
+
     export interface KnowledgeSource {
       readonly id: string;
       readonly team_id: number;
@@ -20378,6 +20396,14 @@ export namespace Schemas {
       readonly last_refresh_at: string | null;
       readonly last_refresh_status: LastRefreshStatusEnum;
       readonly last_refresh_error: string;
+      readonly refresh_interval: RefreshIntervalEnum;
+      /**
+         * When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.
+         * @nullable
+         */
+      readonly next_refresh_at: string | null;
+      /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
+      readonly has_unsafe_documents: boolean;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
