@@ -722,9 +722,10 @@ export interface EndExperimentApi {
  * `experiment_stop` - experiment_stop
  * `experiment_update` - experiment_update
  */
-export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
+export type RecalculateMetricsRequestTriggerEnumApi =
+    (typeof RecalculateMetricsRequestTriggerEnumApi)[keyof typeof RecalculateMetricsRequestTriggerEnumApi]
 
-export const TriggerEnumApi = {
+export const RecalculateMetricsRequestTriggerEnumApi = {
     Manual: 'manual',
     ExperimentLaunch: 'experiment_launch',
     ExperimentStop: 'experiment_stop',
@@ -741,14 +742,14 @@ export interface RecalculateMetricsRequestApi {
   * `experiment_launch` - experiment_launch
   * `experiment_stop` - experiment_stop
   * `experiment_update` - experiment_update */
-    trigger?: TriggerEnumApi
+    trigger?: RecalculateMetricsRequestTriggerEnumApi
 }
 
 /**
- * * `pending` - pending
- * `in_progress` - in_progress
- * `completed` - completed
- * `failed` - failed
+ * * `pending` - Pending
+ * `in_progress` - In Progress
+ * `completed` - Completed
+ * `failed` - Failed
  */
 export type ExperimentMetricsRecalculationStatusEnumApi =
     (typeof ExperimentMetricsRecalculationStatusEnumApi)[keyof typeof ExperimentMetricsRecalculationStatusEnumApi]
@@ -758,6 +759,22 @@ export const ExperimentMetricsRecalculationStatusEnumApi = {
     InProgress: 'in_progress',
     Completed: 'completed',
     Failed: 'failed',
+} as const
+
+/**
+ * * `manual` - Manual
+ * `experiment_launch` - Experiment Launch
+ * `experiment_stop` - Experiment Stop
+ * `experiment_update` - Experiment Update
+ */
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
+
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
+    Manual: 'manual',
+    ExperimentLaunch: 'experiment_launch',
+    ExperimentStop: 'experiment_stop',
+    ExperimentUpdate: 'experiment_update',
 } as const
 
 /**
@@ -805,26 +822,26 @@ export interface ExperimentMetricsRecalculationApi {
     readonly experiment_id: number
     /** Current status of the recalculation job
 
-  * `pending` - pending
-  * `in_progress` - in_progress
-  * `completed` - completed
-  * `failed` - failed */
+  * `pending` - Pending
+  * `in_progress` - In Progress
+  * `completed` - Completed
+  * `failed` - Failed */
     readonly status: ExperimentMetricsRecalculationStatusEnumApi
     /** Total number of metrics to recalculate */
     readonly total_metrics: number
-    /** Number of metrics successfully recalculated */
+    /** Number of metrics with a COMPLETED result row in this run (derived, not stored) */
     readonly completed_metrics: number
-    /** Number of metrics that failed to recalculate */
+    /** Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row */
     readonly failed_metrics: number
     /** Map of metric_uuid to error details */
     readonly metric_errors: unknown
     /** What triggered this recalculation
 
-  * `manual` - manual
-  * `experiment_launch` - experiment_launch
-  * `experiment_stop` - experiment_stop
-  * `experiment_update` - experiment_update */
-    readonly trigger: TriggerEnumApi
+  * `manual` - Manual
+  * `experiment_launch` - Experiment Launch
+  * `experiment_stop` - Experiment Stop
+  * `experiment_update` - Experiment Update */
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**

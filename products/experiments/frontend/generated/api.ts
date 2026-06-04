@@ -15,6 +15,7 @@ import type {
     ExperimentApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
+    ExperimentMetricsRecalculationApi,
     ExperimentSavedMetricApi,
     ExperimentSavedMetricsListParams,
     ExperimentsListParams,
@@ -26,6 +27,7 @@ import type {
     PatchedExperimentApi,
     PatchedExperimentHoldoutApi,
     PatchedExperimentSavedMetricApi,
+    RecalculateMetricsRequestApi,
     ShipVariantApi,
 } from './api.schemas'
 
@@ -550,6 +552,88 @@ export const experimentsLaunchCreate = async (
         ...options,
         method: 'POST',
     })
+}
+
+export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/`
+}
+
+/**
+ * Trigger a batch recalculation of all metrics for this experiment.
+
+Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
+already pending or in progress for this experiment. The response payload intentionally does not
+include the `results` array — at POST time the workflow has just been queued and no per-metric
+results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
+progresses.
+ */
+export const experimentsMetricsRecalculationCreate = async (
+    projectId: string,
+    id: number,
+    recalculateMetricsRequestApi?: RecalculateMetricsRequestApi,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(getExperimentsMetricsRecalculationCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recalculateMetricsRequestApi),
+    })
+}
+
+export const getExperimentsMetricsRecalculationRetrieveUrl = (
+    projectId: string,
+    id: number,
+    recalculationId: string
+) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/${recalculationId}/`
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const experimentsMetricsRecalculationRetrieve = async (
+    projectId: string,
+    id: number,
+    recalculationId: string,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(
+        getExperimentsMetricsRecalculationRetrieveUrl(projectId, id, recalculationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getExperimentsMetricsRecalculationLatestRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/metrics_recalculation/latest/`
+}
+
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+
+This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+on serializer methods and converts them into proper HTTP 409 Conflict responses with
+change request details.
+ */
+export const experimentsMetricsRecalculationLatestRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentMetricsRecalculationApi> => {
+    return apiMutator<ExperimentMetricsRecalculationApi>(
+        getExperimentsMetricsRecalculationLatestRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsPauseCreateUrl = (projectId: string, id: number) => {
