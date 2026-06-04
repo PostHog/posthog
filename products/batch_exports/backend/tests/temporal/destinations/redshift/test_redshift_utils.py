@@ -1,5 +1,6 @@
 import json
 import uuid
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -166,37 +167,23 @@ def _mock_s3_session_with_head_object(head_object: mock.AsyncMock) -> mock.Magic
 
 
 @pytest.mark.parametrize(
-    "head_object,expected",
+    "error_code,status_code,expected",
     [
-        (
-            mock.AsyncMock(
-                side_effect=botocore.exceptions.ClientError(
-                    {"Error": {"Code": "AccessDenied"}, "ResponseMetadata": {"HTTPStatusCode": 403}}, "HeadObject"
-                )
-            ),
-            True,
-        ),
-        (
-            mock.AsyncMock(
-                side_effect=botocore.exceptions.ClientError(
-                    {"Error": {"Code": "403"}, "ResponseMetadata": {"HTTPStatusCode": 403}}, "HeadObject"
-                )
-            ),
-            True,
-        ),
-        (mock.AsyncMock(return_value={}), False),
-        (
-            mock.AsyncMock(
-                side_effect=botocore.exceptions.ClientError(
-                    {"Error": {"Code": "404"}, "ResponseMetadata": {"HTTPStatusCode": 404}}, "HeadObject"
-                )
-            ),
-            False,
-        ),
+        ("AccessDenied", 403, True),
+        ("403", 403, True),
+        (None, None, False),
+        ("404", 404, False),
     ],
 )
-async def test_is_s3_read_access_denied(head_object, expected):
+async def test_is_s3_read_access_denied(error_code, status_code, expected):
     """Test we report read access as denied only on a 403/AccessDenied HEAD."""
+    if error_code is None:
+        head_object = mock.AsyncMock(return_value={})
+    else:
+        # Typed as Any to skip the botocore response TypedDict's required-key checks.
+        response: Any = {"Error": {"Code": error_code}, "ResponseMetadata": {"HTTPStatusCode": status_code}}
+        head_object = mock.AsyncMock(side_effect=botocore.exceptions.ClientError(response, "HeadObject"))
+
     with mock.patch(
         "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
     ) as mock_session_class:
@@ -227,7 +214,7 @@ class _FakeInternalError(psycopg.errors.InternalError_):
         self._fake_diag = _FakeDiag(primary, detail)
 
     @property
-    def diag(self):  # type: ignore[override]
+    def diag(self) -> Any:
         return self._fake_diag
 
 
@@ -252,7 +239,26 @@ async def test_check_and_raise_redshift_copy_error_credentials(denied):
             with pytest.raises(InsufficientS3PermissionsError):
                 await call
         else:
-            assert await call is None
+            await call  # should not raise
+
+
+async def test_check_and_raise_redshift_copy_error_swallows_probe_failure():
+    """If the S3 probe itself fails, we don't mask the original COPY error (caller re-raises it)."""
+    credentials = AWSCredentials(aws_access_key_id="key", aws_secret_access_key="secret")
+
+    with mock.patch(
+        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.is_s3_read_access_denied",
+        new=mock.AsyncMock(side_effect=botocore.exceptions.EndpointConnectionError(endpoint_url="https://s3")),
+    ):
+        # Should not raise — the unexpected probe failure is swallowed so the caller re-raises.
+        await check_and_raise_redshift_copy_error(
+            _FakeInternalError("COPY failed"),
+            authorization=credentials,
+            bucket="test-bucket",
+            region_name="us-east-1",
+            manifest_key="prefix/manifest.json",
+            files_uploaded=["prefix/file-0.parquet.zst"],
+        )
 
 
 @pytest.mark.parametrize(
@@ -277,4 +283,4 @@ async def test_check_and_raise_redshift_copy_error_iam_role(error, should_raise)
         with pytest.raises(RedshiftS3CopyError):
             await call
     else:
-        assert await call is None
+        await call  # should not raise

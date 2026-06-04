@@ -1216,9 +1216,15 @@ async def check_and_raise_redshift_copy_error(
     """
     if isinstance(authorization, AWSCredentials):
         probe_keys = [manifest_key, *files_uploaded[:1]]
-        if await is_s3_read_access_denied(
-            bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
-        ):
+        try:
+            access_denied = await is_s3_read_access_denied(
+                bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
+            )
+        except Exception:
+            # The probe itself failed (e.g. a connection error); let the caller re-raise the
+            # original COPY error rather than masking it with an unrelated probe failure.
+            return
+        if access_denied:
             raise InsufficientS3PermissionsError(bucket) from err
         return
 
