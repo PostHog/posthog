@@ -22,15 +22,20 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import {
     CitedText,
-    FailureDetail,
-    IneligibleDetail,
     ObservationConfidence,
     ObservationPrimaryOutput,
     ObservationStatusTag,
     readConfig,
     readResult,
 } from '../components/ObservationCard'
-import { modelLabel, scannerTypeLabel } from '../replay_scanners/types'
+import {
+    failureKindDescription,
+    modelLabel,
+    parseFailureReason,
+    parseIneligibleReason,
+    type ScannerType,
+    scannerTypeLabel,
+} from '../replay_scanners/types'
 import { replayObservationLogic } from './replayObservationLogic'
 import { ReplayObservationSceneLogicProps, replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -38,6 +43,22 @@ export const scene: SceneExport<ReplayObservationSceneLogicProps> = {
     component: ReplayObservationSceneComponent,
     logic: replayObservationSceneLogic,
     productKey: ProductKey.REPLAY_VISION,
+}
+
+const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
+    classifier: 'Tags',
+    summarizer: 'Summary',
+    monitor: 'Verdict',
+    scorer: 'Score',
+}
+
+function LabeledRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="text-xs text-muted">{label}</div>
+            {children}
+        </div>
+    )
 }
 
 function AutoSeekToTime({
@@ -122,6 +143,16 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
     const scorerMin = scorerScale && typeof scorerScale.min === 'number' ? scorerScale.min : null
     const scorerMax = scorerScale && typeof scorerScale.max === 'number' ? scorerScale.max : null
     const scorerLabel = scorerScale && typeof scorerScale.label === 'string' ? scorerScale.label : null
+    const ineligibleParsed =
+        observation.status === 'ineligible' && observation.error_reason
+            ? parseIneligibleReason(observation.error_reason)
+            : null
+    const ineligibleMessage = ineligibleParsed ? ineligibleParsed.message || null : observation.error_reason || null
+    const failedParsed =
+        observation.status === 'failed' && observation.error_reason
+            ? parseFailureReason(observation.error_reason)
+            : null
+    const failedMessage = failedParsed ? failedParsed.message || null : observation.error_reason || null
     const durationMs =
         observation.started_at && observation.completed_at
             ? dayjs(observation.completed_at).diff(observation.started_at)
@@ -155,40 +186,94 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                     <div className="text-sm font-medium">Result</div>
 
                     {observation.status === 'failed' && observation.error_reason && (
-                        <FailureDetail errorReason={observation.error_reason} />
+                        <div className="flex flex-col gap-3">
+                            {scannerType && (
+                                <LabeledRow label="Type">
+                                    <LemonTag type="option" className="self-start">
+                                        {scannerTypeLabel(scannerType)}
+                                    </LemonTag>
+                                </LabeledRow>
+                            )}
+                            {prompt && (
+                                <LabeledRow label="Prompt">
+                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
+                                </LabeledRow>
+                            )}
+                            <LabeledRow label="Reason">
+                                <LemonTag type="danger" className="self-start">
+                                    {failedParsed?.label ?? 'Failed'}
+                                </LemonTag>
+                            </LabeledRow>
+                            {failedParsed && (
+                                <LabeledRow label="What this means">
+                                    <p className="text-sm text-default m-0 leading-snug">
+                                        {failureKindDescription(failedParsed.kind)}
+                                    </p>
+                                </LabeledRow>
+                            )}
+                            {failedMessage && (
+                                <LabeledRow label="Details">
+                                    <p className="text-sm text-default m-0 leading-snug font-mono">{failedMessage}</p>
+                                </LabeledRow>
+                            )}
+                        </div>
                     )}
 
                     {observation.status === 'ineligible' && observation.error_reason && (
-                        <IneligibleDetail errorReason={observation.error_reason} />
+                        <div className="flex flex-col gap-3">
+                            {scannerType && (
+                                <LabeledRow label="Type">
+                                    <LemonTag type="option" className="self-start">
+                                        {scannerTypeLabel(scannerType)}
+                                    </LemonTag>
+                                </LabeledRow>
+                            )}
+                            {prompt && (
+                                <LabeledRow label="Prompt">
+                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
+                                </LabeledRow>
+                            )}
+                            <LabeledRow label="Reason">
+                                <LemonTag type="muted" className="self-start">
+                                    {ineligibleParsed?.label ?? 'Ineligible'}
+                                </LemonTag>
+                            </LabeledRow>
+                            {ineligibleMessage && (
+                                <LabeledRow label="Details">
+                                    <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
+                                </LabeledRow>
+                            )}
+                        </div>
                     )}
 
                     {observation.status === 'succeeded' && snapshot && result && (
                         <div className="flex flex-col gap-3">
                             {scannerType && (
-                                <div className="flex flex-col gap-1">
-                                    <div className="text-xs text-muted">Type</div>
+                                <LabeledRow label="Type">
                                     <LemonTag type="option" className="self-start">
                                         {scannerTypeLabel(scannerType)}
                                     </LemonTag>
-                                </div>
+                                </LabeledRow>
                             )}
                             {prompt && scannerType !== 'summarizer' && (
-                                <div className="flex flex-col gap-1">
-                                    <div className="text-xs text-muted">Prompt</div>
+                                <LabeledRow label="Prompt">
                                     <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
-                                </div>
+                                </LabeledRow>
                             )}
-                            <div className="flex flex-col gap-1">
-                                {scannerType === 'classifier' && <div className="text-xs text-muted">Tags</div>}
-                                {scannerType === 'summarizer' && <div className="text-xs text-muted">Summary</div>}
-                                {scannerType === 'monitor' && <div className="text-xs text-muted">Verdict</div>}
-                                {scannerType === 'scorer' && <div className="text-xs text-muted">Score</div>}
+                            <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
                                 <ObservationPrimaryOutput
                                     observation={observation}
                                     showPrompt={false}
                                     onSeek={seekEmbeddedPlayer}
                                 />
-                            </div>
+                            </LabeledRow>
+                            {observation.completed_at && (
+                                <LabeledRow label="Event">
+                                    <Link to={urls.event(observation.id, observation.completed_at)}>
+                                        $recording_observed
+                                    </Link>
+                                </LabeledRow>
+                            )}
                         </div>
                     )}
 
@@ -207,7 +292,9 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                                 <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
                             </p>
                         ) : (
-                            <p className="text-muted text-sm m-0">No reasoning provided.</p>
+                            <p className="text-muted text-sm m-0">
+                                {observation.status === 'succeeded' ? 'No reasoning provided.' : 'N/A'}
+                            </p>
                         )}
                     </section>
                 )}

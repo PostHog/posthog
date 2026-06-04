@@ -2,7 +2,7 @@ import dagster
 
 from products.growth.dags import github_sdk_versions, oauth, user_product_list
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     jobs=[
@@ -18,5 +18,6 @@ defs = dagster.Definitions(
         user_product_list.sync_colleagues_products_monthly_schedule,
         user_product_list.sync_cross_sell_products_monthly_schedule,
     ],
+    loggers=loggers,
     resources=resources,
 )

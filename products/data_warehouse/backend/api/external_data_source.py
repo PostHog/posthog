@@ -763,8 +763,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         )
 
         # Some sources keep their connection target in a differently named field (e.g. Okta's
-        # `okta_domain`). Changing one would send the preserved credential to a new host — the same
-        # exfiltration risk as a `host` change — so require re-entry too.
+        # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
+        # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
         connection_host_changed = connection_host_changed or any(
             field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
             for field in source.connection_host_fields

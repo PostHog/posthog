@@ -547,8 +547,11 @@ def verify_team_flags(
         db_data = _get_feature_flags_for_service(team)
     db_flags = db_data.get("flags", []) if isinstance(db_data, dict) else []
 
-    # Cache miss (source="db" or "miss" means data was not found in cache)
-    if source in ("db", "miss"):
+    # Cache miss. This verifier reads Redis only (via batch_get_from_cache), so in
+    # practice source is "redis" or "miss"; "db"/"dependency_unavailable" are matched
+    # defensively to stay in lock-step with verify_team_flag_definitions, which can see
+    # them through its single-team cold-load fallback. All mean "nothing cached", not drift.
+    if source in ("db", "miss", "dependency_unavailable"):
         return {
             "status": "miss",
             "issue": "CACHE_MISS",

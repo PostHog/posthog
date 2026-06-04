@@ -9,6 +9,7 @@ import { XRayHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,6 +29,7 @@ import {
     SCANNER_TYPE_TAG_TYPE,
     ScannerType,
     ReplayScanner,
+    createdByLabel,
     scannerTypeLabel,
 } from './types'
 
@@ -51,6 +53,8 @@ export function ReplayScannersScene(): JSX.Element {
         search,
         enabledFilter,
         scannerTypeFilter,
+        createdByFilter,
+        createdByOptions,
         hasActiveFilters,
     } = useValues(replayScannersLogic)
     const {
@@ -61,6 +65,7 @@ export function ReplayScannersScene(): JSX.Element {
         setSearch,
         setEnabledFilter,
         setScannerTypeFilter,
+        setCreatedByFilter,
         clearFilters,
     } = useActions(replayScannersLogic)
     const { push } = useActions(router)
@@ -130,6 +135,17 @@ export function ReplayScannersScene(): JSX.Element {
                 </span>
             ),
             sorter: (a, b) => a.sampling_rate - b.sampling_rate,
+        },
+        {
+            title: 'Created by',
+            key: 'created_by',
+            render: (_, scanner) =>
+                scanner.created_by ? (
+                    <ProfilePicture user={scanner.created_by} size="md" showName />
+                ) : (
+                    <span className="text-muted">—</span>
+                ),
+            sorter: (a, b) => createdByLabel(a.created_by).localeCompare(createdByLabel(b.created_by)),
         },
         {
             title: 'Actions',
@@ -236,24 +252,30 @@ export function ReplayScannersScene(): JSX.Element {
                         prefix={<IconSearch />}
                         className="max-w-sm"
                     />
-                    <FilterPill<EnabledFilter>
-                        label="Status"
-                        options={ENABLED_OPTIONS}
-                        value={enabledFilter}
-                        onChange={setEnabledFilter}
-                    />
-                    <FilterPill<ScannerType>
-                        label="Type"
-                        options={TYPE_OPTIONS}
-                        value={scannerTypeFilter}
-                        onChange={setScannerTypeFilter}
-                    />
-                    {hasActiveFilters && (
-                        <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
-                            Clear filters
-                        </LemonButton>
-                    )}
-                    <div className="ml-auto">
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                        <FilterPill<EnabledFilter>
+                            label="Status"
+                            options={ENABLED_OPTIONS}
+                            value={enabledFilter}
+                            onChange={setEnabledFilter}
+                        />
+                        <FilterPill<ScannerType>
+                            label="Type"
+                            options={TYPE_OPTIONS}
+                            value={scannerTypeFilter}
+                            onChange={setScannerTypeFilter}
+                        />
+                        <FilterPill<string>
+                            label="Created by"
+                            options={createdByOptions}
+                            value={createdByFilter}
+                            onChange={setCreatedByFilter}
+                        />
+                        {hasActiveFilters && (
+                            <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
+                                Clear filters
+                            </LemonButton>
+                        )}
                         <LemonButton type="secondary" onClick={() => loadScanners()} size="small">
                             Refresh
                         </LemonButton>
