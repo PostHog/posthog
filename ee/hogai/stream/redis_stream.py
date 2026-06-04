@@ -55,6 +55,13 @@ REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = Histogram(
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
 )
 
+REDIS_DESERIALIZE_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_deserialize_latency_seconds",
+    "Time spent deserializing (pickle.loads) a Redis stream chunk, labeled by whether it ran off the event loop",
+    ["offloaded"],
+    buckets=[0.0005, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, float("inf")],
+)
+
 # Redis stream configuration
 CONVERSATION_STREAM_MAX_LENGTH = 1000  # Maximum number of messages to keep in stream
 CONVERSATION_STREAM_CONCURRENT_READ_COUNT = 8
@@ -277,6 +284,23 @@ class ConversationRedisStream:
                 # Linear backoff
                 delay = min(delay + delay_increment, max_delay)
 
+    async def _deserialize_chunk(self, message: dict[bytes, bytes]) -> StreamEvent:
+        """Deserialize a Redis stream chunk, optionally off the event loop so it stays responsive.
+
+        `pickle.loads` is CPU-bound and runs on the same ASGI loop that answers the liveness
+        probe. Ordering is preserved: `read_stream` awaits the result before yielding.
+        """
+        offload = settings.MAX_AI_STREAM_OFFLOAD_SERIALIZATION
+        start = time.perf_counter()
+        try:
+            if offload:
+                return await asyncio.to_thread(self._serializer.deserialize, message)
+            return self._serializer.deserialize(message)
+        finally:
+            REDIS_DESERIALIZE_LATENCY_HISTOGRAM.labels(offloaded="true" if offload else "false").observe(
+                time.perf_counter() - start
+            )
+
     async def read_stream(
         self,
         start_id: str = "0",
@@ -322,7 +346,7 @@ class ConversationRedisStream:
                 for _, stream_messages in messages:
                     for stream_id, message in stream_messages:
                         current_id = stream_id
-                        data = self._serializer.deserialize(message)
+                        data = await self._deserialize_chunk(message)
 
                         latency = time.time() - data.timestamp
                         REDIS_TO_CLIENT_LATENCY_HISTOGRAM.observe(latency)

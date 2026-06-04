@@ -6,7 +6,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
+
 import redis.exceptions as redis_exceptions
+from parameterized import parameterized
 
 from posthog.schema import (
     AssistantEventType,
@@ -97,6 +100,51 @@ class TestRedisStream(BaseTest):
 
             self.assertEqual(len(chunks), 1)
             self.assertEqual(chunks[0].event.type, AssistantEventType.MESSAGE)
+
+    @parameterized.expand([("offload_on", True), ("offload_off", False)])
+    @pytest.mark.asyncio
+    async def test_read_stream_deserializes_identically_regardless_of_offload(self, _name: str, offload: bool):
+        import pickle
+
+        test_event = StreamEvent(
+            event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test"))
+        )
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xread = AsyncMock(
+                return_value=[(self.stream_key, [(b"1234-0", {b"data": pickle.dumps(test_event)})])]
+            )
+
+            with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=offload):
+                chunks = []
+                async for chunk in self.redis_stream.read_stream():
+                    chunks.append(chunk)
+                    break
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].event.type, AssistantEventType.MESSAGE)
+        self.assertEqual(cast(MessageEvent, chunks[0].event).payload.content, "test")
+
+    @parameterized.expand([("offload_on", True, 1), ("offload_off", False, 0)])
+    @pytest.mark.asyncio
+    async def test_read_stream_offloads_deserialization_to_thread_only_when_enabled(
+        self, _name: str, offload: bool, expected_calls: int
+    ):
+        import pickle
+
+        test_event = StreamEvent(
+            event=MessageEvent(type=AssistantEventType.MESSAGE, payload=AssistantMessage(content="test"))
+        )
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.xread = AsyncMock(
+                return_value=[(self.stream_key, [(b"1234-0", {b"data": pickle.dumps(test_event)})])]
+            )
+
+            with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=offload):
+                with patch("ee.hogai.stream.redis_stream.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
+                    async for _ in self.redis_stream.read_stream():
+                        break
+
+        self.assertEqual(mock_to_thread.call_count, expected_calls)
 
     @pytest.mark.asyncio
     async def test_read_stream_completion_status(self):
