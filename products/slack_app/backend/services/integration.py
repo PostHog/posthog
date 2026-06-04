@@ -17,6 +17,9 @@ Temporal history retention window for those workflows has elapsed; new code
 should import from this module.
 """
 
+from pydantic import BaseModel, ConfigDict
+
+from posthog.models.integration import Integration
 from posthog.models.user import User
 
 from products.slack_app.backend.services.integration_resolver import (
@@ -30,12 +33,31 @@ from products.slack_app.backend.services.integration_resolver import (
 __all__ = [
     "ResolutionResult",
     "ResolutionSource",
+    "UserNarrowedResolution",
     "apply_user_access",
     "format_project_candidate_list",
     "load_integrations",
     "resolve_from_candidates",
     "resolve_workspace_routing",
 ]
+
+
+class UserNarrowedResolution(BaseModel):
+    """Routing result after the mentioning Slack user has been identified and the
+    workspace candidate set has been filtered to integrations they can access.
+
+    ``integration`` is the dispatch target — present iff the thread/default
+    routing picked one and the user can access it. ``candidates`` is the
+    accessible subset that the caller falls back on for picker / sole-candidate
+    selection. ``source`` mirrors the upstream ``ResolutionResult.source``.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    user: User
+    integration: Integration | None
+    candidates: list[Integration]
+    source: ResolutionSource
 
 
 def resolve_workspace_routing(
