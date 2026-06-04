@@ -75,14 +75,22 @@ runs:
               else
                   if [ "$EVENT_NAME" = "push" ]; then
                       base_ref="$PUSH_BEFORE_SHA"
-                  elif [ -n "$PR_BASE_REF" ]; then
-                      # Fetch the current tip of the base branch so we diff
-                      # against it rather than the potentially stale PR base SHA.
-                      git fetch --no-tags --depth=1 origin "$PR_BASE_REF"
-                      base_ref=$(git merge-base FETCH_HEAD HEAD)
-                      echo "Using merge-base of origin/$PR_BASE_REF and HEAD: $base_ref"
                   else
-                      base_ref="$PR_BASE_SHA"
+                      # Try to resolve the base branch name from the input or
+                      # the GitHub event payload so we diff against the current
+                      # tip rather than the potentially stale PR base SHA.
+                      base_branch="${PR_BASE_REF}"
+                      if [ -z "$base_branch" ] && [ -f "$GITHUB_EVENT_PATH" ]; then
+                          base_branch=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
+                      fi
+
+                      if [ -n "$base_branch" ]; then
+                          git fetch --no-tags --depth=1 origin "$base_branch"
+                          base_ref=$(git merge-base FETCH_HEAD HEAD)
+                          echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                      else
+                          base_ref="$PR_BASE_SHA"
+                      fi
                   fi
 
                   if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then
