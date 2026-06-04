@@ -32,7 +32,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
 from posthog.temporal.common.scoped import scoped_temporal
 
 from products.signals.backend.custom_agent.base import AIDataProcessingNotApprovedError, CustomSignalAgent
@@ -376,9 +376,14 @@ async def aunschedule_agent(agent_class: type[CustomSignalAgent], team: Team) ->
     """Delete the recurring schedule for a custom agent. Returns whether one existed."""
     schedule_id = _schedule_id_for(agent_class, int(team.id))
     client = await async_connect()
-    if not await a_schedule_exists(client, schedule_id):
-        return False
-    await a_delete_schedule(client, schedule_id)
+    # Single RPC: delete directly and treat NOT_FOUND as "nothing was scheduled". A
+    # check-then-delete would race a concurrent delete and raise NOT_FOUND from delete().
+    try:
+        await a_delete_schedule(client, schedule_id)
+    except RPCError as exc:
+        if exc.status == RPCStatusCode.NOT_FOUND:
+            return False
+        raise
     logger.info("custom agent schedule deleted", schedule_id=schedule_id, team_id=int(team.id))
     return True
 

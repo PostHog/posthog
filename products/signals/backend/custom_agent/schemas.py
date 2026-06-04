@@ -95,8 +95,11 @@ class AgentScheduleSpec:
     timezone: str = "UTC"
 
     def __post_init__(self) -> None:
-        if all(getattr(self, name) is None for name in _CALENDAR_FIELD_BOUNDS):
-            raise AgentScheduleError("AgentScheduleSpec must set at least one calendar field")
+        # Use the canonical values so an empty list (e.g. hour=[]) doesn't count as "set" —
+        # it maps to an empty ScheduleCalendarSpec field that matches every value, which
+        # would otherwise sneak past this guard and schedule the agent every minute.
+        if all(not self.values_for(name) for name in _CALENDAR_FIELD_BOUNDS):
+            raise AgentScheduleError("AgentScheduleSpec must set at least one non-empty calendar field")
         if not self.timezone.strip():
             raise AgentScheduleError("timezone must not be empty")
         try:

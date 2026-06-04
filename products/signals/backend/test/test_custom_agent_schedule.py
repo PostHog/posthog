@@ -54,7 +54,9 @@ class _FakeScheduleHandle:
         self._store[self._schedule_id] = update.schedule
 
     async def delete(self) -> None:
-        self._store.pop(self._schedule_id, None)
+        if self._schedule_id not in self._store:
+            raise RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+        del self._store[self._schedule_id]
 
 
 class _FakeClient:
@@ -104,6 +106,10 @@ def test_agent_schedule_spec_requires_a_calendar_field():
         AgentScheduleSpec()
     with pytest.raises(AgentScheduleError):
         AgentScheduleSpec(timezone="UTC")  # timezone alone isn't a calendar field
+    with pytest.raises(AgentScheduleError):
+        AgentScheduleSpec(hour=[])  # empty list is not a "set" field (would match every value)
+    with pytest.raises(AgentScheduleError):
+        AgentScheduleSpec(hour=[], minute=[])  # all-empty is still empty
 
 
 @pytest.mark.parametrize(

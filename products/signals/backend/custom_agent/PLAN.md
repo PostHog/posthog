@@ -93,7 +93,7 @@ from products.signals.backend.temporal.custom_agent import (
 result = schedule_agent(
     MyAgent, team, initial_prompt,
     AgentScheduleSpec(hour=9, minute=0, timezone="UTC"),  # daily at 09:00 UTC
-    *, repository=None, model=None, paused=False,
+    repository=None, model=None, paused=False,  # all keyword-only
 )  # -> ScheduleAgentResult.CREATED | UPDATED | ALREADY_PRESENT
 
 removed: bool = unschedule_agent(MyAgent, team)  # True if a schedule existed
