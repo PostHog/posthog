@@ -11,6 +11,7 @@ from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
 from posthog.hogql.printer.utils import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.property_lowering import (
     lower_properties,
@@ -21,6 +22,7 @@ from posthog.hogql.transforms.property_types import build_property_swapper
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models import PropertyDefinition
 
 
 class TestResolveMaterializedPropertySource(ClickhouseTestMixin, BaseTest):
@@ -219,3 +221,51 @@ class _PropertyTypeCollector(TraversingVisitor):
         if isinstance(node.type, ast.PropertyType):
             self.property_types.append(node.type)
         super().visit_field(node)
+
+
+class TestPropertyLoweringCast(ClickhouseTestMixin, BaseTest):
+    """The lowering pass must apply the same scalar cast the property swapper does — verified by typed behaviour.
+
+    Lowering now runs globally in `prepare_ast_for_printing`, so `execute_hogql_query` exercises it. A numeric
+    cast makes `> 50` order numerically (excluding the string "9"); without the cast it would order
+    lexicographically. The result set is computed from the seed data, so it doesn't depend on the pipeline.
+    """
+
+    def setUp(self):
+        super().setUp()
+        _create_event(team=self.team, distinct_id="a", event="e", properties={"amount": "9", "active": "true"})
+        _create_event(team=self.team, distinct_id="b", event="e", properties={"amount": "100", "active": "false"})
+        _create_event(team=self.team, distinct_id="c", event="e", properties={"amount": "5", "active": "true"})
+        flush_persons_and_events()
+
+    def _define(self, name: str, property_type: str) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name=name, property_type=property_type, type=PropertyDefinition.Type.EVENT
+        )
+
+    def test_numeric_property_compares_numerically(self):
+        self._define("amount", "Numeric")
+        result = execute_hogql_query(
+            "SELECT properties.amount FROM events WHERE properties.amount > 50 ORDER BY distinct_id",
+            team=self.team,
+        )
+        # Numeric: only 100 > 50. Lexicographic string compare would wrongly include "9".
+        assert [row[0] for row in result.results] == [100.0]
+        # The Float64 result type confirms the toFloat coercion was applied (not a raw-string read).
+        assert result.types == [("amount", "Nullable(Float64)")]
+
+    def test_numeric_property_values_are_floats(self):
+        self._define("amount", "Numeric")
+        result = execute_hogql_query(
+            "SELECT properties.amount FROM events ORDER BY properties.amount",
+            team=self.team,
+        )
+        assert [row[0] for row in result.results] == [5.0, 9.0, 100.0]
+
+    def test_boolean_property_casts(self):
+        self._define("active", "Boolean")
+        result = execute_hogql_query(
+            "SELECT count() FROM events WHERE properties.active = true",
+            team=self.team,
+        )
+        assert result.results[0][0] == 2

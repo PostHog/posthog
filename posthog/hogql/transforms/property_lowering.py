@@ -6,6 +6,8 @@ from posthog.schema import MaterializationMode, PropertyGroupsMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsTable
+from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
@@ -95,13 +97,18 @@ def resolve_materialized_property_source(
 
 
 def lower_property_type(property_type: ast.PropertyType, context: HogQLContext) -> ast.Expr | None:
-    """Concrete column AST equivalent to the SQL the ClickHouse printer emits for a `properties.$x` access.
+    """Concrete column AST equivalent to what the ClickHouse printer + property swapper emit for `properties.$x`.
 
     Returns the lowered expression — a bare/`nullIf`-wrapped materialized column, a property-group map access,
-    or a `JSONExtract` over the raw blob — built only from registered HogQL functions so it survives printing.
-    Returns ``None`` when the access can't be safely lowered here (already repointed into a joined subquery,
-    property-level access control in play, or an unusual table wrapper); the caller then leaves the original
-    ``PropertyType`` in place for the printer.
+    or a `JSONExtract` over the raw blob — wrapped in the registered scalar cast (`toFloat`/`toDateTime`/
+    `toBool`) for single-key event/person properties, built only from registered HogQL functions so it survives
+    printing. Returns ``None`` when the access can't be safely lowered here (already repointed into a joined
+    subquery, property-level access control in play, or an unusual table wrapper); the caller leaves the
+    original ``PropertyType`` in place for the printer.
+
+    Column selection mirrors `BasePrinter.visit_property_type`; the cast mirrors
+    `PropertySwapper._field_type_to_property_call`. This pass runs *before* the swapper, so it owns the cast for
+    the properties it lowers and the swapper no-ops on them (it only sees the un-lowered tail it still handles).
 
     Equivalence bar is **result-equivalence, not byte-identical**: the printer string-builds the property-group
     read as a `? :` ternary and the JSON read with literal (non-parameterized) constants, neither of which any
@@ -133,15 +140,88 @@ def lower_property_type(property_type: ast.PropertyType, context: HogQLContext) 
 
     if source is None:
         # No physical backing: JSONExtractRaw over the raw blob for the full chain.
-        return _json_extract_trim_quotes_expr(_blob_field(base_field_type), [first_key, *deeper_keys])
+        lowered: ast.Expr = _json_extract_trim_quotes_expr(_blob_field(base_field_type), [first_key, *deeper_keys])
+    else:
+        head = _materialized_head_expr(source, base_field_type, first_key, is_single=not deeper_keys, context=context)
+        if head is None:
+            return None
+        # Deeper keys read the materialized value as a JSON string, same as the printer's chain[1:] handling.
+        lowered = head if not deeper_keys else _json_extract_trim_quotes_expr(head, deeper_keys)
 
-    head = _materialized_head_expr(source, base_field_type, first_key, is_single=not deeper_keys, context=context)
-    if head is None:
-        return None
+    # Scalar cast — only single-key event/person properties get coerced (mirrors the swapper's chain[0]-only rule).
     if not deeper_keys:
-        return head
-    # Deeper keys read the materialized value as a JSON string, same as the printer's chain[1:] handling.
-    return _json_extract_trim_quotes_expr(head, deeper_keys)
+        cast_type = _property_cast_type(property_type, context)
+        if cast_type is not None:
+            lowered = _apply_property_cast(lowered, cast_type)
+    return lowered
+
+
+def _property_cast_type(property_type: ast.PropertyType, context: HogQLContext) -> str | None:
+    """The registered scalar type the second PropertySwapper would coerce this property to, or None.
+
+    Mirrors `PropertySwapper.visit_field`'s single-key event/person coercion, restricted to the table shapes
+    lowering itself handles. Group properties (lazy joins) and PoE virtual-table person props are out of scope
+    here and stay with the swapper. Returns one of "Float" / "DateTime" / "Boolean" / "String", or None when
+    the property isn't in the resolved registry (i.e. the swapper would leave it as a raw string).
+    """
+    swapper = context.property_swapper
+    if swapper is None or len(property_type.chain) != 1:
+        return None
+
+    base_field_type = property_type.field_type
+    table_type = _underlying_table_type(base_field_type.table_type)
+    if table_type is None:
+        return None
+
+    table = table_type.table
+    property_name = str(property_type.chain[0])
+    field_name = base_field_type.name
+
+    prop_info: dict[str, str | None] | None = None
+    if field_name == "properties":
+        if isinstance(table, EventsTable):
+            prop_info = swapper.event_properties.get(property_name)
+        elif isinstance(table, (PersonsTable, RawPersonsTable)):
+            prop_info = swapper.person_properties.get(property_name)
+    elif field_name == "person_properties" and isinstance(table, EVENTS_TABLE_TYPES):
+        prop_info = swapper.person_properties.get(property_name)
+
+    if not prop_info:
+        return None
+    return "Float" if prop_info.get("type") == "Numeric" else (prop_info.get("type") or "String")
+
+
+def _apply_property_cast(expr: ast.Expr, field_type: str) -> ast.Expr:
+    """Wrap a lowered property value in its scalar cast. Mirrors PropertySwapper._field_type_to_property_call."""
+    if field_type == "DateTime":
+        # Carry the return type so an enclosing toDateTime() resolves its already-a-datetime overload.
+        return ast.Call(
+            name="toDateTime",
+            args=[expr],
+            type=ast.CallType(
+                name="toDateTime",
+                arg_types=[ast.StringType(nullable=True)],
+                return_type=ast.DateTimeType(nullable=True),
+            ),
+        )
+    if field_type == "Float":
+        return ast.Call(name="toFloat", args=[expr])
+    if field_type == "Boolean":
+        return ast.Call(
+            name="toBool",
+            args=[
+                ast.Call(
+                    name="transform",
+                    args=[
+                        ast.Call(name="toString", args=[expr]),
+                        ast.Constant(value=["true", "false"]),
+                        ast.Constant(value=[1, 0]),
+                        ast.Constant(value=None),
+                    ],
+                )
+            ],
+        )
+    return expr
 
 
 def _materialized_head_expr(
