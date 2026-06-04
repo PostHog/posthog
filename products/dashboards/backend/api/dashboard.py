@@ -199,7 +199,12 @@ def _run_widget_query(
         },
     ) as slo:
         try:
-            result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
+            query_fn = work_item["query_fn"]
+            result = query_fn(
+                team,
+                work_item["config"],
+                user=work_item["user"],
+            )
             return {
                 "tile_id": tile_id,
                 "widget_type": widget_type,
@@ -818,7 +823,12 @@ class DashboardWidgetRunResultSerializer(serializers.Serializer):
     )
     result = serializers.JSONField(
         allow_null=True,
-        help_text="Live widget query result payload.",
+        help_text=(
+            "Live widget query result payload. List widgets return results (array), limit (configured page size), "
+            "hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount "
+            "hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are "
+            "issue summaries; session_replay_list results are recording metadata."
+        ),
     )
     error = serializers.CharField(
         allow_null=True,
@@ -1431,6 +1441,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         widget_data: dict[str, Any],
         user: User,
         user_access_control: UserAccessControl,
+        dashboard: Dashboard | None = None,
     ) -> None:
         DashboardSerializer._check_widget_tile_product_access(widget, user_access_control)
         patch_widget_type = widget_data.get("widget_type")
@@ -1438,7 +1449,11 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
         if "config" in widget_data:
-            widget.config = validate_widget_config(widget.widget_type, widget_data["config"])
+            widget.config = validate_widget_config(
+                widget.widget_type,
+                widget_data["config"],
+                team_id=widget.team_id,
+            )
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:
@@ -1615,6 +1630,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                         widget_data=widget_data,
                         user=user,
                         user_access_control=user_access_control,
+                        dashboard=instance,
                     )
                 except DashboardWidget.DoesNotExist:
                     raise serializers.ValidationError({"widget": "Widget not found in this team."})
@@ -2698,13 +2714,13 @@ class DashboardsViewSet(
                 continue
 
             if widget.widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
-                throttle_error = get_replay_listing_throttle_error(request, self)
-                if throttle_error:
+                replay_throttle_error = get_replay_listing_throttle_error(request, self)
+                if replay_throttle_error:
                     results_by_id[tile_id] = {
                         "tile_id": tile_id,
                         "widget_type": widget.widget_type,
                         "result": None,
-                        "error": throttle_error,
+                        "error": replay_throttle_error,
                     }
                     continue
 
