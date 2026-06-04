@@ -355,6 +355,12 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             f"MongoDB error {error_msg!r} should remain retryable"
         )
 
-    def test_auth_failure_has_friendly_message(self):
-        assert self.non_retryable["AuthenticationFailed"] is not None
-        assert "password" in self.non_retryable["AuthenticationFailed"].lower()
+    @parameterized.expand(
+        [
+            ("code_name", "AuthenticationFailed"),
+            ("message", "Authentication failed"),
+        ]
+    )
+    def test_auth_pattern_has_friendly_message(self, _name, pattern):
+        assert self.non_retryable[pattern] is not None
+        assert "password" in self.non_retryable[pattern].lower()
