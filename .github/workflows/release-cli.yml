@@ -213,6 +213,7 @@ jobs:
                   emoji_reaction: 'x'
 
     # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
+    # Run 'dist plan' (or host) to determine what tasks we need to do
     plan-release:
         name: Plan cargo-dist release
         needs: release
@@ -232,6 +233,8 @@ jobs:
                   ref: ${{ needs.release.outputs.release-commit }}
                   submodules: recursive
             - name: Install dist
+              # we specify bash to get pipefail; it guards against the `curl` command
+              # failing. otherwise `sh` won't catch that `curl` returned non-0
               shell: bash
               run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh"
             - name: Cache dist
@@ -260,14 +263,26 @@ jobs:
                   name: artifacts-plan-dist-manifest
                   path: plan-dist-manifest.json
 
+    # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
+        # Let the initial task tell us to not run (currently very blunt)
         needs:
             - release
             - plan-release
         if: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
         strategy:
             fail-fast: false
+            # Target platforms/runners are computed by dist in create-release.
+            # Each member of the matrix has the following arguments:
+            #
+            # - runner: the github runner
+            # - dist-args: cli flags to pass to dist
+            # - install-dist: expression to run to install dist on the runner
+            #
+            # Typically there will be:
+            # - 1 "global" task that builds universal installers
+            # - N "local" tasks that build each platform's binaries and platform-specific installers
             matrix: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix }}
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 30
@@ -293,6 +308,7 @@ jobs:
                   fi
             - name: Install dist
               run: ${{ matrix.install_dist.run }}
+            # Get the dist-manifest
             - name: Fetch local artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -304,12 +320,17 @@ jobs:
                   ${{ matrix.packages_install }}
             - name: Build artifacts
               run: |
+                  # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
                   echo "dist ran successfully"
             - id: cargo-dist
               name: Post-build
+              # We force bash here just because github makes it really hard to get values up
+              # to "real" actions without writing to env-vars, and writing to env-vars has
+              # inconsistent syntax between shell and powershell.
               shell: bash
               run: |
+                  # Parse out what we just built and upload it to scratch storage
                   echo "paths<<EOF" >> "$GITHUB_OUTPUT"
                   dist print-upload-files-from-manifest --manifest dist-manifest.json >> "$GITHUB_OUTPUT"
                   echo "EOF" >> "$GITHUB_OUTPUT"
@@ -323,6 +344,7 @@ jobs:
                       ${{ steps.cargo-dist.outputs.paths }}
                       ${{ env.BUILD_MANIFEST_NAME }}
 
+    # Build and package all the platform-agnostic(ish) things
     build-global-artifacts:
         needs:
             - release
@@ -346,6 +368,7 @@ jobs:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
+            # Get all the local artifacts for the global tasks to use (for e.g. checksums)
             - name: Fetch local artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -358,6 +381,7 @@ jobs:
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
                   echo "dist ran successfully"
 
+                  # Parse out what we just built and upload it to scratch storage
                   echo "paths<<EOF" >> "$GITHUB_OUTPUT"
                   jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
                   echo "EOF" >> "$GITHUB_OUTPUT"
@@ -371,12 +395,14 @@ jobs:
                       ${{ steps.cargo-dist.outputs.paths }}
                       ${{ env.BUILD_MANIFEST_NAME }}
 
+    # Determines if we should publish/announce
     host-release:
         needs:
             - release
             - plan-release
             - build-local-artifacts
             - build-global-artifacts
+        # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
         if: ${{ always() && needs.plan-release.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 15
@@ -401,6 +427,7 @@ jobs:
                   name: cargo-dist-cache
                   path: ~/.cargo/bin/
             - run: chmod +x ~/.cargo/bin/dist
+            # Fetch artifacts from scratch-storage
             - name: Fetch artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -417,8 +444,10 @@ jobs:
             - name: 'Upload dist-manifest.json'
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
+                  # Overwrite the previous copy
                   name: artifacts-dist-manifest
                   path: dist-manifest.json
+            # Create a GitHub Release while uploading all files to it
             - name: 'Download GitHub Artifacts'
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -427,6 +456,7 @@ jobs:
                   merge-multiple: true
             - name: Cleanup
               run: |
+                  # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
             - name: Create GitHub Release
               env:
@@ -436,6 +466,7 @@ jobs:
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
+                  # Write and read notes from a file to avoid quoting breaking things
                   echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
                   gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
