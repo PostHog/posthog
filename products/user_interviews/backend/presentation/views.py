@@ -1187,10 +1187,10 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: OpenApiResponse(response=PreviewInviteResultSerializer)},
         description=(
             "Render the invite email exactly as a specific targeted interviewee would receive it — "
-            "personalized subject and body — without sending anything and without creating any share "
-            "links. Pass `interviewee_identifier` to preview for a particular person, or omit it to "
-            "preview for the first targeted interviewee. If a share link already exists it is reused; "
-            "otherwise the body shows an illustrative placeholder link (`is_preview_link: true`)."
+            "personalized subject and body — without sending anything and without creating or reading "
+            "any share links. Pass `interviewee_identifier` to preview for a particular person, or omit "
+            "it to preview for the first targeted interviewee. The body always shows an illustrative "
+            "placeholder link (`is_preview_link: true`), never a live interview URL."
         ),
     )
     @action(detail=True, methods=["post"], url_path="preview_invite")
