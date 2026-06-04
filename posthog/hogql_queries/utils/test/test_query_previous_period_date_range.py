@@ -1,15 +1,29 @@
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
+from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.schema import DateRange, IntervalType
 
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 
 
 class TestQueryPreviousPeriodDateRange(APIBaseTest):
+    def _previous_period(
+        self, date_from: str, now_iso: str, date_to: str | None = None
+    ) -> QueryPreviousPeriodDateRange:
+        return QueryPreviousPeriodDateRange(
+            team=self.team,
+            date_range=DateRange(date_from=date_from, date_to=date_to),
+            interval=IntervalType.DAY,
+            now=parser.isoparse(now_iso),
+        )
+
     def test_previous_period(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = DateRange(date_from="-48h")
@@ -69,3 +83,64 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         )
         self.assertEqual(with_override.date_from_str, utc_baseline.date_from_str)
         self.assertEqual(with_override.date_to_str, utc_baseline.date_to_str)
+
+    def test_this_month_to_date_aligns_to_previous_month(self):
+        # "This month" on June 3 is the partial window June 1–3. The previous period should be
+        # the same window one calendar month earlier (May 1–3), not the trailing equal-length span.
+        previous = self._previous_period("mStart", "2026-06-03T14:00:00Z")
+        self.assertEqual(previous.date_from(), parser.isoparse("2026-05-01T00:00:00Z"))
+        self.assertEqual(previous.date_to(), parser.isoparse("2026-05-03T23:59:59.999999Z"))
+
+    def test_today_aligns_to_yesterday(self):
+        previous = self._previous_period("dStart", "2026-06-03T14:00:00Z")
+        self.assertEqual(previous.date_from(), parser.isoparse("2026-06-02T00:00:00Z"))
+        self.assertEqual(previous.date_to(), parser.isoparse("2026-06-02T23:59:59.999999Z"))
+
+    def test_year_to_date_aligns_to_previous_year(self):
+        previous = self._previous_period("yStart", "2026-06-03T14:00:00Z")
+        self.assertEqual(previous.date_from(), parser.isoparse("2025-01-01T00:00:00Z"))
+        self.assertEqual(previous.date_to(), parser.isoparse("2025-06-03T23:59:59.999999Z"))
+
+    def test_this_week_aligns_to_previous_week(self):
+        # Robust to the team's week-start config: assert the window is shifted back exactly one
+        # week and keeps the same (partial) duration.
+        date_range = DateRange(date_from="wStart")
+        now = parser.isoparse("2026-06-03T14:00:00Z")
+        previous = QueryPreviousPeriodDateRange(
+            team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now
+        )
+        current = QueryDateRange(team=self.team, date_range=date_range, interval=IntervalType.DAY, now=now)
+        self.assertEqual(previous.date_from(), current.date_from() - timedelta(weeks=1))
+        self.assertEqual(previous.date_to() - previous.date_from(), current.date_to() - current.date_from())
+
+    @parameterized.expand(
+        [
+            ("today", "dStart", relativedelta(days=1)),
+            ("this_week", "wStart", relativedelta(weeks=1)),
+            ("this_month", "mStart", relativedelta(months=1)),
+            ("year_to_date", "yStart", relativedelta(years=1)),
+        ]
+    )
+    def test_to_date_presets_are_detected(self, _name: str, date_from: str, expected: relativedelta):
+        self.assertEqual(self._previous_period(date_from, "2026-06-03T14:00:00Z").to_date_preset_shift(), expected)
+
+    @parameterized.expand(
+        [
+            ("last_7_days", "-7d"),
+            ("last_14_days", "-14d"),
+            ("last_30_days", "-30d"),
+            ("last_hour", "-1h"),
+            ("quarter_start_not_a_ui_preset", "qStart"),
+            ("hour_start_not_a_ui_preset", "hStart"),
+            ("yesterday_with_number", "-1dStart"),
+            ("all_time", "all"),
+        ]
+    )
+    def test_fixed_windows_are_not_aligned(self, _name: str, date_from: str):
+        # Fixed-length and numbered ranges keep the default "shift back by window length" behavior.
+        self.assertIsNone(self._previous_period(date_from, "2026-06-03T14:00:00Z").to_date_preset_shift())
+
+    def test_explicit_date_to_disables_alignment(self):
+        # A "to date" preset with an explicit end is no longer an open-ended partial period.
+        previous = self._previous_period("mStart", "2026-06-03T14:00:00Z", date_to="2026-06-02T00:00:00Z")
+        self.assertIsNone(previous.to_date_preset_shift())

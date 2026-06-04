@@ -1,11 +1,24 @@
 from datetime import datetime
 from typing import Optional
 
+from dateutil.relativedelta import relativedelta
+
 from posthog.schema import DateRange, IntervalType
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
 from posthog.utils import get_compare_period_dates, relative_date_parse_with_delta_mapping
+
+# Calendar-relative "to date" presets describe a partial, ongoing period. Comparing them to the
+# "previous period" should align to the same window one calendar unit earlier (this month
+# June 1–3 → May 1–3), not shift back by the partial window length. Maps each preset's `date_from`
+# token to the shift that anchors that window.
+_TO_DATE_PRESET_SHIFTS: dict[str, relativedelta] = {
+    "dStart": relativedelta(days=1),  # Today
+    "wStart": relativedelta(weeks=1),  # This week
+    "mStart": relativedelta(months=1),  # This month
+    "yStart": relativedelta(years=1),  # Year to date
+}
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -51,9 +64,24 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
             return delta_mapping
         return None
 
+    def to_date_preset_shift(self) -> relativedelta | None:
+        if not self._date_range or not isinstance(self._date_range.date_from, str) or self._date_range.date_to:
+            return None
+        return _TO_DATE_PRESET_SHIFTS.get(self._date_range.date_from)
+
     def dates(self) -> tuple[datetime, datetime]:
         current_period_date_from = super().date_from()
         current_period_date_to = super().date_to()
+
+        # For "to date" presets, align to the same window one calendar unit earlier instead of
+        # shifting back by the (partial) window length.
+        shift = self.to_date_preset_shift()
+        if shift is not None:
+            previous_period_date_from = current_period_date_from - shift
+            return (
+                previous_period_date_from,
+                previous_period_date_from + (current_period_date_to - current_period_date_from),
+            )
 
         previous_period_date_from, previous_period_date_to = get_compare_period_dates(
             current_period_date_from,
