@@ -19,6 +19,7 @@ tracing = { workspace = true }
 zstd = "0.13"
 
 [dev-dependencies]
+smol_str = "0.3"
 testcontainers = { workspace = true }
 tokio = { workspace = true }
 

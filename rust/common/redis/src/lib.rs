@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use thiserror::Error;
-// test: selective builds CI validation — shared dep change
 
 // Re-export ErrorKind and RetryMethod so consumers can construct CustomRedisError in tests
 // and understand retry behavior
