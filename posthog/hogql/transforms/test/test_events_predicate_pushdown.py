@@ -1017,6 +1017,42 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         with_pushdown = self._assert_results_equivalent(select)
         assert len(with_pushdown) == expected_rows, f"expected {expected_rows} rows, got {with_pushdown}"
 
+    def test_exec_self_join_with_inner_limit_stays_equivalent(self):
+        # Adversarial: a self-join shares the same `EventsTable` instance, so the column collector matches the
+        # right side's columns by identity, and the right side is one-to-many on distinct_id. With the pushed
+        # inner LIMIT bounding only the left scan, the full result set (LIMIT >= output) must stay identical.
+        self._create_data()
+        select = (
+            "SELECT a.event AS ae, b.event AS be FROM events AS a "
+            "LEFT JOIN events AS b ON a.distinct_id = b.distinct_id "
+            "WHERE a.timestamp >= '2024-01-01' AND a.timestamp < '2024-01-08' LIMIT 50"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert ") AS a LEFT JOIN" in printed, f"expected the self-join left scan to be pushed:\n{printed}"
+        self._assert_results_equivalent(select)
+
+    def test_exec_limit_below_match_count_returns_valid_rows_both_ways(self):
+        # A non-ORDER-BY LIMIT smaller than the matching set is non-deterministic — even two un-pushed runs can
+        # return different rows — so on==off isn't a valid assertion. The pushed inner LIMIT bounds the events
+        # scan rather than the joined output, so the chosen rows can differ; assert instead that BOTH forms
+        # return a valid result: exactly LIMIT rows, each drawn from the full matching set.
+        for i in range(1, 7):
+            self._create_session(f"2024-01-0{i}T00:00:00", f"u{i}", "pro", f"2024-01-0{i}T10:00:00")
+        self._create_session("2023-06-01T00:00:00", "u_old", "pro", "2023-06-01T09:00:00")  # out of range
+        flush_persons_and_events()
+        base = (
+            "SELECT distinct_id, session.$session_duration AS d FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+        )
+        limited = base + " LIMIT 3"
+        assert ") AS events LEFT JOIN" in self._print_pushdown_sql(limited), "expected the LIMIT 3 query to push"
+        valid = {tuple(r) for r in (self._results(base + " LIMIT 1000", push_down=False) or [])}
+        assert len(valid) == 6, f"expected 6 matching rows in the full set, got {valid}"
+        for push in (True, False):
+            rows = self._results(limited, push_down=push) or []
+            assert len(rows) == 3, f"push={push}: expected exactly 3 rows, got {rows}"
+            assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
+
     def test_exec_array_join_predicate_not_pushed_stays_equivalent(self):
         # arrayJoin in a predicate is residual (it can't be pushed into the events subquery), so the whole
         # pushdown declines: with a residual predicate left on the outer query an inner LIMIT would be unsafe,
