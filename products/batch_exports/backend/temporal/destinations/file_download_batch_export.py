@@ -4,6 +4,7 @@ import uuid
 import typing
 import asyncio
 import datetime as dt
+import functools
 import dataclasses
 
 from django.conf import settings
@@ -43,7 +44,13 @@ FILE_DOWNLOAD_PREFIX = (
 
 NON_RETRYABLE_ERROR_TYPES = ()
 
-SESSION = aioboto3.Session()
+
+@functools.cache
+def _get_session() -> aioboto3.Session:
+    # Built lazily on first use, never at import time: aioboto3.Session() eagerly resolves
+    # botocore/AWS profile config, and this module is imported during Django startup — an
+    # unset or dangling AWS_PROFILE would otherwise crash boot with ProfileNotFound.
+    return aioboto3.Session()
 
 
 class Credentials(typing.NamedTuple):
@@ -100,7 +107,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
     `_get_temporary_credentials_for_multipart_upload` or
     `_get_temporary_credentials_to_head_object` as needed.
     """
-    async with SESSION.client("sts") as sts:
+    async with _get_session().client("sts") as sts:
         for attempt in range(1, max_attempts + 1):
             try:
                 response = await sts.assume_role(
