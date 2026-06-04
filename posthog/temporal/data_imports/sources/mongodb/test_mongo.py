@@ -362,5 +362,6 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         ]
     )
     def test_auth_pattern_has_friendly_message(self, _name, pattern):
-        assert self.non_retryable[pattern] is not None
-        assert "password" in self.non_retryable[pattern].lower()
+        message = self.non_retryable[pattern]
+        assert message is not None
+        assert "password" in message.lower()
