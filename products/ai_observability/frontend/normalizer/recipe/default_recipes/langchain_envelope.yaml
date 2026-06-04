@@ -2,7 +2,6 @@
 # message is in `kwargs`; delegate it so the bare langchain rule picks it up.
 
 id: langchain_envelope
-priority: 15
 
 rules:
     - on:

@@ -91,7 +91,10 @@ PARTNER_RATE_LIMIT_EVENT_NAMES: dict[str, str] = {
 
 _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
-LEGACY_STRIPE_APP_NAME = "PostHog Stripe App"
+# Stripe's contracted scope ceiling, seeded onto the legacy Stripe Projects OAuth
+# app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
+# the default in `_exchange_authorization_code` when no per-code scopes are given).
+STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # Cap partner-supplied prefix below the full label length so " - {team_name}" still
@@ -1060,7 +1063,13 @@ def _exchange_authorization_code(request: Request) -> Response:
         return Response({"error": "invalid_grant", "error_description": "User not found"}, status=400)
 
     # Use partner's OAuth app if available, fall back to Stripe
-    oauth_app = _get_oauth_app_for_code(code_data)
+    try:
+        oauth_app = _get_oauth_app_for_code(code_data)
+    except LegacyStripeOAuthAppMissingError:
+        _capture_provisioning_event("token_exchange", "oauth_app_missing", grant_type="authorization_code")
+        return Response(
+            {"error": "server_error", "error_description": "OAuth application is not configured"}, status=500
+        )
 
     # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
     # ceiling has to be enforced here before the token is created by hand.
@@ -2269,28 +2278,48 @@ def _authenticate_bearer(request: Request) -> tuple[Response | None, Any, Any]:
     return (_error_response("unauthorized", "Authentication failed", status=401), None, None)
 
 
-def _get_legacy_stripe_oauth_app():
-    if settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID:
-        try:
-            return OAuthApplication.objects.get(client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID)
-        except OAuthApplication.DoesNotExist:
-            logger.warning(
-                "provisioning.oauth_app.client_id_not_found",
-                client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID,
-            )
+class LegacyStripeOAuthAppMissingError(Exception):
+    """The configured Stripe Projects OAuth app could not be resolved.
 
-    from oauthlib.common import generate_token
+    Raised instead of fabricating an app on demand: a missing app is an
+    operational misconfiguration, not something to paper over with a freshly
+    created application that carries no scope ceiling.
+    """
 
-    return OAuthApplication.objects.create(
-        name=LEGACY_STRIPE_APP_NAME,
-        client_id=settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID or generate_token(),
-        client_secret="",
-        client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-        authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-        redirect_uris="https://localhost",
-        algorithm="RS256",
-        provisioning_can_issue_deep_links=True,
-    )
+
+def _seed_stripe_app_scopes(app: OAuthApplication) -> None:
+    """Seed the Stripe Projects app's scope ceiling when it is unset.
+
+    Region-agnostic by design: US and EU each hold their own OAuthApplication
+    row, so this runs independently the first time the app is resolved in each
+    region. Pre-seeding via the ops step in the slice notes avoids the on-request
+    write, but this keeps the ceiling correct even if that step is missed.
+    """
+    if app.scopes:
+        return
+    app.scopes = list(STRIPE_CONTRACTED_SCOPES)
+    app.save(update_fields=["scopes"])
+
+
+def _get_legacy_stripe_oauth_app() -> OAuthApplication:
+    client_id = settings.STRIPE_POSTHOG_OAUTH_CLIENT_ID
+    if not client_id:
+        error = LegacyStripeOAuthAppMissingError("STRIPE_POSTHOG_OAUTH_CLIENT_ID is not configured")
+        capture_exception(error)
+        raise error
+
+    try:
+        app = OAuthApplication.objects.get(client_id=client_id)
+    except OAuthApplication.DoesNotExist as exc:
+        error = LegacyStripeOAuthAppMissingError("Stripe Projects OAuth app not found for configured client_id")
+        # Chain the DoesNotExist so the captured event keeps its traceback; the new
+        # error was never raised, so it carries no traceback of its own.
+        error.__cause__ = exc
+        capture_exception(error, additional_properties={"client_id": client_id})
+        raise error from None
+
+    _seed_stripe_app_scopes(app)
+    return app
 
 
 def _get_available_teams_for_user(user: User) -> list[dict[str, Any]]:
@@ -2322,11 +2351,13 @@ def _get_callback_url(partner_id: str) -> str:
     return settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
 
 
-def _get_oauth_app_for_code(code_data: dict):
+def _get_oauth_app_for_code(code_data: dict) -> OAuthApplication:
     """Resolve the OAuthApplication for a token exchange.
 
     If the auth code was created by a provisioning partner, use that app.
-    Otherwise fall back to the legacy Stripe Projects app lookup.
+    Otherwise fall back to the legacy Stripe Projects app lookup, which
+    hard-fails (raising ``LegacyStripeOAuthAppMissingError``) if the configured
+    app is missing rather than fabricating one.
     """
     partner_id = code_data.get("partner_id", "")
     if partner_id:

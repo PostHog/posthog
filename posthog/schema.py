@@ -2141,6 +2141,7 @@ class ExternalDataSourceType(StrEnum):
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
     MAILCHIMP = "Mailchimp"
@@ -2811,6 +2812,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
+    GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
@@ -9593,6 +9595,7 @@ class TrendsFilter(BaseModel):
         )
     )
     showAlertThresholdLines: bool | None = False
+    showAnnotations: bool | None = True
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
@@ -22784,6 +22787,10 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
+    )
+    showAnnotations: bool | None = Field(
+        default=True,
+        description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
     )
     showTrendLines: bool | None = Field(
         default=None,
