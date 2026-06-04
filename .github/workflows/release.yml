@@ -11,6 +11,10 @@ name: Release
 permissions:
     contents: read
 
+env:
+    CARGO_DIST_VERSION: 0.32.0
+    CARGO_DIST_INSTALLER_SHA256: b657cf8c04a8b7bc28f39d220f7e6dd11bbd2bdb072c552262bd9ccf597261b5
+
 # Publishing is handled by the Release CLI workflow after Release environment approval.
 on:
     pull_request:
@@ -32,10 +36,27 @@ jobs:
               with:
                   submodules: recursive
             - name: Install dist
-              # we specify bash to get pipefail; it guards against the `curl` command
-              # failing. otherwise `sh` won't catch that `curl` returned non-0
               shell: bash
-              run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh"
+              run: |
+                  installer="$RUNNER_TEMP/cargo-dist-installer.sh"
+                  curl --proto '=https' --tlsv1.2 -LsSf \
+                      "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
+                      -o "$installer"
+                  if command -v sha256sum >/dev/null 2>&1; then
+                      echo "${CARGO_DIST_INSTALLER_SHA256}  $installer" | sha256sum -c -
+                  elif command -v shasum >/dev/null 2>&1; then
+                      actual="$(shasum -a 256 "$installer" | awk '{print $1}')"
+                      if [ "$actual" != "$CARGO_DIST_INSTALLER_SHA256" ]; then
+                          echo "::error::cargo-dist installer checksum mismatch"
+                          echo "expected: $CARGO_DIST_INSTALLER_SHA256"
+                          echo "actual:   $actual"
+                          exit 1
+                      fi
+                  else
+                      echo "::error::No sha256 checksum tool available"
+                      exit 1
+                  fi
+                  sh "$installer"
             - name: Cache dist
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
@@ -102,7 +123,27 @@ jobs:
                     echo "$HOME/.cargo/bin" >> $GITHUB_PATH
                   fi
             - name: Install dist
-              run: ${{ matrix.install_dist.run }}
+              shell: bash
+              run: |
+                  installer="$RUNNER_TEMP/cargo-dist-installer.sh"
+                  curl --proto '=https' --tlsv1.2 -LsSf \
+                      "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
+                      -o "$installer"
+                  if command -v sha256sum >/dev/null 2>&1; then
+                      echo "${CARGO_DIST_INSTALLER_SHA256}  $installer" | sha256sum -c -
+                  elif command -v shasum >/dev/null 2>&1; then
+                      actual="$(shasum -a 256 "$installer" | awk '{print $1}')"
+                      if [ "$actual" != "$CARGO_DIST_INSTALLER_SHA256" ]; then
+                          echo "::error::cargo-dist installer checksum mismatch"
+                          echo "expected: $CARGO_DIST_INSTALLER_SHA256"
+                          echo "actual:   $actual"
+                          exit 1
+                      fi
+                  else
+                      echo "::error::No sha256 checksum tool available"
+                      exit 1
+                  fi
+                  sh "$installer"
             # Get the dist-manifest
             - name: Fetch local artifacts
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

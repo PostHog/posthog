@@ -22,10 +22,9 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 6. Runs cargo-dist against the release bump commit
 7. Creates the GitHub release and publishes the npm package
 
-You can also trigger `Release CLI` manually from the Actions tab. Manual runs still require pending changesets.
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
-If you need to cut a release by hand, trigger the `Release CLI` workflow from the Actions tab.
+If you need to cut a release by hand, merge a CLI changeset to `master` and let `Release CLI` run from there.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.
 
