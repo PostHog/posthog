@@ -161,8 +161,10 @@ function indexAfterLastMetaGroup(filtered: TaxonomicFilterGroupType[]): number {
  *    1. Dropping types that aren't available in the current `groups`
  *    2. Resolving mutually-exclusive shortcut pairs (e.g. PageviewUrls vs
  *       PageviewEvents — keep the first, drop the second)
- *    3. Auto-injecting `RecentFilters` and `PinnedFilters` after the meta
- *       group block (Suggested → Recent → Pinned)
+ *    3. Auto-injecting the meta block after any requested meta groups
+ *       (Suggested -> Recent -> Pinned). SuggestedFilters is injected only
+ *       when more than one content group was requested; Recent/Pinned are
+ *       always injected when available.
  *    4. Promoting shortcut groups (PageviewUrls / Screens / EmailAddresses
  *       / Elements when `$autocapture` is in `eventNames`) to right after
  *       the meta block.
@@ -176,6 +178,10 @@ const AUTO_INJECT_META_GROUPS: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.RecentFilters,
     TaxonomicFilterGroupType.PinnedFilters,
 ]
+
+// SuggestedFilters is a cross-category surface, so it's only worth showing when
+// the caller asked for more than one content (non-meta) group to aggregate over.
+const SUGGESTED_FILTERS_MIN_CONTENT_GROUPS = 2
 
 const SHORTCUT_GROUPS_BASE: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.PageviewUrls,
@@ -197,7 +203,20 @@ function resolveTaxonomicGroupTypes(
     }
     const filtered = requested.filter((t) => !excluded.has(t) && available.has(t))
 
-    // 2. Auto-inject Recent / Pinned (Suggested stays opt-in)
+    // 2. Auto-inject the meta block. SuggestedFilters leads it when there's
+    // more than one content group to aggregate; Recent/Pinned always follow.
+    // Count off `filtered` (post mutual-exclusion + availability) so the
+    // threshold matches the content tabs the user actually sees — a
+    // mutually-exclusive pair like [PageviewUrls, PageviewEvents] collapses to
+    // one visible tab and must not trigger Suggested.
+    const contentGroupCount = filtered.filter((t) => !META_GROUP_TYPES.has(t)).length
+    if (
+        contentGroupCount >= SUGGESTED_FILTERS_MIN_CONTENT_GROUPS &&
+        available.has(TaxonomicFilterGroupType.SuggestedFilters) &&
+        !filtered.includes(TaxonomicFilterGroupType.SuggestedFilters)
+    ) {
+        filtered.splice(indexAfterLastMetaGroup(filtered), 0, TaxonomicFilterGroupType.SuggestedFilters)
+    }
     for (const metaType of AUTO_INJECT_META_GROUPS) {
         if (available.has(metaType) && !filtered.includes(metaType)) {
             filtered.splice(indexAfterLastMetaGroup(filtered), 0, metaType)

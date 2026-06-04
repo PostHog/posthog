@@ -69,6 +69,25 @@ describe('TaxonomicFilterHeadless integration', () => {
         )
     }
 
+    it('auto-injects and defaults to the Suggested tab for multi-content pickers', () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties]}
+                    onChange={onChangeMock}
+                >
+                    <TaxonomicFilterHeadless.Input />
+                    <TaxonomicFilterHeadless.Categories />
+                    <TaxonomicFilterHeadless.Panel />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+        const suggestedTab = screen.getByTestId('taxonomic-tab-suggested_filters')
+        expect(suggestedTab).toBeInTheDocument()
+        expect(suggestedTab).toHaveAttribute('aria-selected', 'true')
+    })
+
     it('mounts Root, Input, Categories and Panel without throwing', () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'pageview' }], count: 1 })
         renderHeadless()

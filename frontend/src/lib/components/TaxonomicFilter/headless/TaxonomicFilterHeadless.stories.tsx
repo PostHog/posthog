@@ -32,9 +32,17 @@ interface ContainerArgs {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     initialSearchQuery?: string
     suggestedFiltersLabel?: string
+    /** Open on a specific content tab. Stories demonstrating a category's list
+     *  pin this so they don't land on the auto-injected Suggested tab. */
+    groupType?: TaxonomicFilterGroupType
 }
 
-function Container({ taxonomicGroupTypes, initialSearchQuery, suggestedFiltersLabel }: ContainerArgs): JSX.Element {
+function Container({
+    taxonomicGroupTypes,
+    initialSearchQuery,
+    suggestedFiltersLabel,
+    groupType,
+}: ContainerArgs): JSX.Element {
     useState(() => {
         __clearTaxonomicResourceCache()
         return null
@@ -50,6 +58,7 @@ function Container({ taxonomicGroupTypes, initialSearchQuery, suggestedFiltersLa
         <div className="flex flex-col gap-3 max-w-xl border rounded p-3 bg-surface-primary">
             <TaxonomicFilterHeadless.Root
                 taxonomicGroupTypes={taxonomicGroupTypes}
+                groupType={groupType}
                 initialSearchQuery={initialSearchQuery}
                 suggestedFiltersLabel={suggestedFiltersLabel}
                 onChange={(group: TaxonomicFilterGroup, value, item: any) => {
@@ -72,12 +81,15 @@ function Container({ taxonomicGroupTypes, initialSearchQuery, suggestedFiltersLa
 
 export const EventsAndActions: Story = {
     render: () => (
-        <Container taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]} />
+        <Container
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            groupType={TaxonomicFilterGroupType.Events}
+        />
     ),
     parameters: {
         docs: {
             description: {
-                story: 'Two tabs: Events + Actions. Tab strip uses Quill `<Button>`, list uses `<ItemMenuItem>`.',
+                story: 'Two tabs: Events + Actions, opened on Events to show the list. Tab strip uses Quill `<Button>`, list uses `<ItemMenuItem>`. (Suggested is auto-injected into the strip but this story pins Events to demonstrate the category list.)',
             },
         },
     },
@@ -87,12 +99,13 @@ export const Properties: Story = {
     render: () => (
         <Container
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]}
+            groupType={TaxonomicFilterGroupType.EventProperties}
         />
     ),
     parameters: {
         docs: {
             description: {
-                story: 'Property picker — Event + Person properties. Uses the same headless API as the Events story.',
+                story: 'Property picker — Event + Person properties, opened on Event properties. Uses the same headless API as the Events story.',
             },
         },
     },
@@ -113,6 +126,19 @@ export const SuggestedFiltersWithRecents: Story = {
         docs: {
             description: {
                 story: 'Demonstrates the auto-injected SuggestedFilters tab + a custom label.',
+            },
+        },
+    },
+}
+
+export const SuggestedIsDefaultSurface: Story = {
+    render: () => (
+        <Container taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties]} />
+    ),
+    parameters: {
+        docs: {
+            description: {
+                story: 'The caller requests Events + Event properties and does NOT ask for SuggestedFilters — but because more than one content group is requested, the Suggested tab is auto-injected as the first tab and is the default active surface. Single-purpose pickers (one content group) are left untouched.',
             },
         },
     },
