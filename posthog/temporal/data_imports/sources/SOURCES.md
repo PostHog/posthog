@@ -57,6 +57,7 @@ the row lists both.
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | clerk            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
+| clickup          | HTTP                        | requests                                                        | ✅                          |
 | close            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit       | HTTP                        | requests                                                        | ✅                          |
 | convex           | HTTP                        | requests                                                        | ✅                          |
@@ -166,7 +167,6 @@ doesn't conflict with concurrent PRs.
 - braintree
 - braze
 - circleci
-- clickup
 - cockroachdb
 - confluence
 - copper

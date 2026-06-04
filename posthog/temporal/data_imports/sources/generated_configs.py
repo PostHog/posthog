@@ -258,7 +258,8 @@ class ClickHouseSourceConfig(config.Config):
 
 @config.config
 class ClickUpSourceConfig(config.Config):
-    pass
+    api_key: str
+    workspace_id: str
 
 
 @config.config
