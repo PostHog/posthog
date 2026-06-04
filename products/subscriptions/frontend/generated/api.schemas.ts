@@ -249,11 +249,11 @@ export interface SubscriptionApi {
   * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
-    interval?: number
+    interval: number
     /**
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
@@ -390,8 +390,8 @@ export interface PatchedSubscriptionApi {
   * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
     interval?: number
