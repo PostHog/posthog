@@ -394,14 +394,6 @@ function EditSubscriptionForm({
                             </LemonField>
                         </div>
 
-                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
-                            <DashboardInsightsField
-                                dashboard={dashboard}
-                                subscription={subscription}
-                                onResetSubscription={resetSubscription}
-                            />
-                        )}
-
                         {aiGate.showResourceTypeToggle && (
                             <LemonField name="resource_type" label="What to send">
                                 {({ value, onChange }) => (
@@ -425,6 +417,14 @@ function EditSubscriptionForm({
                                     />
                                 )}
                             </LemonField>
+                        )}
+
+                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
+                            <DashboardInsightsField
+                                dashboard={dashboard}
+                                subscription={subscription}
+                                onResetSubscription={resetSubscription}
+                            />
                         )}
 
                         {aiGate.showConsentHint && (
