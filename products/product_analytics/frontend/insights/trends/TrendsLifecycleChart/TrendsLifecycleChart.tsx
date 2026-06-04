@@ -97,9 +97,14 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
-                valueLabels: showValuesOnSeries
-                    ? { formatter: valueLabelFormatter, showPercentages: !!showPercentagesOnSeries }
-                    : false,
+                valueLabels:
+                    showValuesOnSeries || showPercentagesOnSeries
+                        ? {
+                              formatter: valueLabelFormatter,
+                              showValues: !!showValuesOnSeries,
+                              showPercentages: !!showPercentagesOnSeries,
+                          }
+                        : false,
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
             }),
         [

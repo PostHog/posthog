@@ -143,6 +143,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
                 <ValueLabels
                     valueFormatter={valueLabelFormatter}
                     showPercentages={valueLabelsConfig.showPercentages}
+                    showValues={valueLabelsConfig.showValues}
                 />
             )}
             {children}

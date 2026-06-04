@@ -5,9 +5,11 @@ import type { Series } from '../../core/types'
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
     formatter?: (value: number) => string
-    /** Append per-band percentage to each segment label (e.g. `580 (42%)`). See
-     *  `ValueLabelsProps.showPercentages` for details. */
+    /** Per-band percentage on each segment label (e.g. `580 (42%)`, or `42%` without
+     *  `showValues`). See `ValueLabelsProps.showPercentages` for details. */
     showPercentages?: boolean
+    /** Whether the raw value is shown. Defaults to true. See `ValueLabelsProps.showValues`. */
+    showValues?: boolean
 }
 
 export function resolveValueLabelsConfig(input: boolean | ValueLabelsConfig | undefined): ValueLabelsConfig | null {

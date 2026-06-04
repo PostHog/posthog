@@ -354,6 +354,35 @@ describe('ValueLabels', () => {
             expect(labelDivs(container).map((d) => d.textContent)).toEqual(['$50 (100%)'])
         })
 
+        it('renders bare percentages (no value, no brackets) when showValues is false', () => {
+            // Same band as the append test, but values are hidden so each label is just the percentage.
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
+                { key: 'b', label: 'B', color: '#0a0', data: [10, 75] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const { container } = renderInChart(ctx, <ValueLabels showPercentages showValues={false} />)
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['25%', '25%', '75%', '75%'])
+        })
+
+        it('bare percentages use absolute values for diverging stacks (lifecycle)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'pos', label: 'Positive', color: '#a00', data: [20] },
+                { key: 'neg', label: 'Dormant', color: '#0a0', data: [-10] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon'] })
+            const { container } = renderInChart(ctx, <ValueLabels showPercentages showValues={false} />)
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['33%', '67%'])
+        })
+
         it('does not append percentages when isPercent is true (labels already express fractions)', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [20, 60] },

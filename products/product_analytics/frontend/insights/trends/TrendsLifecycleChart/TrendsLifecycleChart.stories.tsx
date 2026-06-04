@@ -272,3 +272,18 @@ export const UnstackedWithPercentagesOnSeries: Story = {
         />
     ),
 }
+
+export const StackedWithPercentagesOnlyOnSeries: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: true,
+                id: 306,
+                shortId: 'lifecycleStackedPercentagesOnly',
+                name: 'Lifecycle stacked (percentages only on series)',
+                showValuesOnSeries: false,
+                showPercentagesOnSeries: true,
+            })}
+        />
+    ),
+}

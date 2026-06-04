@@ -13,12 +13,16 @@ export interface ValueLabelsProps {
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
     mode?: ValueLabelsMode
-    /** Append per-band percentage to each segment label (e.g. `580 (42%)`). Each segment's
-     *  percentage is its share of the sum of absolute values in the band — using `abs`
-     *  rather than the signed sum so diverging stacks (lifecycle's negative dormant)
-     *  still produce intuitive proportions. Ignored in `mode: 'stack-total'` (would
-     *  always be 100%) and in percent layout (labels already express fractions). */
+    /** Per-band percentage on each segment label. Each segment's percentage is its share of
+     *  the sum of absolute values in the band — using `abs` rather than the signed sum so
+     *  diverging stacks (lifecycle's negative dormant) still produce intuitive proportions.
+     *  With `showValues` it appends (`580 (42%)`); without it the label is the bare percentage
+     *  (`42%`). Ignored in `mode: 'stack-total'` (would always be 100%) and in percent layout
+     *  (labels already express fractions). */
     showPercentages?: boolean
+    /** Whether the raw value is shown. Defaults to true. When false alongside `showPercentages`,
+     *  segments render the percentage only. */
+    showValues?: boolean
 }
 
 const LABEL_FONT =
@@ -61,6 +65,7 @@ interface BuildCandidatesArgs {
     mode: ValueLabelsMode
     isPercent: boolean
     showPercentages: boolean
+    showValues: boolean
 }
 
 function pushCandidate(
@@ -180,8 +185,17 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent, showPercentages } =
-        args
+    const {
+        series,
+        labels,
+        scales,
+        resolvePositionValue,
+        valueFormatter,
+        isHorizontal,
+        isPercent,
+        showPercentages,
+        showValues,
+    } = args
     const out: Candidate[] = []
 
     // In percent layout each band sums to 1, so we need the band total to convert each segment's
@@ -244,9 +258,12 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             let text = valueFormatter(displayValue, sIdx, dIdx)
             if (showPercentages && !isPercent) {
                 const absTotal = bandAbsTotal(visibleForPercent, dIdx)
-                if (absTotal > 0) {
-                    const pct = Math.round((Math.abs(rawValue) / absTotal) * 100)
-                    text = `${text} (${pct}%)`
+                const pct = absTotal > 0 ? Math.round((Math.abs(rawValue) / absTotal) * 100) : null
+                if (pct !== null) {
+                    text = showValues ? `${text} (${pct}%)` : `${pct}%`
+                } else if (!showValues) {
+                    // No percentage to show and values are hidden — nothing to render.
+                    continue
                 }
             }
 
@@ -428,6 +445,7 @@ export function ValueLabels({
     minGap = 4,
     mode = 'per-segment',
     showPercentages = false,
+    showValues = true,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
     const { hoverIndex } = useChartHover()
@@ -450,6 +468,7 @@ export function ValueLabels({
                         mode,
                         isPercent,
                         showPercentages,
+                        showValues,
                     }),
                     dimensions,
                     isHorizontal
@@ -468,6 +487,7 @@ export function ValueLabels({
             mode,
             isPercent,
             showPercentages,
+            showValues,
             dimensions,
         ]
     )
