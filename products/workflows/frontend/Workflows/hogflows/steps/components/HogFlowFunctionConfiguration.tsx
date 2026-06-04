@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
+import { IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CyclotronJobInputs } from 'lib/components/CyclotronJob/CyclotronJobInputs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -130,37 +131,63 @@ export function HogFlowFunctionConfiguration({
                 sampleGlobalsWithInputs={sampleGlobals}
                 onInputChange={(key, value) => setInputs({ ...inputs, [key]: value })}
             />
-            {isEmailStep && engagementEventsAvailable && !engagementEventsEnabled && (
-                <div className="flex flex-col gap-2 mt-2 text-xs text-muted-alt">
-                    <p className="m-0">
-                        Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. To also
-                        capture these as PostHog events for use in insights and funnels:
-                    </p>
-                    <div className="flex items-center gap-3">
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            loading={currentTeamLoading}
-                            onClick={() =>
-                                updateCurrentTeam({
-                                    workflows_config: {
-                                        ...currentTeam?.workflows_config,
-                                        capture_workflows_engagement_events: true,
-                                    },
-                                })
-                            }
+            {isEmailStep && engagementEventsAvailable ? (
+                engagementEventsEnabled ? (
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-muted-alt">
+                        <IconCheck className="text-success text-base" />
+                        <span>Email engagement is being captured as PostHog events.</span>
+                        <Link
+                            to={urls.settings('environment-workflows', 'workflows-engagement-events')}
+                            target="_blank"
                         >
-                            Enable engagement events
-                        </LemonButton>
-                        <Link to={urls.settings('environment-workflows', 'workflows-engagement-events')}>
                             Manage in settings
                         </Link>
-                        <Link to="https://posthog.com/docs/workflows/engagement-events" target="_blank">
-                            Learn more
-                        </Link>
                     </div>
-                </div>
-            )}
+                ) : (
+                    <LemonBanner type="info" className="mt-2">
+                        <div className="flex flex-col gap-2">
+                            <span className="text-xs">
+                                Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. You
+                                can also capture these as standard PostHog events for use in insights and funnels. They
+                                count toward your event usage and are billed like any other event.
+                            </span>
+                            <div className="flex items-center gap-2">
+                                <LemonButton
+                                    type="primary"
+                                    size="xsmall"
+                                    loading={currentTeamLoading}
+                                    onClick={() =>
+                                        updateCurrentTeam({
+                                            workflows_config: {
+                                                ...currentTeam?.workflows_config,
+                                                capture_workflows_engagement_events: true,
+                                            },
+                                        })
+                                    }
+                                >
+                                    Enable engagement events
+                                </LemonButton>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    to={urls.settings('environment-workflows', 'workflows-engagement-events')}
+                                    targetBlank
+                                >
+                                    Manage in settings
+                                </LemonButton>
+                                <LemonButton
+                                    type="tertiary"
+                                    size="xsmall"
+                                    to="https://posthog.com/docs/workflows/engagement-events"
+                                    targetBlank
+                                >
+                                    Learn more
+                                </LemonButton>
+                            </div>
+                        </div>
+                    </LemonBanner>
+                )
+            ) : null}
             <HogFlowFunctionMappings
                 useMapping={Array.isArray(mappings) || (template?.mapping_templates?.length ?? 0) > 0}
                 inputs={inputs}
