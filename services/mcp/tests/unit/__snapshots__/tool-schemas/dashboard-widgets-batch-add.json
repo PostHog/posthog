@@ -104,6 +104,19 @@
                                         "enum": ["ASC", "DESC"],
                                         "type": "string"
                                     },
+                                    "status": {
+                                        "default": "active",
+                                        "description": "Issue status filter.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all",
+                                        "enum": [
+                                            "archived",
+                                            "active",
+                                            "resolved",
+                                            "pending_release",
+                                            "suppressed",
+                                            "all"
+                                        ],
+                                        "type": "string"
+                                    },
                                     "widgetFilters": {
                                         "additionalProperties": {
                                             "properties": {
@@ -135,19 +148,6 @@
                                             "type": "string"
                                         },
                                         "type": "object"
-                                    },
-                                    "status": {
-                                        "default": "active",
-                                        "description": "Issue status filter.\n\n* `archived` - archived\n* `active` - active\n* `resolved` - resolved\n* `pending_release` - pending_release\n* `suppressed` - suppressed\n* `all` - all",
-                                        "enum": [
-                                            "archived",
-                                            "active",
-                                            "resolved",
-                                            "pending_release",
-                                            "suppressed",
-                                            "all"
-                                        ],
-                                        "type": "string"
                                     }
                                 },
                                 "type": "object"
@@ -298,6 +298,38 @@
                                         "description": "Sort direction for orderBy.\n\n* `ASC` - ASC\n* `DESC` - DESC",
                                         "enum": ["ASC", "DESC"],
                                         "type": "string"
+                                    },
+                                    "widgetFilters": {
+                                        "additionalProperties": {
+                                            "properties": {
+                                                "filterId": {
+                                                    "description": "Filter UUID; must match the widgetFilters map key.",
+                                                    "type": "string"
+                                                },
+                                                "operator": {
+                                                    "description": "Property filter operator (for example exact, is_not, icontains).",
+                                                    "type": "string"
+                                                },
+                                                "optionId": {
+                                                    "description": "Selected option id from the filter definition.",
+                                                    "type": "string"
+                                                },
+                                                "propertyName": {
+                                                    "description": "Event property key (for example $environment).",
+                                                    "type": "string"
+                                                },
+                                                "value": {
+                                                    "description": "Filter value as a string, list of strings, or null."
+                                                }
+                                            },
+                                            "required": ["filterId", "propertyName", "optionId", "operator"],
+                                            "type": "object"
+                                        },
+                                        "description": "Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.",
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
                                     }
                                 },
                                 "type": "object"
