@@ -2696,5 +2696,45 @@ describe('BatchWritingPersonStore', () => {
             expect(result).toEqual(person)
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
         })
+
+        it('should propagate a transient in-flight failure to fetchForChecking, not report the person absent', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Control when the batch fetch settles so fetchForChecking piggybacks on the in-flight prefetch.
+            let rejectFetch: (reason: Error) => void
+            const fetchPromise = new Promise<InternalPerson[]>((_resolve, reject) => {
+                rejectFetch = reject
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(fetchPromise)
+
+            const prefetch = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            const checking = personStoreForBatch.fetchForChecking(teamId, 'user-1')
+
+            rejectFetch!(new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('boom')))
+
+            // Must reject so the per-distinct-id pipeline retries — not resolve null ("person absent"),
+            // which would make processPersonlessStep create a fake person for an event that has a real one.
+            await expect(checking).rejects.toThrow('connect ECONNREFUSED')
+            // The fire-and-forget prefetch itself still recovers so it can't crash the worker.
+            await expect(prefetch).resolves.toBeUndefined()
+        })
+
+        it('should propagate a transient in-flight failure to fetchForUpdate rather than silently refetch', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            let rejectFetch: (reason: Error) => void
+            const fetchPromise = new Promise<InternalPerson[]>((_resolve, reject) => {
+                rejectFetch = reject
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(fetchPromise)
+
+            const prefetch = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            const update = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            rejectFetch!(new DependencyUnavailableError('connect ECONNREFUSED', 'Postgres', new Error('boom')))
+
+            await expect(update).rejects.toThrow('connect ECONNREFUSED')
+            await expect(prefetch).resolves.toBeUndefined()
+        })
     })
 })
