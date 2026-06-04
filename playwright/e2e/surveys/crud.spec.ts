@@ -1,7 +1,7 @@
 import { Page } from '@playwright/test'
 
 import { randomString } from '../../utils'
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
     // Only archived surveys (or drafts) expose the "Delete permanently" action.
@@ -57,9 +57,16 @@ test.describe.configure({ mode: 'serial' })
 
 test.describe('CRUD Survey', () => {
     let name: string
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    test.beforeEach(async ({ page }) => {
+    // Keep demo data: one test targets the `is_demo` person property in the taxonomic filter.
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
         name = randomString('survey-')
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await page.goToMenuItem('surveys')
     })
 
