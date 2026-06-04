@@ -7737,7 +7737,13 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
-    showPercentagesOnSeries: bool | None = None
+    showPercentagesOnSeries: bool | None = Field(
+        default=None,
+        description=(
+            "Append per-band percentage to each value label (e.g. `580 (42%)`)."
+            " Requires `showValuesOnSeries` — on its own it has no visible effect."
+        ),
+    )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None

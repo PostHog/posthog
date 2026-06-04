@@ -10,7 +10,7 @@ jest.mock('lib/colors', () => ({
         })[status] ?? '#000000',
 }))
 
-import type { ValueLabelContext } from 'lib/hog-charts'
+import type { ValueLabelContext } from '@posthog/quill-charts'
 
 import {
     buildLifecycleValueLabelFormatter,
