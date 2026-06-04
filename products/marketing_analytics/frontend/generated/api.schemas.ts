@@ -298,11 +298,11 @@ export interface GoalExplanationApi {
      */
     non_integrated_count: number | null
     /** List of [event_name, count] pairs */
-    by_event: unknown[][]
+    by_event: [string, number][]
     /** List of [utm_source, count] pairs */
-    by_utm_source: unknown[][]
+    by_utm_source: [string, number][]
     /** List of [integration, count] pairs */
-    by_matched_integration: unknown[][]
+    by_matched_integration: [string, number][]
     /** A small sample of matching events */
     samples: GoalEventSampleApi[]
     /** Caveats about the breakdown (sampling, attribution, etc.) */
@@ -321,7 +321,7 @@ export interface CandidateEventApi {
     /** Percentage of events that carry a utm_campaign */
     pct_with_utm_campaign: number
     /** List of [utm_source, count] pairs */
-    top_utm_sources: unknown[][]
+    top_utm_sources: [string, number][]
     /** Whether this event is already configured as a goal */
     is_already_a_goal: boolean
     /** Ranking score (higher is a stronger candidate) */
@@ -587,9 +587,8 @@ export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
 export type MarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
     /**
      * Days of history to inspect; defaults to 90
-     * @nullable
      */
-    lookback_days?: number | null
+    lookback_days?: number
     /**
      * Only suggest for raw values with >= this many events
      */

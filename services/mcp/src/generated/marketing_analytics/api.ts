@@ -119,10 +119,14 @@ export const MarketingAnalyticsSuggestUtmMappingsRetrieveParams = /* @__PURE__ *
         ),
 })
 
+export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysDefault = 90
 export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryMinEventCountDefault = 10
 
 export const MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    lookback_days: zod.number().nullish().describe('Days of history to inspect; defaults to 90'),
+    lookback_days: zod
+        .number()
+        .default(marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysDefault)
+        .describe('Days of history to inspect; defaults to 90'),
     min_event_count: zod
         .number()
         .default(marketingAnalyticsSuggestUtmMappingsRetrieveQueryMinEventCountDefault)

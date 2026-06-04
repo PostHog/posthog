@@ -2,7 +2,7 @@ from dataclasses import asdict
 
 import structlog
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -36,6 +36,18 @@ from products.marketing_analytics.backend.services.utm_audit import run_utm_audi
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
+
+
+@extend_schema_field(
+    {
+        "type": "array",
+        "prefixItems": [{"type": "string"}, {"type": "integer"}],
+        "minItems": 2,
+        "maxItems": 2,
+    }
+)
+class LabelCountField(serializers.ListField):
+    """A `[label, count]` pair — a 2-element tuple of (string, integer)."""
 
 
 class TestMappingSerializer(serializers.Serializer):
@@ -249,10 +261,10 @@ class GoalExplanationSerializer(serializers.Serializer):
     non_integrated_count = serializers.IntegerField(
         allow_null=True, help_text="Total non-integrated events (without + unmatched). Null for DataWarehouseNode."
     )
-    by_event = serializers.ListField(child=serializers.ListField(), help_text="List of [event_name, count] pairs")
-    by_utm_source = serializers.ListField(child=serializers.ListField(), help_text="List of [utm_source, count] pairs")
+    by_event = serializers.ListField(child=LabelCountField(), help_text="List of [event_name, count] pairs")
+    by_utm_source = serializers.ListField(child=LabelCountField(), help_text="List of [utm_source, count] pairs")
     by_matched_integration = serializers.ListField(
-        child=serializers.ListField(), help_text="List of [integration, count] pairs"
+        child=LabelCountField(), help_text="List of [integration, count] pairs"
     )
     samples = GoalEventSampleSerializer(many=True, help_text="A small sample of matching events")
     notes = serializers.ListField(
@@ -276,9 +288,7 @@ class CandidateEventSerializer(serializers.Serializer):
     distinct_users_30d = serializers.IntegerField(help_text="Distinct users who triggered the event in 30 days")
     pct_with_utm_source = serializers.FloatField(help_text="Percentage of events that carry a utm_source")
     pct_with_utm_campaign = serializers.FloatField(help_text="Percentage of events that carry a utm_campaign")
-    top_utm_sources = serializers.ListField(
-        child=serializers.ListField(), help_text="List of [utm_source, count] pairs"
-    )
+    top_utm_sources = serializers.ListField(child=LabelCountField(), help_text="List of [utm_source, count] pairs")
     is_already_a_goal = serializers.BooleanField(help_text="Whether this event is already configured as a goal")
     suggestion_score = serializers.FloatField(help_text="Ranking score (higher is a stronger candidate)")
     suggestion_reason = serializers.CharField(help_text="Human-readable rationale for the suggestion")
@@ -298,7 +308,7 @@ class SuggestUtmMappingsQuerySerializer(serializers.Serializer):
         required=False, default=10, help_text="Only suggest for raw values with >= this many events"
     )
     lookback_days = serializers.IntegerField(
-        required=False, default=None, allow_null=True, help_text="Days of history to inspect; defaults to 90"
+        required=False, default=90, help_text="Days of history to inspect; defaults to 90"
     )
 
 

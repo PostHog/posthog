@@ -676,9 +676,11 @@ export const GoalExplanationApi = zod.object({
         .number()
         .nullable()
         .describe('Total non-integrated events (without + unmatched). Null for DataWarehouseNode.'),
-    by_event: zod.array(zod.array(zod.unknown())).describe('List of [event_name, count] pairs'),
-    by_utm_source: zod.array(zod.array(zod.unknown())).describe('List of [utm_source, count] pairs'),
-    by_matched_integration: zod.array(zod.array(zod.unknown())).describe('List of [integration, count] pairs'),
+    by_event: zod.array(zod.tuple([zod.string(), zod.number()])).describe('List of [event_name, count] pairs'),
+    by_utm_source: zod.array(zod.tuple([zod.string(), zod.number()])).describe('List of [utm_source, count] pairs'),
+    by_matched_integration: zod
+        .array(zod.tuple([zod.string(), zod.number()]))
+        .describe('List of [integration, count] pairs'),
     samples: zod
         .array(
             zod.object({
@@ -703,7 +705,7 @@ export const CandidateEventApi = zod.object({
     distinct_users_30d: zod.number().describe('Distinct users who triggered the event in 30 days'),
     pct_with_utm_source: zod.number().describe('Percentage of events that carry a utm_source'),
     pct_with_utm_campaign: zod.number().describe('Percentage of events that carry a utm_campaign'),
-    top_utm_sources: zod.array(zod.array(zod.unknown())).describe('List of [utm_source, count] pairs'),
+    top_utm_sources: zod.array(zod.tuple([zod.string(), zod.number()])).describe('List of [utm_source, count] pairs'),
     is_already_a_goal: zod.boolean().describe('Whether this event is already configured as a goal'),
     suggestion_score: zod.number().describe('Ranking score (higher is a stronger candidate)'),
     suggestion_reason: zod.string().describe('Human-readable rationale for the suggestion'),
@@ -721,7 +723,9 @@ export const EventSuggestionsResponseApi = zod.object({
                 distinct_users_30d: zod.number().describe('Distinct users who triggered the event in 30 days'),
                 pct_with_utm_source: zod.number().describe('Percentage of events that carry a utm_source'),
                 pct_with_utm_campaign: zod.number().describe('Percentage of events that carry a utm_campaign'),
-                top_utm_sources: zod.array(zod.array(zod.unknown())).describe('List of [utm_source, count] pairs'),
+                top_utm_sources: zod
+                    .array(zod.tuple([zod.string(), zod.number()]))
+                    .describe('List of [utm_source, count] pairs'),
                 is_already_a_goal: zod.boolean().describe('Whether this event is already configured as a goal'),
                 suggestion_score: zod.number().describe('Ranking score (higher is a stronger candidate)'),
                 suggestion_reason: zod.string().describe('Human-readable rationale for the suggestion'),
