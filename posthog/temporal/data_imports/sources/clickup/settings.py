@@ -24,7 +24,10 @@ class ClickUpEndpointConfig:
     # Stable (never-changing) datetime field used for datetime partitioning.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    supports_incremental: bool = False
+
+    @property
+    def supports_incremental(self) -> bool:
+        return len(self.incremental_fields) > 0
 
 
 CLICKUP_ENDPOINTS: dict[str, ClickUpEndpointConfig] = {
@@ -60,7 +63,6 @@ CLICKUP_ENDPOINTS: dict[str, ClickUpEndpointConfig] = {
         data_key="tasks",
         primary_keys=["id"],
         partition_key="date_created",
-        supports_incremental=True,
         incremental_fields=[
             {
                 "label": "date_updated",
