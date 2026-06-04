@@ -88,6 +88,8 @@ describe('logsIngestionLogic', () => {
         })
 
         it('resets teamHasLogsCheckFailed on new load attempt', async () => {
+            // retryWithBackoff uses real delays (1000ms + 1500ms backoff) before failing
+            jest.setTimeout(15000)
             let callCount = 0
             useMocks({
                 get: {
@@ -161,7 +163,9 @@ describe('logsIngestionLogic', () => {
             logic = logsIngestionLogic()
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadTeamHasLogs', 'loadTeamHasLogsSuccess'])
+            // Only wait for the async success action - loadTeamHasLogs fires synchronously
+            // in afterMount before expectLogic starts listening
+            await expectLogic(logic).toDispatchActions(['loadTeamHasLogsSuccess'])
             expect(mockFn).toHaveBeenCalledTimes(2)
         })
 
