@@ -137,6 +137,9 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
+    signals-reports-dispatch-create:
+        operation: signals_reports_dispatch_create
+        enabled: false
     signals-scout-config-list:
         operation: signals_scout_config_list
         enabled: true
