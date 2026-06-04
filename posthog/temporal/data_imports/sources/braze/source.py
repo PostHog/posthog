@@ -10,6 +10,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.braze.braze import (
+    BRAZE_FORBIDDEN_MSG,
     BrazeResumeConfig,
     braze_source,
     validate_credentials as validate_braze_credentials,
@@ -110,17 +111,15 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
     def validate_credentials(
         self, config: BrazeSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        path = BRAZE_ENDPOINTS[schema_name].path if schema_name in BRAZE_ENDPOINTS else "/campaigns/list"
-        valid, error = validate_braze_credentials(config.api_key, config.url, path)
+        if schema_name is not None and schema_name not in BRAZE_ENDPOINTS:
+            return False, f"Unknown Braze schema: {schema_name!r}"
+        path = BRAZE_ENDPOINTS[schema_name].path if schema_name is not None else "/campaigns/list"
+        valid, error = validate_braze_credentials(config.api_key, config.url, path, team_id)
 
         # A scoped key may legitimately lack the probe endpoint's permission at
         # source-create time; only enforce per-endpoint scope when validating a
         # specific schema.
-        if (
-            not valid
-            and schema_name is None
-            and error == "Your Braze API key does not have permission for this endpoint"
-        ):
+        if not valid and schema_name is None and error == BRAZE_FORBIDDEN_MSG:
             return True, None
 
         return valid, error
@@ -140,6 +139,7 @@ Your REST endpoint must match your Braze dashboard's region — see [Braze's API
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            team_id=inputs.team_id,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

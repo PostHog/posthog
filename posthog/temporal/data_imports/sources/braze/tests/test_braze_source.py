@@ -114,7 +114,7 @@ class TestBrazeSource:
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with(self.config.api_key, self.config.url, "/campaigns/list")
+        mock_validate.assert_called_once_with(self.config.api_key, self.config.url, "/campaigns/list", self.team_id)
 
     @mock.patch("posthog.temporal.data_imports.sources.braze.source.validate_braze_credentials")
     def test_validate_credentials_probes_schema_specific_path(self, mock_validate):
@@ -122,7 +122,20 @@ class TestBrazeSource:
 
         self.source.validate_credentials(self.config, self.team_id, schema_name="email_templates")
 
-        mock_validate.assert_called_once_with(self.config.api_key, self.config.url, "/templates/email/list")
+        mock_validate.assert_called_once_with(
+            self.config.api_key, self.config.url, "/templates/email/list", self.team_id
+        )
+
+    @mock.patch("posthog.temporal.data_imports.sources.braze.source.validate_braze_credentials")
+    def test_validate_credentials_rejects_unknown_schema(self, mock_validate):
+        is_valid, error_message = self.source.validate_credentials(
+            self.config, self.team_id, schema_name="does_not_exist"
+        )
+
+        assert is_valid is False
+        assert "does_not_exist" in (error_message or "")
+        # Never probes the API for an unknown schema.
+        mock_validate.assert_not_called()
 
     @mock.patch("posthog.temporal.data_imports.sources.braze.source.validate_braze_credentials")
     def test_validate_credentials_accepts_missing_scope_at_source_create(self, mock_validate):
@@ -159,6 +172,7 @@ class TestBrazeSource:
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
         inputs.incremental_field = "updated_at"
+        inputs.team_id = 777
         manager = mock.MagicMock()
 
         self.source.source_for_pipeline(self.config, manager, inputs)
@@ -169,6 +183,7 @@ class TestBrazeSource:
         assert kwargs["base_url"] == BASE_URL
         assert kwargs["endpoint"] == "email_templates"
         assert kwargs["resumable_source_manager"] is manager
+        assert kwargs["team_id"] == 777
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
         assert kwargs["incremental_field"] == "updated_at"

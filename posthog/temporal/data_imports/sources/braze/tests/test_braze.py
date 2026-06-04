@@ -7,6 +7,7 @@ from unittest import mock
 import requests
 
 from posthog.temporal.data_imports.sources.braze.braze import (
+    BrazeHostNotAllowedError,
     BrazeResumeConfig,
     _build_params,
     _format_modified_after,
@@ -44,9 +45,13 @@ class TestNormalizeBaseUrl:
             ("https://rest.iad-01.braze.com", "https://rest.iad-01.braze.com"),
             ("https://rest.iad-01.braze.com/", "https://rest.iad-01.braze.com"),
             ("https://rest.iad-01.braze.com///", "https://rest.iad-01.braze.com"),
+            # Plaintext is upgraded to https; a scheme-less host gets one.
+            ("http://rest.iad-01.braze.com", "https://rest.iad-01.braze.com"),
+            ("rest.iad-01.braze.com", "https://rest.iad-01.braze.com"),
+            ("  https://rest.iad-01.braze.com  ", "https://rest.iad-01.braze.com"),
         ],
     )
-    def test_strips_trailing_slash(self, value, expected):
+    def test_normalizes_to_https(self, value, expected):
         assert normalize_base_url(value) == expected
 
 
@@ -132,6 +137,27 @@ class TestValidateCredentials:
         assert valid is False
         assert message == "boom"
 
+    @mock.patch("posthog.temporal.data_imports.sources.braze.braze._is_host_safe")
+    @mock.patch("posthog.temporal.data_imports.sources.braze.braze.make_tracked_session")
+    def test_blocks_internal_host_when_team_id_given(self, mock_session, mock_host_safe):
+        mock_host_safe.return_value = (False, "host not allowed")
+
+        valid, message = validate_credentials("key", "https://10.0.0.1", team_id=42)
+
+        assert valid is False
+        assert message == "host not allowed"
+        # The host is rejected before any request is dispatched.
+        mock_session.return_value.get.assert_not_called()
+
+    @mock.patch("posthog.temporal.data_imports.sources.braze.braze._is_host_safe")
+    @mock.patch("posthog.temporal.data_imports.sources.braze.braze.make_tracked_session")
+    def test_skips_host_check_when_team_id_omitted(self, mock_session, mock_host_safe):
+        mock_session.return_value.get.return_value = _response({}, status_code=200)
+
+        validate_credentials("key", BASE_URL)
+
+        mock_host_safe.assert_not_called()
+
 
 class TestGetRows:
     @mock.patch("posthog.temporal.data_imports.sources.braze.braze.make_tracked_session")
@@ -143,7 +169,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager))
+        batches = list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager, team_id=1))
 
         assert [item["id"] for batch in batches for item in batch] == ["1", "2", "3"]
         # page param walked 0, 1, 2
@@ -160,7 +186,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        list(get_rows("key", BASE_URL, "email_templates", mock.MagicMock(), manager))
+        list(get_rows("key", BASE_URL, "email_templates", mock.MagicMock(), manager, team_id=1))
 
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
         assert "offset=0" in urls[0]
@@ -176,7 +202,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager))
+        list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager, team_id=1))
 
         saved = [call.args[0].cursor for call in manager.save_state.call_args_list]
         # Saves the cursor of the page just yielded (0, then 1), not the next page.
@@ -190,7 +216,7 @@ class TestGetRows:
         ]
 
         manager = _make_manager(BrazeResumeConfig(cursor=5))
-        list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager))
+        list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager, team_id=1))
 
         first_url = mock_session.return_value.get.call_args_list[0].args[0]
         assert "page=5" in first_url
@@ -200,7 +226,7 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _response({"campaigns": []})
 
         manager = _make_manager()
-        batches = list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager))
+        batches = list(get_rows("key", BASE_URL, "campaigns", mock.MagicMock(), manager, team_id=1))
 
         assert batches == []
         manager.save_state.assert_not_called()
@@ -220,6 +246,7 @@ class TestGetRows:
                 "email_templates",
                 mock.MagicMock(),
                 manager,
+                team_id=1,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="updated_at",
@@ -244,6 +271,7 @@ class TestGetRows:
                 "campaigns",
                 mock.MagicMock(),
                 manager,
+                team_id=1,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
                 incremental_field="created_at",
@@ -261,16 +289,28 @@ class TestGetRows:
         ]
 
         manager = _make_manager()
-        batches = list(get_rows("key", BASE_URL, "events", mock.MagicMock(), manager))
+        batches = list(get_rows("key", BASE_URL, "events", mock.MagicMock(), manager, team_id=1))
 
         assert [item for batch in batches for item in batch] == [{"event_name": "purchase"}, {"event_name": "login"}]
+
+    @mock.patch("posthog.temporal.data_imports.sources.braze.braze._is_host_safe")
+    @mock.patch("posthog.temporal.data_imports.sources.braze.braze.make_tracked_session")
+    def test_raises_when_host_not_allowed(self, mock_session, mock_host_safe):
+        mock_host_safe.return_value = (False, "host not allowed")
+
+        manager = _make_manager()
+        with pytest.raises(BrazeHostNotAllowedError):
+            list(get_rows("key", "https://10.0.0.1", "campaigns", mock.MagicMock(), manager, team_id=42))
+
+        # No request is made once the host is rejected.
+        mock_session.return_value.get.assert_not_called()
 
 
 class TestBrazeSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = BRAZE_ENDPOINTS[endpoint]
-        response = braze_source("key", BASE_URL, endpoint, mock.MagicMock(), _make_manager())
+        response = braze_source("key", BASE_URL, endpoint, mock.MagicMock(), _make_manager(), team_id=1)
 
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
