@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -171,11 +172,33 @@ class TestFilterDwhColumnsByEnabledColumns:
         assert filter_dwh_columns_by_enabled_columns({}, ["email"], ["id"]) == {}
 
     def test_source_namespace_keys_on_both_sides_still_filter(self) -> None:
-        # Direct-postgres callers pass source-namespace keys on both sides; normalizing both is
-        # a no-op for an actual subset and must not trigger the all-columns fallback.
+        # Direct-postgres callers pass raw source-namespace keys on both sides with normalize=False;
+        # an actual subset must filter cleanly without tripping the all-columns fallback.
         source_keyed = {"ID": {"hogql": "Integer"}, "EMAIL": {"hogql": "String"}, "NAME": {"hogql": "String"}}
-        result = filter_dwh_columns_by_enabled_columns(source_keyed, ["EMAIL"], ["ID"])
+        result = filter_dwh_columns_by_enabled_columns(source_keyed, ["EMAIL"], ["ID"], normalize=False)
         assert set(result.keys()) == {"ID", "EMAIL"}
+
+    def test_normalize_false_preserves_case_sensitive_selection(self) -> None:
+        # Postgres allows `"Foo"` and `"foo"` in one table. With normalize=False (direct-postgres),
+        # selecting only `"Foo"` must not drag in `"foo"` by folding them to the same key.
+        case_collision = {"Foo": {"hogql": "String"}, "foo": {"hogql": "String"}}
+        result = filter_dwh_columns_by_enabled_columns(case_collision, ["Foo"], None, normalize=False)
+        assert set(result.keys()) == {"Foo"}
+
+    def test_normalize_true_collapses_case_collision(self) -> None:
+        # Warehouse path: source names fold into the stored normalized namespace, so a case-only
+        # difference is intentionally matched as the same column.
+        case_collision = {"Foo": {"hogql": "String"}, "foo": {"hogql": "String"}}
+        result = filter_dwh_columns_by_enabled_columns(case_collision, ["Foo"], None)
+        assert set(result.keys()) == {"Foo", "foo"}
+
+    def test_empty_projection_fallback_logs_warning(self) -> None:
+        # The all-columns fallback must be observable: an operator should be able to tell their
+        # selection was bypassed rather than silently applied.
+        with patch("posthog.temporal.data_imports.sources.common.sql.projection.logger") as mock_logger:
+            result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, ["does_not_exist"], None)
+        assert result == self.dwh_columns
+        mock_logger.warning.assert_called_once()
 
 
 class TestPruneEnabledColumns:
