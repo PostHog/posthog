@@ -58,7 +58,11 @@ const MODAL_REGION_BY_DEPLOYMENT: Record<string, string> = {
 }
 const DEFAULT_MODAL_REGION = 'us-east'
 
-function resolveRegion(env: NodeJS.ProcessEnv = process.env): string {
+/**
+ * Exported for unit tests in `sandbox-modal-unit.test.ts`. Not part of the
+ * public surface — callers should use a `ModalSandboxPool` directly.
+ */
+export function resolveRegion(env: NodeJS.ProcessEnv = process.env): string {
     if (env.MODAL_REGION) {
         return env.MODAL_REGION
     }
