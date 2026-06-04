@@ -7757,6 +7757,21 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
+export interface UpdateTileRequestApi {
+    /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
+    tile_id: number
+    /** Whether the tile's description is shown on the dashboard. Set false to hide it, true to show it. Omit to leave unchanged. */
+    show_description?: boolean
+    /**
+     * New accent color name, empty string or null to clear. Omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
+    layouts?: TileLayoutsApi
+}
+
 export interface AddDashboardWidgetRequestApi {
     /**
      * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
@@ -8207,6 +8222,18 @@ export type DashboardsUpdateTextTileCreateFormat =
     (typeof DashboardsUpdateTextTileCreateFormat)[keyof typeof DashboardsUpdateTextTileCreateFormat]
 
 export const DashboardsUpdateTextTileCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsUpdateTileCreateParams = {
+    format?: DashboardsUpdateTileCreateFormat
+}
+
+export type DashboardsUpdateTileCreateFormat =
+    (typeof DashboardsUpdateTileCreateFormat)[keyof typeof DashboardsUpdateTileCreateFormat]
+
+export const DashboardsUpdateTileCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

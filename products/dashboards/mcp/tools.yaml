@@ -355,6 +355,26 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+    dashboard-update-tile:
+        operation: dashboards_update_tile_create
+        enabled: true
+        scopes:
+            - dashboard:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: Update dashboard tile
+        description: >
+            Update an existing insight or widget tile on a dashboard — toggle whether the tile's description is shown
+            (`show_description`), set its accent `color`, or change its `layouts`. Pass the DashboardTile id as
+            `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields
+            are left unchanged. Use this to hide or show the description text under an insight or widget on a dashboard.
+            To edit a text tile's body, use dashboard-update-text-tile instead.
+        param_overrides:
+            id:
+                cast: string-int
     dashboard-widget-catalog-list:
         operation: dashboards_widget_catalog_retrieve
         enabled: true

@@ -480,6 +480,49 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Update the description visibility, color, or layout of an existing insight or widget tile on a dashboard.
+ */
+export const dashboardsUpdateTileCreateBodyColorMax = 400
+
+export const DashboardsUpdateTileCreateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
+    show_description: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether the tile's description is shown on the dashboard. Set false to hide it, true to show it. Omit to leave unchanged."
+        ),
+    color: zod
+        .string()
+        .max(dashboardsUpdateTileCreateBodyColorMax)
+        .nullish()
+        .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
+})
+
+/**
  * Add multiple widget tiles to a dashboard in one atomic request.
  */
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemWidgetTypeMax = 64

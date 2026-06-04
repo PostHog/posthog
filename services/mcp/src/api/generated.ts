@@ -39321,6 +39321,21 @@ export namespace Schemas {
       color?: string | null;
     }
 
+    export interface UpdateTileRequest {
+      /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
+      tile_id: number;
+      /** Whether the tile's description is shown on the dashboard. Set false to hide it, true to show it. Omit to leave unchanged. */
+      show_description?: boolean;
+      /**
+         * New accent color name, empty string or null to clear. Omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
+      layouts?: TileLayouts;
+    }
+
     /**
      * Optional structured plan of events the wizard intends to instrument. Schema is workflow-specific.
      * @nullable
@@ -40874,6 +40889,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsUpdateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsUpdateTileCreateParams = {
+    format?: EnvironmentsDashboardsUpdateTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsUpdateTileCreateFormat = typeof EnvironmentsDashboardsUpdateTileCreateFormat[keyof typeof EnvironmentsDashboardsUpdateTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsUpdateTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -46098,6 +46125,18 @@ export namespace Schemas {
 
 
     export const DashboardsUpdateTextTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsUpdateTileCreateParams = {
+    format?: DashboardsUpdateTileCreateFormat;
+    };
+
+    export type DashboardsUpdateTileCreateFormat = typeof DashboardsUpdateTileCreateFormat[keyof typeof DashboardsUpdateTileCreateFormat];
+
+
+    export const DashboardsUpdateTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;

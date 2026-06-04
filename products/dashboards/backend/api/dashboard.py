@@ -457,6 +457,32 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
     )
 
 
+class UpdateTileRequestSerializer(serializers.Serializer):
+    tile_id = serializers.IntegerField(
+        required=True,
+        help_text="ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.",
+    )
+    show_description = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the tile's description is shown on the dashboard. "
+            "Set false to hide it, true to show it. Omit to leave unchanged."
+        ),
+    )
+    color = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="New accent color name, empty string or null to clear. Omit to leave unchanged.",
+        error_messages={"max_length": "Color cannot exceed 400 characters"},
+    )
+    layouts = TileLayoutsSerializer(
+        required=False,
+        help_text="New grid layout per breakpoint. Omit to leave the layout unchanged.",
+    )
+
+
 class DeleteTileRequestSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(
         required=True,
@@ -2441,6 +2467,50 @@ class DashboardsViewSet(
                 tile_updates.append("color")
             if tile_updates:
                 tile.save(update_fields=tile_updates)
+
+        tile.refresh_from_db()
+        return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
+
+    @extend_schema(
+        request=UpdateTileRequestSerializer,
+        responses={200: DashboardTileSerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def update_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the description visibility, color, or layout of an existing insight or widget tile on a dashboard."""
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        if not self.user_permissions.dashboard(dashboard).can_edit:
+            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+
+        serializer = UpdateTileRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated = serializer.validated_data
+
+        tile = get_object_or_404(
+            DashboardTile,
+            id=validated["tile_id"],
+            dashboard=dashboard,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        if tile.text is not None:
+            raise exceptions.ValidationError(
+                "Text tiles are not supported here — use the update text tile endpoint to edit a text tile."
+            )
+
+        tile_updates: list[str] = []
+        if "show_description" in validated:
+            tile.show_description = validated["show_description"]
+            tile_updates.append("show_description")
+        if "color" in validated:
+            tile.color = validated["color"]
+            tile_updates.append("color")
+        if "layouts" in validated:
+            tile.layouts = validated["layouts"]
+            tile_updates.append("layouts")
+        if tile_updates:
+            tile.save(update_fields=tile_updates)
 
         tile.refresh_from_db()
         return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)

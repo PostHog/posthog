@@ -42,6 +42,7 @@ import type {
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsUpdateTileCreateParams,
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
@@ -59,6 +60,7 @@ import type {
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
     UpdateTextTileRequestApi,
+    UpdateTileRequestApi,
     WidgetCatalogResponseApi,
 } from './api.schemas'
 
@@ -892,6 +894,44 @@ export const dashboardsUpdateTextTileCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(updateTextTileRequestApi),
+    })
+}
+
+export const getDashboardsUpdateTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsUpdateTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/update_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/update_tile/`
+}
+
+/**
+ * Update the description visibility, color, or layout of an existing insight or widget tile on a dashboard.
+ */
+export const dashboardsUpdateTileCreate = async (
+    projectId: string,
+    id: number,
+    updateTileRequestApi: UpdateTileRequestApi,
+    params?: DashboardsUpdateTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardTileApi> => {
+    return apiMutator<DashboardTileApi>(getDashboardsUpdateTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(updateTileRequestApi),
     })
 }
 

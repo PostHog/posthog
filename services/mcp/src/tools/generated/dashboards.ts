@@ -26,6 +26,8 @@ import {
     DashboardsRunWidgetsRetrieveQueryParams,
     DashboardsUpdateTextTileCreateBody,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsUpdateTileCreateBody,
+    DashboardsUpdateTileCreateParams,
     DashboardsWidgetsBatchCreateBody,
     DashboardsWidgetsBatchCreateParams,
 } from '@/generated/dashboards/api'
@@ -478,6 +480,37 @@ const dashboardUpdateTextTile = (): ToolBase<
     },
 })
 
+const DashboardUpdateTileSchema = DashboardsUpdateTileCreateParams.omit({ project_id: true })
+    .extend(DashboardsUpdateTileCreateBody.shape)
+    .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateTileCreateParams.shape['id']) })
+
+const dashboardUpdateTile = (): ToolBase<typeof DashboardUpdateTileSchema, WithPostHogUrl<Schemas.DashboardTile>> => ({
+    name: 'dashboard-update-tile',
+    schema: DashboardUpdateTileSchema,
+    handler: async (context: Context, params: z.infer<typeof DashboardUpdateTileSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.tile_id !== undefined) {
+            body['tile_id'] = params.tile_id
+        }
+        if (params.show_description !== undefined) {
+            body['show_description'] = params.show_description
+        }
+        if (params.color !== undefined) {
+            body['color'] = params.color
+        }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        const result = await context.api.request<Schemas.DashboardTile>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/update_tile/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${params.id}`)
+    },
+})
+
 const DashboardWidgetCatalogListSchema = z.object({})
 
 const dashboardWidgetCatalogList = (): ToolBase<
@@ -619,6 +652,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-tile-copy': dashboardTileCopy,
     'dashboard-update': dashboardUpdate,
     'dashboard-update-text-tile': dashboardUpdateTextTile,
+    'dashboard-update-tile': dashboardUpdateTile,
     'dashboard-widget-catalog-list': dashboardWidgetCatalogList,
     'dashboard-widgets-batch-add': dashboardWidgetsBatchAdd,
     'dashboard-widgets-run': dashboardWidgetsRun,

@@ -1106,6 +1106,20 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-update-tile": {
+        "description": "Update an existing insight or widget tile on a dashboard — toggle whether the tile's description is shown (`show_description`), set its accent `color`, or change its `layouts`. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Only the fields you provide are updated; omitted fields are left unchanged. Use this to hide or show the description text under an insight or widget on a dashboard. To edit a text tile's body, use dashboard-update-text-tile instead.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard tile",
+        "title": "Update dashboard tile",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-widget-catalog-list": {
         "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config.",
         "category": "Dashboards",

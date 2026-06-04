@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 15 enabled ops
+ * PostHog API - MCP 16 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -430,6 +430,62 @@ export const DashboardsUpdateTextTileCreateBody = /* @__PURE__ */ zod.object({
         .max(dashboardsUpdateTextTileCreateBodyColorMax)
         .nullish()
         .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
+})
+
+/**
+ * Update the description visibility, color, or layout of an existing insight or widget tile on a dashboard.
+ */
+export const DashboardsUpdateTileCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this dashboard.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DashboardsUpdateTileCreateQueryParams = /* @__PURE__ */ zod.object({
+    format: zod.enum(['json', 'txt']).optional(),
+})
+
+export const dashboardsUpdateTileCreateBodyColorMax = 400
+
+export const DashboardsUpdateTileCreateBody = /* @__PURE__ */ zod.object({
+    tile_id: zod.number().describe('ID of the dashboard tile to update. Use dashboard-get to look up tile IDs.'),
+    show_description: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether the tile's description is shown on the dashboard. Set false to hide it, true to show it. Omit to leave unchanged."
+        ),
+    color: zod
+        .string()
+        .max(dashboardsUpdateTileCreateBodyColorMax)
+        .nullish()
+        .describe('New accent color name, empty string or null to clear. Omit to leave unchanged.'),
+    layouts: zod
+        .object({
+            sm: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+            xs: zod
+                .object({
+                    x: zod.number().optional().describe('Column position in the dashboard grid (0-indexed).'),
+                    y: zod.number().optional().describe('Row position in the dashboard grid (0-indexed).'),
+                    w: zod.number().optional().describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                    h: zod.number().optional().describe('Height in grid rows.'),
+                })
+                .optional()
+                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+        })
+        .optional()
+        .describe('New grid layout per breakpoint. Omit to leave the layout unchanged.'),
 })
 
 /**
