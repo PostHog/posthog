@@ -1,5 +1,5 @@
+import type { ReactJsonViewProps } from '@microlink/react-json-view'
 import { combineUrl, router } from 'kea-router'
-import { ComponentProps } from 'react'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -53,7 +53,7 @@ export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen
 // Wraps the JSON viewer in a horizontally scrollable container so wide or deeply
 // nested objects stay readable inside fixed-width table cells, where the surrounding
 // table clips overflow and offers no horizontal scroll of its own (e.g. dashboard tiles).
-function JSONCell(props: ComponentProps<typeof JSONViewer>): JSX.Element {
+function JSONCell(props: ReactJsonViewProps): JSX.Element {
     return (
         <div className="overflow-x-auto max-w-full">
             <JSONViewer {...props} />
