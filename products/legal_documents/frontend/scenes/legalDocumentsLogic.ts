@@ -196,6 +196,31 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
                 )
             },
         ],
+        isOnQualifyingAddonTrial: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                if (!billing?.trial) {
+                    return false
+                }
+                return billing.trial.status === 'active' && BAA_ADDON_TYPES.has(billing.trial.target)
+            },
+        ],
+        // Enterprise 'standard' trials are sales-managed: the billing page hides
+        // the cancel-trial button for them (see BillingProductAddonActions.tsx),
+        // so users need to go through support to convert their trial.
+        isOnEnterpriseStandardTrial: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean => {
+                if (!billing?.trial) {
+                    return false
+                }
+                return (
+                    billing.trial.status === 'active' &&
+                    billing.trial.target === 'enterprise' &&
+                    billing.trial.type !== 'autosubscribe'
+                )
+            },
+        ],
         isDpaModeSubmittable: [
             (s) => [s.legalDocument],
             (form: LegalDocumentFormValues): boolean => DPA_SUBMITTABLE_MODES.has(form.dpa_mode as DPAMode),

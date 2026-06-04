@@ -640,6 +640,124 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
+            ("true", True),
+            ("false", False),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_boolean_early_exit_accepted(self, _name, value, mock_feature_enabled):
+        mock_feature_enabled.return_value = True
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": f"Early exit {_name}",
+                "key": f"early-exit-{_name}",
+                "filters": {
+                    "early_exit": value,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key=f"early-exit-{_name}", team=self.team)
+        self.assertEqual(flag.filters["early_exit"], value)
+
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_early_exit_rejected_without_feature_flag(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Early exit gated",
+                "key": "early-exit-gated",
+                "filters": {
+                    "early_exit": True,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("early_exit is not available", response.json()["detail"])
+
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_early_exit_false_accepted_without_feature_flag(self, mock_feature_enabled):
+        mock_feature_enabled.return_value = False
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Early exit off",
+                "key": "early-exit-off",
+                "filters": {
+                    "early_exit": False,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @patch("products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled")
+    def test_early_exit_unchanged_truthy_allowed_when_flag_disabled(self, mock_feature_enabled):
+        # A flag created while the feature was enabled keeps working if access is later revoked,
+        # as long as the PATCH doesn't newly turn early_exit on.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="early-exit-existing",
+            filters={"early_exit": True, "groups": [{"rollout_percentage": 100}]},
+        )
+        mock_feature_enabled.return_value = False
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            data={"filters": {"early_exit": True, "groups": [{"rollout_percentage": 50}]}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_null_early_exit_accepted(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Early exit null",
+                "key": "early-exit-null",
+                "filters": {
+                    "early_exit": None,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("int", 1, "int"),
+            ("string_true", "true", "str"),
+            ("string_false", "false", "str"),
+            ("float", 1.5, "float"),
+        ]
+    )
+    def test_non_boolean_early_exit_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": f"Bad early_exit {_name}",
+                "key": f"bad-early-exit-{_name}",
+                "filters": {
+                    "early_exit": bad_value,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("early_exit must be a boolean", response.json()["detail"])
+        self.assertIn(expected_type, response.json()["detail"])
+
+    @parameterized.expand(
+        [
             ("string_int", "100"),
             ("bool_false", False),
             ("string_nan", "NaN"),
@@ -7428,6 +7546,100 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(len(cached_json["flags"]), 1)
         self.assertEqual(cached_json["flags"][0]["key"], "test-flag")
 
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    def test_local_evaluation_returns_503_when_dependency_unavailable(self, mock_capture):
+        """A cold cache during a persons-DB outage fails loud with a retryable 503, not a
+        generic 500, and does not re-capture (the dependency layer already did, throttled).
+
+        Drives the real cache→hypercache→endpoint chain (only the group-type fetch is
+        patched), so a regressed source token would also surface here."""
+        from posthog.models.group_type_mapping import GroupTypesUnavailable
+
+        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
+
+        # Cold cache (Redis + S3) so the read falls through to load_fn, whose group-type
+        # fetch is the unavailable dependency. GroupTypesUnavailable subclasses
+        # HyperCacheDependencyUnavailable, so this also confirms the endpoint catches the base.
+        clear_flag_definition_caches(self.team)
+        self.client.logout()
+        with patch(
+            "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
+            side_effect=GroupTypesUnavailable([self.team.project_id]),
+        ):
+            response = self.client.get(
+                "/api/feature_flag/local_evaluation",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "service_unavailable",
+                "code": "flags_dependency_unavailable",
+                "detail": "Feature flag dependencies are temporarily unavailable; retry shortly",
+            },
+        )
+        self.assertEqual(response.headers.get("Retry-After"), "30")
+        mock_capture.assert_not_called()
+
+    def test_local_evaluation_serves_cached_flags_when_dependency_unavailable(self):
+        """A warm cache keeps serving the last-known-good payload during a persons-DB
+        outage and never reaches load_fn — the PR's headline behavior. A regression that
+        let a warm read fall through to the loader would 503 users who have good data
+        cached.
+
+        Drives the real cache→hypercache→endpoint chain; the loader is replaced only
+        after the cache is warmed, so a warm hit must not invoke it."""
+        from posthog.models.group_type_mapping import GroupTypesUnavailable
+
+        from products.feature_flags.backend import local_evaluation
+        from products.feature_flags.backend.local_evaluation import clear_flag_definition_caches
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, scopes=["*"], secure_value=hash_key_value(personal_api_key)
+        )
+
+        # Warm the cache (Redis + S3) with one successful read.
+        clear_flag_definition_caches(self.team)
+        self.client.logout()
+        warm = self.client.get(
+            "/api/feature_flag/local_evaluation",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+        self.assertEqual(warm.status_code, status.HTTP_200_OK)
+
+        # The dependency now fails on any rebuild. Patching the loader directly proves a
+        # warm hit never reaches it: if it did, this would raise → 503.
+        with patch.object(
+            local_evaluation,
+            "_get_flags_response_for_local_evaluation",
+            side_effect=GroupTypesUnavailable([self.team.project_id]),
+        ) as mock_load:
+            response = self.client.get(
+                "/api/feature_flag/local_evaluation",
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual([flag["key"] for flag in data["flags"]], ["test-flag"])
+        mock_load.assert_not_called()
+
     def test_local_evaluation_caching_with_cohorts(self):
         """Test caching with send_cohorts parameter."""
         cohort = Cohort.objects.create(
@@ -13729,6 +13941,44 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         data = response.json()
         # Should only include 'email' since that's referenced in the flag, not 'name' or 'age'
         self.assertEqual(data["person_properties"], {"email": "test@example.com"})
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_filters_feature_enrollment_property(self, mock_get_flags):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="enroll-flag",
+            filters={"feature_enrollment": True, "groups": [{"properties": []}]},
+        )
+        enrollment_key = f"$feature_enrollment/{flag.key}"
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["test-user"],
+            properties={enrollment_key: True, "email": "x@y.com"},
+        )
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "enroll-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "super_condition_value"},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        # enrollment key is kept; unrelated 'email' is filtered out
+        self.assertEqual(data["person_properties"], {enrollment_key: True})
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")

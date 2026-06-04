@@ -72,7 +72,6 @@ class CreateObservationOutput(BaseModel, frozen=True):
     observation_id: UUID | None
     was_created: bool
     scanner_type: ScannerType
-    emits_embeddings: bool = False
 
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):

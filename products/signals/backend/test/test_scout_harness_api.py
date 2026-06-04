@@ -73,7 +73,9 @@ def _make_task_run(team: Team, *, status: str | None = None) -> TaskRun:
 
 def _make_run(team: Team, *, task_run_status: str = TaskRun.Status.IN_PROGRESS, **overrides) -> SignalScoutRun:
     """Build a SignalScoutRun bridge row whose TaskRun is in the given status."""
-    config, _ = SignalScoutConfig.objects.get_or_create(team=team)
+    config, _ = SignalScoutConfig.objects.get_or_create(
+        team=team, skill_name="signals-scout-general", defaults={"emit": True}
+    )
     task_run = _make_task_run(team, status=task_run_status)
     defaults: dict = {
         "task_run": task_run,
@@ -200,7 +202,7 @@ class TestScoutHarnessEmitFindingAPI(APIBaseTest):
 
     def test_emit_finding_calls_emit_signal_with_deterministic_source_id(self) -> None:
         run = _make_run(self.team)
-        with patch("products.signals.backend.api.emit_signal", new_callable=AsyncMock) as mock_emit:
+        with patch("products.signals.backend.facade.api.emit_signal", new_callable=AsyncMock) as mock_emit:
             response = self.client.post(self._emit_signal_url(str(run.id)), data=self._payload(), format="json")
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -368,9 +370,6 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """
 
     def _list_url(self) -> str:
-        # The viewset exposes the singleton via an explicit `@action(url_path="current")`
-        # (not `list()`), so the route is /project_profile/current/. Generated TS clients
-        # call /current/; tests must match or the requests 404 and never exercise the view.
         return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
     def _seed_profile(self, *, team: Team | None = None) -> str:
@@ -466,3 +465,63 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_actions",
             "top_events",
         }
+
+
+class TestScoutHarnessConfigAPI(APIBaseTest):
+    def _list_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/"
+
+    def _detail_url(self, config_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{config_id}/"
+
+    def test_list_returns_team_configs_ordered_by_skill(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
+        assert body[0]["enabled"] is True
+        assert body[0]["emit"] is False
+        assert body[0]["run_interval_minutes"] == 1440
+
+    def test_partial_update_changes_schedule_emit_and_records_enabled_by(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"enabled": True, "emit": True, "run_interval_minutes": 60},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.enabled is True
+        assert config.emit is True
+        assert config.run_interval_minutes == 60
+        assert config.enabled_by_id == self.user.id
+
+    def test_partial_update_rejects_interval_below_min(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 5}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_partial_update_cannot_change_skill_name(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        self.client.patch(self._detail_url(str(config.id)), data={"skill_name": "signals-scout-bar"}, format="json")
+        config.refresh_from_db()
+        assert config.skill_name == "signals-scout-foo"
+
+    def test_partial_update_unknown_id_returns_404(self) -> None:
+        response = self.client.patch(
+            self._detail_url("00000000-0000-0000-0000-000000000000"), data={"enabled": False}, format="json"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_partial_update_other_teams_config_returns_404(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

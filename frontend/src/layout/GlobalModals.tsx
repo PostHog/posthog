@@ -10,7 +10,7 @@ import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAu
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
-import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
+import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
@@ -20,12 +20,15 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
+import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
+
 import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
 import { navigationLogic } from './navigation/navigationLogic'
 import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
+import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
 import { GoodbyeTabsModal } from './scenes/GoodbyeTabsModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
@@ -68,6 +71,8 @@ export function GlobalModals(): JSX.Element {
     const { superpowersEnabled } = useValues(superpowersLogic)
     const { isConfigureHomeModalOpen } = useValues(navigationLogic)
     const { hideConfigureHomeModal } = useActions(navigationLogic)
+    const { isConfigureModalOpen: isConfigurePromotedProductModalOpen } = useValues(promotedProductLogic)
+    const { hideConfigureModal: hideConfigurePromotedProductModal } = useActions(promotedProductLogic)
 
     return (
         <>
@@ -88,6 +93,10 @@ export function GlobalModals(): JSX.Element {
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
             <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
+            <ConfigurePromotedProductModal
+                isOpen={isConfigurePromotedProductModalOpen}
+                onClose={hideConfigurePromotedProductModal}
+            />
             <GoodbyeTabsModal />
             <MaybeWelcomeDialog />
             <ComposeTicketModal />

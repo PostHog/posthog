@@ -28,7 +28,6 @@ class _PandaDocUnavailable(exceptions.APIException):
     default_code = "legal_document_void_failed"
 
 
-@extend_schema(tags=["core"])
 class LegalDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "legal_document"
     permission_classes = [IsCloudOrDevDeployment, permissions.IsAuthenticated, IsOrganizationAdminOrOwner]

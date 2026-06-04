@@ -8,9 +8,8 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
 from rest_framework.response import Response
 
-from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery, ProductKey
+from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery, EventsQuery
 
-from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
@@ -88,7 +87,6 @@ def build_fingerprint_filter_group(fingerprints: list[str]) -> dict[str, object]
     return filter_group
 
 
-@extend_schema(tags=[ProductKey.ERROR_TRACKING])
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 

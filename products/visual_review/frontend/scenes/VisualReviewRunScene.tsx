@@ -195,7 +195,7 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         repoFullName,
-        isApproving,
+        isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
         isRunInProgress,
@@ -205,7 +205,7 @@ export function VisualReviewRunScene(): JSX.Element {
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
-        approveChanges,
+        finalizeRun,
         approveSnapshot,
         markAsTolerated,
         quarantineSnapshot,
@@ -324,12 +324,14 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
-    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; we only have that ID
-    // when the workflow wired `JOB_CHECK_RUN_ID=${{ job.check_run_id }}` into the CLI env.
-    // Older runs and runs from forks without that env var can't be re-triggered.
-    const ciRetriggerUnavailableReason = !run.metadata?.github_check_run_id
-        ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
-        : undefined
+    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; the backend needs both the
+    // job ID and the workflow run ID (it binds the rerun to the originating run), wired in via
+    // `JOB_CHECK_RUN_ID` and `GITHUB_RUN_ID`. Older runs and forks without those env vars can't
+    // be re-triggered — don't offer the banner when the rerun would just error.
+    const ciRetriggerUnavailableReason =
+        !run.metadata?.github_check_run_id || !run.metadata?.github_run_id
+            ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
+            : undefined
 
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
@@ -343,16 +345,14 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved &&
-                    !run.is_stale &&
-                    (reviewPending > 0 || reviewApproved > 0 || reviewTolerated > 0) ? (
+                    !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
                         <LemonButton
                             type="primary"
-                            onClick={approveChanges}
-                            loading={isApproving}
-                            data-attr="visual-review-commit-baseline"
+                            onClick={finalizeRun}
+                            loading={isFinalizing}
+                            data-attr="visual-review-finalize-run"
                         >
-                            {reviewPending > 0 ? `Approve ${reviewPending} pending and commit` : 'Commit to baseline'}
+                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
                         </LemonButton>
                     ) : undefined
                 }
@@ -370,7 +370,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && !ciRetriggerUnavailableReason && (
+            {allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -381,7 +381,8 @@ export function VisualReviewRunScene(): JSX.Element {
                         'data-attr': 'visual-review-recompute-run',
                     }}
                 >
-                    All changes are resolved — re-trigger to update the commit status and pass the gate.
+                    All changes are resolved by tolerating or quarantining — re-trigger to update the commit status and
+                    pass the gate. (No baseline commit needed; approved changes are shipped via Finalize run.)
                 </LemonBanner>
             )}
 
