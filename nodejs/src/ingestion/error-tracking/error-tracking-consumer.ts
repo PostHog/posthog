@@ -316,6 +316,9 @@ export class ErrorTrackingConsumer {
                     const scopeKey = preCymbalGroupKey(input.event)
                     return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
                 },
+                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
+                // single app_metrics2 row per team rather than one row per issue.
+                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:per_issue',

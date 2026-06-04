@@ -1745,6 +1745,7 @@ dependencies = [
  "lifecycle",
  "limiters",
  "lz-str",
+ "lz4",
  "metrics",
  "metrics-exporter-prometheus",
  "metrics-util",

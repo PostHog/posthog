@@ -40,7 +40,7 @@ from products.tasks.backend.serializers import (
     TASK_RUN_PDF_ARTIFACT_MAX_SIZE_BYTES,
     TaskAutomationSerializer,
 )
-from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key, reset_sandbox_jwt_key_cache
 from products.tasks.backend.services.staged_artifacts import (
     RUN_ARTIFACT_TTL_DAYS,
     build_task_artifact_entry,
@@ -4690,7 +4690,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_returns_jwt(self):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -4717,7 +4717,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_has_correct_expiry(self):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -4739,7 +4739,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_connection_token_includes_distinct_id(self):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -5656,7 +5656,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_rejects_unknown_artifact_ids(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
 
@@ -5679,7 +5679,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_cancel(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {
@@ -5704,7 +5704,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_close(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {
@@ -5729,7 +5729,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_permission_response(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"jsonrpc": "2.0", "id": "req-4", "result": {"acknowledged": True}},
@@ -5758,7 +5758,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_proxies_set_config_option(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"jsonrpc": "2.0", "id": "req-5", "result": {"updated": True}},
@@ -5850,7 +5850,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_passes_modal_connect_token_as_query_param(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -5874,7 +5874,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_no_query_params_for_docker(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -5893,7 +5893,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_returns_502_on_connection_error(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         mock_post.side_effect = __import__("requests").ConnectionError("Connection refused")
 
         task = self.create_task()
@@ -5911,7 +5911,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_returns_504_on_timeout(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         mock_post.side_effect = __import__("requests").Timeout("Request timed out")
 
         task = self.create_task()
@@ -5929,7 +5929,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_forwards_agent_server_auth_error(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"error": "Missing authorization header"},
@@ -5951,7 +5951,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_forwards_agent_server_no_session_error(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(
             mock_post,
             {"error": "No active session for this run"},
@@ -5973,7 +5973,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_sends_jwt_with_correct_claims(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -6005,7 +6005,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_posts_to_correct_url(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -6063,7 +6063,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_with_trailing_slash_sandbox_url(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -6081,7 +6081,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_accepts_numeric_id(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 42, "result": {}})
 
         task = self.create_task()
@@ -6100,7 +6100,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_uses_600s_timeout(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -6118,7 +6118,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_omits_params_for_cancel(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {"cancelled": True}})
 
         task = self.create_task()
@@ -6174,7 +6174,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_allows_valid_sandbox_urls(self, _name, valid_url, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "result": {}})
 
         task = self.create_task()
@@ -6208,7 +6208,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_accepts_id_zero(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": 0, "result": {}})
 
         task = self.create_task()
@@ -6227,7 +6227,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.api.http_requests.post")
     def test_command_generic_error_does_not_leak_details(self, mock_post):
-        get_sandbox_jwt_public_key.cache_clear()
+        reset_sandbox_jwt_key_cache()
         mock_post.side_effect = RuntimeError("internal DNS resolve failed for secret-host.internal:8080")
 
         task = self.create_task()

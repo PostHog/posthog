@@ -480,7 +480,6 @@
     '__repr__',
     '__str__',
     '_get_existing_ch_member_uuids',
-    '_get_uuids_for_distinct_ids_batch',
     '_get_uuids_for_emails_batch_ch',
     '_insert_batch_via_personhog',
     '_insert_users_list_with_batching',

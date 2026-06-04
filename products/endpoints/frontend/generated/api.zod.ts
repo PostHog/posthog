@@ -166,7 +166,7 @@ export const EndpointsRunCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Get the last execution times in the past 6 months for multiple endpoints.
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
  */
 export const EndpointsLastExecutionTimesCreateBody = /* @__PURE__ */ zod.object({
     names: zod.array(zod.string()),

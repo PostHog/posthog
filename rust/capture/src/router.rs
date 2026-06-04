@@ -336,12 +336,25 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => Router::new()
-            .merge(batch_router)
-            .merge(event_router)
-            .merge(test_router)
-            .merge(ai_router)
-            .merge(otel_router),
+        CaptureMode::Events | CaptureMode::Ai => {
+            let mut events_router = Router::new()
+                .merge(batch_router)
+                .merge(event_router)
+                .merge(test_router)
+                .merge(ai_router)
+                .merge(otel_router);
+            // The v1 analytics endpoint is only routable when a v1 sink is
+            // configured. Without a sink the handler can't publish, so we keep
+            // the path unregistered (404) rather than advertising an endpoint
+            // that can only ever return 503. This also isolates the route to
+            // deployments that opt in via CAPTURE_V1_SINKS.
+            if state.v1_sink_router.is_some() {
+                events_router = events_router.merge(crate::v1::analytics::router::router().layer(
+                    DefaultBodyLimit::max(state.capture_v1_max_compressed_body_bytes),
+                ));
+            }
+            events_router
+        }
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

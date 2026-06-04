@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -17,6 +17,7 @@ jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
     useActions: jest.fn(),
+    useAsyncActions: jest.fn(),
 }))
 
 jest.mock('scenes/dashboard/dashboardLogic', () => ({
@@ -140,6 +141,7 @@ jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/
 
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
+const mockedUseAsyncActions = useAsyncActions as jest.Mock
 
 describe('DashboardItems', () => {
     beforeEach(() => {
@@ -195,7 +197,6 @@ describe('DashboardItems', () => {
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
                     refreshDashboardWidgets: jest.fn(),
-                    updateWidgetTileMetadata: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
@@ -218,6 +219,16 @@ describe('DashboardItems', () => {
             if (logic === router) {
                 return {
                     push: jest.fn(),
+                }
+            }
+
+            return {}
+        })
+
+        mockedUseAsyncActions.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    updateWidgetTile: jest.fn(),
                 }
             }
 
