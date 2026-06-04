@@ -887,6 +887,30 @@ def contains_row_multiplying_function(expr: ast.Expr) -> bool:
     return finder.found
 
 
+class _InCohortFinder(TraversingVisitor):
+    """Detects an unresolved IN COHORT / NOT IN COHORT comparison anywhere in an expression."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+        super().visit_compare_operation(node)
+
+
+def contains_in_cohort(expr: ast.Expr) -> bool:
+    """An unresolved IN COHORT op (inCohortVia=LEFTJOIN) is rewritten to a cohort LEFT JOIN *after* pushdown
+    runs. Pushing such a predicate would move that join inside the synthetic events subquery; keep it out so
+    the pushdown declines. (inCohortVia=SUBQUERY resolves to a plain `IN (subquery)` before pushdown — op
+    `In`, not `InCohort` — so it isn't caught here and pushes normally.)
+    """
+    finder = _InCohortFinder()
+    finder.visit(expr)
+    return finder.found
+
+
 class JoinedTableReferenceFinder(TraversingVisitor):
     """Checks if an expression references fields that should not be pushed down into an events subquery.
 
@@ -1155,12 +1179,16 @@ class EventsPredicatePushdownExtractor:
                 return self._split_expression(ast.Or(exprs=expr.args))
 
         cloned = clone_expr(expr, clear_types=False, clear_locations=True)
-        # A row-multiplying call (arrayJoin) must stay in the outer query: pushing it into the subquery
-        # would expand rows in a different scope than the same call in the outer SELECT/GROUP BY, changing
-        # the result set. Treat it as non-pushable (fail-safe), same as a joined-table reference.
-        if references_joined_table(
-            expr, self.joined_table_aliases, self.events_table_type, self.select_aliases
-        ) or contains_row_multiplying_function(expr):
+        # Keep in the outer query (fail-safe), same as a joined-table reference, when the predicate:
+        # - contains a row-multiplying call (arrayJoin) — pushing it would expand rows in a different scope
+        #   than the same call in the outer SELECT/GROUP BY, changing the result set; or
+        # - contains an unresolved IN COHORT op — it becomes a cohort LEFT JOIN after pushdown, which must not
+        #   land inside the synthetic events subquery.
+        if (
+            references_joined_table(expr, self.joined_table_aliases, self.events_table_type, self.select_aliases)
+            or contains_row_multiplying_function(expr)
+            or contains_in_cohort(expr)
+        ):
             return ([], [cloned])
         return ([cloned], [])
 

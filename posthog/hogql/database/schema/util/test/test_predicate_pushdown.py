@@ -220,3 +220,32 @@ class TestEventsPredicatePushdownExtractor:
         # Should detect via type system even with empty joined_aliases
         assert inner_where is None
         assert outer_where is not None
+
+    def test_in_cohort_predicate_stays_outer(self):
+        """An unresolved IN COHORT op (inCohortVia=LEFTJOIN) becomes a cohort LEFT JOIN after pushdown, so it
+        must not be pushed into the events subquery; the events-only timestamp predicate still pushes."""
+        timestamp = ast.CompareOperation(
+            op=ast.CompareOperationOp.GtEq,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value="2024-01-01"),
+        )
+        in_cohort = ast.CompareOperation(
+            op=ast.CompareOperationOp.InCohort,
+            left=ast.Field(chain=["person_id"]),
+            right=ast.Constant(value=1),
+        )
+        extractor = EventsPredicatePushdownExtractor(set())
+        inner_where, outer_where = extractor.get_pushdown_predicates(ast.And(exprs=[timestamp, in_cohort]))
+
+        assert isinstance(inner_where, ast.CompareOperation) and inner_where.op == ast.CompareOperationOp.GtEq
+        assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == ast.CompareOperationOp.InCohort
+
+    def test_in_cohort_only_predicate_not_pushable(self):
+        """A standalone IN COHORT / NOT IN COHORT predicate is non-pushable (nothing left to push)."""
+        for op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            in_cohort = ast.CompareOperation(op=op, left=ast.Field(chain=["person_id"]), right=ast.Constant(value=1))
+            extractor = EventsPredicatePushdownExtractor(set())
+            inner_where, outer_where = extractor.get_pushdown_predicates(in_cohort)
+
+            assert inner_where is None, f"{op}: should not be pushable"
+            assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == op
