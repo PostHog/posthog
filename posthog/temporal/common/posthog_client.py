@@ -15,6 +15,7 @@ from temporalio.worker import (
 
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
+
 from products.exports.backend.tasks.failure_handler import USER_QUERY_ERROR_NAMES
 
 logger = get_write_only_logger()
