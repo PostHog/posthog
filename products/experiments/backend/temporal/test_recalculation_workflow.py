@@ -94,9 +94,10 @@ class TestExperimentMetricsRecalculationWorkflow:
     @parameterized.expand(
         [
             # name, failed_uuids, expected_result, expected_final_status
+            # Any failure -> "failed" status; counts carry the partial-vs-total nuance.
             ("all_succeed", set(), {"total": 2, "succeeded": 2, "failed": 0}, "completed"),
             ("all_fail", {"m1", "m2"}, {"total": 2, "succeeded": 0, "failed": 2}, "failed"),
-            ("partial_failure", {"m2"}, {"total": 2, "succeeded": 1, "failed": 1}, "completed"),
+            ("partial_failure", {"m2"}, {"total": 2, "succeeded": 1, "failed": 1}, "failed"),
         ]
     )
     async def test_outcomes(self, name: str, failed_uuids: set, expected_result: dict, expected_final_status: str):

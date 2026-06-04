@@ -120,7 +120,10 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         succeeded = sum(1 for r in results if not isinstance(r, BaseException) and r.success)
         failed = len(metrics) - succeeded
 
-        final_status = "failed" if failed == len(metrics) else "completed"
+        # Any failure marks the run as "failed"; the succeeded/failed counts carry the partial-vs-total nuance
+        # for consumers that need it (the UI shows "N succeeded, M failed" alongside the status). A status-only
+        # check then can't mistake a 9-of-10-failed run for a healthy one.
+        final_status = "failed" if failed > 0 else "completed"
         await temporalio.workflow.execute_activity(
             update_recalculation_progress,
             RecalculationProgressUpdate(recalculation_id=recalculation_id, status=final_status, mark_completed=True),
