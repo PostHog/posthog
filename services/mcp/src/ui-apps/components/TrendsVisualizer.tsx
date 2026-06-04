@@ -94,6 +94,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     labels={labels}
                     maxValue={maxValue}
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+                    yAxisFormat={query?.trendsFilter?.aggregationAxisFormat}
                 />
             ) : (
                 <LineChart

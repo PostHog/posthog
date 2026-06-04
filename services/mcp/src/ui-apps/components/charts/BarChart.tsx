@@ -1,28 +1,20 @@
-import type { ReactElement } from 'react'
+import { type ReactElement } from 'react'
 
-import { formatDate, formatNumber } from '../utils'
+import {
+    type ChartTheme,
+    type Series as ChartSeries,
+    type YAxisFormat,
+    TimeSeriesBarChart,
+} from '@posthog/quill-charts'
 
-// TODO(quill): replace with a Quill chart primitive (e.g. `BarChart` /
-// `Charts.Bar`) once Quill ships one. Quill currently has no chart layer —
-// it stops at primitives/components/blocks, none of which render data viz.
-// This bespoke SVG renderer uses Quill design tokens (`--text-secondary`
-// via the host bridge, `--posthog-chart-*` palette declared in base.css)
-// so the visual language already matches.
+import { formatDate } from '../utils'
 
-const CHART_HEIGHT = 200
-const CHART_WIDTH = 400
-const PADDING = { top: 20, right: 20, bottom: 40, left: 50 }
+// Series palette mirroring base.css `--posthog-chart-*`. Canvas can't read CSS
+// custom properties, so we hand the chart concrete hexes. The chart picks one
+// per series by index; the legend uses the same array to stay in sync.
+const CHART_COLORS = ['#1d4aff', '#621da6', '#42827e', '#ce0e74', '#f14f58', '#7c440e', '#529a0a', '#0476fb']
 
-const COLORS = [
-    'var(--posthog-chart-1, #1d4aff)',
-    'var(--posthog-chart-2, #621da6)',
-    'var(--posthog-chart-3, #42827e)',
-    'var(--posthog-chart-4, #ce0e74)',
-    'var(--posthog-chart-5, #f14f58)',
-    'var(--posthog-chart-6, #7c440e)',
-    'var(--posthog-chart-7, #529a0a)',
-    'var(--posthog-chart-8, #0476fb)',
-]
+const THEME: ChartTheme = { colors: CHART_COLORS }
 
 export interface DataPoint {
     x: number
@@ -41,104 +33,41 @@ export interface BarChartProps {
     maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
+    /** Y-axis value format. Mirrors a trends insight's `aggregationAxisFormat`; defaults to `numeric`. */
+    yAxisFormat?: YAxisFormat | undefined
 }
 
-export function BarChart({ series, labels, maxValue, showLegend = true, yAxisLabel }: BarChartProps): ReactElement {
-    const innerWidth = CHART_WIDTH - PADDING.left - PADDING.right
-    const innerHeight = CHART_HEIGHT - PADDING.top - PADDING.bottom
-
-    const numBars = labels.length
-    const numSeries = series.length
-    const barGroupWidth = innerWidth / numBars
-    const barWidth = Math.min(barGroupWidth * 0.8, 40) / numSeries
-    const barGap = barWidth * 0.1
+export function BarChart({
+    series,
+    labels,
+    showLegend = true,
+    yAxisLabel,
+    yAxisFormat = 'numeric',
+}: BarChartProps): ReactElement {
+    // Color omitted so the chart assigns one per series from THEME.colors by index.
+    const chartSeries: ChartSeries[] = series.map((s, i) => ({
+        key: s.label || `series-${i}`,
+        label: s.label,
+        data: s.points.map((p) => p.y),
+    }))
 
     return (
         <div>
-            <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} style={{ width: '100%', height: '400px' }}>
-                {yAxisLabel && (
-                    <text
-                        x={12}
-                        y={PADDING.top + innerHeight / 2}
-                        textAnchor="middle"
-                        fontSize="11"
-                        fill="var(--color-text-secondary, #6b7280)"
-                        transform={`rotate(-90, 12, ${PADDING.top + innerHeight / 2})`}
-                    >
-                        {yAxisLabel}
-                    </text>
-                )}
-
-                {/* Y-axis labels */}
-                {[0, 0.5, 1].map((ratio) => {
-                    const value = maxValue * ratio
-                    const y = PADDING.top + innerHeight - (value / maxValue) * innerHeight
-                    return (
-                        <g key={ratio}>
-                            <line
-                                x1={PADDING.left}
-                                y1={y}
-                                x2={CHART_WIDTH - PADDING.right}
-                                y2={y}
-                                stroke="var(--color-border-primary, #e5e7eb)"
-                                strokeDasharray={ratio === 0 ? '0' : '4,4'}
-                            />
-                            <text
-                                x={PADDING.left - 8}
-                                y={y + 4}
-                                textAnchor="end"
-                                fontSize="10"
-                                fill="var(--color-text-secondary, #6b7280)"
-                            >
-                                {formatNumber(value)}
-                            </text>
-                        </g>
-                    )
-                })}
-
-                {/* X-axis labels */}
-                {labels.map((label, i) => {
-                    if (labels.length > 7 && i % Math.ceil(labels.length / 7) !== 0) {
-                        return null
-                    }
-                    const x = PADDING.left + (i + 0.5) * barGroupWidth
-                    return (
-                        <text
-                            key={i}
-                            x={x}
-                            y={CHART_HEIGHT - 8}
-                            textAnchor="middle"
-                            fontSize="10"
-                            fill="var(--color-text-secondary, #6b7280)"
-                        >
-                            {formatDate(label)}
-                        </text>
-                    )
-                })}
-
-                {/* Bars */}
-                {series.map((s, seriesIndex) =>
-                    s.points.map((p, i) => {
-                        const barHeight = (p.y / maxValue) * innerHeight
-                        const groupX = PADDING.left + i * barGroupWidth
-                        const barX = groupX + (barGroupWidth - numSeries * barWidth - (numSeries - 1) * barGap) / 2
-                        const x = barX + seriesIndex * (barWidth + barGap)
-                        const y = PADDING.top + innerHeight - barHeight
-
-                        return (
-                            <rect
-                                key={`${seriesIndex}-${i}`}
-                                x={x}
-                                y={y}
-                                width={barWidth}
-                                height={barHeight}
-                                fill={COLORS[seriesIndex % COLORS.length]}
-                                rx="2"
-                            />
-                        )
-                    })
-                )}
-            </svg>
+            <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '400px' }}>
+                <TimeSeriesBarChart
+                    series={chartSeries}
+                    labels={labels}
+                    theme={THEME}
+                    config={{
+                        xAxis: { tickFormatter: (value) => formatDate(value) },
+                        yAxis: {
+                            ...(yAxisLabel ? { label: yAxisLabel } : {}),
+                            format: yAxisFormat,
+                            showGrid: true,
+                        },
+                    }}
+                />
+            </div>
 
             {showLegend && series.length > 1 && (
                 <div
@@ -158,7 +87,7 @@ export function BarChart({ series, labels, maxValue, showLegend = true, yAxisLab
                                     width: '12px',
                                     height: '12px',
                                     borderRadius: '2px',
-                                    backgroundColor: COLORS[i % COLORS.length],
+                                    backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
                                 }}
                             />
                             <span style={{ color: 'var(--color-text-secondary, #6b7280)' }}>{s.label}</span>
