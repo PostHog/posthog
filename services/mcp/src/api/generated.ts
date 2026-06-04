@@ -2176,6 +2176,7 @@ export namespace Schemas {
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: TrendsFilterResultCustomizations;
       showAlertThresholdLines?: boolean | null;
+      showAnnotations?: boolean | null;
       showConfidenceIntervals?: boolean | null;
       showLabelsOnSeries?: boolean | null;
       showLegend?: boolean | null;
@@ -2373,6 +2374,8 @@ export namespace Schemas {
       layout?: FunnelLayout | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;
+      /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
+      showAnnotations?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
