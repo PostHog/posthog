@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
+import { HttpResponse } from 'msw'
 import { useEffect } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
@@ -48,10 +49,10 @@ const meta: Meta<StoryProps> = {
                 },
             },
             patch: {
-                '/api/projects/:id': async (req, res, ctx) => {
+                '/api/projects/:id': async ({ request }) => {
                     // bounce the setting back as is
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
-                    return res(ctx.json(newTeamSettings))
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) }
+                    return HttpResponse.json(newTeamSettings)
                 },
             },
         }),

@@ -27,20 +27,21 @@ const meta: Meta<QueryProps<Node>> = {
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/:kind/': (req) => {
-                    if ((req.body as any).query.kind === 'WebStatsTableQuery') {
-                        if ((req.body as any).query.breakdownBy === 'InitialReferringDomain') {
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const query = ((await request.json()) as any).query
+                    if (query.kind === 'WebStatsTableQuery') {
+                        if (query.breakdownBy === 'InitialReferringDomain') {
                             return [200, referringDomainMock]
-                        } else if ((req.body as any).query.breakdownBy === 'Page') {
+                        } else if (query.breakdownBy === 'Page') {
                             return [200, pathMock]
-                        } else if ((req.body as any).query.breakdownBy === 'Browser') {
+                        } else if (query.breakdownBy === 'Browser') {
                             return [200, browserMock]
                         }
-                    } else if ((req.body as any).query.kind === 'TrendsQuery') {
-                        if ((req.body as any).query.trendsFilter?.display === 'WorldMap') {
+                    } else if (query.kind === 'TrendsQuery') {
+                        if (query.trendsFilter?.display === 'WorldMap') {
                             return [200, worldMapMock]
                         }
-                    } else if ((req.body as any).query.kind === 'RetentionQuery') {
+                    } else if (query.kind === 'RetentionQuery') {
                         return [200, retentionMock]
                     }
                 },

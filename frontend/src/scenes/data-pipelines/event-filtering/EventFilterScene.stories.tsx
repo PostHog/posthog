@@ -92,9 +92,9 @@ const EMPTY_TOTALS_RESULTS: unknown[][] = []
 function metricsHandler(
     timeSeriesResults: unknown[][],
     totalsResults: unknown[][]
-): (req: { json: () => Promise<unknown> }) => Promise<[number, unknown]> {
-    return async (req) => {
-        const body = (await req.json()) as { query?: { query?: string } }
+): ({ request }: { request: Request }) => Promise<[number, unknown]> {
+    return async ({ request }) => {
+        const body = (await request.json()) as { query?: { query?: string } }
         const isTimeSeries = body.query?.query?.includes('calendar') ?? false
         return [200, { results: isTimeSeries ? timeSeriesResults : totalsResults }]
     }

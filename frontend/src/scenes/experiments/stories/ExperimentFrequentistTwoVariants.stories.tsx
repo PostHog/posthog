@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { HttpResponse } from 'msw'
 
 import { makeDelay } from 'lib/utils'
 import { App } from 'scenes/App'
@@ -33,17 +34,17 @@ const meta: Meta = {
                 [`/api/environments/:team_id/default_release_conditions/`]: [],
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
 
                     if (body.query.kind === NodeKind.ExperimentExposureQuery) {
-                        return res(ctx.json(EXPOSURE_QUERY_RESULT))
+                        return HttpResponse.json(EXPOSURE_QUERY_RESULT)
                     }
 
                     if (isExperimentFunnelMetric(body.query.metric)) {
-                        return res(ctx.json(FUNNEL_METRIC_RESULT))
+                        return HttpResponse.json(FUNNEL_METRIC_RESULT)
                     } else if (isExperimentMeanMetric(body.query.metric)) {
-                        return res(ctx.json(MEAN_METRIC_RESULT))
+                        return HttpResponse.json(MEAN_METRIC_RESULT)
                     }
                 },
             },

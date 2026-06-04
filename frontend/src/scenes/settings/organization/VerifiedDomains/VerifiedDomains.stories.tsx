@@ -2,6 +2,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
+import { HttpResponse } from 'msw'
 import { useEffect } from 'react'
 
 import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
@@ -115,9 +116,9 @@ const meta: Meta<typeof App> = {
                 '/api/user_home_settings/@me/': {},
             },
             patch: {
-                '/api/projects/:id': async (req, res, ctx) => {
-                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...(await req.json()) }
-                    return res(ctx.json(newTeamSettings))
+                '/api/projects/:id': async ({ request }) => {
+                    const newTeamSettings = { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) }
+                    return HttpResponse.json(newTeamSettings)
                 },
             },
         }),

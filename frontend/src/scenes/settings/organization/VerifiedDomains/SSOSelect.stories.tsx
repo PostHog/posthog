@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { delay } from 'msw'
 import { useState } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -15,18 +16,20 @@ const meta: Meta<SSOSelectInterface> = {
         const [value, setValue] = useState('google-oauth2' as SSOProvider | '')
         useStorybookMocks({
             get: {
-                '/_preflight': (_, __, ctx) => [
-                    ctx.delay(10),
-                    ctx.status(200),
-                    ctx.json({
-                        ...preflightJSON,
-                        available_social_auth_providers: {
-                            github: true,
-                            gitlab: false,
-                            'google-oauth2': true,
+                '/_preflight': async () => {
+                    await delay(10)
+                    return [
+                        200,
+                        {
+                            ...preflightJSON,
+                            available_social_auth_providers: {
+                                github: true,
+                                gitlab: false,
+                                'google-oauth2': true,
+                            },
                         },
-                    }),
-                ],
+                    ]
+                },
             },
         })
         return (

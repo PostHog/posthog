@@ -45,20 +45,26 @@ const DEFAULT_QUERY = {
 }
 
 const noop = (): void => {}
-const actorsQueryHandler = (req: {
-    body?: { query?: { kind?: string; source?: { kind?: string } } }
-}): [number, typeof mockQueryResponse] | undefined => {
-    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+const actorsQueryHandler = async ({
+    request,
+}: {
+    request: Request
+}): Promise<[number, typeof mockQueryResponse] | undefined> => {
+    const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
+    const queryKind = body.query?.source?.kind ?? body.query?.kind
 
     if (queryKind === 'ActorsQuery') {
         return [200, mockQueryResponse]
     }
 }
 
-const emptyActorsQueryHandler = (req: {
-    body?: { query?: { kind?: string; source?: { kind?: string } } }
-}): [number, typeof mockQueryResponse] | undefined => {
-    const queryKind = req.body?.query?.source?.kind ?? req.body?.query?.kind
+const emptyActorsQueryHandler = async ({
+    request,
+}: {
+    request: Request
+}): Promise<[number, typeof mockQueryResponse] | undefined> => {
+    const body = (await request.json()) as { query?: { kind?: string; source?: { kind?: string } } }
+    const queryKind = body.query?.source?.kind ?? body.query?.kind
 
     if (queryKind === 'ActorsQuery') {
         return [

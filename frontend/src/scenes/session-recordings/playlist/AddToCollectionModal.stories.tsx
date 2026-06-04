@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
+import { HttpResponse } from 'msw'
 import { useEffect } from 'react'
 
 import { useStorybookMocks } from '~/mocks/browser'
@@ -76,9 +77,9 @@ export const NoSearchEntered: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': (req, res, ctx) => {
-                    const search = req.url.searchParams.get('search')
-                    return res(ctx.json(filterPlaylistsBySearch(search)))
+                '/api/projects/:team_id/session_recording_playlists': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    return HttpResponse.json(filterPlaylistsBySearch(search))
                 },
             },
         })
@@ -90,9 +91,9 @@ export const SearchWithResults: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': (req, res, ctx) => {
-                    const search = req.url.searchParams.get('search')
-                    return res(ctx.json(filterPlaylistsBySearch(search)))
+                '/api/projects/:team_id/session_recording_playlists': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
+                    return HttpResponse.json(filterPlaylistsBySearch(search))
                 },
             },
         })
@@ -104,7 +105,7 @@ export const SearchWithNoResults: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': (_req, res, ctx) => res(ctx.json(emptyPlaylists)),
+                '/api/projects/:team_id/session_recording_playlists': () => HttpResponse.json(emptyPlaylists),
             },
         })
         return <StoryWrapper initialSearch="no-match-for-this-term" />
@@ -115,7 +116,7 @@ export const NoCollections: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/projects/:team_id/session_recording_playlists': (_req, res, ctx) => res(ctx.json(emptyPlaylists)),
+                '/api/projects/:team_id/session_recording_playlists': () => HttpResponse.json(emptyPlaylists),
             },
         })
         return <StoryWrapper />

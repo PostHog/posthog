@@ -407,8 +407,8 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
             .slice(0, limit)
     }
 
-    const queryHandler = async (req: any, res: any, ctx: any): Promise<unknown> => {
-        const body = await req.clone().json()
+    const queryHandler = async ({ request }: { request: Request }): Promise<unknown> => {
+        const body = (await request.json()) as Record<string, any>
         const query = body.query as TimelineQueryLike
 
         if (query.kind === NodeKind.EventsQuery) {
@@ -418,7 +418,7 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
                 query.select?.includes('properties.$exception_list')
 
             if (isCombinedEventLoaderQuery) {
-                return res(ctx.json({ results: filterRows(combinedEventRows, 2, query) }))
+                return [200, { results: filterRows(combinedEventRows, 2, query) }]
             }
 
             const isEventDetailsQuery =
@@ -433,29 +433,29 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
                 const uuidMatch =
                     typeof uuidClause === 'string' ? uuidClause.match(/equals\(uuid,\s*'([^']+)'\)/) : null
                 const eventRow = uuidMatch ? eventDetailsRowsByUuid[uuidMatch[1]] : null
-                return res(ctx.json({ results: eventRow ? [eventRow] : [] }))
+                return [200, { results: eventRow ? [eventRow] : [] }]
             }
 
             if (query.select?.includes('properties.$current_url')) {
-                return res(ctx.json({ results: filterRows(pageRows, 1, query) }))
+                return [200, { results: filterRows(pageRows, 1, query) }]
             }
 
             if (query.select?.includes('event')) {
-                return res(ctx.json({ results: filterRows(customRows, 2, query) }))
+                return [200, { results: filterRows(customRows, 2, query) }]
             }
 
             if (query.select?.includes('properties')) {
-                return res(ctx.json({ results: filterRows(exceptionRows, 1, query) }))
+                return [200, { results: filterRows(exceptionRows, 1, query) }]
             }
 
-            return res(ctx.json({ results: filterRows(combinedEventRows, 2, query) }))
+            return [200, { results: filterRows(combinedEventRows, 2, query) }]
         }
 
         if (query.kind === NodeKind.HogQLQuery) {
-            return res(ctx.json({ results: filterLogRowsFromHogQL(logRows, query) }))
+            return [200, { results: filterLogRowsFromHogQL(logRows, query) }]
         }
 
-        return res(ctx.json({ results: [] }))
+        return [200, { results: [] }]
     }
 
     return {
