@@ -25,8 +25,14 @@ _django_application = get_wsgi_application()
 # Nginx Unit forks workers from a prototype process that imported this module, so
 # the query_cache RedisCluster must be discovered post-fork: a client built here at
 # import time would be inherited -- sockets and all -- by every worker. Defer the
-# prewarm to the first request so discovery runs in the worker. Mirrors asgi.py's
-# _ensure_post_fork_init; the factory also pid-guards the cache as a backstop.
+# prewarm to the first request so discovery runs in the worker; the factory also
+# pid-guards the cache as a backstop. (start_continuous_profiling/initialize_otel
+# above still run pre-fork here, unlike asgi.py which defers them -- that is a
+# separate, pre-existing concern, not addressed by this change.)
+#
+# Best-effort once-guard: a concurrent first-request race may spawn a couple of
+# redundant prewarm threads, which is harmless -- prewarm is idempotent and the
+# factory dedups discovery under its own lock -- so it intentionally takes no lock.
 _prewarmed = False
 
 

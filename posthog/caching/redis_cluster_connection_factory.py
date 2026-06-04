@@ -38,11 +38,9 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     instances, so discovery runs once per process and the post-fork prewarm
     populates the same client the request threads read.
 
-    A RedisCluster holds open sockets, so it must not cross a fork: a client
-    discovered before fork (e.g. by a pre-fork prewarm) would be inherited by
-    every worker, sharing the same file descriptors across processes. connect()
-    guards against this by binding the cache to the pid that filled it and
-    rediscovering after a fork.
+    A RedisCluster holds open sockets, so it must not cross a fork; connect()
+    binds the cache to the pid that filled it and rediscovers in a forked worker
+    (see _reset_if_forked) so workers never share inherited file descriptors.
 
     This relies on the client being long-lived, so CLOSE_CONNECTION is
     unsupported on this alias and rejected in __init__: django_redis closes
@@ -71,16 +69,23 @@ class RedisClusterConnectionFactory(ConnectionFactory):
         client = self._cluster_clients.get(url) if self._owner_pid == pid else None
         if client is None:
             with self._lock:
-                if self._owner_pid != pid:
-                    # Crossed a fork: the inherited clients hold the parent's
-                    # sockets. Drop them and rediscover in this process.
-                    self._cluster_clients.clear()
-                    RedisClusterConnectionFactory._owner_pid = pid
+                self._reset_if_forked(pid)
                 client = self._cluster_clients.get(url)
                 if client is None:
                     client = self._discover_cluster(url)
                     self._cluster_clients[url] = client
         return client
+
+    def _reset_if_forked(self, pid: int) -> None:
+        # A client discovered before a fork holds the parent's sockets, so a
+        # forked worker drops the inherited cache and rediscovers its own. Caller
+        # must hold _lock.
+        if self._owner_pid == pid:
+            return
+        if self._owner_pid is not None:
+            logger.info("redis_cluster_rediscovering_after_fork", previous_pid=self._owner_pid, pid=pid)
+        self._cluster_clients.clear()
+        RedisClusterConnectionFactory._owner_pid = pid
 
     @tracer.start_as_current_span("redis_cluster.discovery")
     def _discover_cluster(self, url: str) -> RedisCluster:
