@@ -791,6 +791,15 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     ]
     ordering = ["-created_at"]
 
+    def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
+        # AI prompt subscriptions run LLM-generated HogQL and deliver the results, so a scoped
+        # key needs query read access too — subscription:write alone would let a key exfiltrate
+        # analytics it could not otherwise read. Returns None for everything else so the default
+        # scope derivation is untouched; session auth bypasses API-scope checks entirely.
+        if request.method in ("POST", "PUT", "PATCH") and request.data.get("prompt"):
+            return [f"{self.scope_object}:write", "query:read"]
+        return None
+
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
 

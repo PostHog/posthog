@@ -2030,6 +2030,50 @@ class TestAISubscriptionAPI(APILicensedTest):
         mock_sync.return_value = mock_client
         return mock_client
 
+    def _scoped_key_headers(self, scopes: list[str]) -> dict[str, str]:
+        raw_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label=f"scoped-{uuid4().hex[:8]}",
+            user=self.user,
+            secure_value=hash_key_value(raw_key),
+            scopes=scopes,
+        )
+        return {"authorization": f"Bearer {raw_key}"}
+
+    @parameterized.expand(
+        [
+            # AI prompt subscriptions run HogQL, so a scoped key needs query:read on top of
+            # subscription:write; insight subscriptions carry no prompt and are unaffected.
+            ("ai_without_query_read", "ai_prompt", ["subscription:write"], status.HTTP_403_FORBIDDEN),
+            ("ai_with_query_read", "ai_prompt", ["subscription:write", "query:read"], status.HTTP_201_CREATED),
+            ("insight_without_query_read", "insight", ["subscription:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_scoped_key_create_requires_query_read_only_for_ai(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, scopes, expected_status
+    ):
+        self._mock_temporal(mock_sync)
+        if resource_kind == "ai_prompt":
+            self._enable_ai()
+            payload = self._make_ai_payload()
+        else:
+            insight = Insight.objects.create(team=self.team, created_by=self.user)
+            payload = {
+                "insight": insight.id,
+                "target_type": "email",
+                "target_value": "insight@posthog.com",
+                "frequency": "weekly",
+                "interval": 1,
+                "start_date": "2022-01-01T00:00:00",
+                "title": "Insight sub",
+            }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            payload,
+            headers=self._scoped_key_headers(scopes),
+        )
+        assert response.status_code == expected_status, response.json()
+
     def test_creates_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
         self._mock_temporal(mock_sync)
