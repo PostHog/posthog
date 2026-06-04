@@ -37,11 +37,9 @@ from products.replay_vision.backend.temporal.types import ScannerResult, Scanner
 logger = structlog.get_logger(__name__)
 
 
-class _JsonbTypeof(Func):
-    """Postgres `JSONB_TYPEOF(value)` wrapped as an ORM function so callers can `Case(When(...))` on the result."""
-
-    function = "JSONB_TYPEOF"
-    output_field = CharField()
+def _jsonb_typeof(expr: Any) -> Func:
+    """Postgres `JSONB_TYPEOF(value)` — built inline to avoid extending a custom Expression class."""
+    return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -288,7 +286,7 @@ class _OrderByFilter(django_filters.CharFilter):
             score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
             score_text = KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result"))
             qs = qs.annotate(
-                _score_type=_JsonbTypeof(score_jsonb),
+                _score_type=_jsonb_typeof(score_jsonb),
                 _order_score=Case(
                     When(_score_type="number", then=Cast(score_text, FloatField())),
                     default=Value(None),
@@ -301,7 +299,7 @@ class _OrderByFilter(django_filters.CharFilter):
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
             qs = qs.annotate(
-                _version_type=_JsonbTypeof(version_jsonb),
+                _version_type=_jsonb_typeof(version_jsonb),
                 _order_version=Case(
                     When(_version_type="number", then=Cast(version_text, IntegerField())),
                     default=Value(None),
