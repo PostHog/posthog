@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -20,6 +20,9 @@ import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
 
 const PROMPT_PREVIEW_MAX_CHARS = 80
+// AI subscriptions are supplementary context in this modal, so only a few are shown inline —
+// the rest are reachable via the full subscriptions list.
+const AI_PREVIEW_LIMIT = 3
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType
@@ -220,14 +223,19 @@ export function ManageSubscriptions({
                             <div className="deprecated-space-y-2">
                                 <div>
                                     <strong>{aiSubscriptions.length}</strong>{' '}
-                                    {pluralize(aiSubscriptions.length, 'AI report', 'AI reports', false)}
+                                    {pluralize(aiSubscriptions.length, 'AI subscription', 'AI subscriptions', false)}
                                     <div className="text-xs text-muted">
-                                        Not tied to this {subscriptionResourceNoun} — shared across your project.
+                                        Not tied to this {subscriptionResourceNoun}, shared across your project.
                                     </div>
                                 </div>
-                                <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
-                                    {aiSubscriptions.map(renderItem)}
+                                <div className="flex flex-col gap-2">
+                                    {aiSubscriptions.slice(0, AI_PREVIEW_LIMIT).map(renderItem)}
                                 </div>
+                                {aiSubscriptions.length > AI_PREVIEW_LIMIT ? (
+                                    <Link to={urls.subscriptions()} className="text-xs">
+                                        View {aiSubscriptions.length - AI_PREVIEW_LIMIT} more in all subscriptions
+                                    </Link>
+                                ) : null}
                             </div>
                         ) : null}
                     </div>
