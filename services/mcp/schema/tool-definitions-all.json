@@ -1138,7 +1138,7 @@
         }
     },
     "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. For error_tracking_list, config supports limit, orderBy, orderDirection, status, assignee, dateRange.date_from, filterTestAccounts, and widgetFilters (see config_schema_hints.widgetFilters.entry and allowed_filter_names).",
+        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema_hints (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters — see config_schema_hints.widgetFilters.entry).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "List dashboard widget catalog",
@@ -1152,7 +1152,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). error_tracking_list config may include status, assignee, dateRange, and widgetFilters (property filters keyed by filter id). For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",

@@ -2,11 +2,7 @@ import { z, type ZodError, type ZodType } from 'zod'
 
 import { ApiError } from 'lib/api-error'
 
-import {
-    normalizeWidgetConfigKeys,
-    widgetFilterEntrySchema,
-    type StoredWidgetFilter,
-} from '../widget_types/configSchemas'
+import { widgetFilterEntrySchema, type StoredWidgetFilter } from '../widget_types/configSchemas'
 
 export function fieldErrorsFromZodError<TField extends string>(error: ZodError): Partial<Record<TField, string>> {
     const { fieldErrors } = z.flattenError(error)
@@ -19,8 +15,7 @@ export function fieldErrorsFromZodError<TField extends string>(error: ZodError):
 }
 
 export function parseWidgetConfig<T>(configSchema: ZodType<T>, config: Record<string, unknown>): T {
-    const normalized = normalizeWidgetConfigKeys(config)
-    const parsed = configSchema.safeParse(normalized)
+    const parsed = configSchema.safeParse(config)
     return parsed.success ? parsed.data : configSchema.parse({})
 }
 

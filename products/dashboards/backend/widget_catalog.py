@@ -11,13 +11,6 @@ from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKI
 from products.dashboards.backend.widgets.session_replay_list import SESSION_REPLAY_ORDER_BY
 from products.dashboards.backend.widgets.widget_filters import WIDGET_FILTERS_CATALOG_HINT
 
-_ERROR_TRACKING_WIDGET_QUICK_FILTER_NAMES = [
-    "Team",
-    "Environment",
-    "URL path",
-    "Temporal worker",
-]
-
 
 class WidgetCatalogEntry(TypedDict):
     widget_type: str
@@ -66,10 +59,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
                 "optional": True,
                 "description": "Filter by assignee ({type: user|role, id}). Omit for any assignee.",
             },
-            "widgetFilters": {
-                **WIDGET_FILTERS_CATALOG_HINT,
-                "allowed_filter_names": _ERROR_TRACKING_WIDGET_QUICK_FILTER_NAMES,
-            },
+            "widgetFilters": WIDGET_FILTERS_CATALOG_HINT,
             "dateRange": {
                 "date_from": {
                     "type": "string",
@@ -117,14 +107,7 @@ WIDGET_CATALOG: dict[str, WidgetCatalogEntry] = {
                     "optional": True,
                 },
             },
-            "widgetFilters": {
-                **WIDGET_FILTERS_CATALOG_HINT,
-                "quick_filter_context": "dashboards",
-                "description": (
-                    "Event property filters from dashboard filter definitions. "
-                    "Configure filters on the dashboard filter bar first."
-                ),
-            },
+            "widgetFilters": WIDGET_FILTERS_CATALOG_HINT,
             "filterTestAccounts": {
                 "type": "boolean",
                 "optional": True,

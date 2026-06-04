@@ -90,15 +90,6 @@ export type WidgetFilterConfigRecord = Record<string, WidgetFilterConfigEntry>
 /** Alias used in widget config validation and tile filter bar. */
 export type StoredWidgetFilter = WidgetFilterConfigEntry
 
-/** Accept legacy `quickFilters` key until stored configs are migrated. */
-export function normalizeWidgetConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
-    if (config.quickFilters !== undefined && config.widgetFilters === undefined) {
-        const { quickFilters, ...rest } = config
-        return { ...rest, widgetFilters: quickFilters }
-    }
-    return config
-}
-
 // New widget types: add per-type schemas here — CONTRIBUTING.md
 export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),

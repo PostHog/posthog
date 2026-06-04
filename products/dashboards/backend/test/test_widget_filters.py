@@ -37,23 +37,6 @@ class TestWidgetFilters(TestCase):
         assert validated is not None
         assert validated["qf-1"]["propertyName"] == "$environment"
 
-    def test_validate_widget_filters_reads_legacy_quick_filters_key(self) -> None:
-        validated = validate_widget_filters(
-            {
-                "quickFilters": {
-                    "qf-1": {
-                        "filterId": "qf-1",
-                        "propertyName": "$browser",
-                        "optionId": "opt-1",
-                        "operator": "exact",
-                        "value": "Chrome",
-                    }
-                }
-            }
-        )
-        assert validated is not None
-        assert validated["qf-1"]["propertyName"] == "$browser"
-
     def test_build_property_group_filter_from_widget_filters(self) -> None:
         filter_group = build_property_group_filter_from_widget_filters(
             {

@@ -116,22 +116,6 @@ class TestWidgetRegistry(APIBaseTest):
                 }
             )
 
-    def test_validate_error_tracking_list_config_accepts_legacy_quick_filters_key(self) -> None:
-        validated = validate_error_tracking_list_config(
-            {
-                "quickFilters": {
-                    "qf-1": {
-                        "filterId": "qf-1",
-                        "propertyName": "$environment",
-                        "optionId": "opt-1",
-                        "operator": "exact",
-                        "value": "production",
-                    }
-                }
-            }
-        )
-        assert validated["widgetFilters"]["qf-1"]["propertyName"] == "$environment"
-
     def test_openapi_error_tracking_widget_config_includes_widget_filters(self) -> None:
         serializer = widget_openapi_serializers_module.ErrorTrackingListWidgetConfigSerializer()
         assert "widgetFilters" in serializer.fields

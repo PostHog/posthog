@@ -49,12 +49,9 @@ WIDGET_FILTERS_CATALOG_HINT: dict[str, Any] = {
 
 
 def widget_filters_from_config(config: dict[str, Any]) -> Any:
-    """Read widgetFilters from config, falling back to legacy quickFilters."""
-    if "widgetFilters" in config:
-        return config["widgetFilters"]
-    if "quickFilters" in config:
-        return config["quickFilters"]
-    return None
+    if "widgetFilters" not in config:
+        return None
+    return config["widgetFilters"]
 
 
 def validate_widget_filters(config: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
@@ -134,43 +131,43 @@ SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES = frozenset(
 )
 
 
-def validate_session_replay_widget_filters(config: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
-    """Restrict SR widget filters to supported recording event properties."""
+def _validate_widget_filters_allowlist(
+    config: dict[str, Any],
+    allowed_property_names: frozenset[str],
+    widget_type_label: str,
+) -> dict[str, dict[str, Any]] | None:
     validated = validate_widget_filters(config)
     if validated is None:
         return None
 
     for filter_id, entry in validated.items():
         property_name = entry["propertyName"].strip().lower()
-        if property_name not in SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES:
+        if property_name not in allowed_property_names:
             raise DRFValidationError(
                 {
                     "config": (
                         f"widgetFilters.{filter_id} uses unsupported property "
-                        f"{entry['propertyName']!r} for session replay widgets."
+                        f"{entry['propertyName']!r} for {widget_type_label}."
                     )
                 }
             )
     return validated
+
+
+def validate_session_replay_widget_filters(config: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
+    return _validate_widget_filters_allowlist(
+        config,
+        SESSION_REPLAY_WIDGET_FILTER_PROPERTY_NAMES,
+        "session replay list widgets",
+    )
 
 
 def validate_error_tracking_widget_filters(config: dict[str, Any]) -> dict[str, dict[str, Any]] | None:
-    validated = validate_widget_filters(config)
-    if validated is None:
-        return None
-
-    for filter_id, entry in validated.items():
-        property_name = entry["propertyName"].strip().lower()
-        if property_name not in ERROR_TRACKING_WIDGET_FILTER_PROPERTY_NAMES:
-            raise DRFValidationError(
-                {
-                    "config": (
-                        f"widgetFilters.{filter_id} uses unsupported property "
-                        f"{entry['propertyName']!r} for error tracking widgets."
-                    )
-                }
-            )
-    return validated
+    return _validate_widget_filters_allowlist(
+        config,
+        ERROR_TRACKING_WIDGET_FILTER_PROPERTY_NAMES,
+        "error tracking list widgets",
+    )
 
 
 def _event_property_filters_from_widget_filters(

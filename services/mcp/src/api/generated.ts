@@ -3948,7 +3948,7 @@ export namespace Schemas {
     }
 
     /**
-     * Widget filter selections keyed by filter id. For error_tracking_list, only filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported.
+     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
      */
     export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
 
@@ -3983,7 +3983,7 @@ export namespace Schemas {
       status?: ErrorTrackingIssueStatusEnum;
       /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
       assignee?: ErrorTrackingAssignee | null;
-      /** Widget filter selections keyed by filter id. For error_tracking_list, only filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported. */
+      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
       widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
       /** Relative date range for issues (date_from only on widgets). */
       dateRange?: WidgetDateRange | null;
@@ -4037,7 +4037,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Widget filter selections keyed by filter id. Event property filters are applied to the recordings query.
+     * Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.
      */
     export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
 
@@ -4064,7 +4064,7 @@ export namespace Schemas {
       orderDirection?: OrderDirectionEnum;
       /** Optional relative date range override. */
       dateRange?: WidgetDateRange | null;
-      /** Widget filter selections keyed by filter id. Event property filters are applied to the recordings query. */
+      /** Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here. */
       widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;

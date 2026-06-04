@@ -15,6 +15,7 @@ from products.dashboards.backend.widget_registry import (
 )
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 from products.dashboards.backend.widgets.session_replay_list import SESSION_REPLAY_ORDER_BY
+from products.dashboards.backend.widgets.widget_filters import WIDGET_FILTERS_CATALOG_HINT
 from products.error_tracking.backend.api.query_serializers import ErrorTrackingAssigneeSerializer
 
 _ERROR_TRACKING_WIDGET_STATUS_CHOICES = [
@@ -90,10 +91,7 @@ class ErrorTrackingListWidgetConfigSerializer(serializers.Serializer):
     widgetFilters = serializers.DictField(
         child=WidgetFilterConfigEntrySerializer(),
         required=False,
-        help_text=(
-            "Widget filter selections keyed by filter id. For error_tracking_list, only filters "
-            "named Team, Environment, URL path, or Temporal worker (or matching property names) are supported."
-        ),
+        help_text=WIDGET_FILTERS_CATALOG_HINT["description"],
     )
     dateRange = WidgetDateRangeSerializer(
         required=False,
@@ -134,9 +132,7 @@ class SessionReplayListWidgetConfigSerializer(serializers.Serializer):
     widgetFilters = serializers.DictField(
         child=WidgetFilterConfigEntrySerializer(),
         required=False,
-        help_text=(
-            "Widget filter selections keyed by filter id. Event property filters are applied to the recordings query."
-        ),
+        help_text=WIDGET_FILTERS_CATALOG_HINT["description"],
     )
     filterTestAccounts = serializers.BooleanField(
         required=False,

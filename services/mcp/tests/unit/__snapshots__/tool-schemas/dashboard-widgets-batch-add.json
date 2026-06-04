@@ -104,11 +104,11 @@
                                         "enum": ["ASC", "DESC"],
                                         "type": "string"
                                     },
-                                    "quickFilters": {
+                                    "widgetFilters": {
                                         "additionalProperties": {
                                             "properties": {
                                                 "filterId": {
-                                                    "description": "Quick filter UUID; must match the quickFilters map key.",
+                                                    "description": "Filter UUID; must match the widgetFilters map key.",
                                                     "type": "string"
                                                 },
                                                 "operator": {
@@ -116,7 +116,7 @@
                                                     "type": "string"
                                                 },
                                                 "optionId": {
-                                                    "description": "Selected option id from the quick filter definition.",
+                                                    "description": "Selected option id from the filter definition.",
                                                     "type": "string"
                                                 },
                                                 "propertyName": {
@@ -130,7 +130,7 @@
                                             "required": ["filterId", "propertyName", "optionId", "operator"],
                                             "type": "object"
                                         },
-                                        "description": "Property quick filter selections keyed by filter id. For error_tracking_list, only quick filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported.",
+                                        "description": "Widget filter selections keyed by filter id. Each key must match the entry's filterId. Configure filters in the product UI first, then copy filter id, option id, and property name here.",
                                         "propertyNames": {
                                             "type": "string"
                                         },
