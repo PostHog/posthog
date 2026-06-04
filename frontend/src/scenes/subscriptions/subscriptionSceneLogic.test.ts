@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 
 import {
+    ResourceTypeEnumApi,
     SubscriptionFrequencyEnumApi,
     SubscriptionsDeliveriesListStatus,
     TargetTypeEnumApi,
@@ -28,6 +29,7 @@ const MOCK_USER = {
 
 const MOCK_SUBSCRIPTION: SubscriptionApi = {
     id: 1,
+    resource_type: ResourceTypeEnumApi.Insight,
     insight: 101,
     dashboard: null,
     insight_short_id: 'abc123',

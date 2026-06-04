@@ -6,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import type { PaginationManual } from '@posthog/lemon-ui'
 import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 import {
+    ResourceTypeEnumApi,
     SubscriptionFrequencyEnumApi,
     TargetTypeEnumApi,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
@@ -24,6 +25,7 @@ const MOCK_USER = {
 const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     {
         id: 1,
+        resource_type: ResourceTypeEnumApi.Insight,
         insight: 101,
         dashboard: null,
         insight_short_id: 'abc123',
@@ -45,6 +47,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     },
     {
         id: 2,
+        resource_type: ResourceTypeEnumApi.Dashboard,
         insight: null,
         dashboard: 501,
         insight_short_id: null,
@@ -66,6 +69,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     },
     {
         id: 3,
+        resource_type: ResourceTypeEnumApi.Insight,
         insight: 103,
         dashboard: null,
         insight_short_id: 'ghi789',
@@ -86,6 +90,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     },
     {
         id: 4,
+        resource_type: ResourceTypeEnumApi.Insight,
         insight: 104,
         dashboard: null,
         insight_short_id: 'webhook-insight',
@@ -106,6 +111,7 @@ const MOCK_SUBSCRIPTIONS: SubscriptionApi[] = [
     },
     {
         id: 5,
+        resource_type: ResourceTypeEnumApi.Insight,
         insight: 105,
         dashboard: null,
         insight_short_id: 'disabled-insight',
@@ -146,6 +152,7 @@ function buildMockSubscriptions(total: number): SubscriptionApi[] {
         const isSlack = i % 3 === 0
         return {
             id: n,
+            resource_type: isInsight ? ResourceTypeEnumApi.Insight : ResourceTypeEnumApi.Dashboard,
             insight: isInsight ? 1000 + n : null,
             dashboard: isInsight ? null : 2000 + n,
             insight_short_id: isInsight ? `short${n}` : null,

@@ -34,7 +34,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionType } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'

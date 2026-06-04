@@ -19,7 +19,7 @@ import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from 
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
-    prompt: string | undefined
+    prompt: string | null | undefined
 ): string | undefined {
     if (resource_type !== 'ai_prompt') {
         return undefined
@@ -172,8 +172,8 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 const payload = {
                     ...subscription,
-                    insight: isAi ? null : insightId,
-                    dashboard: isAi ? null : props.dashboardId,
+                    insight: isAi ? undefined : insightId,
+                    dashboard: isAi ? undefined : props.dashboardId,
                     prompt: isAi ? subscription.prompt?.trim() : subscription.prompt,
                 }
 
