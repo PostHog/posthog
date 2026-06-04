@@ -96,6 +96,11 @@ class TestDeepLinks(ProvisioningTestBase):
             ("backslash_host", "/\\evil.com"),
             ("javascript_scheme", "javascript:alert(1)"),
             ("not_rooted", "project/123/insights"),
+            ("crlf_header_injection", "/project/1\r\nLocation: https://evil.com"),
+            ("newline", "/project/1\nreplay"),
+            ("tab", "/project/1\treplay"),
+            ("space", "/project/1 replay"),
+            ("null_byte", "/project/1\x00"),
         ]
     )
     def test_deep_link_rejects_unsafe_path(self, _name: str, path: str):

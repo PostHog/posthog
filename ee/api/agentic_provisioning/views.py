@@ -69,6 +69,9 @@ PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
 DEEP_LINK_MAX_PATH_LENGTH = 2000
+# Control chars, whitespace, and backslashes never appear in a legitimate in-app path; they are the
+# building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
+DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
@@ -2422,13 +2425,12 @@ def _is_safe_deep_link_path(path: object) -> bool:
     """Allow only relative, same-origin in-app paths so a deep link can't become an open redirect."""
     return (
         isinstance(path, str)
-        and len(path) <= DEEP_LINK_MAX_PATH_LENGTH
+        and 0 < len(path) <= DEEP_LINK_MAX_PATH_LENGTH
+        # Reject control chars, whitespace, and backslashes (the `/\` backslash-host form included).
+        and not DEEP_LINK_DISALLOWED_PATH_CHARS.search(path)
         and path.startswith("/")
-        # Reject protocol-relative (`//`) and backslash-host (`/\`) forms. Django already
-        # normalizes the backslash before checking, but reject it explicitly so the guard
-        # doesn't depend on that internal behavior.
+        # Reject protocol-relative (`//`) forms; a single leading `/` keeps it same-origin.
         and not path.startswith("//")
-        and not path.startswith("/\\")
         and url_has_allowed_host_and_scheme(path, allowed_hosts=None)
     )
 
