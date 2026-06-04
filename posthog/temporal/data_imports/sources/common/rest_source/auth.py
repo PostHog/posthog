@@ -5,6 +5,8 @@ from typing import Literal, Optional
 from requests import PreparedRequest
 from requests.auth import AuthBase
 
+from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+
 TApiKeyLocation = Literal["header", "query", "param", "cookie"]
 TOAuth2GrantType = Literal["client_credentials", "refresh_token"]
 
@@ -146,12 +148,6 @@ class OAuth2Auth(AuthConfigBase):
         return datetime.now(UTC) >= self._expires_at
 
     def _obtain_token(self) -> None:
-        # Imported here to keep the heavy HTTP transport stack off this module's
-        # import path (it is imported by the source registry at startup).
-        from posthog.temporal.data_imports.sources.common.http import (  # noqa: PLC0415 — avoids import cycle with the transport stack
-            make_tracked_session,
-        )
-
         if not self.token_url:
             raise OAuth2TokenError("token_url is required to obtain an OAuth2 access token")
 
@@ -186,10 +182,16 @@ class OAuth2Auth(AuthConfigBase):
 
         expires_in = payload.get(self.expires_in_name)
         try:
-            seconds = int(expires_in) if expires_in is not None else _OAUTH2_DEFAULT_EXPIRES_IN
+            # float() first so a string like "300.0" parses instead of falling
+            # back to the 1-hour default and masking a genuinely short TTL.
+            seconds = int(float(expires_in)) if expires_in is not None else _OAUTH2_DEFAULT_EXPIRES_IN
         except (TypeError, ValueError):
             seconds = _OAUTH2_DEFAULT_EXPIRES_IN
-        self._expires_at = datetime.now(UTC) + timedelta(seconds=seconds) - _OAUTH2_EXPIRY_MARGIN
+        # Re-mint slightly before expiry, but never let the safety margin push the
+        # deadline into the past for a short-lived token — otherwise the token
+        # reads as already-expired and re-mints on every paginated request.
+        margin = min(_OAUTH2_EXPIRY_MARGIN, timedelta(seconds=seconds / 2))
+        self._expires_at = datetime.now(UTC) + timedelta(seconds=seconds) - margin
 
     def secret_values(self) -> tuple[str, ...]:
         return tuple(value for value in (self.client_secret, self.refresh_token, self._access_token) if value)

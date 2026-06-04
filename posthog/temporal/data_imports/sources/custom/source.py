@@ -167,6 +167,25 @@ def _format_validation_errors(exc: ValidationError) -> str:
     return "; ".join(messages)
 
 
+def _oauth2_token_url(client: Any) -> str | None:
+    """The OAuth2 token endpoint declared in a manifest's ``client.auth``, if any.
+
+    Single source of truth for the two sites that must treat ``token_url`` as a
+    credential-receiving URL and stay in lockstep: the SSRF/https check in
+    :func:`validate_manifest_urls` and the retarget guard in
+    :func:`manifest_request_hosts`. If they ever disagreed, the secret could be
+    POSTed to a host that was never re-vetted. Returns ``None`` for any non-oauth2
+    or malformed auth block.
+    """
+    if not isinstance(client, dict):
+        return None
+    auth = client.get("auth")
+    if not isinstance(auth, dict) or auth.get("type") != "oauth2":
+        return None
+    token_url = auth.get("token_url")
+    return token_url if isinstance(token_url, str) and token_url else None
+
+
 def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool, str | None]:
     """Walk every URL field in the manifest and reject internal/private hosts.
 
@@ -182,13 +201,11 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
 
     # The OAuth2 token endpoint is a user-supplied URL the server POSTs the
     # credential to, so it gets the same host-safety + https-on-cloud vetting.
-    auth = client.get("auth")
-    if isinstance(auth, dict) and auth.get("type") == "oauth2":
-        token_url = auth.get("token_url")
-        if isinstance(token_url, str) and token_url:
-            ok, err = _check_url(token_url, team_id)
-            if not ok:
-                return False, f"Invalid token_url: {err}"
+    token_url = _oauth2_token_url(client)
+    if token_url is not None:
+        ok, err = _check_url(token_url, team_id)
+        if not ok:
+            return False, f"Invalid token_url: {err}"
 
     base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
@@ -286,11 +303,9 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
 
     # The OAuth2 token endpoint also receives the credential, so a change to it
     # must trip the retarget guard and force the secret to be re-entered.
-    auth = client.get("auth") if isinstance(client, dict) else None
-    if isinstance(auth, dict) and auth.get("type") == "oauth2":
-        token_url = auth.get("token_url")
-        if isinstance(token_url, str):
-            urls.append(token_url)
+    token_url = _oauth2_token_url(client)
+    if token_url is not None:
+        urls.append(token_url)
 
     resources = manifest.get("resources")
     if isinstance(resources, list):

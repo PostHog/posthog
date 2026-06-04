@@ -881,7 +881,7 @@ def _oauth2_session(payload: dict, status_code: int = 200):
 
 
 class TestOAuth2Auth(SimpleTestCase):
-    _PATCH = "posthog.temporal.data_imports.sources.common.http.make_tracked_session"
+    _PATCH = "posthog.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
 
     def test_client_credentials_grant_sets_bearer_header(self):
         session, _ = _oauth2_session({"access_token": "tok", "expires_in": 3600})
@@ -952,6 +952,40 @@ class TestOAuth2Auth(SimpleTestCase):
         assert auth._expires_at is not None
         assert not auth._is_expired()
 
+    def test_short_expires_in_does_not_immediately_expire(self):
+        # A short TTL must not let the safety margin push the deadline into the
+        # past — otherwise the token re-mints on every paginated request.
+        session, _ = _oauth2_session({"access_token": "tok", "expires_in": 10})
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            auth(MagicMock(headers={}))
+            assert not auth._is_expired()
+            # A second request within the (clamped) lifetime reuses the cached token.
+            auth(MagicMock(headers={}))
+            assert session.post.call_count == 1
+
+    def test_string_float_expires_in_is_parsed(self):
+        # "300.0" must parse to a 300s TTL, not fall back to the 1-hour default
+        # (which would mask a genuinely short token and cause mid-sync 401s).
+        session, _ = _oauth2_session({"access_token": "tok", "expires_in": "300.0"})
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            auth(MagicMock(headers={}))
+        assert auth._expires_at is not None
+        remaining = (auth._expires_at - datetime.now(UTC)).total_seconds()
+        # 300s TTL minus the 60s margin ≈ 240s; comfortably under the 1h default.
+        assert 200 < remaining < 260
+
+    def test_non_json_token_response_raises(self):
+        response = MagicMock(status_code=200, text="<html>not json</html>")
+        response.json.side_effect = ValueError("no json")
+        session = MagicMock()
+        session.post.return_value = response
+        auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="client_credentials")
+        with patch(self._PATCH, return_value=session):
+            with self.assertRaises(OAuth2TokenError):
+                auth(MagicMock(headers={}))
+
     def test_refresh_token_grant_without_token_raises(self):
         auth = OAuth2Auth(token_url="https://auth.example.com/token", grant_type="refresh_token")
         with patch(self._PATCH, return_value=_oauth2_session({})[0]):
@@ -987,7 +1021,7 @@ class TestOAuth2Auth(SimpleTestCase):
 
 
 class TestCustomSourceValidateCredentialsOAuth2(SimpleTestCase):
-    @patch("posthog.temporal.data_imports.sources.common.http.make_tracked_session")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session")
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probe_mints_token_then_succeeds(self, probe_session, token_session):
         # The probe builds OAuth2Auth via create_auth; on the first probe request the
