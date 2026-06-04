@@ -19,26 +19,13 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 3. Runs `sampo release` from `./cli`
 4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
 5. Commits the release bump to `master`
-6. Pushes the `posthog-cli/vX.Y.Z` tag that triggers the cargo-dist release workflow
+6. Dispatches the cargo-dist release workflow with the `posthog-cli/vX.Y.Z` tag
 
 You can also trigger `Release CLI` manually from the Actions tab. Manual runs still require pending changesets.
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
-If you need to cut a release by hand, keep the same file and tag contract:
-
-```bash
-cd cli
-sampo release
-new_version=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-git restore Cargo.lock
-cargo update -p posthog-cli --precise "$new_version"
-cargo metadata --format-version 1 --no-deps > /dev/null
-git add Cargo.toml Cargo.lock CHANGELOG.md .sampo/changesets
-git commit -m "chore(cli): release v0.1.0"
-git tag "posthog-cli/v0.1.0"
-git push
-git push --tags
-```
+If you need to cut a release by hand, trigger the `Release CLI` workflow from the Actions tab.
+Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 
 We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
 

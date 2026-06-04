@@ -67,7 +67,7 @@ jobs:
             actions: write
         outputs:
             new-version: ${{ steps.prepare-release.outputs.new-version }}
-            release-tag: ${{ steps.push-tag.outputs.release-tag }}
+            release-tag: ${{ steps.dispatch-dist.outputs.release-tag }}
         steps:
             - name: Notify Slack - Approved
               if: needs.notify-approval-needed.outputs.slack_ts != ''
@@ -169,20 +169,20 @@ jobs:
                   git fetch origin master
                   git reset --hard "$COMMIT_HASH"
 
-            - name: Push release tag
-              id: push-tag
+            - name: Dispatch cargo-dist release
+              id: dispatch-dist
               if: steps.commit-release.outputs.commit-hash != ''
               env:
+                  GH_TOKEN: ${{ github.token }}
                   NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
               run: |
                   release_tag="posthog-cli/v$NEW_VERSION"
-                  if git rev-parse "$release_tag" >/dev/null 2>&1; then
+                  if git ls-remote --exit-code --tags origin "refs/tags/$release_tag" >/dev/null 2>&1; then
                       echo "::error::Tag $release_tag already exists"
                       exit 1
                   fi
 
-                  git tag "$release_tag"
-                  git push origin "$release_tag"
+                  gh workflow run release.yml --ref master -f tag="$release_tag"
                   echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
 
             - name: Send failure event to PostHog
@@ -222,5 +222,5 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: 'posthog-cli release ${{ needs.release.outputs.new-version }} prepared; cargo-dist was triggered by ${{ needs.release.outputs.release-tag }}.'
+                  message: 'posthog-cli release ${{ needs.release.outputs.new-version }} prepared; cargo-dist was dispatched for ${{ needs.release.outputs.release-tag }}.'
                   emoji_reaction: 'rocket'
