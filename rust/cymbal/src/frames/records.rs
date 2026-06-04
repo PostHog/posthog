@@ -1,3 +1,8 @@
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+};
+
 use chrono::{DateTime, Duration, Utc};
 use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
@@ -11,6 +16,57 @@ use crate::{
 };
 
 use super::{Context, Frame};
+
+const FRAME_TTL_JITTER_PERCENT: u32 = 10;
+
+#[derive(Debug, Clone, Copy)]
+pub struct FrameResultTtlPolicy {
+    resolved_ttl: Duration,
+    unresolved_ttl: Duration,
+}
+
+impl FrameResultTtlPolicy {
+    pub fn new(resolved_ttl: Duration, unresolved_ttl: Duration) -> Self {
+        Self {
+            resolved_ttl,
+            unresolved_ttl,
+        }
+    }
+
+    pub fn ttl_for_records(
+        &self,
+        id: &RawFrameId,
+        records: &[ErrorTrackingStackFrame],
+    ) -> Duration {
+        self.ttl_for_resolved_status(id, records.iter().all(|record| record.resolved))
+    }
+
+    pub fn ttl_for_resolved_status(&self, id: &RawFrameId, all_resolved: bool) -> Duration {
+        let base_ttl = if all_resolved {
+            self.resolved_ttl
+        } else {
+            self.unresolved_ttl
+        };
+
+        base_ttl + self.jitter_for(id, base_ttl)
+    }
+
+    fn jitter_for(&self, id: &RawFrameId, base_ttl: Duration) -> Duration {
+        if base_ttl <= Duration::zero() {
+            return Duration::zero();
+        }
+
+        let base_millis = base_ttl.num_milliseconds() as u64;
+        let max_jitter_millis = base_millis * u64::from(FRAME_TTL_JITTER_PERCENT) / 100;
+        if max_jitter_millis == 0 {
+            return Duration::zero();
+        }
+
+        let mut hasher = DefaultHasher::new();
+        id.hash(&mut hasher);
+        Duration::milliseconds((hasher.finish() % (max_jitter_millis + 1)) as i64)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorTrackingStackFrame {
@@ -76,7 +132,7 @@ impl ErrorTrackingStackFrame {
     pub async fn load_all<'c, E>(
         e: E,
         id: &RawFrameId,
-        result_ttl: Duration,
+        ttl_policy: FrameResultTtlPolicy,
     ) -> Result<Vec<Self>, UnhandledError>
     where
         E: Executor<'c, Database = sqlx::Postgres> + Clone,
@@ -109,6 +165,7 @@ impl ErrorTrackingStackFrame {
         }
 
         let mut results = Vec::new();
+        let result_ttl = ttl_policy.ttl_for_resolved_status(id, res.iter().all(|f| f.resolved));
         if res.iter().any(|f| f.created_at < Utc::now() - result_ttl) {
             // If any resultant frame is too old, we should recalculate all of them
             return Ok(Vec::new());
@@ -150,5 +207,36 @@ impl ErrorTrackingStackFrame {
         }
 
         Ok(results)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ttl_policy_uses_resolved_and_unresolved_ttls() {
+        let policy = FrameResultTtlPolicy::new(Duration::seconds(1800), Duration::seconds(300));
+        let id = RawFrameId::new("frame".to_string(), 1);
+
+        let resolved_ttl = policy.ttl_for_resolved_status(&id, true);
+        let unresolved_ttl = policy.ttl_for_resolved_status(&id, false);
+
+        assert!(resolved_ttl >= Duration::seconds(1800));
+        assert!(resolved_ttl <= Duration::seconds(1980));
+        assert!(unresolved_ttl >= Duration::seconds(300));
+        assert!(unresolved_ttl <= Duration::seconds(330));
+    }
+
+    #[test]
+    fn ttl_policy_adds_deterministic_jitter() {
+        let policy = FrameResultTtlPolicy::new(Duration::seconds(100), Duration::seconds(100));
+        let id = RawFrameId::new("frame".to_string(), 1);
+
+        let ttl = policy.ttl_for_resolved_status(&id, true);
+
+        assert_eq!(ttl, policy.ttl_for_resolved_status(&id, true));
+        assert!(ttl >= Duration::seconds(100));
+        assert!(ttl <= Duration::seconds(110));
     }
 }
