@@ -9,7 +9,8 @@
     "main": "./src/host.js",
     "scripts": {
         "lint": "oxlint --quiet .",
-        "test": "node --test src/dispatch.test.js"
+        "test": "node --test src/dispatch.test.js",
+        "typescript:check": "node --check src/host.js && node --check src/dispatch.js && node --check src/dispatch.test.js"
     },
     "engines": {
         "node": ">=24 <25"
