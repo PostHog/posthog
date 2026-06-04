@@ -156,6 +156,13 @@ class OAuthApplication(AbstractApplication):
     provisioning_can_provision_resources: models.BooleanField = models.BooleanField(
         default=True, help_text="Can this app provision projects and API keys"
     )
+    provisioning_issues_personal_api_key: models.BooleanField = models.BooleanField(
+        default=False,
+        help_text=(
+            "Whether provisioning mints a Personal API Key for this app. Off by default; "
+            "only grandfathered apps (the legacy Stripe app) still issue one, capped at the app's scopes."
+        ),
+    )
     provisioning_rate_limit_account_requests: models.IntegerField = models.IntegerField(
         null=True, blank=True, help_text="Override default rate limit for account_requests (per hour)"
     )
