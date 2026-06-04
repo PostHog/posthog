@@ -296,6 +296,46 @@ class TestConversationEvents(BaseTest):
         assert groups["project"] == str(self.team.uuid)
         assert "instance" in groups
 
+    @parameterized.expand(
+        [
+            ("anonymous_person", True, False),
+            ("no_person", False, False),
+            ("empty_distinct_id", False, False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_message_received_person_processing(
+        self, _name, has_person, is_identified, mock_get_persons, mock_capture
+    ):
+        from posthog.models.person.person import Person
+
+        is_empty_distinct_id = _name == "empty_distinct_id"
+        ticket = self.ticket
+        if is_empty_distinct_id:
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                widget_session_id=str(uuid.uuid4()),
+                distinct_id="",
+                channel_source="github",
+            )
+
+        if has_person:
+            mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=is_identified)]
+        else:
+            mock_get_persons.return_value = []
+
+        capture_message_received(ticket, "msg-456", "Hello support")
+
+        if is_empty_distinct_id:
+            mock_get_persons.assert_not_called()
+        else:
+            mock_get_persons.assert_called_once_with(self.team.id, [ticket.distinct_id])
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
     @patch("products.conversations.backend.events.capture_internal")
     @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))
     def test_capture_message_received_still_fires_on_person_lookup_failure(self, mock_get_persons, mock_capture):
