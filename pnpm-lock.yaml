@@ -715,6 +715,9 @@ importers:
       '@posthog/products-session-summaries':
         specifier: workspace:*
         version: link:../products/session_summaries
+      '@posthog/products-subscriptions':
+        specifier: workspace:*
+        version: link:../products/subscriptions
       '@posthog/products-surveys':
         specifier: workspace:*
         version: link:../products/surveys
