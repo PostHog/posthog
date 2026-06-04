@@ -68,6 +68,20 @@ SEARCH_ANALYTICS_SCHEMAS: dict[str, SearchAnalyticsSchema] = {
             "and per-page tables together, or rely on Google's BigQuery bulk export."
         ),
     },
+    # Google's Search Analytics API does NOT allow `searchAppearance` to be grouped
+    # with any other dimension — including `date`. The per-day partitioning comes
+    # from the iterator querying one day at a time and injecting the iteration date
+    # into each row (see `_row_to_dict`).
+    "search_analytics_by_search_appearance": {
+        "dimensions": ["searchAppearance"],
+        "primary_key": ["date", "searchAppearance"],
+        "should_sync_default": False,
+        "description": (
+            "Daily performance broken out by Google search result presentation type "
+            "(e.g. RICH_RESULT, REVIEW_SNIPPET, FAQ_RICH_RESULT, VIDEO, AMP_BLUE_LINK). "
+            "Useful for measuring the impact of structured data and rich result eligibility."
+        ),
+    },
 }
 
 

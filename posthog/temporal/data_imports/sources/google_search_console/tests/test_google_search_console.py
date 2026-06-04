@@ -83,6 +83,24 @@ def test_row_to_dict_handles_missing_metrics():
     assert out["position"] == 0.0
 
 
+def test_row_to_dict_injects_iter_date_when_date_not_in_dimensions():
+    # `searchAppearance` schema can't include date in its API request, so the iterator
+    # supplies the date externally to keep the per-day partition.
+    row = {"keys": ["RICH_RESULT"], "clicks": 5, "impressions": 50, "ctr": 0.1, "position": 3.0}
+    out = _row_to_dict(row, ["searchAppearance"], iter_date=dt.date(2026, 4, 15))
+
+    assert out["date"] == dt.date(2026, 4, 15)
+    assert out["searchAppearance"] == "RICH_RESULT"
+
+
+def test_row_to_dict_prefers_api_date_over_iter_date():
+    # When date IS in dimensions, the API's value wins — iter_date is a fallback only.
+    row = {"keys": ["2026-04-15", "posthog"], "clicks": 1, "impressions": 1, "ctr": 1.0, "position": 1.0}
+    out = _row_to_dict(row, ["date", "query"], iter_date=dt.date(1999, 1, 1))
+
+    assert out["date"] == dt.date(2026, 4, 15)
+
+
 def _make_response(config: GoogleSearchConsoleSourceConfig, rows_per_call: list[list[dict]]):
     """Build a SourceResponse where _query_search_analytics returns the given pages in order."""
     inputs = mock.MagicMock()

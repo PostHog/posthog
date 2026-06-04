@@ -56,6 +56,16 @@ def test_get_schemas_only_query_page_default():
     assert by_default_on == {"search_analytics_by_query_page"}
 
 
+def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
+    # Google's API refuses to group `searchAppearance` with any other dimension,
+    # so the schema must request it alone — but the warehouse still partitions per
+    # day, which is why `date` lives in the primary key (injected by the iterator).
+    schema = SEARCH_ANALYTICS_SCHEMAS["search_analytics_by_search_appearance"]
+    assert schema["dimensions"] == ["searchAppearance"]
+    assert schema["primary_key"] == ["date", "searchAppearance"]
+    assert schema["should_sync_default"] is False
+
+
 def test_get_schemas_filters_by_names():
     schemas = GoogleSearchConsoleSource().get_schemas(
         _config(), team_id=1, names=["search_analytics_by_date", "search_analytics_by_query"]

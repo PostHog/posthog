@@ -107,11 +107,17 @@ def _query_search_analytics(
     return response.json().get("rows", [])
 
 
-def _row_to_dict(row: dict[str, Any], dimensions: list[str]) -> dict[str, Any]:
+def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
     keys = row.get("keys", [])
     out: dict[str, Any] = {dim: keys[i] if i < len(keys) else None for i, dim in enumerate(dimensions)}
     if "date" in out and out["date"] is not None:
         out["date"] = dt.date.fromisoformat(out["date"])
+    elif "date" not in out and iter_date is not None:
+        # Schemas that can't include `date` in dimensions (e.g. `searchAppearance`,
+        # which Google refuses to group with any other dimension) still want a per-day
+        # partition in the warehouse. The iterator already calls one day at a time, so
+        # any row returned belongs to that day — inject it explicitly here.
+        out["date"] = iter_date
     out["clicks"] = row.get("clicks", 0)
     out["impressions"] = row.get("impressions", 0)
     out["ctr"] = row.get("ctr", 0.0)
@@ -209,7 +215,7 @@ def google_search_console_source(
                 if not rows:
                     break
 
-                yield [_row_to_dict(row, dimensions) for row in rows]
+                yield [_row_to_dict(row, dimensions, iter_date=current) for row in rows]
 
                 next_start_row = start_row + len(rows)
                 if len(rows) < ROW_LIMIT:
