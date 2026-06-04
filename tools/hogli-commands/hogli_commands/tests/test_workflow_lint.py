@@ -600,7 +600,7 @@ class TestCheckoutFullDepthCheck:
                 steps:
                   # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
                   - name: Checkout mirror
-                    uses: actions/checkout@v6
+                    uses: "actions/checkout@v6"
                     with:
                       fetch-depth: 0
             """,
@@ -662,7 +662,7 @@ class TestCheckoutFullDepthCheck:
                 runs-on: ubuntu-latest
                 timeout-minutes: 5
                 steps:
-                  - uses: actions/checkout@v6
+                  - uses: "actions/checkout@v6"
                     with:
                       fetch-depth: 0
 

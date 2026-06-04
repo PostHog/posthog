@@ -9,7 +9,7 @@ from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Step, Workflow
 
 ALLOW_MARKER = "hogli-lint: allow-full-depth-checkout"
-CHECKOUT_USES_RE = re.compile(r"^\s*(?:-\s*)?uses:\s*actions/checkout@", re.IGNORECASE)
+CHECKOUT_USES_RE = re.compile(r"^\s*(?:-\s*)?uses:\s*[\"']?actions/checkout@", re.IGNORECASE)
 STEP_START_RE = re.compile(r"^\s*-\s")
 
 
