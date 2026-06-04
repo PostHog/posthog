@@ -545,18 +545,25 @@ describe('exec tool', () => {
 
             const drilled = JSON.parse(
                 (await exec.handler(context, { command: 'schema query-trends series' })) as string
-            ) as { field?: string; schema?: { type?: string; properties?: Record<string, unknown>; items?: unknown } }
+            ) as {
+                field?: string
+                schema?: {
+                    type?: string
+                    items?: { variants?: Array<{ properties?: Record<string, unknown> }> }
+                }
+            }
 
             expect(drilled.field).toBe('series')
             expect(drilled.schema?.type).toBe('array')
-            // The historical bug: an empty `properties: {}` and nothing else. The item
-            // schema (object or summarized union of variants) must now be present.
-            expect(drilled.schema?.items).not.toBeUndefined()
-            // And the serialized payload must actually carry variant field names — proof
-            // the variant shapes survived summarization rather than collapsing to {}.
-            const serialized = JSON.stringify(drilled.schema)
-            expect(serialized.length).toBeGreaterThan(100)
-            expect(serialized).toMatch(/event|kind|properties/)
+            // The historical bug returned `{ type: "array", properties: {} }` with no
+            // `items` at all. The item schema — here a summarized union of variants —
+            // must now be present, and the variants must carry real field names. The old
+            // empty output exposes none of these keys, so this fails on a regression.
+            const variants = drilled.schema?.items?.variants
+            expect(variants?.length).toBeGreaterThan(0)
+            const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
+            expect(variantFields).toContain('kind')
+            expect(variantFields).toContain('event')
         })
     })
 

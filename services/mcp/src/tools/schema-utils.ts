@@ -260,11 +260,13 @@ function summarizeNode(
         if (nonNull.length === 0) {
             return { type: 'null', properties: {} }
         }
-        if (nonNull.length === 1) {
-            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth)
-        }
         if (depth >= MAX_SUMMARY_DEPTH) {
             return { type: getTypeString(schema), properties: {} }
+        }
+        if (nonNull.length === 1) {
+            // Unwrap a nullable wrapper. Count it against `depth` so a pathological
+            // chain of nested nullable unions still terminates at MAX_SUMMARY_DEPTH.
+            return summarizeNode(nonNull[0]!, toolName, fieldPath, depth + 1)
         }
         return {
             type: getTypeString(schema),

@@ -195,8 +195,13 @@ describe('schema-utils', () => {
             expect(result.type).toBe('union of 2 types (TypeA, TypeB)')
             expect(result.variants).toHaveLength(2)
             expect(result.variants![0]!.properties.a).toEqual(expect.objectContaining({ type: 'string' }))
-            // Drill-down hints thread the original field path so the follow-up resolves.
-            const eventSchema = {
+        })
+
+        // Array `items` and union variants don't consume a path segment, so a hint on a
+        // field reached through them must still point at `<field>.<name>` for the
+        // follow-up `schema` call to resolve.
+        it('threads the original field path into hints through array/union unwrapping', () => {
+            const schema = {
                 type: 'array',
                 items: {
                     anyOf: [
@@ -207,8 +212,10 @@ describe('schema-utils', () => {
                     ],
                 },
             }
-            const drillable = summarizeSchema(eventSchema, 'query-trends', 'series')
-            expect(drillable.items!.properties.props!.hint).toBe(
+
+            const result = summarizeSchema(schema, 'query-trends', 'series')
+
+            expect(result.items!.properties.props!.hint).toBe(
                 'DO NOT GUESS — you MUST run `schema query-trends series.props` before populating this field'
             )
         })
@@ -238,6 +245,17 @@ describe('schema-utils', () => {
             expect(result.type).toBe('object')
             expect(result.variants).toBeUndefined()
             expect(result.properties.a).toEqual(expect.objectContaining({ type: 'string' }))
+        })
+
+        // Nullable-wrapper unwrapping recurses; a pathological chain must terminate via
+        // the depth guard rather than blowing the stack on malformed input.
+        it('terminates on a deeply nested chain of nullable wrappers', () => {
+            let schema: Record<string, unknown> = { type: 'object', properties: { a: { type: 'string' } } }
+            for (let i = 0; i < 100; i++) {
+                schema = { anyOf: [schema, { type: 'null' }] }
+            }
+
+            expect(() => summarizeSchema(schema, 'my-tool', 'deep')).not.toThrow()
         })
     })
 
