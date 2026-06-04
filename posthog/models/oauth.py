@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -477,11 +477,16 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
 
     Lets a scope-ceiling narrowing take effect immediately by forcing every connection to
     re-authorize under the new ceiling, instead of waiting for each token to hit its next
-    refresh (where `get_original_scopes` caps it)."""
+    refresh (where `get_original_scopes` caps it).
+
+    Revokes refresh tokens before deleting access tokens, all in one transaction, so a
+    concurrent refresh can't mint a fresh access token in the gap and a mid-way failure
+    can't leave refresh tokens live after their access tokens are already gone."""
     now = timezone.now()
-    OAuthAccessToken.objects.filter(application=application).delete()
-    OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
-    OAuthGrant.objects.filter(application=application).delete()
+    with transaction.atomic():
+        OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
+        OAuthAccessToken.objects.filter(application=application).delete()
+        OAuthGrant.objects.filter(application=application).delete()
 
 
 def generate_random_token_cimd_verification() -> str:
