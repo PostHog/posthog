@@ -16,6 +16,37 @@ import {
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const HeatmapsEventsSchema = HeatmapsEventsRetrieveQueryParams
+
+const heatmapsEvents = (): ToolBase<typeof HeatmapsEventsSchema, Schemas.HeatmapEventsResponse> => ({
+    name: 'heatmaps-events',
+    schema: HeatmapsEventsSchema,
+    handler: async (context: Context, params: z.infer<typeof HeatmapsEventsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HeatmapEventsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/heatmaps/events/`,
+            query: {
+                aggregation: params.aggregation,
+                cohort_ids: params.cohort_ids,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                filter_test_accounts: params.filter_test_accounts,
+                hide_zero_coordinates: params.hide_zero_coordinates,
+                limit: params.limit,
+                offset: params.offset,
+                points: params.points,
+                type: params.type,
+                url_exact: params.url_exact,
+                url_pattern: params.url_pattern,
+                viewport_width_max: params.viewport_width_max,
+                viewport_width_min: params.viewport_width_min,
+            },
+        })
+        return result
+    },
+})
+
 const HeatmapsListSchema = HeatmapsListQueryParams
 
 const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Schemas.HeatmapsResponse[]>> => ({
@@ -44,32 +75,48 @@ const heatmapsList = (): ToolBase<typeof HeatmapsListSchema, WithPostHogUrl<Sche
     },
 })
 
-const HeatmapsEventsSchema = HeatmapsEventsRetrieveQueryParams
+const HeatmapsSavedCreateSchema = SavedCreateBody
 
-const heatmapsEvents = (): ToolBase<typeof HeatmapsEventsSchema, Schemas.HeatmapEventsResponse> => ({
-    name: 'heatmaps-events',
-    schema: HeatmapsEventsSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsEventsSchema>) => {
+const heatmapsSavedCreate = (): ToolBase<typeof HeatmapsSavedCreateSchema, Schemas.HeatmapScreenshotResponse> => ({
+    name: 'heatmaps-saved-create',
+    schema: HeatmapsSavedCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HeatmapEventsResponse>({
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.url !== undefined) {
+            body['url'] = params.url
+        }
+        if (params.data_url !== undefined) {
+            body['data_url'] = params.data_url
+        }
+        if (params.widths !== undefined) {
+            body['widths'] = params.widths
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/`,
+            body,
+        })
+        return result
+    },
+})
+
+const HeatmapsSavedGetSchema = SavedRetrieveParams.omit({ project_id: true })
+
+const heatmapsSavedGet = (): ToolBase<typeof HeatmapsSavedGetSchema, Schemas.HeatmapScreenshotResponse> => ({
+    name: 'heatmaps-saved-get',
+    schema: HeatmapsSavedGetSchema,
+    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/heatmaps/events/`,
-            query: {
-                aggregation: params.aggregation,
-                cohort_ids: params.cohort_ids,
-                date_from: params.date_from,
-                date_to: params.date_to,
-                filter_test_accounts: params.filter_test_accounts,
-                hide_zero_coordinates: params.hide_zero_coordinates,
-                limit: params.limit,
-                offset: params.offset,
-                points: params.points,
-                type: params.type,
-                url_exact: params.url_exact,
-                url_pattern: params.url_pattern,
-                viewport_width_max: params.viewport_width_max,
-                viewport_width_min: params.viewport_width_min,
-            },
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/${encodeURIComponent(String(params.short_id))}/`,
         })
         return result
     },
@@ -102,48 +149,19 @@ const heatmapsSavedList = (): ToolBase<
     },
 })
 
-const HeatmapsSavedGetSchema = SavedRetrieveParams.omit({ project_id: true })
+const HeatmapsSavedRegenerateSchema = SavedRegenerateCreateParams.omit({ project_id: true })
 
-const heatmapsSavedGet = (): ToolBase<typeof HeatmapsSavedGetSchema, Schemas.HeatmapScreenshotResponse> => ({
-    name: 'heatmaps-saved-get',
-    schema: HeatmapsSavedGetSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedGetSchema>) => {
+const heatmapsSavedRegenerate = (): ToolBase<
+    typeof HeatmapsSavedRegenerateSchema,
+    Schemas.HeatmapScreenshotResponse
+> => ({
+    name: 'heatmaps-saved-regenerate',
+    schema: HeatmapsSavedRegenerateSchema,
+    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedRegenerateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/${encodeURIComponent(String(params.short_id))}/`,
-        })
-        return result
-    },
-})
-
-const HeatmapsSavedCreateSchema = SavedCreateBody
-
-const heatmapsSavedCreate = (): ToolBase<typeof HeatmapsSavedCreateSchema, Schemas.HeatmapScreenshotResponse> => ({
-    name: 'heatmaps-saved-create',
-    schema: HeatmapsSavedCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.url !== undefined) {
-            body['url'] = params.url
-        }
-        if (params.data_url !== undefined) {
-            body['data_url'] = params.data_url
-        }
-        if (params.widths !== undefined) {
-            body['widths'] = params.widths
-        }
-        if (params.type !== undefined) {
-            body['type'] = params.type
-        }
         const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
             method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/`,
-            body,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/${encodeURIComponent(String(params.short_id))}/regenerate/`,
         })
         return result
     },
@@ -186,24 +204,6 @@ const heatmapsSavedUpdate = (): ToolBase<typeof HeatmapsSavedUpdateSchema, Schem
     },
 })
 
-const HeatmapsSavedRegenerateSchema = SavedRegenerateCreateParams.omit({ project_id: true })
-
-const heatmapsSavedRegenerate = (): ToolBase<
-    typeof HeatmapsSavedRegenerateSchema,
-    Schemas.HeatmapScreenshotResponse
-> => ({
-    name: 'heatmaps-saved-regenerate',
-    schema: HeatmapsSavedRegenerateSchema,
-    handler: async (context: Context, params: z.infer<typeof HeatmapsSavedRegenerateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.HeatmapScreenshotResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/saved/${encodeURIComponent(String(params.short_id))}/regenerate/`,
-        })
-        return result
-    },
-})
-
 const WebAnalyticsWeeklyDigestSchema = WebAnalyticsWeeklyDigestQueryParams
 
 const webAnalyticsWeeklyDigest = (): ToolBase<typeof WebAnalyticsWeeklyDigestSchema, Schemas.WeeklyDigestResponse> => ({
@@ -224,12 +224,12 @@ const webAnalyticsWeeklyDigest = (): ToolBase<typeof WebAnalyticsWeeklyDigestSch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'heatmaps-list': heatmapsList,
     'heatmaps-events': heatmapsEvents,
-    'heatmaps-saved-list': heatmapsSavedList,
-    'heatmaps-saved-get': heatmapsSavedGet,
+    'heatmaps-list': heatmapsList,
     'heatmaps-saved-create': heatmapsSavedCreate,
-    'heatmaps-saved-update': heatmapsSavedUpdate,
+    'heatmaps-saved-get': heatmapsSavedGet,
+    'heatmaps-saved-list': heatmapsSavedList,
     'heatmaps-saved-regenerate': heatmapsSavedRegenerate,
+    'heatmaps-saved-update': heatmapsSavedUpdate,
     'web-analytics-weekly-digest': webAnalyticsWeeklyDigest,
 }
