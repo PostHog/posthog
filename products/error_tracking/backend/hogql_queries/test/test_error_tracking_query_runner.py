@@ -16,9 +16,8 @@ from unittest import TestCase
 
 from django.utils.timezone import now
 
-from rest_framework.exceptions import ValidationError
-
 from dateutil.relativedelta import relativedelta
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DateRange,
