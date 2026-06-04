@@ -109,6 +109,18 @@ class OAuthApplication(AbstractApplication):
         help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
     )
 
+    # Generation marker for app-wide session revocation. A refresh presenting a token issued
+    # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
+    # can't slip new tokens past the one-shot bulk revoke.
+    sessions_revoked_at: models.DateTimeField = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When an admin last force-revoked every session for this app. Tokens issued before this "
+            "are rejected on refresh, forcing re-authorization."
+        ),
+    )
+
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
     is_cimd_client: models.BooleanField = models.BooleanField(
         default=False,
@@ -481,9 +493,15 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
 
     Revokes refresh tokens before deleting access tokens, all in one transaction, so a
     concurrent refresh can't mint a fresh access token in the gap and a mid-way failure
-    can't leave refresh tokens live after their access tokens are already gone."""
+    can't leave refresh tokens live after their access tokens are already gone.
+
+    Stamps `sessions_revoked_at` so a refresh that validated its (now-revoked) token before
+    this transaction committed is rejected when it tries to mint — DOT validates the refresh
+    token in autocommit, before its own transaction takes the row lock, so the bulk update
+    here would otherwise miss the tokens that racing refresh is about to create."""
     now = timezone.now()
     with transaction.atomic():
+        OAuthApplication.objects.filter(pk=application.pk).update(sessions_revoked_at=now)
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
         OAuthGrant.objects.filter(application=application).delete()

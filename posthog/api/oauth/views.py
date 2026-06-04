@@ -496,7 +496,31 @@ class OAuthValidator(OAuth2Validator):
             "sub": str(request.user.uuid),
         }
 
+    def _reject_refresh_racing_revoke(self, request, source_refresh_token):
+        """Reject a refresh that races an app-wide session revoke.
+
+        DOT validates the refresh token in autocommit, before `save_bearer_token` opens the
+        transaction that locks the row, so a refresh that already passed validation can reach
+        here after `revoke_application_sessions` committed. This runs inside that transaction,
+        so re-reading `sessions_revoked_at` sees the committed revoke: if the presented refresh
+        token predates it, the bulk revoke missed the tokens we're about to mint, so reject and
+        force re-authorization. The token's own `revoked` flag can't be used here — DOT sets it
+        on every rotation, so it doesn't distinguish an admin revoke from a normal refresh.
+        """
+        revoked_at = (
+            OAuthApplication.objects.filter(pk=source_refresh_token.application_id)
+            .values_list("sessions_revoked_at", flat=True)
+            .first()
+        )
+        if revoked_at is not None and source_refresh_token.created < revoked_at:
+            raise InvalidGrantError(
+                description="Application sessions were revoked; re-authorize.",
+                request=request,
+            )
+
     def _create_access_token(self, expires, request, token, source_refresh_token=None):
+        if source_refresh_token is not None:
+            self._reject_refresh_racing_revoke(request, source_refresh_token)
         id_token = token.get("id_token", None)
         if id_token:
             id_token = self._load_id_token(id_token)
