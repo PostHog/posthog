@@ -65,7 +65,10 @@ export function Annotations(): JSX.Element {
                             />
                         }
                     >
-                        <div className="font-semibold line-clamp-2">
+                        <div className="font-semibold line-clamp-2 flex items-center gap-1.5">
+                            {annotation.emoji && (
+                                <span className="text-base leading-none shrink-0">{annotation.emoji}</span>
+                            )}
                             <Link subtle to={urls.annotation(annotation.id)}>
                                 {annotation.content ?? ''}
                             </Link>

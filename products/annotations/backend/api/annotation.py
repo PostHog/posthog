@@ -55,6 +55,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
+            "emoji",
         ]
         read_only_fields = [
             "id",
@@ -90,6 +91,12 @@ class AnnotationSerializer(serializers.ModelSerializer):
                     "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. "
                     "`recording` is deprecated and rejected."
                 ),
+            },
+            "emoji": {
+                "help_text": "Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.",
+                "required": False,
+                "allow_null": True,
+                "allow_blank": True,
             },
         }
 

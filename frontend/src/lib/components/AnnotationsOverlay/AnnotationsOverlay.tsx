@@ -286,6 +286,10 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     const active = activeDate?.valueOf() === date.valueOf() && isPopoverShown
     const shown = active || hovered || annotations.length > 0
 
+    // A single annotation with an emoji is surfaced as that emoji instead of the default badge.
+    // Multiple annotations always fall back to the count badge.
+    const singleEmoji = annotations.length === 1 ? annotations[0].emoji : null
+
     return (
         <button
             ref={buttonRef}
@@ -313,12 +317,16 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
             onClick={!isDateLocked ? lockDate : active ? unlockDate : () => activateDate(date)}
         >
             {annotations.length ? (
-                <LemonBadge.Number
-                    count={annotations.length}
-                    status="data"
-                    size="small"
-                    active={active && isDateLocked}
-                />
+                singleEmoji ? (
+                    <span className="AnnotationsBadge__emoji">{singleEmoji}</span>
+                ) : (
+                    <LemonBadge.Number
+                        count={annotations.length}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                    />
+                )
             ) : (
                 <LemonBadge content={<IconPlusSmall />} status="data" size="small" active={active && isDateLocked} />
             )}
@@ -426,6 +434,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
             }`}
         >
             <div className="flex items-center gap-2">
+                {annotation.emoji && <span className="text-lg leading-none shrink-0">{annotation.emoji}</span>}
                 <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}
