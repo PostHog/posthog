@@ -71,6 +71,7 @@ the row lists both.
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
+| greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
@@ -182,7 +183,6 @@ doesn't conflict with concurrent PRs.
 - gong
 - google_analytics
 - google_drive
-- greenhouse
 - helpscout
 - instagram
 - intercom
