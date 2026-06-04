@@ -751,6 +751,7 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             value=node.value,
+            inline=node.inline,
         )
 
     def visit_keyword(self, node: ast.Keyword):

@@ -5,10 +5,10 @@ from posthog.schema import MaterializationMode, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
+from posthog.hogql.database.models import DatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
@@ -131,6 +131,12 @@ def lower_property_type(property_type: ast.PropertyType, context: HogQLContext) 
     base_field_type = property_type.field_type
     # Only plain physical tables (optionally aliased) can host the synthetic mat/dmat/group columns.
     if _underlying_table_type(base_field_type.table_type) is None:
+        return None
+
+    # Only lower accesses on a JSON blob column (`properties` / `person_properties`). Struct and array fields
+    # (e.g. data-warehouse tables) have their own printer handling (tupleElement, array indexing) and must not
+    # be JSON-extracted.
+    if not isinstance(base_field_type.resolve_database_field(context), StringJSONDatabaseField):
         return None
 
     first_key = str(chain[0])
@@ -261,10 +267,19 @@ def _materialized_head_expr(
         return column_field
 
     # Non-nullable materialized column: scrub the '' / 'null' string sentinels back to NULL.
-    scrubbed_empty = ast.Call(name="nullIf", args=[column_field, ast.Constant(value="")])
+    scrubbed_empty = ast.Call(name="nullIf", args=[column_field, _sentinel("")])
     if context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
         return scrubbed_empty
-    return ast.Call(name="nullIf", args=[scrubbed_empty, ast.Constant(value="null")])
+    return ast.Call(name="nullIf", args=[scrubbed_empty, _sentinel("null")])
+
+
+def _sentinel(value: str) -> ast.Constant:
+    """A fixed, known-safe literal string the ClickHouse printer renders inline (not parameterized).
+
+    Used only for the materialization sentinels ('' / 'null' / the trim regex), so the lowered SQL matches the
+    printer's hand-built strings byte-for-byte. Property keys stay parameterized via plain ast.Constant.
+    """
+    return ast.Constant(value=value, inline=True)
 
 
 def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str]) -> ast.Expr:
@@ -276,11 +291,11 @@ def _json_extract_trim_quotes_expr(field_expr: ast.Expr, keys: list[str]) -> ast
     scrubbed = ast.Call(
         name="nullIf",
         args=[
-            ast.Call(name="nullIf", args=[extract, ast.Constant(value="")]),
-            ast.Constant(value="null"),
+            ast.Call(name="nullIf", args=[extract, _sentinel("")]),
+            _sentinel("null"),
         ],
     )
-    return ast.Call(name="replaceRegexpAll", args=[scrubbed, ast.Constant(value='^"|"$'), ast.Constant(value="")])
+    return ast.Call(name="replaceRegexpAll", args=[scrubbed, _sentinel('^"|"$'), _sentinel("")])
 
 
 def _blob_field(base_field_type: ast.FieldType) -> ast.Field:
@@ -356,6 +371,18 @@ class LowerProperties(CloningVisitor):
             if lowered is not None:
                 return lowered
         return super().visit_field(node)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        # `property = NULL` / `property != NULL` (is-set / is-not-set): the printer needs the PropertyType to
+        # apply its is-set semantics — a non-nullable materialized column stores '' for both empty-string and
+        # missing, so it can't be used to detect "not set" and the printer falls back to JSONHas on the blob.
+        # Leaving the operand un-lowered preserves that exact behavior.
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and (
+            (isinstance(node.left, ast.Constant) and node.left.value is None)
+            or (isinstance(node.right, ast.Constant) and node.right.value is None)
+        ):
+            return clone_expr(node, clear_types=False)
+        return super().visit_compare_operation(node)
 
 
 def lower_properties(node: ast.Expr, context: HogQLContext) -> ast.Expr:

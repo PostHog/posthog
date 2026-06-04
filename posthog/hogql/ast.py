@@ -948,6 +948,10 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
+    # When True, the ClickHouse printer renders a literal string value inline (escaped) instead of as a
+    # parameterized placeholder. Only set on known-safe fixed sentinels (e.g. '', 'null') emitted by the
+    # property-lowering pass, so its concrete SQL matches the printer's hand-built strings byte-for-byte.
+    inline: bool = False
 
 
 # Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.

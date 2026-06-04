@@ -373,6 +373,10 @@ class ClickHousePrinter(BasePrinter):
         return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
+        # Opt-in inline rendering for known-safe literal strings (fixed sentinels from property lowering),
+        # so lowered concrete SQL matches the printer's hand-built strings instead of a placeholder.
+        if node.inline and isinstance(node.value, str):
+            return self._print_escaped_string(node.value)
         if (
             node.value is None
             or isinstance(node.value, bool)
