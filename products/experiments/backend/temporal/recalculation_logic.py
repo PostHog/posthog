@@ -350,9 +350,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
 
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
+            # override_end_date forces the run's shared query_to into the ClickHouse query bounds. Without it
+            # the runner falls back to its default ("now-ish"), so every metric in the run would query a
+            # slightly different time window — defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=_build_metric(metric_dict)),
                 team=experiment.team,
+                override_end_date=query_to_dt,
                 workload=Workload.OFFLINE,
             )
             tag_queries(trigger="warming/experiment_metrics_recalculation")

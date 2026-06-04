@@ -370,6 +370,44 @@ class TestCalculateActivity(BaseTest):
         recalc.refresh_from_db()
         assert "s1" in recalc.metric_errors
 
+    def test_query_to_is_passed_as_override_end_date_to_runner(self):
+        # The run's shared query_to MUST be threaded into the ClickHouse query bounds via
+        # override_end_date, not just stored on the result row. Without override_end_date the runner falls back
+        # to its default ("now-ish"), so every metric in the run queries a slightly different time window —
+        # silently violating the "one query_to for the whole run" guarantee. Stored value would look correct;
+        # actual query bounds would not. Reference: workflow #3's backfill activity does the same thing.
+        exp = self._experiment(flag_key="calc-override-end-date", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        mock_runner.assert_called_once()
+        kwargs = mock_runner.call_args.kwargs
+        assert kwargs["override_end_date"] == datetime.fromisoformat(_QUERY_TO)
+
+    def test_query_from_matches_experiment_start_date_on_result_row(self):
+        # Companion to test_query_to_is_passed_as_override_end_date_to_runner: the lower bound of the run's
+        # time window is experiment.start_date, threaded into the runner via the experiment object it
+        # constructs and stored on the result row via _store_result(query_from=experiment.start_date).
+        # This test pins the stored-row side. If the runner ever changes how it derives query_from, or if a
+        # future refactor decouples the stored value from what the runner actually queries, the same class
+        # of silent-miscalculation bug we just fixed for query_to could reappear here.
+        exp = self._experiment(flag_key="calc-query-from", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+
+        # Runner gets the experiment whose start_date is the source of truth for the lower bound.
+        mock_runner.assert_called_once()
+        assert mock_runner.call_args.kwargs["team"] == exp.team
+        # And the persisted row's query_from matches that same start_date — so reader and writer agree.
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.query_from == exp.start_date
+
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the
         # merge-into-dict behavior: each failure writes its own entry keyed by metric_uuid, no overwriting.
