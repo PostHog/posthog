@@ -238,7 +238,7 @@ async def maybe_autostart_implementation_task(
     ):
         cursor_api_key = await database_sync_to_async(resolve_cursor_api_key, thread_sensitive=False)(team)
         if cursor_api_key:
-            report = await SignalReport.objects.aget(id=report_id)
+            report = await SignalReport.objects.aget(id=report_id, team_id=team_id)
             try:
                 # No SignalReportTask is created for the Cursor path: its `task` FK requires an
                 # internal Task. Dedup is handled by Cursor returning 409 on a duplicate agentId,
