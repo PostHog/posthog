@@ -71,6 +71,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            temporalio.workflow.logger.info(f"recalc {recalculation_id} had no metrics; completing immediately")
             return {"total": 0, "succeeded": 0, "failed": 0}
 
         # Start the run: mark in_progress, persist the metric list, and pin the shared data-window end. The start
@@ -95,6 +96,8 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 f"start activity for recalc {recalculation_id} returned {type(query_to).__name__}, expected str",
                 non_retryable=True,
             )
+
+        temporalio.workflow.logger.info(f"running recalc {recalculation_id} with {len(metrics)} metrics")
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
 
@@ -125,4 +128,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+        temporalio.workflow.logger.info(
+            f"recalc {recalculation_id} finished: {succeeded} succeeded, {failed} failed (status={final_status})"
+        )
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
