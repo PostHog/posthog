@@ -1,6 +1,7 @@
 """DRF serializers for business_knowledge."""
 
 from django.core.files.uploadedfile import UploadedFile
+from django.utils import timezone
 
 from rest_framework import serializers
 
@@ -15,7 +16,7 @@ from ..constants import (
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
 )
-from ..models import CrawlMode, KnowledgeSource, SourceType
+from ..models import REFRESH_INTERVAL_TIMEDELTAS, CrawlMode, KnowledgeSource, RefreshInterval, SourceType
 
 
 class _GlobListField(serializers.ListField):
@@ -62,6 +63,12 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
         default=0,
         help_text="Number of chunks belonging to this source.",
     )
+    next_refresh_at = serializers.SerializerMethodField(
+        help_text="When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.",
+    )
+    has_unsafe_documents = serializers.SerializerMethodField(
+        help_text="True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -80,6 +87,9 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "last_refresh_at",
             "last_refresh_status",
             "last_refresh_error",
+            "refresh_interval",
+            "next_refresh_at",
+            "has_unsafe_documents",
             "crawl_mode",
             "crawl_config",
             "original_filename",
@@ -87,6 +97,21 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "file_size_bytes",
         ]
         read_only_fields = fields
+
+    def get_next_refresh_at(self, obj: KnowledgeSource) -> str | None:
+        delta = REFRESH_INTERVAL_TIMEDELTAS.get(obj.refresh_interval)
+        if delta is None:
+            # `manual` (or unknown) interval — no auto-refresh scheduled.
+            return None
+        if obj.last_refresh_at is None:
+            # On a cadence but never refreshed: `list_due_refresh_sources`
+            # treats this as immediately due, so surface "now" not null.
+            return timezone.now().isoformat()
+        return (obj.last_refresh_at + delta).isoformat()
+
+    def get_has_unsafe_documents(self, obj: KnowledgeSource) -> bool:
+        # Annotated by the logic layer to avoid an N+1 in list responses.
+        return bool(getattr(obj, "_has_unsafe_documents", False))
 
 
 class CreateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
@@ -170,6 +195,11 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         required=False,
         help_text="New crawl mode. Triggers a re-crawl when changed.",
     )
+    refresh_interval = serializers.ChoiceField(
+        choices=RefreshInterval.choices,
+        required=False,
+        help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh. Changing it alone does not trigger a re-crawl.",
+    )
     include_globs = _GlobListField(
         required=False,
         help_text="URL path globs to include.",
@@ -224,6 +254,12 @@ class CreateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
             "Stage 2a fetches this URL once at create time; Stage 5 will refresh it on a schedule."
         ),
     )
+    refresh_interval = serializers.ChoiceField(
+        choices=RefreshInterval.choices,
+        required=False,
+        default=RefreshInterval.MANUAL,
+        help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh.",
+    )
 
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
@@ -251,6 +287,12 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
     crawl_mode = serializers.ChoiceField(
         choices=[CrawlMode.SITEMAP.value, CrawlMode.SAME_ORIGIN.value],
         help_text="How to expand the entry URL into documents.",
+    )
+    refresh_interval = serializers.ChoiceField(
+        choices=RefreshInterval.choices,
+        required=False,
+        default=RefreshInterval.MANUAL,
+        help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh.",
     )
     include_globs = _GlobListField(
         required=False,

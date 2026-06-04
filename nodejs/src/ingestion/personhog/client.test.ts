@@ -103,6 +103,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     getGroupTypeMappingsByProjectId: () => ({ mappings: [] }),
     getGroupTypeMappingsByProjectIds: () => ({ results: [] }),
     getGroupTypeMappingByDashboardId: () => ({}),
+    countGroupTypeMappings: () => ({ counts: [] }),
     createGroup: () => ({}),
     updateGroup: () => ({ updated: false }),
     deleteGroupsBatchForTeam: () => ({ deletedCount: 0n }),
@@ -408,7 +409,7 @@ describe('PersonHogClient', () => {
                     },
                 })
 
-                // 300 items should produce 2 chunks: 250 + 50
+                // 300 items should produce 3 chunks: 100 + 100 + 100
                 const count = 300
                 const teamIds = Array.from({ length: count }, (_, i) => i + 1)
                 const groupTypeIndexes = Array.from({ length: count }, () => 0)
@@ -416,8 +417,8 @@ describe('PersonHogClient', () => {
 
                 const result = await client.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys)
 
-                expect(callCount).toBe(2)
-                expect(batchSizes).toEqual([250, 50])
+                expect(callCount).toBe(3)
+                expect(batchSizes).toEqual([100, 100, 100])
                 expect(result).toHaveLength(300)
                 expect(result.every((r) => r.group_properties.chunked === true)).toBe(true)
             })

@@ -201,7 +201,7 @@ type WidgetCardContentProps = {
 export function WidgetCardContent({ children, footer, className }: WidgetCardContentProps): JSX.Element {
     return (
         <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</div>
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</div>
             {footer ? (
                 <div className="flex shrink-0 justify-center pt-0.5" data-slot="widget-card-content-footer">
                     {footer}

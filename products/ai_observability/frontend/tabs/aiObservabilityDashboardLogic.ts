@@ -21,6 +21,7 @@ import {
 } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import type { aiObservabilityDashboardLogicType } from './aiObservabilityDashboardLogicType'
 
 export interface AIObservabilityDashboardLogicProps {
@@ -68,7 +69,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
         loadLLMDashboards: true,
     }),
 
-    reducers({
+    reducers(() => ({
         refreshStatus: [
             {} as Record<string, { loading?: boolean; timer?: Date }>,
             {
@@ -89,7 +90,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
 
         selectedDashboardId: [
             null as number | null,
-            { persist: true, prefix: 'llma_' },
+            buildAiObservabilityStorageConfig('dashboard.selectedDashboardId'),
             {
                 loadLLMDashboardsSuccess: (state, { availableDashboards }) => {
                     // If no dashboards available, clear selection
@@ -107,7 +108,7 @@ export const aiObservabilityDashboardLogic = kea<aiObservabilityDashboardLogicTy
                 },
             },
         ],
-    }),
+    })),
 
     loaders(() => ({
         availableDashboards: [
