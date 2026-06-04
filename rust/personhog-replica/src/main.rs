@@ -324,9 +324,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(
             level = gzip_config.compression_level,
             min_payload_size = gzip_config.min_payload_size,
-            max_response_size = ?gzip_config.max_response_size,
-            max_response_size_enforce = gzip_config.max_response_size_enforce,
             "Async gzip response compression enabled"
+        );
+    }
+    if let Some(limit) = gzip_config.max_response_size {
+        tracing::info!(
+            limit_bytes = limit,
+            enforce = gzip_config.max_response_size_enforce,
+            "Response size limit active"
         );
     }
     if max_concurrent_requests > 0 {

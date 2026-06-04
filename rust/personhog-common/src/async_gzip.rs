@@ -258,8 +258,8 @@ where
             // Client doesn't accept gzip — return the collected body uncompressed.
             if !accepts_gzip {
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough_no_gzip", "method" => method.clone()).increment(1);
-                if let Some(resp) = check_response_size(&config, &method, total_size) {
-                    return Ok(resp);
+                if let Some(body) = check_response_size(&config, &method, total_size) {
+                    return Ok(Response::from_parts(parts, body));
                 }
                 let data = concat_chunks(&chunks);
                 let boxed: ResponseBody = Box::pin(PrecomputedBody::new(data, trailers));
@@ -277,8 +277,8 @@ where
                 || already_compressed
             {
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough_small", "method" => method.clone()).increment(1);
-                if let Some(resp) = check_response_size(&config, &method, total_size) {
-                    return Ok(resp);
+                if let Some(body) = check_response_size(&config, &method, total_size) {
+                    return Ok(Response::from_parts(parts, body));
                 }
                 let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
                 set_gzip_overhead_header(&mut parts, method.clone(), gzip_overhead_ms);
@@ -308,9 +308,9 @@ where
                     // Size check on the compressed output — this is the actual
                     // number of bytes that will go over the wire.
                     let compressed_frame_size = GRPC_HEADER_SIZE + bytes.len();
-                    if let Some(resp) = check_response_size(&config, &method, compressed_frame_size)
+                    if let Some(body) = check_response_size(&config, &method, compressed_frame_size)
                     {
-                        return Ok(resp);
+                        return Ok(Response::from_parts(parts, body));
                     }
 
                     let mut frame = BytesMut::with_capacity(GRPC_HEADER_SIZE + bytes.len());
@@ -352,26 +352,36 @@ where
 }
 
 /// Checks the response size against the configured limit. In enforce mode,
-/// returns a gRPC OUT_OF_RANGE error response. In monitor mode, emits a metric
-/// and returns `None` so the caller can proceed normally.
+/// returns a rejection body that the caller should wrap with the original
+/// response `parts` (preserving headers like `Content-Type: application/grpc`).
+/// In monitor mode, emits a metric and returns `None` so the caller proceeds
+/// normally.
 fn check_response_size(
     config: &AsyncGzipConfig,
     method: &Arc<str>,
     size: usize,
-) -> Option<Response<ResponseBody>> {
+) -> Option<ResponseBody> {
     let limit = config.max_response_size?;
     if size <= limit {
         return None;
     }
 
+    let enforced = config.max_response_size_enforce;
+
     counter!(
         "grpc_gzip_response_over_limit_total",
         "method" => method.clone(),
-        "enforced" => if config.max_response_size_enforce { "true" } else { "false" },
+        "enforced" => if enforced { "true" } else { "false" },
     )
     .increment(1);
 
-    if !config.max_response_size_enforce {
+    if !enforced {
+        warn!(
+            response_size_bytes = size,
+            limit_bytes = limit,
+            method = %method,
+            "oversized gRPC response (monitor mode)"
+        );
         return None;
     }
 
@@ -388,8 +398,7 @@ fn check_response_size(
     if let Ok(hv) = HeaderValue::from_str(&msg) {
         trailers.insert("grpc-message", hv);
     }
-    let boxed: ResponseBody = Box::pin(PrecomputedBody::trailers_only(trailers));
-    Some(Response::new(boxed))
+    Some(Box::pin(PrecomputedBody::trailers_only(trailers)))
 }
 
 // ============================================================
@@ -614,7 +623,14 @@ mod tests {
                 data: Some(self.body.clone()),
                 trailers: self.trailers.clone(),
             };
-            Box::pin(async { Ok(Response::new(body)) })
+            Box::pin(async {
+                let mut resp = Response::new(body);
+                resp.headers_mut().insert(
+                    "content-type",
+                    HeaderValue::from_static("application/grpc+proto"),
+                );
+                Ok(resp)
+            })
         }
     }
 
@@ -1097,10 +1113,15 @@ mod tests {
             ..default_test_config()
         };
 
-        let (_parts, data, trailers) = call_layer(service, config, Some("gzip")).await;
+        let (parts, data, trailers) = call_layer(service, config, Some("gzip")).await;
         assert!(data.is_empty(), "rejected response should have no data");
         let trailers = trailers.expect("should have trailers");
         assert_eq!(trailers.get("grpc-status").unwrap(), "11"); // OUT_OF_RANGE
+                                                                // Verify the original response headers (e.g. content-type) are preserved
+        assert_eq!(
+            parts.headers.get("content-type").unwrap(),
+            "application/grpc+proto"
+        );
     }
 
     #[tokio::test]
@@ -1114,10 +1135,14 @@ mod tests {
         };
 
         // No gzip header — uncompressed passthrough, still size-checked
-        let (_parts, data, trailers) = call_layer(service, config, None).await;
+        let (parts, data, trailers) = call_layer(service, config, None).await;
         assert!(data.is_empty(), "rejected response should have no data");
         let trailers = trailers.expect("should have trailers");
         assert_eq!(trailers.get("grpc-status").unwrap(), "11");
+        assert_eq!(
+            parts.headers.get("content-type").unwrap(),
+            "application/grpc+proto"
+        );
     }
 
     #[tokio::test]
