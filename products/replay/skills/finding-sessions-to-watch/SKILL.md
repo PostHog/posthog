@@ -29,13 +29,13 @@ one short question or offer the menu before querying.
 
 ## Available tools
 
-| Tool                                  | Purpose                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `posthog:query-session-recordings-list` | Find/filter recordings (the workhorse). Returns metadata + `id` per row. |
-| `posthog:read-data-schema`            | Confirm real event names, URLs, and property values before filtering.    |
-| `posthog:execute-sql`                 | Collect `$session_id`s for sessions where a specific **event** happened. |
-| `posthog:cohorts-list`                | Resolve a cohort name → id when scoping to a user segment.               |
-| `posthog:session-recording-playlist-create` | Save the resulting filter as a collection the user can revisit.    |
+| Tool                                        | Purpose                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `posthog:query-session-recordings-list`     | Find/filter recordings (the workhorse). Returns metadata + `id` per row. |
+| `posthog:read-data-schema`                  | Confirm real event names, URLs, and property values before filtering.    |
+| `posthog:execute-sql`                       | Collect `$session_id`s for sessions where a specific **event** happened. |
+| `posthog:cohorts-list`                      | Resolve a cohort name → id when scoping to a user segment.               |
+| `posthog:session-recording-playlist-create` | Save the resulting filter as a saved filter view (`type: 'filters'`).    |
 
 Hand off to the **`investigating-replay`** skill once the user picks a recording to understand in depth.
 
@@ -55,9 +55,10 @@ event/property doesn't exist, say so and suggest the closest available signal.
 
 ### 3. Run a minimal query
 
-Call `query-session-recordings-list` with **only** the filters that serve the goal. Defaults to keep:
+Call `query-session-recordings-list` with **only** the filters that serve the goal. Recommended settings:
 
-- `filter_test_accounts: true` (exclude internal users) unless the user is debugging their own session.
+- set `filter_test_accounts: true` (the tool defaults to `false`) to exclude internal users, unless the
+  user is debugging their own session.
 - `date_from` of `-7d` to `-30d` for goal-based searches; `-3d` for "recent".
 - A deliberate `order` — `activity_score` for "interesting", `console_error_count` for "broken",
   `start_time` for "recent".
@@ -73,44 +74,46 @@ the user knows how much is behind the shortlist.
 ### 5. Offer the next step
 
 - "Want me to walk through one?" → `investigating-replay`.
-- "Want to keep watching these?" → save the filter as a collection with
-  `session-recording-playlist-create`.
+- "Want to keep watching these?" → save it as a saved filter view with
+  `session-recording-playlist-create` (`type: 'filters'` — a filter view, not a `'collection'`, which is
+  for manually curated recordings and can't carry filters).
 
 ## Starting points → filters
 
 Two filter shapes cover almost everything:
 
 - **Reached a page** → recording metric `visited_page` (`{ "type": "recording", "key": "visited_page",
-  "operator": "icontains", "value": "/pricing" }`).
+"operator": "icontains", "value": "/pricing" }`).
 - **Did a specific event** (signup, search, rageclick, used a feature) → there is no event-name filter on
   the recordings query, so first collect session IDs with `execute-sql`, then pass them as `session_ids`
   (see the two-step pattern below).
 
-| User goal | Approach |
-| --- | --- |
-| **Signup / onboarding / pricing / checkout friction** | `visited_page` `icontains` the relevant path (confirm the real path first). Order `start_time`, or `console_error_count` to surface broken ones. |
-| **A specific feature** | Two-step: `execute-sql` for `$session_id`s where the feature event fired, then `session_ids`. Pair with `visited_page` if the feature lives on one page. |
-| **Rageclicks / frustration** | Two-step on the `$rageclick` event → `session_ids`. Or filter `properties` with an `element` `text`/`selector` filter for a specific control. |
-| **Errors / something broken** | `properties: [{ "type": "recording", "key": "console_error_count", "operator": "gt", "value": 0 }]`, order `console_error_count`. |
-| **A/B test / feature flag** | `{ "type": "flag", "key": "<flag-key>", "operator": "flag_evaluates_to", "value": "<variant or true>" }`. |
-| **A specific person / segment** | `person_uuid`, a `person` property filter (e.g. `email`), or a `cohort` filter (`cohorts-list` for the id). |
-| **Mobile / responsive issues** | `event` `$device_type` `exact` `["Mobile"]`, or `$screen_width` `lt` a threshold. |
-| **Most active users / "just show me good ones"** | No filter; `order: "activity_score"`. The reliable default when the user has no specific goal. |
-| **Most active pages** | `query-trends`/`execute-sql` to rank `$pageview` by URL, then filter recordings by the hottest page's `visited_page`. |
+| User goal                                             | Approach                                                                                                                                                 |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Signup / onboarding / pricing / checkout friction** | `visited_page` `icontains` the relevant path (confirm the real path first). Order `start_time`, or `console_error_count` to surface broken ones.         |
+| **A specific feature**                                | Two-step: `execute-sql` for `$session_id`s where the feature event fired, then `session_ids`. Pair with `visited_page` if the feature lives on one page. |
+| **Rageclicks / frustration**                          | Two-step on the `$rageclick` event → `session_ids`. Or filter `properties` with an `element` `text`/`selector` filter for a specific control.            |
+| **Errors / something broken**                         | `properties: [{ "type": "recording", "key": "console_error_count", "operator": "gt", "value": 0 }]`, order `console_error_count`.                        |
+| **A/B test / feature flag**                           | `{ "type": "flag", "key": "<flag-key>", "operator": "flag_evaluates_to", "value": "<variant or true>" }`.                                                |
+| **A specific person / segment**                       | `person_uuid`, a `person` property filter (e.g. `email`), or a `cohort` filter (`cohorts-list` for the id).                                              |
+| **Mobile / responsive issues**                        | `event` `$device_type` `exact` `["Mobile"]`, or `$screen_width` `lt` a threshold.                                                                        |
+| **Most active users / "just show me good ones"**      | No filter; `order: "activity_score"`. The reliable default when the user has no specific goal.                                                           |
+| **Most active pages**                                 | `execute-sql` to rank `$pageview` by URL, then filter recordings by the hottest page's `visited_page`.                                                   |
 
 ### Two-step pattern: "sessions where event X happened"
 
-The recordings query filters by event *properties*, not event *names*. To find sessions that contain a
+The recordings query filters by event _properties_, not event _names_. To find sessions that contain a
 particular event, collect the session IDs first:
 
 ```sql
 posthog:execute-sql
-SELECT DISTINCT $session_id
+SELECT $session_id
 FROM events
 WHERE event = '$rageclick'          -- or your signup/search/feature event (confirm via read-data-schema)
     AND timestamp > now() - INTERVAL 7 DAY
     AND $session_id != ''
-ORDER BY $session_id
+GROUP BY $session_id
+ORDER BY max(timestamp) DESC         -- recent first: UUIDs aren't time-ordered, so the LIMIT must keep the freshest sessions
 LIMIT 100
 ```
 
@@ -143,7 +146,7 @@ posthog:query-session-recordings-list
 ```
 
 4. Present the 3-5 most active, each as `{base}/replay/{id}`, noting which lingered or hit errors.
-5. Offer to investigate the most promising one (`investigating-replay`) or save the filter as a collection.
+5. Offer to investigate the most promising one (`investigating-replay`) or save it as a saved filter view (`type: 'filters'`).
 
 ## Tips
 
@@ -151,5 +154,6 @@ posthog:query-session-recordings-list
 - If a query returns zero recordings, widen the date range or loosen the filter before concluding there's
   nothing to watch; if it's still empty, recordings may not be captured for that flow (point the user to
   `diagnosing-missing-recordings`).
-- `activity_score` is the best single proxy for "worth watching" when there's no sharper signal.
-- Keep the shortlist short. The value is in choosing *for* the user, not handing back the haystack.
+- `activity_score` is a solid default proxy for "worth watching" when there's no sharper signal — but it
+  rewards raw interaction volume, so prefer a goal-based filter (errors, a key page) when you have one.
+- Keep the shortlist short. The value is in choosing _for_ the user, not handing back the haystack.
