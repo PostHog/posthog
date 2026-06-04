@@ -21,6 +21,7 @@ from django.db.backends.utils import CursorWrapper
 from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
+
 from django_display_ids.models import DisplayIDModel
 
 from posthog.hogql import ast
