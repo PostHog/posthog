@@ -22,7 +22,6 @@ from ee.tasks.subscriptions.slack_subscriptions import (
     SlackDeliveryResult,
     SlackMessageData,
     deliver_slack_message_data,
-    get_slack_integration_for_team,
 )
 
 logger = structlog.get_logger(__name__)
@@ -209,30 +208,6 @@ def send_email_ai_subscription_report(
     message.send(send_async=False)
 
 
-class SlackIntegrationMissingError(RuntimeError):
-    pass
-
-
-def _resolve_slack_integration(subscription: Subscription) -> Integration:
-    # prefer the explicitly attached integration, else the team-wide first match; raise on missing
-    integration = subscription.integration
-    if integration is not None and integration.kind != "slack":
-        logger.warning(
-            "ai_subscription.slack_invalid_integration_kind",
-            subscription_id=subscription.id,
-            integration_id=integration.id,
-            kind=integration.kind,
-        )
-        integration = None
-    if integration is None:
-        integration = get_slack_integration_for_team(subscription.team_id)
-    if not integration:
-        raise SlackIntegrationMissingError(
-            f"No Slack integration available for subscription {subscription.id} (team {subscription.team_id})"
-        )
-    return integration
-
-
 def _build_ai_slack_message(subscription: Subscription, markdown: str) -> SlackMessageData:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     channel = subscription.target_value.split("|")[0]
@@ -279,9 +254,8 @@ async def send_slack_ai_subscription_report(
     *,
     subscription: Subscription,
     markdown: str,
+    integration: Integration,
 ) -> SlackDeliveryResult:
-    # resolving the integration touches the ORM, so it must run off the event loop
-    integration = await database_sync_to_async(_resolve_slack_integration, thread_sensitive=False)(subscription)
     message_data = _build_ai_slack_message(subscription, markdown)
     return await deliver_slack_message_data(integration, subscription, message_data)
 

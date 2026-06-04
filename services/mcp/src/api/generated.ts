@@ -25091,11 +25091,11 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
-      interval?: number;
+      interval: number;
       /**
          * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
@@ -30918,6 +30918,34 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface PatchedSignalScoutConfig {
+      readonly id?: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name?: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -30989,8 +31017,8 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency?: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
       interval?: number;
@@ -37052,6 +37080,34 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
+    }
+
+    /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface SignalScoutConfig {
+      readonly id: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      readonly created_at: string;
     }
 
     /**
@@ -44636,6 +44692,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -44714,6 +44771,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     /**
@@ -44778,6 +44836,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -44844,6 +44903,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
