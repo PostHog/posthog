@@ -94,6 +94,37 @@ API returns `{ "ok": true, ... }` on success and `{ "ok": false, "error":
 "<code>" }` on failure — always check `ok` before treating the response as
 valid.
 
+### Reading the Slack envelope
+
+When a Slack mention or message lands, the user turn arrives with a
+machine-readable header followed by the raw text:
+
+```text
+[slack]
+channel: C-incidents
+ts: 1700000099.000000
+thread_ts: 1700000050.000000
+workspace: T01ABC
+user: U-engineer
+
+<@U-bot> are you still buggin?
+```
+
+Use those values **verbatim** in subsequent Slack API calls:
+
+- `channel` → the `channel` arg on chat.postMessage / reactions.add /
+  conversations.history / conversations.replies
+- `ts` → the `timestamp` arg on reactions.add (the message you're reacting to)
+- `thread_ts` → the `thread_ts` arg on chat.postMessage (the thread you're
+  replying inside). Top-level mentions have `thread_ts == ts`; this is
+  fine — replying with that value starts a new thread anchored on the
+  mention.
+
+If the turn does **not** carry a `[slack]` header, the session was
+triggered from the agent console or via the webhook trigger — not from
+Slack — so don't try to call Slack APIs unless you have explicit channel
+context from elsewhere (e.g. the webhook payload).
+
 Common operations:
 
 ```text

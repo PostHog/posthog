@@ -96,7 +96,67 @@ describe('slack trigger: real e2e', () => {
         const userMsg = session!.conversation.find((m) => m.role === 'user') as
             | { role: 'user'; content: string }
             | undefined
-        expect(userMsg?.content).toBe('<@U0BOT> ping')
+        // The slack ingress prefixes the seed message with a `[slack]` envelope
+        // header so the model can read channel/ts/thread_ts and route replies
+        // back to the right thread. The raw user text is at the bottom.
+        expect(userMsg?.content).toContain('[slack]')
+        expect(userMsg?.content).toContain('channel: C01')
+        expect(userMsg?.content).toContain('ts: 1.0')
+        expect(userMsg?.content).toContain('<@U0BOT> ping')
+    })
+
+    it('seed message includes channel + ts + thread_ts so the model can route replies', async () => {
+        // Regression: prior to the slack-envelope embedding fix, the seed
+        // message was just `event.text` — the model had no way to know which
+        // channel/thread to chat.postMessage back to, so reply tool calls
+        // failed at authoring time even for healthy bots.
+        c.setScript([fauxText('ok')])
+        await c.deployAgent({ slug: 'enveloped', spec: {} })
+        const res = await request(c.ingress)
+            .post('/agents/enveloped/slack/events')
+            .send(
+                slackEvent({
+                    eventType: 'app_mention',
+                    channel: 'C-incidents',
+                    ts: '1700000099.000000',
+                    thread_ts: '1700000050.000000',
+                    user: 'U-engineer',
+                    text: '<@U-bot> any ideas?',
+                })
+            )
+        expect(res.status).toBe(200)
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        const userMsg = session!.conversation.find((m) => m.role === 'user') as
+            | { role: 'user'; content: string }
+            | undefined
+        // Each metadata field on its own line so agent.md can grep-instruct
+        // the model and the value substitution is unambiguous.
+        expect(userMsg?.content).toMatch(/^\[slack\]$/m)
+        expect(userMsg?.content).toMatch(/^channel: C-incidents$/m)
+        expect(userMsg?.content).toMatch(/^ts: 1700000099\.000000$/m)
+        expect(userMsg?.content).toMatch(/^thread_ts: 1700000050\.000000$/m)
+        expect(userMsg?.content).toMatch(/^user: U-engineer$/m)
+        // Raw text follows the header block.
+        expect(userMsg?.content).toContain('<@U-bot> any ideas?')
+    })
+
+    it('thread_ts falls back to ts when the mention is a top-level channel message', async () => {
+        // Slack omits thread_ts for top-level messages. A reply still needs a
+        // value (otherwise chat.postMessage would post to channel root, not
+        // threaded), so the seed substitutes ts → thread_ts in that case.
+        c.setScript([fauxText('ok')])
+        await c.deployAgent({ slug: 'top-level', spec: {} })
+        const res = await request(c.ingress)
+            .post('/agents/top-level/slack/events')
+            .send(slackEvent({ eventType: 'app_mention', ts: '99.000', thread_ts: undefined }))
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        const userMsg = session!.conversation.find((m) => m.role === 'user') as
+            | { role: 'user'; content: string }
+            | undefined
+        expect(userMsg?.content).toMatch(/^ts: 99\.000$/m)
+        expect(userMsg?.content).toMatch(/^thread_ts: 99\.000$/m)
     })
 
     it('thread_ts dedupe: second mention in same thread resumes existing session', async () => {
@@ -229,7 +289,12 @@ describe('slack trigger: real e2e', () => {
         // Bob's message must NOT be visible to the runner.
         expect(session!.pending_inputs).toHaveLength(0)
         const userMsgs = session!.conversation.filter((m) => m.role === 'user')
-        expect(userMsgs.map((m) => m.content)).toEqual(['alice opens'])
+        // The seed now carries a `[slack]` envelope header; the raw text
+        // is at the bottom. Assert against the raw line rather than the
+        // full content so the slack-metadata format can evolve without
+        // touching unrelated identity / elevation tests.
+        expect(userMsgs.map((m) => m.content)).toHaveLength(1)
+        expect(userMsgs[0].content).toContain('alice opens')
         // It IS preserved on the elevation request so a future grant can replay.
         expect(session!.pending_elevation_requests).toHaveLength(1)
         expect(session!.pending_elevation_requests[0].state).toBe('pending')
@@ -295,8 +360,12 @@ describe('slack trigger: real e2e', () => {
             expect(session!.acl[0].state).toBe('active')
             expect(session!.pending_elevation_requests[0].state).toBe('granted')
             // Conversation now reflects bob's message being delivered.
+            // Each turn is wrapped in a `[slack]` envelope header; assert
+            // on the raw text inside rather than the exact full content.
             const userMsgs = session!.conversation.filter((m) => m.role === 'user')
-            expect(userMsgs.map((m) => m.content)).toEqual(['alice opens', 'bob barges in'])
+            expect(userMsgs).toHaveLength(2)
+            expect(userMsgs[0].content).toContain('alice opens')
+            expect(userMsgs[1].content).toContain('bob barges in')
         })
 
         it('non-owner click: ephemeral message, request stays pending', async () => {

@@ -126,6 +126,22 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 slack_user_id: event.user,
                 agent_user_id: agentUserId,
             }
+            // Embed the Slack envelope context in the seed message so the model
+            // knows which channel/ts/thread_ts to use when calling Slack APIs.
+            // Without this, the model only sees the raw text and has no way to
+            // route replies back to the originating channel/thread. The header
+            // is parseable + greppable; agent.md tells the model to use the
+            // values verbatim for any reactions.add / chat.postMessage call.
+            const slackContext = [
+                `[slack]`,
+                `channel: ${event.channel}`,
+                `ts: ${event.ts}`,
+                `thread_ts: ${event.thread_ts ?? event.ts}`,
+                `workspace: ${workspaceId}`,
+                `user: ${event.user}`,
+                ``,
+                event.text ?? '',
+            ].join('\n')
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {
@@ -134,7 +150,7 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     externalKey,
                     seed: {
                         role: 'user',
-                        content: event.text ?? '',
+                        content: slackContext,
                         timestamp: Date.now(),
                         sender: slackPrincipal,
                     },
