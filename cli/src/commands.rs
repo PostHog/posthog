@@ -25,6 +25,8 @@ pub struct Cli {
     #[arg(long, default_value = "false")]
     no_fail: bool,
 
+    /// Skip SSL certificate verification when talking to the PostHog API. Use only with
+    /// self-signed certificates.
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
 
