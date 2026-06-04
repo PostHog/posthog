@@ -261,8 +261,8 @@ func TestSplitTopics(t *testing.T) {
 		},
 		{
 			name:     "two topics",
-			input:    "ingestion-analytics-main-1024,ingestion-analytics-team2-256",
-			expected: []string{"ingestion-analytics-main-1024", "ingestion-analytics-team2-256"},
+			input:    "topic-1,topic-2",
+			expected: []string{"topic-1", "topic-2"},
 		},
 		{
 			name:     "surrounding whitespace",
