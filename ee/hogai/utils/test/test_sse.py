@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.schema import (
     AssistantEventType,
@@ -70,7 +71,7 @@ class TestAssistantSSESerializer:
     @pytest.mark.asyncio
     async def test_offload_routes_serialization_through_thread_pool(self):
         with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=True):
-            with patch("ee.hogai.utils.sse.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
+            with patch("ee.hogai.utils.aio.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
                 result = await self.serializer.dumps(self._message_event())
 
         mock_to_thread.assert_called_once()
@@ -79,7 +80,7 @@ class TestAssistantSSESerializer:
     @pytest.mark.asyncio
     async def test_no_offload_keeps_serialization_on_the_loop(self):
         with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=False):
-            with patch("ee.hogai.utils.sse.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
+            with patch("ee.hogai.utils.aio.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
                 await self.serializer.dumps(self._message_event())
 
         mock_to_thread.assert_not_called()
@@ -88,3 +89,32 @@ class TestAssistantSSESerializer:
     async def test_unknown_event_type_raises(self):
         with pytest.raises(ValueError, match="Unknown event type"):
             await self.serializer.dumps(cast(AssistantOutput, ("NOT_AN_EVENT", AssistantMessage(content="x"))))
+
+    @staticmethod
+    def _serialize_count(offloaded: str) -> float:
+        return (
+            REGISTRY.get_sample_value("posthog_ai_sse_serialize_latency_seconds_count", {"offloaded": offloaded}) or 0.0
+        )
+
+    @parameterized.expand([("offload_on", True, "true"), ("offload_off", False, "false")])
+    @pytest.mark.asyncio
+    async def test_latency_histogram_records_with_offloaded_label(self, _name: str, offload: bool, label: str):
+        before = self._serialize_count(label)
+
+        with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=offload):
+            await self.serializer.dumps(self._message_event())
+
+        assert self._serialize_count(label) == before + 1
+
+    @parameterized.expand([("offload_on", True, "true"), ("offload_off", False, "false")])
+    @pytest.mark.asyncio
+    async def test_serializer_failure_propagates_and_is_still_timed(self, _name: str, offload: bool, label: str):
+        # Timing is observed in a finally, so a failed serialization must still be measured and re-raised.
+        before = self._serialize_count(label)
+
+        with patch.object(self.serializer, "_serialize_message", side_effect=ValueError("boom")):
+            with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=offload):
+                with pytest.raises(ValueError, match="boom"):
+                    await self.serializer.dumps(self._message_event())
+
+        assert self._serialize_count(label) == before + 1

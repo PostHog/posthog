@@ -28,8 +28,8 @@ message so far, re-sent on every token. Each of those whole-message chunks then 
 - **write side** (Temporal worker → Redis): `ConversationStreamSerializer.dumps` → `pickle.dumps`
   + `xadd` (`redis_stream.py`), once per token;
 - **read side** (Redis → client, on the web ASGI loop): `pickle.loads`
-  (`redis_stream.py:_deserialize_chunk`) then `model_dump_json` (`sse.py`), once per token,
-  yielded per chunk in `ee/api/conversation.py` `async_stream`.
+  (`ConversationStreamSerializer.deserialize`, called from `read_stream`) then `model_dump_json`
+  (`sse.py`), once per token, yielded per chunk in `ee/api/conversation.py` `async_stream`.
 
 For an `n`-token message, token *k* serializes a payload of size O(*k*), so the total work is
 `Σ O(k) = O(n²)` in both CPU and Redis bytes — on **both** the write and read loops. With the

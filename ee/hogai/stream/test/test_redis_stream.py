@@ -140,7 +140,7 @@ class TestRedisStream(BaseTest):
             )
 
             with override_settings(MAX_AI_STREAM_OFFLOAD_SERIALIZATION=offload):
-                with patch("ee.hogai.stream.redis_stream.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
+                with patch("ee.hogai.utils.aio.asyncio.to_thread", wraps=asyncio.to_thread) as mock_to_thread:
                     async for _ in self.redis_stream.read_stream():
                         break
 
