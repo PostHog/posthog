@@ -9,6 +9,7 @@ from django.utils import timezone as tz
 
 import temporalio.activity
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 
@@ -368,7 +369,7 @@ async def _deliver_insight_dashboard_subscription(
         _capture_delivery_failed_event(subscription, Exception(NO_ASSETS_REASON))
         return DeliverSubscriptionResult(recipient_results=recipient_results)
 
-    if subscription.target_type == "email":
+    if subscription.target_type == Subscription.SubscriptionTarget.EMAIL:
 
         async def _send_email(email: str) -> None:
             await database_sync_to_async(send_email_subscription_report, thread_sensitive=False)(
@@ -383,7 +384,7 @@ async def _deliver_insight_dashboard_subscription(
             )
 
         result = await deliver_email(subscription, inputs, recipient_results, _send_email)
-    else:
+    elif subscription.target_type == Subscription.SubscriptionTarget.SLACK:
         result = await deliver_slack(
             subscription,
             recipient_results,
@@ -396,6 +397,11 @@ async def _deliver_insight_dashboard_subscription(
                 change_summary=inputs.change_summary,
                 summary_skipped_over_budget=inputs.summary_skipped_over_budget,
             ),
+        )
+    else:
+        raise ApplicationError(
+            f"Subscription delivery reached an unsupported target {subscription.target_type!r}",
+            non_retryable=True,
         )
 
     await LOGGER.ainfo(
