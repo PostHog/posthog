@@ -1,12 +1,12 @@
 from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.utils import timezone
 
-from freezegun import freeze_time
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, OAuthApplicationForm
