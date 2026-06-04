@@ -25759,10 +25759,6 @@ export namespace Schemas {
 
     export interface TaskRunDetail {
       readonly id: string;
-      /**
-         * Human-readable identifier with type prefix
-         * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
-         */
       readonly task: string;
       /**
          * Current stage for this run (e.g., 'research', 'plan', 'build')
