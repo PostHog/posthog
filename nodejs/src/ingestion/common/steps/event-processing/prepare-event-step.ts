@@ -1,14 +1,22 @@
+
 import { sanitizeEventName } from '~/common/utils/db/utils'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
-import { invalidTimestampCounter } from '~/ingestion/common/metrics'
+import {
+    featureFlagCalledPropertyCountHistogram,
+    invalidTimestampCounter,
+} from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
-import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '~/types'
+import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team, ValueMatcher } from '~/types'
 
-import { stripBloatProperties } from './strip-bloat-properties'
+import {
+    FEATURE_FLAG_CALLED_EVENT,
+    stripBloatProperties,
+    stripFeatureFlagCalledProperties,
+} from './strip-bloat-properties'
 
 export type PrepareEventStepInput = {
     normalizedEvent: PluginEvent
@@ -22,10 +30,12 @@ export type PrepareEventStepResult<TInput> = Omit<TInput, 'normalizedEvent'> & {
     historicalMigration: boolean
 }
 
-export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): ProcessingStep<
-    TInput,
-    PrepareEventStepResult<TInput>
-> {
+export function createPrepareEventStep<TInput extends PrepareEventStepInput>(
+    // Teams opted out of `$feature_flag_called` property stripping. Built once at
+    // startup via buildIntegerMatcher; `*` disables stripping globally. Defaults
+    // to no exclusions so every team is stripped.
+    stripFeatureFlagCalledExcludedTeams: ValueMatcher<number> = () => false
+): ProcessingStep<TInput, PrepareEventStepResult<TInput>> {
     return function prepareEventStep(input: TInput) {
         const { normalizedEvent, ...rest } = input
 
@@ -43,6 +53,13 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): 
         }
 
         stripBloatProperties(properties)
+
+        if (sanitizedEventName === FEATURE_FLAG_CALLED_EVENT) {
+            const propertyCount = stripFeatureFlagCalledExcludedTeams(input.team.id)
+                ? Object.keys(properties).length
+                : stripFeatureFlagCalledProperties(properties)
+            featureFlagCalledPropertyCountHistogram.observe(propertyCount)
+        }
 
         const timestamp = parseEventTimestamp(normalizedEvent, invalidTimestampCallback)
 

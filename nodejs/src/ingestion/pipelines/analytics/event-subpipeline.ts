@@ -135,7 +135,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
         )
-        .pipe(createPrepareEventStep())
+        .pipe(createPrepareEventStep(options.stripFeatureFlagCalledExcludedTeams))
         .pipe(
             topHog(createProcessGroupsStep(teamManager, groupTypeManager, options), [
                 timer('process_groups_time', (input) => ({

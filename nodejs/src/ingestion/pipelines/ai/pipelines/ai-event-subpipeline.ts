@@ -78,7 +78,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_persons' } }
         )
-        .pipe(createPrepareEventStep())
+        .pipe(createPrepareEventStep(options.stripFeatureFlagCalledExcludedTeams))
         .pipe(createProcessGroupsStep(teamManager, groupTypeManager, options), {
             retry: { tries: 5, sleepMs: 100, name: 'process_groups' },
         })

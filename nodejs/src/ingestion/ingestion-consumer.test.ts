@@ -584,6 +584,77 @@ describe('IngestionConsumer', () => {
         })
     })
 
+    describe('$feature_flag_called property stripping', () => {
+        beforeEach(async () => {
+            // Stripping defaults to disabled globally ('*'); enable it for every team
+            // so these tests exercise the strip behavior rather than the kill switch.
+            infra.config.STRIP_FEATURE_FLAG_CALLED_PROPERTIES_EXCLUDED_TEAMS = ''
+            ingester = await createIngestionConsumer(infra)
+        })
+
+        const propertiesOf = (event: string) => {
+            const messages = mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
+            const message = messages.find((m) => (m.value as any).event === event)
+            return message ? parseJSON((message.value as any).properties) : undefined
+        }
+
+        const mixedProperties = {
+            $feature_flag: 'my-flag',
+            '$feature/my-flag': 'variant-a',
+            $lib: 'posthog-python',
+            $active_feature_flags: ['flag-a'],
+            environment: 'production',
+            my_custom_prop: 'leaked',
+        }
+
+        it('strips non-whitelisted properties from $feature_flag_called events but not from other events', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createEvent({ event: '$feature_flag_called', properties: mixedProperties }),
+                    createEvent({ event: '$pageview', properties: mixedProperties }),
+                ])
+            )
+
+            const ffCalledProperties = propertiesOf('$feature_flag_called')
+            expect(ffCalledProperties).toMatchObject({
+                $feature_flag: 'my-flag',
+                '$feature/my-flag': 'variant-a',
+                $lib: 'posthog-python',
+                $active_feature_flags: ['flag-a'],
+            })
+            expect(ffCalledProperties).not.toHaveProperty('environment')
+            expect(ffCalledProperties).not.toHaveProperty('my_custom_prop')
+
+            // The same leaked keys survive on a non-$feature_flag_called event.
+            expect(propertiesOf('$pageview')).toMatchObject({
+                $active_feature_flags: ['flag-a'],
+                environment: 'production',
+                my_custom_prop: 'leaked',
+            })
+        })
+
+        it('keeps non-whitelisted properties on $feature_flag_called events with a variant response', async () => {
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    createEvent({
+                        event: '$feature_flag_called',
+                        properties: { ...mixedProperties, $feature_flag_response: 'test' },
+                    }),
+                ])
+            )
+
+            // A variant response marks a multivariate flag — a potential experiment
+            // exposure — so the strip is skipped and breakdown properties survive.
+            expect(propertiesOf('$feature_flag_called')).toMatchObject({
+                $feature_flag: 'my-flag',
+                $feature_flag_response: 'test',
+                $active_feature_flags: ['flag-a'],
+                environment: 'production',
+                my_custom_prop: 'leaked',
+            })
+        })
+    })
+
     describe('dropping events', () => {
         it('should DLQ $exception events (wrong consumer)', async () => {
             const messages = createKafkaMessages([

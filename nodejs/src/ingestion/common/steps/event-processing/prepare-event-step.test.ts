@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { featureFlagCalledPropertyCountHistogram } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -28,14 +29,20 @@ type TestInput = {
 describe('createPrepareEventStep', () => {
     let mockEvent: PluginEvent
     let mockTeam: Team
+    let observeHistogram: jest.SpyInstance
 
     beforeEach(() => {
         jest.clearAllMocks()
 
         mockEvent = createTestPluginEvent({ properties: { key: 'value' } })
         mockTeam = createTestTeam()
+        observeHistogram = jest.spyOn(featureFlagCalledPropertyCountHistogram, 'observe').mockImplementation()
 
         jest.mocked(parseEventTimestamp).mockReturnValue(DateTime.fromISO('2023-01-01T00:00:00.000Z'))
+    })
+
+    afterEach(() => {
+        observeHistogram.mockRestore()
     })
 
     const createInput = (overrides: Partial<TestInput> = {}): TestInput => ({
@@ -131,6 +138,161 @@ describe('createPrepareEventStep', () => {
         if (result.type === PipelineResultType.OK) {
             expect(result.value.preparedEvent.properties).toEqual({ other: 'kept' })
         }
+    })
+
+    it('should strip non-whitelisted properties on $feature_flag_called events with a non-variant response', async () => {
+        const event = createTestPluginEvent({
+            event: '$feature_flag_called',
+            properties: {
+                $feature_flag: 'my-flag',
+                $feature_flag_response: false,
+                '$feature/my-flag': false,
+                environment: 'production',
+                plan: 'pro',
+                $active_feature_flags: ['flag-a'],
+            },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        const result = await step(createInput({ normalizedEvent: event }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $feature_flag: 'my-flag',
+                $feature_flag_response: false,
+                '$feature/my-flag': false,
+                $active_feature_flags: ['flag-a'],
+            })
+        }
+    })
+
+    it('keeps all properties on $feature_flag_called events with a variant response (experiment exposure)', async () => {
+        const event = createTestPluginEvent({
+            event: '$feature_flag_called',
+            properties: {
+                $feature_flag: 'my-flag',
+                $feature_flag_response: 'test',
+                '$feature/my-flag': 'test',
+                environment: 'production',
+                plan: 'pro',
+                $active_feature_flags: ['flag-a'],
+            },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        const result = await step(createInput({ normalizedEvent: event }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                $feature_flag: 'my-flag',
+                $feature_flag_response: 'test',
+                '$feature/my-flag': 'test',
+                environment: 'production',
+                plan: 'pro',
+                $active_feature_flags: ['flag-a'],
+            })
+        }
+    })
+
+    it('should strip both bloat and non-whitelisted properties on $feature_flag_called events', async () => {
+        const event = createTestPluginEvent({
+            event: '$feature_flag_called',
+            properties: {
+                $feature_flag: 'my-flag',
+                ph_product_tours: { heavy: 'cache-blob' },
+                $product_tours_activated: true,
+                environment: 'production',
+            },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        const result = await step(createInput({ normalizedEvent: event }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual({ $feature_flag: 'my-flag' })
+        }
+    })
+
+    it.each([
+        {
+            desc: 'keeps all properties for an opted-out team',
+            teamId: 42,
+            expected: { $feature_flag: 'my-flag', environment: 'production', $active_feature_flags: ['flag-a'] },
+        },
+        {
+            desc: 'strips non-whitelisted properties for a team not in the opt-out list',
+            teamId: 7,
+            expected: { $feature_flag: 'my-flag', $active_feature_flags: ['flag-a'] },
+        },
+    ])('$desc on $feature_flag_called events', async ({ teamId, expected }) => {
+        const event = createTestPluginEvent({
+            event: '$feature_flag_called',
+            properties: { $feature_flag: 'my-flag', environment: 'production', $active_feature_flags: ['flag-a'] },
+        })
+
+        const step = createPrepareEventStep<TestInput>((id) => id === 42)
+        const result = await step(createInput({ normalizedEvent: event, team: createTestTeam({ id: teamId }) }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual(expected)
+        }
+    })
+
+    it('should not strip properties on non $feature_flag_called events', async () => {
+        const event = createTestPluginEvent({
+            event: '$pageview',
+            properties: {
+                environment: 'production',
+                plan: 'pro',
+                $active_feature_flags: ['flag-a'],
+                custom: 'kept',
+            },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        const result = await step(createInput({ normalizedEvent: event }))
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (result.type === PipelineResultType.OK) {
+            expect(result.value.preparedEvent.properties).toEqual({
+                environment: 'production',
+                plan: 'pro',
+                $active_feature_flags: ['flag-a'],
+                custom: 'kept',
+            })
+        }
+    })
+
+    it.each([
+        { desc: 'a stripped team', excludedTeams: undefined },
+        { desc: 'an opted-out team', excludedTeams: (teamId: number) => teamId === 42 },
+    ])('observes the pre-strip property count on $feature_flag_called events for $desc', async ({ excludedTeams }) => {
+        const event = createTestPluginEvent({
+            event: '$feature_flag_called',
+            properties: { $feature_flag: 'my-flag', environment: 'production', plan: 'pro' },
+        })
+
+        const step = createPrepareEventStep<TestInput>(excludedTeams)
+        await step(createInput({ normalizedEvent: event, team: createTestTeam({ id: 42 }) }))
+
+        expect(observeHistogram).toHaveBeenCalledTimes(1)
+        expect(observeHistogram).toHaveBeenCalledWith(3)
+    })
+
+    it('does not observe the property count on non $feature_flag_called events', async () => {
+        const event = createTestPluginEvent({
+            event: '$pageview',
+            properties: { environment: 'production', plan: 'pro' },
+        })
+
+        const step = createPrepareEventStep<TestInput>()
+        await step(createInput({ normalizedEvent: event }))
+
+        expect(observeHistogram).not.toHaveBeenCalled()
     })
 
     it('should only strip exact matches, not substring matches', async () => {

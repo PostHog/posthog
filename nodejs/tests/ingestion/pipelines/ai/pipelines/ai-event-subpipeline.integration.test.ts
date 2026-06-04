@@ -100,6 +100,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
             PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
             PERSON_PROPERTIES_UPDATE_ALL: false,
             FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
+            stripFeatureFlagCalledExcludedTeams: () => false,
         },
         outputs: mockOutputs,
         teamManager: {

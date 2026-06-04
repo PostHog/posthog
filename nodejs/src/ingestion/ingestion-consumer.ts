@@ -2,6 +2,7 @@ import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
 import { CommonConfig } from '~/common/config'
+import { buildIntegerMatcher } from '~/common/config/config'
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
@@ -286,6 +287,10 @@ export class IngestionConsumer {
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                stripFeatureFlagCalledExcludedTeams: buildIntegerMatcher(
+                    this.config.STRIP_FEATURE_FLAG_CALLED_PROPERTIES_EXCLUDED_TEAMS,
+                    true
+                ),
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }

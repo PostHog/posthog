@@ -1,3 +1,5 @@
+import { ValueMatcher } from '~/types'
+
 export interface EventPipelineRunnerOptions {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
@@ -10,4 +12,7 @@ export interface EventPipelineRunnerOptions {
     PERSON_PROPERTIES_UPDATE_ALL: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+    // Teams opted out of `$feature_flag_called` property stripping. Built once at
+    // startup so the matcher isn't rebuilt per event.
+    stripFeatureFlagCalledExcludedTeams: ValueMatcher<number>
 }
