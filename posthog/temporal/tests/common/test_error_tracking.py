@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.errors import CHQueryErrorNotAnAggregate
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
 
 
@@ -85,6 +86,25 @@ class DirectlyFailingWorkflow:
     async def run(self, inputs: OptionallyFailingInputs) -> None:
         if inputs.fail:
             raise ApplicationError("Workflow failed!")
+
+
+@workflow.defn
+class UserQueryErrorWorkflow:
+    @workflow.run
+    async def run(self) -> None:
+        await workflow.execute_activity(
+            user_query_error_activity,
+            start_to_close_timeout=dt.timedelta(minutes=1),
+            heartbeat_timeout=dt.timedelta(seconds=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+
+@activity.defn
+async def user_query_error_activity() -> None:
+    # Mirrors a customer scheduling an invalid HogQL export: ClickHouse rejects the query
+    # and the export pipeline classifies it as a non-retryable user error.
+    raise CHQueryErrorNotAnAggregate("Column is not under aggregate function and not in GROUP BY")
 
 
 @pytest.mark.parametrize("fail", [True, False])
@@ -188,3 +208,29 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+@pytest.mark.asyncio
+async def test_user_query_error_is_not_captured(temporal_client: Client):
+    # User-authored query mistakes (e.g. invalid HogQL exports) must not pollute error tracking.
+    task_queue = "TEST-TASK-QUEUE"
+    workflow_id = str(uuid.uuid4())
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        async with Worker(
+            temporal_client,
+            task_queue=task_queue,
+            workflows=[UserQueryErrorWorkflow],
+            activities=[user_query_error_activity],
+            interceptors=[PostHogClientInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await temporal_client.execute_workflow(
+                    "UserQueryErrorWorkflow",
+                    id=workflow_id,
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+        mock_ph_capture.assert_not_called()

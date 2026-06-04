@@ -16,6 +16,8 @@ from temporalio.worker import (
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.exports.backend.tasks.failure_handler import USER_QUERY_ERROR_NAMES
+
 logger = get_write_only_logger()
 
 
@@ -43,6 +45,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            # Skip capture for known user-authored query mistakes (e.g. invalid HogQL exports).
+            # ClickHouse correctly rejects these and the export pipeline classifies them as
+            # non-retryable user errors, so capturing them just pollutes our own error tracking.
+            if type(e).__name__ in USER_QUERY_ERROR_NAMES:
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
