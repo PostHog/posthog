@@ -256,6 +256,27 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         expect(result).toContain("The user's name is Jane Doe (jane@acme.com).")
     })
 
+    it('renders a single base URL line (scheme stripped, project segment appended) when a base URL is given', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com')
+        expect(result).toContain('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')
+        // Sits right after the project/org context line.
+        const lines = (result ?? '').split('\n')
+        expect(lines.indexOf('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')).toBe(
+            lines.indexOf('You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).') + 1
+        )
+    })
+
+    it('renders the base URL without a project segment when no project is active', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, undefined, undefined, 'https://us.posthog.com')
+        expect(result).toContain('Base URL: us.posthog.com.')
+        expect(result).not.toContain('/project/')
+    })
+
+    it('omits the base URL line when no base URL is given', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project)
+        expect(result).not.toContain('Base URL:')
+    })
+
     it('returns undefined when no context is available at all', () => {
         expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
     })

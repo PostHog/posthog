@@ -5,6 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from pydantic import BaseModel
 
 from posthog.models import Integration, Organization, Team
@@ -12,14 +13,17 @@ from posthog.models.user import User
 
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.services.custom_prompt_internals import (
+    AgentError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    _extract_agent_error,
     create_task_and_trigger,
     poll_for_turn,
 )
 from products.tasks.backend.services.custom_prompt_multi_turn_runner import _EMPTY_TURN_RETRY_NUDGE, MultiTurnSession
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
+    _agent_error_line,
     _agent_message_line,
     _end_turn_line,
     _usage_update_line,
@@ -213,6 +217,204 @@ class TestPollForTurnTerminalDrain:
             last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=0)
 
         assert last_message == "partial-before-death"
+
+
+class TestExtractAgentError:
+    @parameterized.expand(
+        [
+            ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
+            ("upstream_connection_error", "API Error: Connection error"),
+            ("upstream_stream_terminated", "API Error: terminated"),
+            ("agent_error", "Something broke inside the agent"),
+        ]
+    )
+    def test_extracts_category_and_message(self, category, message):
+        log = "\n".join([_user_message_line("prompt"), _agent_error_line(message, category=category)])
+        result = _extract_agent_error(log)
+        assert result == AgentError(message=message, category=category)
+        assert result.describe() == f"{category}: {message}"
+
+    def test_extracts_message_without_category(self):
+        message = "API Error: 429 rate_limit_error"
+        result = _extract_agent_error(_agent_error_line(message))
+        assert result == AgentError(message=message, category=None)
+        assert result.describe() == message
+
+    def test_returns_none_when_no_error_line(self):
+        log = "\n".join([_agent_message_line("hello"), _end_turn_line()])
+        assert _extract_agent_error(log) is None
+
+    def test_returns_none_for_empty_log(self):
+        assert _extract_agent_error(None) is None
+        assert _extract_agent_error("") is None
+
+    def test_ignores_error_lines_before_skip_cursor(self):
+        # The previous turn's error must not leak into the current turn's drain.
+        turn_1 = [_agent_error_line("old failure", category="agent_error")]
+        turn_2 = [
+            _user_message_line("retry"),
+            _agent_error_line("API Error: 429 rate_limit_error", category="upstream_provider_failure"),
+        ]
+        log = "\n".join(turn_1 + turn_2)
+        result = _extract_agent_error(log, skip_lines=len(turn_1))
+        assert result == AgentError(message="API Error: 429 rate_limit_error", category="upstream_provider_failure")
+
+    def test_returns_last_error_when_multiple(self):
+        log = "\n".join(
+            [
+                _agent_error_line("first", category="upstream_connection_error"),
+                _agent_error_line("API Error: 429 rate_limit_error", category="upstream_provider_failure"),
+            ]
+        )
+        result = _extract_agent_error(log)
+        assert result == AgentError(message="API Error: 429 rate_limit_error", category="upstream_provider_failure")
+
+
+class TestPollForTurnSurfacesAgentError:
+    """On a FAILED terminal status, the drain must surface the agent's classified error
+    (category + raw message) on both TaskRun.error_message and the raised RuntimeError
+    that Temporal records — never the opaque 'Activity task failed' wrapper."""
+
+    @parameterized.expand(
+        [
+            ("upstream_provider_failure", "API Error: 429 rate_limit_error"),
+            ("upstream_connection_error", "API Error: Connection error"),
+            ("upstream_stream_terminated", "API Error: terminated"),
+            ("agent_error", "Unhandled exception in agent loop"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_surfaces_classified_error(self, category, message):
+        turn_1 = [_agent_message_line("turn-1-response"), _end_turn_line()]
+        # Turn 2 died with a classified error and no agent_message / end_turn.
+        turn_2 = [_user_message_line("followup"), _usage_update_line(0), _agent_error_line(message, category=category)]
+        log = "\n".join(turn_1 + turn_2)
+        skip = len(turn_1)
+        # The workflow recorded the generic Temporal wrapper — the drain must override it.
+        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed")
+
+        persist = AsyncMock()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                new=persist,
+            ),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                await poll_for_turn(fake_task_run, skip_lines=skip)
+
+        expected = f"{category}: {message}"
+        # Temporal activity failure carries the classified error, not "Activity task failed".
+        assert expected in str(exc_info.value)
+        assert "Activity task failed" not in str(exc_info.value)
+        # The same classified error is persisted onto TaskRun.error_message.
+        persist.assert_awaited_once_with(str(fake_task_run.id), expected)
+
+    @pytest.mark.asyncio
+    async def test_acceptance_provider_failure_429(self):
+        turn = [
+            _user_message_line("summarize"),
+            _agent_error_line("API Error: 429 rate_limit_error", category="upstream_provider_failure"),
+        ]
+        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed")
+
+        persist = AsyncMock()
+        with (
+            patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                new=persist,
+            ),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        # The value persisted to TaskRun.error_message carries the category + 429 text.
+        expected = "upstream_provider_failure: API Error: 429 rate_limit_error"
+        persist.assert_awaited_once_with(str(fake_task_run.id), expected)
+        assert "upstream_provider_failure" in str(exc_info.value)
+        assert "429 rate_limit_error" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_error_without_category_falls_back_to_message(self):
+        # Older agent build: no error_category, but the raw message still beats the wrapper.
+        turn = [_user_message_line("summarize"), _agent_error_line("API Error: 429 rate_limit_error")]
+        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed")
+
+        persist = AsyncMock()
+        with (
+            patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                new=persist,
+            ),
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        # No category prefix — the raw message is persisted and surfaced.
+        persist.assert_awaited_once_with(str(fake_task_run.id), "API Error: 429 rate_limit_error")
+        assert "API Error: 429 rate_limit_error" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_missing_structured_error_keeps_generic_behavior(self):
+        # No _posthog/error line: the drain must keep today's generic message and
+        # must not touch TaskRun.error_message.
+        turn = [_user_message_line("summarize"), _usage_update_line(0)]
+        fake_task_run = FakeTaskRun(status="failed", error_message="Activity task failed")
+
+        persist = AsyncMock()
+        with (
+            patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                new=persist,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="no agent message") as exc_info:
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert "Activity task failed" in str(exc_info.value)
+        persist.assert_not_awaited()
+        assert fake_task_run.error_message == "Activity task failed"
+
+    @pytest.mark.asyncio
+    async def test_cancelled_status_does_not_surface_agent_error(self):
+        # CANCELLED is a user action — even with an agent error present, keep generic behavior.
+        turn = [
+            _user_message_line("summarize"),
+            _agent_error_line("API Error: terminated", category="upstream_stream_terminated"),
+        ]
+        fake_task_run = FakeTaskRun(status="cancelled", error_message="cancelled by user")
+
+        persist = AsyncMock()
+        with (
+            patch("posthog.storage.object_storage.read", return_value="\n".join(turn)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+            patch(
+                "products.tasks.backend.services.custom_prompt_internals._persist_task_run_error_message",
+                new=persist,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="no agent message"):
+                await poll_for_turn(fake_task_run, skip_lines=0)
+
+        persist.assert_not_awaited()
 
 
 class TestMultiTurnSessionRetry:

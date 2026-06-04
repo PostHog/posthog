@@ -86,10 +86,8 @@ async def arun_signals_scout(
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
-    config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team)
     # Lazy-seed canonical signals-scout-* skills if the team has none yet, so the run
-    # has something to load. Failures here should not crash the run — we log and continue
-    # with whatever skills the team already has.
+    # has something to load. Failures here are logged, not fatal.
     try:
         await database_sync_to_async(seed_canonical_skills, thread_sensitive=False)(team)
     except Exception:
@@ -100,6 +98,7 @@ async def arun_signals_scout(
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
         team, skill_name, version=skill_version
     )
+    config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
     # Skip-if-running guard. Best-effort — there is a race window between this check
     # and the row insert below (a second trigger could land in between), which we
@@ -273,16 +272,16 @@ def _get_team(team_id: int) -> Team:
     return Team.objects.select_related("organization").get(id=team_id)
 
 
-def _resolve_config(team: Team) -> SignalScoutConfig:
-    """Get-or-create the config row keyed on the canonical (parent) team.
+def _resolve_config(team: Team, skill_name: str) -> SignalScoutConfig:
+    """Get-or-create the (team, skill) config row, keyed on the canonical (parent) team.
 
-    Default is safe (enabled=False). `SignalScoutConfig` is `TeamScopedRootMixin`, so
-    `save()` rewrites a child-environment team to its parent — but the *lookup* half of
-    `get_or_create` is not canonicalized. A child-team lookup would miss an existing
-    parent row and then try to `create` a duplicate `OneToOne(team)` record, raising
-    `IntegrityError`. Resolve to the canonical id so the lookup matches the stored row.
+    `get_or_create`'s lookup half isn't canonicalized by the TeamScopedRootMixin `save()`,
+    so resolve to the parent id ourselves — else a child-team lookup misses the stored row
+    and tries to create a duplicate, raising IntegrityError on the unique constraint.
     """
-    config, _ = SignalScoutConfig.objects.unscoped().get_or_create(team_id=team.parent_team_id or team.id)
+    config, _ = SignalScoutConfig.objects.unscoped().get_or_create(
+        team_id=team.parent_team_id or team.id, skill_name=skill_name
+    )
     return config
 
 
