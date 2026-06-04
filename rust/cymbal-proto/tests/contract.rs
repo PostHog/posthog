@@ -1,11 +1,12 @@
 use cymbal_proto::cymbal::{
     process::v1::{
-        process_outcome, ProcessDone, ProcessDrop, ProcessDropReason, ProcessError,
-        ProcessErrorCode, ProcessErrorKind, ProcessItem, ProcessOutcome,
+        process_outcome, ProcessBatchRequest, ProcessBatchResponse, ProcessDone, ProcessDrop,
+        ProcessDropReason, ProcessError, ProcessErrorCode, ProcessErrorKind, ProcessItem,
+        ProcessOutcome, ServiceState, SubscribeRequest as ProcessSubscribeRequest,
     },
     resolution::v1::{
         resolve_outcome, Accepted, Done, Error, ErrorKind, LoadEvent, ResolveItem, ResolveOutcome,
-        Retry, SubscribeRequest,
+        Retry, SubscribeRequest as ResolutionSubscribeRequest,
     },
 };
 use prost::Message;
@@ -148,6 +149,79 @@ fn process_error_round_trips_retry_after_hint() {
 }
 
 #[test]
+fn process_batch_preserves_input_order_contract() {
+    let request = ProcessBatchRequest {
+        items: vec![
+            ProcessItem {
+                id: "first".to_string(),
+                event_json: br#"{"event":"$exception","properties":{"first":true}}"#.to_vec(),
+            },
+            ProcessItem {
+                id: "second".to_string(),
+                event_json: br#"{"event":"$exception","properties":{"second":true}}"#.to_vec(),
+            },
+        ],
+    };
+    let response = ProcessBatchResponse {
+        outcomes: vec![
+            ProcessOutcome {
+                id: "first".to_string(),
+                result: Some(process_outcome::Result::Done(ProcessDone {
+                    processed_event_json: br#"{"properties":{"first":true}}"#.to_vec(),
+                })),
+            },
+            ProcessOutcome {
+                id: "second".to_string(),
+                result: Some(process_outcome::Result::Drop(ProcessDrop {
+                    reason: ProcessDropReason::SuppressedIssue as i32,
+                })),
+            },
+        ],
+    };
+
+    let decoded_request = ProcessBatchRequest::decode(request.encode_to_vec().as_slice()).unwrap();
+    let decoded_response =
+        ProcessBatchResponse::decode(response.encode_to_vec().as_slice()).unwrap();
+
+    assert_eq!(decoded_request.items[0].id, "first");
+    assert_eq!(decoded_request.items[1].id, "second");
+    assert_eq!(decoded_response.outcomes[0].id, "first");
+    assert_eq!(decoded_response.outcomes[1].id, "second");
+}
+
+#[test]
+fn process_subscribe_reports_service_state() {
+    let request = ProcessSubscribeRequest {
+        subscriber_id: "node/error-tracking-1".to_string(),
+        tick_hint_ms: 500,
+    };
+    let state = ServiceState {
+        service_instance_id: "cymbal/pod-1".to_string(),
+        draining: false,
+        accepting_stream: true,
+        accepting_batch: true,
+        in_flight_items: 7,
+        max_in_flight_items: 128,
+        sequence: 3,
+        message: "ready".to_string(),
+    };
+
+    let decoded_request =
+        ProcessSubscribeRequest::decode(request.encode_to_vec().as_slice()).unwrap();
+    let decoded_state = ServiceState::decode(state.encode_to_vec().as_slice()).unwrap();
+
+    assert_eq!(decoded_request.subscriber_id, "node/error-tracking-1");
+    assert_eq!(decoded_request.tick_hint_ms, 500);
+    assert_eq!(decoded_state.service_instance_id, "cymbal/pod-1");
+    assert!(!decoded_state.draining);
+    assert!(decoded_state.accepting_stream);
+    assert!(decoded_state.accepting_batch);
+    assert_eq!(decoded_state.in_flight_items, 7);
+    assert_eq!(decoded_state.max_in_flight_items, 128);
+    assert_eq!(decoded_state.sequence, 3);
+}
+
+#[test]
 fn resolve_item_serializes_exception_payload_with_correlation_id_and_deadline() {
     let item = ResolveItem {
         id: 7,
@@ -244,12 +318,12 @@ fn resolve_outcome_echoes_id_and_carries_done_error_or_retry() {
 
 #[test]
 fn subscribe_request_round_trips_caller_hint_and_identity() {
-    let request = SubscribeRequest {
+    let request = ResolutionSubscribeRequest {
         subscriber_id: "cymbal/pod-1".to_string(),
         tick_hint_ms: 500,
     };
 
-    let decoded = SubscribeRequest::decode(request.encode_to_vec().as_slice()).unwrap();
+    let decoded = ResolutionSubscribeRequest::decode(request.encode_to_vec().as_slice()).unwrap();
 
     assert_eq!(decoded.subscriber_id, "cymbal/pod-1");
     assert_eq!(decoded.tick_hint_ms, 500);

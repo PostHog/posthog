@@ -1,15 +1,33 @@
 syntax = "proto3";
 package cymbal.process.v1;
 
-// CymbalProcess is the Node-facing Cymbal processing API. It accepts whole
-// canonical error-tracking events and returns one terminal outcome per item.
-service CymbalProcess {
+// ProcessStream is the Node-facing streaming Cymbal processing API. It accepts
+// whole canonical error-tracking events and returns one terminal outcome per item.
+service ProcessStream {
   // Process is a bidirectional stream of independent items. Outcomes may be
   // emitted out of input order, but every accepted item gets exactly one
   // terminal ProcessOutcome. Stream-level failures are reserved for protocol,
   // transport, or server-shutdown cases where item-level outcomes cannot be
-  // maintained.
+  // maintained. Callers that require input-order results should use ProcessBatch.
   rpc Process(stream ProcessItem) returns (stream ProcessOutcome);
+
+  // Subscribe opens a long-lived stream of service-state ticks for this Cymbal
+  // instance. Callers use the latest ServiceState to avoid routing new work to
+  // draining or overloaded instances.
+  rpc Subscribe(SubscribeRequest) returns (stream ServiceState);
+}
+
+// ProcessBatch is the Node-facing batch Cymbal processing API. It accepts a
+// finite batch and returns one terminal outcome per input item in input order.
+service ProcessBatch {
+  // Process returns outcomes in the same order as request.items. This keeps
+  // ordered ingestion frameworks simple at the cost of waiting for slower items
+  // before the batch response can complete.
+  rpc Process(ProcessBatchRequest) returns (ProcessBatchResponse);
+
+  // Subscribe opens a long-lived stream of service-state ticks for this Cymbal
+  // instance. It has the same semantics as ProcessStream.Subscribe.
+  rpc Subscribe(SubscribeRequest) returns (stream ServiceState);
 }
 
 // ProcessItem is one canonical event payload to process. The id is an opaque
@@ -22,6 +40,18 @@ message ProcessItem {
   // Serialized rust/cymbal AnyEvent JSON in the strict canonical shape already
   // accepted by Cymbal's HTTP /process boundary.
   bytes event_json = 2;
+}
+
+// ProcessBatchRequest is a finite ordered batch of process items.
+message ProcessBatchRequest {
+  repeated ProcessItem items = 1;
+}
+
+// ProcessBatchResponse contains exactly one outcome for each request item, in
+// the same order as ProcessBatchRequest.items. Individual outcomes still echo
+// the caller-provided item id.
+message ProcessBatchResponse {
+  repeated ProcessOutcome outcomes = 1;
 }
 
 // ProcessOutcome is the terminal result for one ProcessItem. Exactly one of
@@ -88,4 +118,43 @@ enum ProcessErrorCode {
   PROCESS_ERROR_CODE_INTERNAL = 5;
   PROCESS_ERROR_CODE_OVERLOADED = 6;
   PROCESS_ERROR_CODE_UNIMPLEMENTED = 7;
+}
+
+// SubscribeRequest opens a long-lived stream of ServiceState ticks. Callers
+// describe themselves for logs and may hint a cadence, but the server has the
+// final say so a misbehaving caller cannot induce excess work.
+message SubscribeRequest {
+  // Free-form identifier for the subscribing process. Used in server logs and
+  // metrics labels; not interpreted otherwise. Recommended format is
+  // `<service>/<instance>`.
+  string subscriber_id = 1;
+  // Caller-preferred tick cadence, in milliseconds. The server may clamp this
+  // to a safe range; a zero value means "use the server default". This is a
+  // hint and not a contract.
+  uint32 tick_hint_ms = 2;
+}
+
+// ServiceState is one freshness/load/draining tick. Emitted independently of
+// Process work. Callers should treat the latest ServiceState per endpoint as the
+// routing-relevant snapshot.
+message ServiceState {
+  // Stable identity of the Cymbal pod that emitted this event.
+  string service_instance_id = 1;
+  // True when the pod is preparing to shut down. Routers should stop sending
+  // new work; in-flight requests are still served.
+  bool draining = 2;
+  // True when the stream API should receive new work.
+  bool accepting_stream = 3;
+  // True when the batch API should receive new work.
+  bool accepting_batch = 4;
+  // Current process-wide item load, if known.
+  uint32 in_flight_items = 5;
+  // Configured process-wide item capacity, if known. A zero value means the
+  // service did not report a capacity.
+  uint32 max_in_flight_items = 6;
+  // Monotonic per-subscription sequence assigned by the server, starting at 1
+  // for the first tick of each Subscribe stream.
+  uint64 sequence = 7;
+  // Optional short human-readable note. Not interpreted by the router.
+  string message = 8;
 }
