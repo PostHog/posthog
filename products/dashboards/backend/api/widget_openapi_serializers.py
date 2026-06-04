@@ -10,6 +10,7 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.widgets.error_tracking_list import ERROR_TRACKING_ORDER_BY
 from products.dashboards.backend.widgets.session_replay_list import SESSION_REPLAY_ORDER_BY
+from products.error_tracking.backend.api.query_serializers import ErrorTrackingAssigneeSerializer
 
 _ERROR_TRACKING_WIDGET_STATUS_CHOICES = [
     "archived",
@@ -30,13 +31,27 @@ class WidgetDateRangeSerializer(serializers.Serializer):
     )
 
 
+class WidgetFilterConfigEntrySerializer(serializers.Serializer):
+    filterId = serializers.CharField(help_text="Filter UUID; must match the widgetFilters map key.")
+    propertyName = serializers.CharField(help_text="Event property key (for example $environment).")
+    optionId = serializers.CharField(help_text="Selected option id from the filter definition.")
+    operator = serializers.CharField(
+        help_text="Property filter operator (for example exact, is_not, icontains).",
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Filter value as a string, list of strings, or null.",
+    )
+
+
 class ErrorTrackingListWidgetConfigSerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         min_value=1,
         max_value=MAX_WIDGET_RESULT_LIMIT,
         default=DEFAULT_WIDGET_LIST_LIMIT,
         required=False,
-        help_text="Maximum number of issues to return.",
+        help_text="Maximum number of issues to return (page size).",
     )
     orderBy = serializers.ChoiceField(
         choices=sorted(ERROR_TRACKING_ORDER_BY),
@@ -56,10 +71,23 @@ class ErrorTrackingListWidgetConfigSerializer(serializers.Serializer):
         required=False,
         help_text="Issue status filter.",
     )
+    assignee = ErrorTrackingAssigneeSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+    )
+    widgetFilters = serializers.DictField(
+        child=WidgetFilterConfigEntrySerializer(),
+        required=False,
+        help_text=(
+            "Widget filter selections keyed by filter id. For error_tracking_list, only filters "
+            "named Team, Environment, URL path, or Temporal worker (or matching property names) are supported."
+        ),
+    )
     dateRange = WidgetDateRangeSerializer(
         required=False,
         allow_null=True,
-        help_text="Optional relative date range override.",
+        help_text="Relative date range for issues (date_from only on widgets).",
     )
     filterTestAccounts = serializers.BooleanField(
         required=False,
@@ -91,6 +119,13 @@ class SessionReplayListWidgetConfigSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Optional relative date range override.",
+    )
+    widgetFilters = serializers.DictField(
+        child=WidgetFilterConfigEntrySerializer(),
+        required=False,
+        help_text=(
+            "Widget filter selections keyed by filter id. Event property filters are applied to the recordings query."
+        ),
     )
     filterTestAccounts = serializers.BooleanField(
         required=False,
