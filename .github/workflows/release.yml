@@ -3,62 +3,15 @@
 # Copyright 2022-2024, axodotdev
 # SPDX-License-Identifier: MIT or Apache-2.0
 #
-# CI that:
-#
-# * checks for a Git Tag that looks like a release
-# * builds artifacts with dist (archives, installers, hashes)
-# * uploads those artifacts to temporary workflow zip
-# * on success, uploads the artifacts to a GitHub Release
-#
-# Note that the GitHub Release will be created with a generated
-# title/body based on your changelogs.
+# CI that checks cargo-dist packaging for pull requests.
 
 name: Release
 permissions:
     contents: read
 
-concurrency:
-    group: ${{ inputs.tag && inputs.tag != 'dry-run' && 'release-posthog-cli-publish' || format('release-posthog-cli-{0}', github.ref) }}
-    cancel-in-progress: false
-
-# This task will run whenever you workflow_dispatch with a tag that looks like a version
-# like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
-# Various formats will be parsed into a VERSION and an optional PACKAGE_NAME, where
-# PACKAGE_NAME must be the name of a Cargo package in your workspace, and VERSION
-# must be a Cargo-style SemVer Version (must have at least major.minor.patch).
-#
-# If PACKAGE_NAME is specified, then the announcement will be for that
-# package (erroring out if it doesn't have the given version or isn't dist-able).
-#
-# If PACKAGE_NAME isn't specified, then the announcement will be for all
-# (dist-able) packages in the workspace with that version (this mode is
-# intended for workspaces with only one dist-able package, or with all dist-able
-# packages versioned/released in lockstep).
-#
-# If you dispatch multiple tags, separate instances of this workflow will
-# spin up, creating an independent announcement for each one.
-#
-# If there's a prerelease-style suffix to the version, then the release(s)
-# will be marked as a prerelease.
+# Publishing is handled by the Release CLI workflow after Release environment approval.
 on:
     pull_request:
-    workflow_dispatch:
-        inputs:
-            tag:
-                description: Release Tag
-                required: true
-                default: dry-run
-                type: string
-            source:
-                description: Release source
-                required: false
-                default: manual
-                type: string
-            release_commit:
-                description: Release commit
-                required: false
-                default: ''
-                type: string
 
 jobs:
     # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -67,32 +20,15 @@ jobs:
         timeout-minutes: 10
         outputs:
             val: ${{ steps.plan.outputs.manifest }}
-            tag: ${{ (inputs.tag != 'dry-run' && inputs.tag) || '' }}
-            tag-flag: ${{ inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}', inputs.tag) || '' }}
-            publishing: ${{ inputs.tag && inputs.tag != 'dry-run' }}
+            tag: ''
+            tag-flag: ''
+            publishing: 'false'
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
-            - name: Validate release dispatch
-              if: ${{ inputs.tag && inputs.tag != 'dry-run' }}
-              env:
-                  DISPATCH_ACTOR: ${{ github.actor }}
-                  RELEASE_COMMIT: ${{ inputs.release_commit }}
-                  RELEASE_SOURCE: ${{ inputs.source }}
-              run: |
-                  if [ -z "$RELEASE_COMMIT" ] || [ "$(git rev-parse HEAD)" != "$RELEASE_COMMIT" ]; then
-                      echo "::error::Release workflow is not running at the release commit"
-                      exit 1
-                  fi
-
-                  if [ "$RELEASE_SOURCE" = "release-cli" ] && [ "$DISPATCH_ACTOR" != "github-actions[bot]" ]; then
-                      echo "::error::Release CLI dispatches must be triggered by GitHub Actions"
-                      exit 1
-                  fi
             - name: Install dist
               # we specify bash to get pipefail; it guards against the `curl` command
               # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -110,7 +46,7 @@ jobs:
             # but also really annoying to build CI around when it needs secrets to work right.)
             - id: plan
               env:
-                  DIST_COMMAND: ${{ (inputs.tag && inputs.tag != 'dry-run' && format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }}
+                  DIST_COMMAND: plan
               run: |
                   dist $DIST_COMMAND --output-format=json > plan-dist-manifest.json
                   echo "dist ran successfully"
@@ -122,24 +58,13 @@ jobs:
                   name: artifacts-plan-dist-manifest
                   path: plan-dist-manifest.json
 
-    authorize-manual-release:
-        needs:
-            - plan
-        if: ${{ needs.plan.outputs.publishing == 'true' && inputs.source != 'release-cli' }}
-        runs-on: 'ubuntu-22.04'
-        timeout-minutes: 5
-        environment: Release
-        steps:
-            - run: echo "Manual cargo-dist release approved"
-
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
         # Let the initial task tell us to not run (currently very blunt)
         needs:
             - plan
-            - authorize-manual-release
-        if: ${{ always() && needs.plan.result == 'success' && fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' || inputs.tag == 'dry-run') && (needs.plan.outputs.publishing != 'true' || inputs.source == 'release-cli' || needs.authorize-manual-release.result == 'success') && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.
@@ -166,7 +91,6 @@ jobs:
                   git config --global core.longpaths true
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
             - name: Install Rust non-interactively if not already installed
               if: ${{ matrix.container }}
@@ -217,9 +141,7 @@ jobs:
     build-global-artifacts:
         needs:
             - plan
-            - authorize-manual-release
             - build-local-artifacts
-        if: ${{ always() && needs.plan.result == 'success' && needs.build-local-artifacts.result == 'success' && (needs.plan.outputs.publishing != 'true' || inputs.source == 'release-cli' || needs.authorize-manual-release.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 15
         env:
@@ -229,7 +151,6 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ inputs.release_commit || github.sha }}
                   submodules: recursive
             - name: Install cached dist
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -263,117 +184,3 @@ jobs:
                   path: |
                       ${{ steps.cargo-dist.outputs.paths }}
                       ${{ env.BUILD_MANIFEST_NAME }}
-
-    # Determines if we should publish/announce
-    host:
-        needs:
-            - plan
-            - build-local-artifacts
-            - build-global-artifacts
-            - authorize-manual-release
-        # Only run if we're "publishing", and only if local and global didn't fail (skipped is fine)
-        if: ${{ always() && needs.plan.outputs.publishing == 'true' && (inputs.source == 'release-cli' || needs.authorize-manual-release.result == 'success') && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
-        runs-on: 'ubuntu-22.04'
-        timeout-minutes: 15
-        outputs:
-            val: ${{ steps.host.outputs.manifest }}
-        steps:
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
-
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ inputs.release_commit || github.sha }}
-                  submodules: recursive
-                  token: ${{ steps.app-token.outputs.token }}
-            - name: Install cached dist
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  name: cargo-dist-cache
-                  path: ~/.cargo/bin/
-            - run: chmod +x ~/.cargo/bin/dist
-            # Fetch artifacts from scratch-storage
-            - name: Fetch artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  pattern: artifacts-*
-                  path: target/distrib/
-                  merge-multiple: true
-            - id: host
-              shell: bash
-              run: |
-                  dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
-                  echo "artifacts uploaded and released successfully"
-                  cat dist-manifest.json
-                  echo "manifest=$(jq -c "." dist-manifest.json)" >> "$GITHUB_OUTPUT"
-            - name: 'Upload dist-manifest.json'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
-              with:
-                  # Overwrite the previous copy
-                  name: artifacts-dist-manifest
-                  path: dist-manifest.json
-            # Create a GitHub Release while uploading all files to it
-            - name: 'Download GitHub Artifacts'
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  pattern: artifacts-*
-                  path: artifacts
-                  merge-multiple: true
-            - name: Cleanup
-              run: |
-                  # Remove the granular manifests
-                  rm -f artifacts/*-dist-manifest.json
-            - name: Create GitHub Release
-              env:
-                  PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-                  ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
-                  ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
-                  RELEASE_COMMIT: '${{ inputs.release_commit || github.sha }}'
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: |
-                  # Write and read notes from a file to avoid quoting breaking things
-                  echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
-                  gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
-
-    publish-npm:
-        needs:
-            - plan
-            - host
-        runs-on: 'ubuntu-22.04'
-        timeout-minutes: 10
-        env:
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            PLAN: ${{ needs.plan.outputs.val }}
-        if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
-        permissions:
-            id-token: write
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ inputs.release_commit || github.sha }}
-                  sparse-checkout: .nvmrc
-                  sparse-checkout-cone-mode: false
-            - name: Fetch npm packages
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  pattern: artifacts-*
-                  path: npm/
-                  merge-multiple: true
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  registry-url: 'https://registry.npmjs.org'
-            - name: Ensure modern npm (OIDC support)
-              run: npm install -g npm@11.6.4
-            - run: |
-                  for release in $(echo "$PLAN" | jq --compact-output '.releases[] | select([.artifacts[] | endswith("-npm-package.tar.gz")] | any)'); do
-                    pkg=$(echo "$release" | jq '.artifacts[] | select(endswith("-npm-package.tar.gz"))' --raw-output)
-                    npm publish --access public "./npm/${pkg}"
-                  done
-              env:
-                  NPM_CONFIG_PROVENANCE: true
-                  NODE_AUTH_TOKEN: ''

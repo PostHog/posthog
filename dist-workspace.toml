@@ -9,7 +9,7 @@ allow-dirty = ["ci"]
 cargo-dist-version = "0.32.0"
 # CI backends to support
 ci = "github"
-# Trigger release publishing via workflow_dispatch instead of tag pushes
+# Keep generated release workflows off tag-push publishing; Release CLI owns publishing
 dispatch-releases = true
 # The installers to generate for each app
 installers = ["shell", "powershell", "npm"]
