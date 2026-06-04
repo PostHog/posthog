@@ -11,6 +11,7 @@ import {
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { ObservationProgressBar } from './ObservationProgressBar'
 
 export function ObservationStatusTag({
     status,
@@ -365,12 +366,7 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
 }
 
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 text-muted text-sm">
-            <Spinner textColored />
-            <span>{observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}</span>
-        </div>
-    )
+    return <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
 }
 
 export function ObservationDockCard({
