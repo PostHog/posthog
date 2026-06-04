@@ -100,6 +100,10 @@ class AnnotationSerializer(serializers.ModelSerializer):
             },
         }
 
+    def validate_emoji(self, value: str | None) -> str | None:
+        # Normalise blank strings to None so the DB has a single canonical "no emoji" state.
+        return value or None
+
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]
         return super().update(instance, validated_data)

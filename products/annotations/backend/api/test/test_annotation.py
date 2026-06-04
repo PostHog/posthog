@@ -217,6 +217,21 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         instance = Annotation.objects.get(pk=response.json()["id"])
         assert instance.emoji == "🚀"
 
+    def test_creating_annotation_with_blank_emoji_stores_null(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Release shipped",
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "emoji": "",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["emoji"] is None
+        instance = Annotation.objects.get(pk=response.json()["id"])
+        assert instance.emoji is None
+
     def test_updating_and_clearing_annotation_emoji(self) -> None:
         test_annotation = Annotation.objects.create(
             organization=self.organization,
