@@ -399,12 +399,8 @@ export function ReplayTriggers(): JSX.Element {
                                 <strong>JavaScript SDK version compatibility</strong>
                                 <ul className="list-disc ml-4 mt-2 space-y-1">
                                     <li>
-                                        Older SDK versions (&lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use the legacy
-                                        recording conditions below
-                                    </li>
-                                    <li>
-                                        Newer SDK versions (&gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION}) will use trigger
-                                        groups if configured, otherwise will fallback to the legacy recording conditions
+                                        SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION} use trigger groups if
+                                        configured, otherwise fall back to the legacy recording conditions
                                     </li>
                                     <li>
                                         Both configurations are sent to ensure backward compatibility with all
