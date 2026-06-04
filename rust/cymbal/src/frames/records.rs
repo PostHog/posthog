@@ -1,8 +1,3 @@
-use std::{
-    collections::hash_map::DefaultHasher,
-    hash::{Hash, Hasher},
-};
-
 use chrono::{DateTime, Duration, Utc};
 use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
@@ -62,10 +57,22 @@ impl FrameResultTtlPolicy {
             return Duration::zero();
         }
 
-        let mut hasher = DefaultHasher::new();
-        id.hash(&mut hasher);
-        Duration::milliseconds((hasher.finish() % (max_jitter_millis + 1)) as i64)
+        Duration::milliseconds((stable_jitter_hash(id) % (max_jitter_millis + 1)) as i64)
     }
+}
+
+fn stable_jitter_hash(id: &RawFrameId) -> u64 {
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in id
+        .hash_id
+        .as_bytes()
+        .iter()
+        .chain(id.team_id.to_le_bytes().iter())
+    {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
