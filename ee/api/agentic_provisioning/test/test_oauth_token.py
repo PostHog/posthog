@@ -178,6 +178,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert res.json()["error"] == "invalid_scope"
 
     def test_refresh_narrows_to_tightened_ceiling(self):
+        self._set_app_ceiling(["query:read", "insight:write"])
         self._store_auth_code("refresh_narrow", scopes=["query:read", "insight:write"])
         first = self._post_token(self._token_request_body(code="refresh_narrow"))
         refresh_token = first.json()["refresh_token"]
@@ -190,6 +191,7 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
         assert token.scope == "query:read"
 
     def test_refresh_rejected_when_scopes_outside_ceiling(self):
+        self._set_app_ceiling(["insight:write"])
         self._store_auth_code("refresh_reject", scopes=["insight:write"])
         first = self._post_token(self._token_request_body(code="refresh_reject"))
         refresh_token = first.json()["refresh_token"]
