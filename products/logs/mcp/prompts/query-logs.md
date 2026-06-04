@@ -82,6 +82,8 @@ All parameters go inside `query`.
 
 Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.
 
+This filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `"ERROR"`, `"Warning"`, `"err"`), `severityLevels: ["error"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: "severity_text" }` and either filter on the value you find or fall back to a `searchTerm`. See "Severity fields in the response" below for the `severity_text` / `severity_number` / `level` mapping.
+
 ## query.serviceNames
 
 Filter by service names. Use `logs-attribute-values-list` with `key: "service.name"` and `attribute_type: "resource"` to discover available services.
@@ -196,6 +198,37 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
   }
 }
 ```
+
+# Severity fields in the response
+
+Each returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:
+
+| Field            | What it is                                                       | Use it for                                                             |
+| ---------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `severity_text`  | Canonical severity string. **Prefer this.**                      | Filtering (`severityLevels`), grouping, and anything you show a user. |
+| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |
+| `level`          | ClickHouse alias for `severity_text`. Redundant.                 | Ignore — prefer `severity_text`.                                      |
+
+`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:
+
+| Bucket  | `severity_number` range | Canonical `severity_text` |
+| ------- | ----------------------- | ------------------------- |
+| `trace` | 1–4                     | `trace`                   |
+| `debug` | 5–8                     | `debug`                   |
+| `info`  | 9–12                    | `info`                    |
+| `warn`  | 13–16                   | `warn`                    |
+| `error` | 17–20                   | `error`                   |
+| `fatal` | 21–24                   | `fatal`                   |
+
+When the user asks for "warnings and above", that is `severityLevels: ["warn", "error", "fatal"]` — there is no numeric `>=` operator on the top-level severity filter.
+
+# If the query fails (500 / timeout)
+
+A `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:
+
+1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).
+2. Add `serviceNames` or a `log_resource_attribute` filter to reduce the scan.
+3. Size the volume with `logs-count`, then locate the busy window with `logs-count-ranges`, before pulling rows again.
 
 # Reminders
 
