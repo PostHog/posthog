@@ -38,6 +38,42 @@ don't catch integration drift between ingress, runner, janitor. They're
 fine for pure logic (spec parsing, sweep math) but a feature isn't
 "covered" until it has a case here.
 
+## The "every change ships with its test" rule
+
+Tests aren't optional and they aren't a follow-up. Every code change in
+`services/agent-*`, `packages/agent-chat/`, and `products/agent_platform/`
+ships with a test in the same commit:
+
+- **Bug fix → regression test.** The test must fail when the fix is
+  reverted. If reverting locally is annoying (formatter rewrites,
+  hooks), mental-trace the assertion to prove the regression is
+  caught — e.g. `expect(ctor).toHaveBeenCalledTimes(2)` would fail
+  with `1` if the catch-and-clear weren't in place. State it explicitly
+  in the commit message.
+- **New helper / pure function → unit test.** Cover the obvious axes
+  (input shape, edge cases, env fallbacks). Pure functions are cheap
+  to test; "I'll add tests later" is how silent regressions ship.
+- **New plumbing → at least one wire test.** When a value flows
+  spec → AcquireOpts → SDK call (or any equivalent multi-hop), mock
+  the downstream and assert the value lands at the destination.
+- **E2E isn't a substitute for unit tests.** The harness is the
+  source of truth for "does the feature work end-to-end"; unit tests
+  are the source of truth for "is this single function's contract
+  preserved." A new pure helper needs both: a unit test for the
+  contract, and (if it changes user-visible behaviour) a harness
+  case for the feature.
+- **Run the test before declaring done.** "Wrote a test, didn't run
+  it" is how broken assertions ship. Run the relevant test file
+  before the commit, not the whole suite.
+
+The pointer to "prefer top-level imports + `vi.doMock` over
+`await import` inside `it` blocks" is the most common subtle vitest
+trap when mocking modules that themselves use dynamic imports
+(`sandbox-modal.ts` is the worked example). The mock registry is
+consulted at the time the dynamic import inside the SUT runs, not at
+the time the test file imports the SUT, so the dynamic-import
+workaround inside tests is almost always unnecessary.
+
 ## Real-inference suite
 
 [src/cases/real-inference.test.ts](src/cases/real-inference.test.ts)
