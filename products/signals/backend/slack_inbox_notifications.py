@@ -359,6 +359,15 @@ def _build_message_blocks(
                 "action_id": SIGNALS_DISMISS_REPORT_ACTION_ID,
                 "text": {"type": "plain_text", "text": "Dismiss", "emoji": True},
                 "value": dismiss_button_value,
+                "confirm": {
+                    "title": {"type": "plain_text", "text": "Dismiss this report?"},
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "This will dismiss the report for everyone. You can still find it in PostHog.",
+                    },
+                    "confirm": {"type": "plain_text", "text": "Dismiss"},
+                    "deny": {"type": "plain_text", "text": "Cancel"},
+                },
             }
         )
     blocks.append({"type": "actions", "elements": action_elements})

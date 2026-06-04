@@ -190,6 +190,8 @@ def test_build_message_blocks_appends_dismiss_button_last_with_action_id() -> No
     assert dismiss["action_id"] == "signals_dismiss_report"
     assert dismiss["value"] == dismiss_value
     assert "url" not in dismiss
+    assert dismiss["confirm"]["confirm"]["text"] == "Dismiss"
+    assert dismiss["confirm"]["deny"]["text"] == "Cancel"
 
 
 @pytest.mark.parametrize(
