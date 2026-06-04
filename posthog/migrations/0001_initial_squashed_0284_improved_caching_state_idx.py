@@ -18,10 +18,11 @@ import posthog.utils
 import posthog.models.user
 import posthog.models.utils
 import posthog.models.team.team
-import posthog.models.exported_asset
 import posthog.models.organization_domain
 import posthog.models.sharing_configuration
 import posthog.models.activity_logging.activity_log
+
+import products.exports.backend.models.exported_asset
 
 
 class Migration(migrations.Migration):
@@ -964,7 +965,7 @@ class Migration(migrations.Migration):
                     "access_token",
                     models.CharField(
                         blank=True,
-                        default=posthog.models.exported_asset.get_default_access_token,
+                        default=products.exports.backend.models.exported_asset.get_default_access_token,
                         max_length=400,
                         null=True,
                     ),

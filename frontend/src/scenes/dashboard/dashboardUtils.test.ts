@@ -21,7 +21,7 @@ describe('getDashboardTileDisplayName', () => {
             color: null,
         }
 
-        expect(getDashboardTileDisplayName(tile)).toBe('error_tracking_list')
+        expect(getDashboardTileDisplayName(tile)).toBe('Top issues')
     })
 
     it('uses custom widget name when set', () => {

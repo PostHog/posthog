@@ -8,6 +8,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from './cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -30,7 +31,9 @@ import { defaultConfig } from './config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
 import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { KafkaProducerRegistry } from './ingestion/outputs/kafka-producer-registry'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from './ingestion/personhog'
+import { createPersonHogClient } from './ingestion/personhog'
+import { PersonHogGroupReadRepository } from './ingestion/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from './ingestion/personhog/personhog-person-read-repository'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
 import { ServerCommands } from './utils/commands'
@@ -40,10 +43,8 @@ import { GeoIPService } from './utils/geoip'
 import { logger } from './utils/logger'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from './worker/ingestion/groups/repositories/postgres-group-repository'
-import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
-import { PostgresPersonRepository } from './worker/ingestion/persons/repositories/postgres-person-repository'
+import { GroupReadRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
+import { PersonReadRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -91,6 +92,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorker ||
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
+            capabilities.cdpCyclotronWorkerEmail ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
@@ -236,7 +238,14 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpCyclotronWorkerHogFlow) {
             serviceLoaders.push(async () => {
-                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, postgresV2Queue)
+                // Dedicated queue instance per consumer worker — sharing one
+                // CyclotronJobQueuePostgresV2 across two consumers (hogflow + email)
+                // collides on `this.worker`, `pendingJobs`, and the pg pool. In
+                // prod each capability runs in its own pod so they get fresh
+                // instances naturally; locally we'd silently double-process when
+                // both capabilities are enabled in the same process.
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service
             })
@@ -258,6 +267,16 @@ export class PluginServer implements NodeServer {
             serviceLoaders.push(async () => {
                 const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, legacyQueue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerEmail) {
+            serviceLoaders.push(async () => {
+                // Dedicated queue instance — see note on cdpCyclotronWorkerHogFlow above.
+                const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, queue)
                 await worker.start()
                 return worker.service
             })
@@ -362,8 +381,8 @@ export class PluginServer implements NodeServer {
 
     private async createCdpSharedServices(): Promise<{
         geoipService: GeoIPService
-        personRepository: PersonRepository
-        groupRepository: GroupRepository
+        personRepository: PersonReadRepository
+        groupRepository: GroupReadRepository
         encryptedFields: EncryptedFields
         integrationManager: IntegrationManagerService
         internalCaptureService: InternalCaptureService
@@ -374,24 +393,12 @@ export class PluginServer implements NodeServer {
         const personhogClient = createPersonHogClient(this.config)
         const clientLabel = this.config.PLUGIN_SERVER_MODE ?? 'unknown'
 
-        const postgresPersonRepository = new PostgresPersonRepository(this.postgres!, {
-            calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-        })
-        const personRepository = buildPersonRepository(
-            personhogClient,
-            postgresPersonRepository,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
-        const postgresGroupRepository = new PostgresGroupRepository(this.postgres!)
-        const groupRepository = buildGroupRepository(
-            personhogClient,
-            postgresGroupRepository,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
-            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
-            clientLabel
-        )
+        if (!personhogClient) {
+            throw new Error('PersonHog client is required for CDP — set PERSONHOG_ENABLED=true and PERSONHOG_ADDR')
+        }
+
+        const personRepository = new PersonHogPersonReadRepository(personhogClient, clientLabel)
+        const groupRepository = new PersonHogGroupReadRepository(personhogClient, clientLabel)
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub!, this.postgres!, encryptedFields)

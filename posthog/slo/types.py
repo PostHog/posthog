@@ -12,6 +12,7 @@ class SloOperation(StrEnum):
     SUBSCRIPTION_DELIVERY = "subscription_delivery"
     SUBSCRIPTION_CREATE = "subscription_create"
     SUBSCRIPTION_DELETE = "subscription_delete"
+    AI_SUBSCRIPTION_PROMPT_GENERATION = "ai_subscription_prompt_generation"
     ALERT_CHECK = "alert_check"
     QUERY_SERVICE = "query_service"
 

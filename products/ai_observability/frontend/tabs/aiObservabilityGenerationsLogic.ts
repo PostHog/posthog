@@ -9,6 +9,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import type { aiObservabilityGenerationsLogicType } from './aiObservabilityGenerationsLogicType'
 
 export interface AIObservabilityGenerationsLogicProps {
@@ -61,7 +62,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
         clearExpandedGenerations: true,
     }),
 
-    reducers({
+    reducers(() => ({
         generationsQueryOverride: [
             null as DataTableNode | null,
             {
@@ -71,7 +72,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            { persist: true },
+            buildAiObservabilityStorageConfig('generations.columns'),
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },
@@ -120,7 +121,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 applyUrlState: () => ({}),
             },
         ],
-    }),
+    })),
 
     listeners(({ actions, values }) => ({
         toggleGenerationExpanded: async ({ uuid, traceId }) => {
