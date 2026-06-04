@@ -286,9 +286,13 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     const active = activeDate?.valueOf() === date.valueOf() && isPopoverShown
     const shown = active || hovered || annotations.length > 0
 
-    // A single annotation with an emoji is surfaced as that emoji instead of the default badge.
-    // Multiple annotations always fall back to the count badge.
-    const singleEmoji = annotations.length === 1 ? annotations[0].emoji : null
+    // Surface an emoji in place of the count badge when the annotations in this bucket
+    // share exactly one emoji — regardless of which annotation carries it or how many do.
+    // More than one distinct emoji (multiple options) falls back to the count badge.
+    const distinctEmojis = Array.from(
+        new Set(annotations.map((annotation) => annotation.emoji).filter((emoji): emoji is string => !!emoji))
+    )
+    const singleEmoji = distinctEmojis.length === 1 ? distinctEmojis[0] : null
 
     return (
         <button
