@@ -38,6 +38,18 @@ _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
     byteorder="big",
 )
 
+_session: boto3.Session | None = None
+
+
+def _get_session() -> boto3.Session:
+    # Built lazily once and reused (the object_storage.py / s3_batch_export pattern): constructing
+    # the session resolves AWS profile config, so at module scope it ran during Django startup and
+    # crashed boot on a dangling AWS_PROFILE. Reuse avoids re-resolving credentials on every call.
+    global _session
+    if _session is None:
+        _session = boto3.Session()
+    return _session
+
 
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
     """Typed configuration for a FileDownload batch-export destination."""
@@ -469,9 +481,7 @@ def _generate_s3_pre_signed_url(
         # Should never happen, our keys always end with a filename
         raise ValueError(f"Cannot derive filename from S3 key: {key!r}")
 
-    # Build the session here, not at module scope: constructing it resolves AWS profile config,
-    # and this module is on the Django boot path (a dangling AWS_PROFILE would crash boot).
-    sts = boto3.Session().client("sts")
+    sts = _get_session().client("sts")
 
     for attempt in range(1, max_attempts + 1):
         # It may take a few moments for access to be granted, so we retry in a loop

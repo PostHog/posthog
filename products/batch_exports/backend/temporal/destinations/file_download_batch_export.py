@@ -43,6 +43,18 @@ FILE_DOWNLOAD_PREFIX = (
 
 NON_RETRYABLE_ERROR_TYPES = ()
 
+_session: aioboto3.Session | None = None
+
+
+def _get_session() -> aioboto3.Session:
+    # Built lazily once and reused (the object_storage.py / s3_batch_export pattern): constructing
+    # the session resolves AWS profile config, so at module scope it ran during Django startup and
+    # crashed boot on a dangling AWS_PROFILE. Reuse avoids re-resolving credentials on every call.
+    global _session
+    if _session is None:
+        _session = aioboto3.Session()
+    return _session
+
 
 class Credentials(typing.NamedTuple):
     aws_access_key_id: str
@@ -98,9 +110,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
     `_get_temporary_credentials_for_multipart_upload` or
     `_get_temporary_credentials_to_head_object` as needed.
     """
-    # Build the session here, not at module scope: constructing it resolves AWS profile config,
-    # and this module is on the Django boot path (a dangling AWS_PROFILE would crash boot).
-    async with aioboto3.Session().client("sts") as sts:
+    async with _get_session().client("sts") as sts:
         for attempt in range(1, max_attempts + 1):
             try:
                 response = await sts.assume_role(
