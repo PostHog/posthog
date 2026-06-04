@@ -13,7 +13,7 @@ describe('getToolRecoveryHint', () => {
     it('returns the narrow-and-retry hint for a 5xx on a logs query endpoint', () => {
         const hint = getToolRecoveryHint({ url: LOGS_QUERY_URL, status: 500 })
 
-        expect(hint).toBeDefined()
+        expect(hint).not.toBeUndefined()
         expect(hint).toContain('scans too much data')
         expect(hint).toContain('logs-count')
         expect(hint).toContain('logs-count-ranges')
@@ -26,7 +26,7 @@ describe('getToolRecoveryHint', () => {
         'https://us.posthog.com/api/projects/2/logs/services/',
         'https://us.posthog.com/api/projects/2/logs/sparkline/',
     ])('also fires for the sibling logs query endpoint %s', (url: string) => {
-        expect(getToolRecoveryHint({ url, status: 503 })).toBeDefined()
+        expect(getToolRecoveryHint({ url, status: 503 })).not.toBeUndefined()
     })
 
     it('does not fire for 4xx — those carry an actionable detail already', () => {
@@ -41,7 +41,7 @@ describe('getToolRecoveryHint', () => {
     })
 
     it('fires when status is unknown but the URL is a logs query endpoint', () => {
-        expect(getToolRecoveryHint({ url: LOGS_QUERY_URL })).toBeDefined()
+        expect(getToolRecoveryHint({ url: LOGS_QUERY_URL })).not.toBeUndefined()
     })
 })
 
