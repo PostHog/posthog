@@ -568,6 +568,49 @@ class TestEventsPredicatePushdownTransformUnit:
 
         assert transform._should_apply_pushdown(node) is False
 
+    def test_safe_inner_limit_for_safe_left_join_query(self):
+        # No ORDER BY, no residual predicate, LEFT join, concrete LIMIT -> push the limit (offset 0).
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+        result = transform._safe_inner_limit(node, residual_where=None, residual_prewhere=None)
+        assert isinstance(result, ast.Constant) and result.value == 100
+
+    def test_safe_inner_limit_adds_offset(self):
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.offset = ast.Constant(value=20)
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+        result = transform._safe_inner_limit(node, None, None)
+        assert isinstance(result, ast.Constant) and result.value == 120  # limit 100 + offset 20
+
+    def test_safe_inner_limit_declines_with_order_by(self):
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.order_by = [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")]
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+        assert transform._safe_inner_limit(node, None, None) is None
+
+    def test_safe_inner_limit_declines_with_residual_predicate(self):
+        # A predicate left on the outer query removes post-join rows, so an inner LIMIT would keep too few.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+        assert (
+            transform._safe_inner_limit(node, residual_where=ast.Constant(value=True), residual_prewhere=None) is None
+        )
+
+    def test_safe_inner_limit_declines_for_inner_join(self):
+        # An INNER join can drop an events row, so the inner LIMIT might leave fewer than `limit` rows.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        assert node.select_from is not None and node.select_from.next_join is not None
+        node.select_from.next_join.join_type = "INNER JOIN"
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+        assert transform._safe_inner_limit(node, None, None) is None
+
+    def test_safe_inner_limit_declines_without_concrete_limit(self):
+        # A top-level query before the executor injects a limit has no value to push.
+        node = self._make_events_select_with_join(where_clause=self._TS_PRED)
+        node.limit = None
+        transform = EventsPredicatePushdownTransform(HogQLContext(team_id=1))
+        assert transform._safe_inner_limit(node, None, None) is None
+
     def test_collect_joined_aliases_single_join(self):
         node = self._make_events_select_with_join(where_clause=ast.Constant(value=True))
 
@@ -1002,37 +1045,65 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         assert self._print_pushdown_sql(select) == self.snapshot
         self._assert_pushdown_equivalent(select, expected_rows=3)
 
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_exec_property_filter_with_session_join(self):
+    def test_exec_property_filter_pushes_with_inner_limit(self):
+        # A non-materialized property filter forces a raw `properties` blob read in the subquery, which
+        # regresses without a short-circuit. With no ORDER BY / residual predicate and a LEFT join, the
+        # transform pushes a LIMIT into the subquery so the blob read stops early; results stay identical.
         self._create_data()
         select = (
             "SELECT event, session.$session_duration FROM events "
-            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND properties.tier = 'pro' "
-            "ORDER BY timestamp"
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND properties.tier = 'pro' LIMIT 50"
         )
-        printed = self._print_pushdown_sql(select)
-        # the property filter must be pushed into the events subquery, not bailed on
-        assert ") AS events LEFT JOIN" in printed, (
-            "expected property filter pushed into an events subquery:\n" + printed
-        )
-        assert printed == self.snapshot
-        self._assert_pushdown_equivalent(select, expected_rows=2)
+        subquery = self._events_subquery(self._print_pushdown_sql(select))
+        assert "LIMIT 50" in subquery, f"expected the pushed LIMIT in the events subquery:\n{subquery}"
+        assert "JSONExtract" in subquery, f"expected the raw-blob filter in the subquery:\n{subquery}"
+        on = sorted(self._results(select, push_down=True))
+        off = sorted(self._results(select, push_down=False))
+        assert on == off, f"pushdown changed results: on={on} off={off}"
+        assert len(on) == 2
 
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_exec_aliased_property_filter_with_session_join(self):
+    def test_exec_aliased_property_filter_pushes_with_inner_limit(self):
+        # Same blob-safe-push path with an aliased events table: the inner subquery keeps the `e` alias and
+        # carries the pushed LIMIT.
         self._create_data()
         select = (
             "SELECT e.event, session.$session_duration FROM events AS e "
-            "WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' AND e.properties.tier = 'pro' "
-            "ORDER BY e.timestamp"
+            "WHERE e.timestamp >= '2024-01-01' AND e.timestamp < '2024-01-08' AND e.properties.tier = 'pro' LIMIT 50"
         )
         printed = self._print_pushdown_sql(select)
-        assert ") AS e LEFT JOIN" in printed, "expected property filter pushed into an events subquery:\n" + printed
-        # the subquery aliases its own events scan as `e`, so the pushed `e.properties.*` predicate resolves
-        events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
-        assert "FROM events AS e" in events_subquery, "expected the subquery to define alias `e`:\n" + events_subquery
-        assert printed == self.snapshot
+        assert ") AS e LEFT JOIN" in printed, f"expected property filter pushed into an events subquery:\n{printed}"
+        subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
+        assert "FROM events AS e" in subquery, f"expected the subquery to define alias `e`:\n{subquery}"
+        assert "LIMIT 50" in subquery, f"expected the pushed LIMIT in the subquery:\n{subquery}"
+        on = sorted(self._results(select, push_down=True))
+        off = sorted(self._results(select, push_down=False))
+        assert on == off, f"pushdown changed results: on={on} off={off}"
+        assert len(on) == 2
+
+    def test_exec_blob_property_with_order_by_declines(self):
+        # The same raw-blob property filter WITH an ORDER BY can't push a LIMIT safely (the sort needs the
+        # whole set), so the transform declines rather than read the blob across a wide scan. Still equivalent.
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND properties.tier = 'pro' ORDER BY timestamp"
+        )
+        printed = self._print_pushdown_sql(select)
+        assert ") AS events LEFT JOIN" not in printed, (
+            f"expected pushdown to decline (raw blob, no safe limit to short-circuit):\n{printed}"
+        )
         self._assert_pushdown_equivalent(select, expected_rows=2)
+
+    def test_exec_non_blob_push_omits_inner_limit(self):
+        # Cheap reads (timestamp / event filters) never get a pushed inner LIMIT; ClickHouse already
+        # short-circuits them and the extra inner LIMIT measured worse.
+        self._create_data()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' LIMIT 50"
+        )
+        subquery = self._events_subquery(self._print_pushdown_sql(select))
+        assert "LIMIT" not in subquery, f"a non-blob push should not add an inner LIMIT:\n{subquery}"
 
     def test_exec_alias_shadowing_constant_predicate_stays_correct(self):
         # A SELECT alias whose name collides with an events column but whose expression is a constant
@@ -1181,14 +1252,6 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         (
             "event_in",
             f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND event IN ('watched movie', 'other') ORDER BY timestamp",
-        ),
-        (
-            "property_equals",
-            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier = 'pro' ORDER BY timestamp",
-        ),
-        (
-            "property_in",
-            f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} AND properties.tier IN ('pro', 'free') ORDER BY timestamp",
         ),
         (
             "comparison_ops",

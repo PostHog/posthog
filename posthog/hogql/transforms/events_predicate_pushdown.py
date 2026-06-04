@@ -23,6 +23,13 @@ from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
 
+# Large JSON String columns whose per-row read is expensive. Reading one inside the pushdown subquery
+# (versus the flat query, which fuses the filter with the LIMIT and stops the scan early) regresses badly
+# unless a LIMIT is also pushed to short-circuit the subquery scan. Measured ~20x more bytes / 15x slower
+# on ClickHouse 26.3 for a non-materialized `properties` filter; materialized and property-group columns
+# read cheaply and are unaffected.
+_RAW_JSON_BLOB_COLUMNS = frozenset({"properties"})
+
 
 def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
     """Whether events-predicate pushdown is enabled: explicitly on, or unset under TEST (broad coverage).
@@ -169,6 +176,9 @@ class EventsFieldCollector(TraversingVisitor):
         # ids of bare `properties` Fields already covered by an OPTIMIZED JSONHas group rewrite (skip the blob).
         self._group_covered_field_ids: set[int] = set()
         self.has_non_direct_fields = False
+        # True once the subquery would have to read a raw JSON blob column (a non-materialized property, or a
+        # bare `properties` reference) — the read that regresses without a pushed LIMIT.
+        self.needs_properties_blob = False
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -202,6 +212,8 @@ class EventsFieldCollector(TraversingVisitor):
                 db_column_name = self._get_database_column_name(field_type)
                 if db_column_name:
                     self.collected_fields[db_column_name] = field_type
+                    if db_column_name in _RAW_JSON_BLOB_COLUMNS:
+                        self.needs_properties_blob = True
                 else:
                     self.has_non_direct_fields = True  # non-direct field (FieldTraverser, etc.); can't push
 
@@ -468,6 +480,18 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         inner_where = self._prepare_inner_predicate(inner_from_where, select_aliases)
         inner_prewhere = self._prepare_inner_predicate(inner_from_prewhere, select_aliases)
 
+        # Reading the raw `properties` blob inside the subquery (a non-materialized property in a pushed
+        # predicate, or a projected `properties` reference) regresses badly versus the flat query, which fuses
+        # the filter with the LIMIT and stops the blob read early. Recover that by pushing a LIMIT into the
+        # events subquery when it stays result-equivalent; otherwise decline (the flat query is fine). Cheap
+        # reads (timestamp / materialized / property-group columns) never get a pushed LIMIT — it measured
+        # worse for them, since ClickHouse already short-circuits those.
+        inner_limit: ast.Constant | None = None
+        if collector.needs_properties_blob:
+            inner_limit = self._safe_inner_limit(node, new_where, new_prewhere)
+            if inner_limit is None:
+                return "raw_properties_blob_without_short_circuit"
+
         # Build the subquery with explicit types (not resolve_types, which would re-resolve lazy joins). The
         # inner events table keeps the outer query's alias (e.g. `FROM events AS e`) so the pushed predicates,
         # which still reference that alias, resolve against it unchanged. The per-table team_id guard is
@@ -479,6 +503,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             inner_where,
             inner_prewhere,
             alias=node.select_from.alias,
+            limit=inner_limit,
         )
         if events_subquery is None:
             return "subquery_build_failed"  # fail-safe: leave the query unchanged rather than emit broken SQL
@@ -559,6 +584,50 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
                 finder.visit(expr)
         return finder.found
 
+    def _all_joins_preserve_every_row(self, node: ast.SelectQuery) -> bool:
+        """True if every events row yields at least one output row, i.e. all joins are LEFT [OUTER].
+
+        Pushing a LIMIT into the events subquery is only safe when no join can drop an events row; an INNER /
+        CROSS join could, leaving fewer than `limit` rows after the join.
+        """
+        join = node.select_from.next_join if node.select_from is not None else None
+        while join is not None:
+            if join.join_type not in ("LEFT JOIN", "LEFT OUTER JOIN"):
+                return False
+            join = join.next_join
+        return True
+
+    def _safe_inner_limit(
+        self, node: ast.SelectQuery, residual_where: ast.Expr | None, residual_prewhere: ast.Expr | None
+    ) -> ast.Constant | None:
+        """The LIMIT to push into the events subquery, or None if pushing it would change results.
+
+        Safe only when nothing after the events scan can drop or reorder rows: no ORDER BY / LIMIT BY / ARRAY
+        JOIN / WITH TIES / percent limit, no predicate left on the outer query, and every events row survives
+        the joins (all LEFT). Then the first `offset + limit` events cover the outer slice, so the inner LIMIT
+        is result-equivalent. Needs a concrete integer LIMIT already on the AST to push.
+        """
+        if (
+            node.order_by is not None
+            or node.limit_by is not None
+            or node.array_join_list is not None
+            or node.limit_with_ties
+            or node.limit_percent
+        ):
+            return None
+        if residual_where is not None or residual_prewhere is not None:
+            return None
+        if not self._all_joins_preserve_every_row(node):
+            return None
+        if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, int):
+            return None
+        offset = 0
+        if node.offset is not None:
+            if not isinstance(node.offset, ast.Constant) or not isinstance(node.offset.value, int):
+                return None
+            offset = node.offset.value
+        return ast.Constant(value=node.limit.value + offset)
+
     def _from_is_events_table(self, join_expr: ast.JoinExpr) -> bool:
         """True when the FROM resolves directly to the physical events table (not a subquery).
 
@@ -631,6 +700,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         where_clause: ast.Expr | None,
         prewhere_clause: ast.Expr | None = None,
         alias: str | None = None,
+        limit: ast.Constant | None = None,
     ) -> ast.SelectQuery | None:
         """Build a subquery using the already-resolved types from the outer query.
 
@@ -698,6 +768,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             select_from=select_from,
             where=where_clause,
             prewhere=prewhere_clause,
+            limit=limit,
             type=select_query_type,
         )
 
