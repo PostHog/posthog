@@ -1,3 +1,5 @@
+from django.contrib.auth.models import AnonymousUser
+
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
@@ -12,7 +14,7 @@ from posthog.models.user import User
 SIGNALS_SCOUT_INBOX_FLAG = "signals-scout-inbox"
 
 
-def user_can_see_signals_scout_reports(user: User, team: Team) -> bool:
+def user_can_see_signals_scout_reports(user: User | AnonymousUser, team: Team) -> bool:
     """Whether `signals_scout`-sourced reports should surface in the inbox for this user.
 
     Evaluated remotely: the flag's release conditions are person-level (an internal-user
