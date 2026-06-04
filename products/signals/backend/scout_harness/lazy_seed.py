@@ -469,25 +469,29 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
         # `_create_skill_from_canonical` / `_update_skill_from_canonical`). A team is free to
         # hand-author its own `signals-scout-*` skill; pruning by name+prefix alone would
         # silently soft-delete it every coordinator tick. We only reap our own seeded orphans.
+        #
+        # And only reap rows the team hasn't edited: an edited fork (hash diverged from the
+        # stored `canonical_hash`, or no baseline hash to compare) is left alone, same as the
+        # update path above. Retiring a canonical must not delete a scout the team customized.
         canonical_names = {c.name for c in canonicals}
-        orphan_names = list(
-            LLMSkill.objects.filter(
-                team=team,
-                deleted=False,
-                name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-                metadata__seeded_by="signals_scout_harness",
-            )
-            .exclude(name__in=canonical_names)
-            .values_list("name", flat=True)
-            .distinct()
-        )
-        for name in orphan_names:
+        orphan_rows = LLMSkill.objects.filter(
+            team=team,
+            deleted=False,
+            is_latest=True,
+            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
+            metadata__seeded_by="signals_scout_harness",
+        ).exclude(name__in=canonical_names)
+        for row in orphan_rows:
+            stored_hash = (row.metadata or {}).get("canonical_hash")
+            if stored_hash is None or _compute_row_hash(row, list(row.files.all())) != stored_hash:
+                diverged.append(row.name)
+                continue
             # Re-scope the soft-delete to seeded rows too, so a team-authored row sharing the
             # name is never caught by the bulk update.
             LLMSkill.objects.filter(
-                team=team, name=name, deleted=False, metadata__seeded_by="signals_scout_harness"
+                team=team, name=row.name, deleted=False, metadata__seeded_by="signals_scout_harness"
             ).update(deleted=True, is_latest=False)
-            pruned.append(name)
+            pruned.append(row.name)
 
     if created or updated or pruned:
         logger.info(

@@ -554,6 +554,31 @@ class TestSyncCanonicalSkills(BaseTest):
             team=self.team, name="signals-scout-alpha", is_latest=True, deleted=False
         ).exists()
 
+    def test_prune_leaves_edited_fork_alone(self) -> None:
+        # A team edits a scout we seeded (a "fork"), then we retire that canonical from disk.
+        # Prune must NOT tombstone the fork — deleting a scout the team customized and chose to
+        # keep would be a nasty surprise. Mirrors the fork-protection the update path applies.
+        alpha = _make_canonical("signals-scout-alpha", body="alpha body")
+        beta = _make_canonical("signals-scout-beta", body="beta body")
+        with self._patch_canonicals((alpha, beta)):
+            sync_canonical_skills(self.team)
+
+        # Team edits their beta copy — body diverges from the stored canonical_hash, while
+        # seeded_by and the old hash carry forward (what a real PHS edit produces).
+        beta_row = LLMSkill.objects.get(team=self.team, name="signals-scout-beta", is_latest=True)
+        beta_row.body = "team's customized beta body"
+        beta_row.save(update_fields=["body"])
+
+        # beta removed from disk; prune runs.
+        with self._patch_canonicals((alpha,)):
+            result = sync_canonical_skills(self.team, prune=True)
+
+        assert "signals-scout-beta" not in result.pruned_skill_names
+        assert "signals-scout-beta" in result.diverged_skill_names
+        beta_row.refresh_from_db()
+        assert beta_row.deleted is False
+        assert beta_row.is_latest is True
+
     def test_prune_leaves_team_authored_scout_skills_alone(self) -> None:
         # A team hand-authors its own `signals-scout-*` skill — no `seeded_by` tag, and not in
         # the canonical fleet. Prune must NOT tombstone it: we only reap rows we seeded, never a
