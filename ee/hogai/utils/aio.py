@@ -16,9 +16,9 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 # Shared buckets for the "offloaded (de)serialization latency" histograms. The high end runs to
-# 30s on purpose: the slow serializations this instrumentation exists to catch (the O(n^2)
-# accumulated-message tail, see ee/hogai/stream/STREAMING_DELTAS_FOLLOWUP.md) can be multi-second,
-# and a lower ceiling would dump them all into +Inf and saturate p99.
+# 30s on purpose: the slow serializations this instrumentation exists to catch (the per-token
+# re-serialization of the full accumulated assistant message, which grows O(n^2) over a long
+# stream) can be multi-second, and a lower ceiling would dump them all into +Inf and saturate p99.
 OFFLOAD_LATENCY_BUCKETS = [
     0.0005,
     0.001,
