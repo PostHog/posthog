@@ -124,7 +124,10 @@ cohort_calculation_history: PostgresTable = PostgresTable(
 accounts: PostgresTable = PostgresTable(
     name="accounts",
     postgres_table_name="customer_analytics_account",
-    access_scope="customer_analytics",
+    # Object-level access control filters out ids directly off access_scope, so we use
+    # `account` here (where the per-object grants are stored) instead of the
+    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
+    access_scope="account",
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),

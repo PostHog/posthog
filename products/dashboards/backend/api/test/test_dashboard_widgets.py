@@ -864,7 +864,13 @@ class TestDashboardWidgets(APIBaseTest):
             action = "retrieve"
 
         context = {"view": ViewShim(), "order": 0}
-        assert DashboardTileSerializer(tile, context=context).data["widget"] is not None
+        full_widget = DashboardTileSerializer(tile, context=context).data["widget"]
+        assert full_widget is not None
+        assert full_widget["created_by"] is not None
 
         shared_context = {**context, "is_shared": True}
-        assert DashboardTileSerializer(tile, context=shared_context).data["widget"] is None
+        shared_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert shared_widget is not None
+        assert set(shared_widget.keys()) == {"id", "widget_type", "name", "description", "config"}
+        assert shared_widget["widget_type"] == "error_tracking_list"
+        assert shared_widget["config"]["limit"] == 10

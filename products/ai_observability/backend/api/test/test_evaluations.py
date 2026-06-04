@@ -377,6 +377,24 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "config")
 
+    def test_invalid_hog_source_returns_400_not_500(self):
+        # Malformed Hog source passes serializer config validation (non-empty source) but fails
+        # to compile in the model's save(). The compile failure must surface as a 400 validation
+        # error, not an unhandled 500 — `|` is the exact character that triggered this in production.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad Hog Eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return |"},
+                "output_type": "boolean",
+                "output_config": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "evaluation_config")
+        self.assertEqual(Evaluation.objects.count(), 0)
+
     def test_deleted_evaluation_configs_not_returned(self):
         evaluation_config = Evaluation.objects.create(
             name="Deleted Evaluation",

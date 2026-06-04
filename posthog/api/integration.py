@@ -30,6 +30,7 @@ from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
@@ -678,10 +679,16 @@ class IntegrationViewSet(
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
-        query = search.strip().lower()
+        query = search.strip()
         if not query:
             return visible
-        return [channel for channel in visible if query in channel["name"].lower() or query in channel["id"].lower()]
+        # Fuzzy-rank by name, then union in any channel whose id contains the query so pasting an id still resolves.
+        ranked = fuzzy_filter(query, visible, key=lambda channel: channel["name"])
+        ranked_ids = {channel["id"] for channel in ranked}
+        id_matches = [
+            channel for channel in visible if query.lower() in channel["id"].lower() and channel["id"] not in ranked_ids
+        ]
+        return ranked + id_matches
 
     @extend_schema(
         parameters=[SlackChannelsQuerySerializer],

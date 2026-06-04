@@ -1172,7 +1172,8 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
     if not check_run_id:
         ci_rerun_error = "CI job ID not available (set JOB_CHECK_RUN_ID=${{ job.check_run_id }} in workflow)"
     else:
-        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, check_run_id)
+        # Stored as a string, but coerce defensively — `_rerun_github_job` calls `.isdigit()`.
+        ci_rerun_triggered, ci_rerun_error = _rerun_github_job(run, str(check_run_id))
 
     return {
         "counts_changed": counts_changed,
@@ -1183,7 +1184,17 @@ def recompute_run(run_id: UUID, team_id: int | None = None) -> dict:
 
 
 def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
-    """Rerun a specific GitHub Actions job by its numeric ID. Returns (success, error_message)."""
+    """Rerun the visual-review CI job by its numeric ID. Returns (success, error_message).
+
+    The job ID and workflow run ID both come from client-supplied run metadata
+    (the CI runner has no server-verified channel today), so before calling
+    GitHub we bind the rerun two ways: the job must run on this run's commit
+    (``head_sha``) and must belong to the workflow run recorded at creation
+    (``github_run_id``). That pins recompute to the workflow run that produced
+    this visual-review run instead of letting it re-trigger any job on the
+    commit. It is defense-in-depth, not an identity proof — a caller who forges
+    a self-consistent metadata set can still reach sibling jobs of that run.
+    """
     if not check_run_id.isdigit():
         return False, "Invalid check run ID"
 
@@ -1191,33 +1202,49 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     if not repo.repo_full_name:
         return False, "Repo has no GitHub full name configured"
 
+    expected_run_id = (run.metadata or {}).get("github_run_id")
+    if not expected_run_id:
+        return False, "Workflow run ID not recorded for this run"
+
+    # `${{ job.check_run_id }}` doubles as the Actions job ID, so the jobs API
+    # gives us head_sha and the owning workflow run (run_id) in one call.
     try:
-        check_run_response = _github_api_request(
+        job_response = _github_api_request(
             "GET",
             repo,
-            f"check-runs/{check_run_id}",
+            f"actions/jobs/{check_run_id}",
             timeout=10,
         )
     except Exception:
-        return False, "Failed to verify check run ownership"
+        return False, "Failed to verify CI job ownership"
 
-    if check_run_response.status_code != 200:
-        return False, f"Could not fetch check run details (status {check_run_response.status_code})"
+    if job_response.status_code != 200:
+        return False, f"Could not fetch CI job details (status {job_response.status_code})"
 
     try:
-        check_run_data = check_run_response.json()
+        job_data = job_response.json()
     except Exception:
-        return False, "Failed to parse check run response"
+        return False, "Failed to parse CI job response"
 
-    if check_run_data.get("head_sha") != run.commit_sha:
+    if job_data.get("head_sha") != run.commit_sha:
         logger.warning(
             "visual_review.ci_rerun_sha_mismatch",
             run_id=str(run.id),
             check_run_id=check_run_id,
             expected_sha=run.commit_sha,
-            actual_sha=check_run_data.get("head_sha"),
+            actual_sha=job_data.get("head_sha"),
         )
         return False, "Check run does not belong to this commit"
+
+    if str(job_data.get("run_id")) != str(expected_run_id):
+        logger.warning(
+            "visual_review.ci_rerun_workflow_mismatch",
+            run_id=str(run.id),
+            check_run_id=check_run_id,
+            expected_workflow_run=str(expected_run_id),
+            actual_workflow_run=str(job_data.get("run_id")),
+        )
+        return False, "CI job does not belong to this run's workflow"
 
     try:
         response = _github_api_request(

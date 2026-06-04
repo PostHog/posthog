@@ -60,7 +60,6 @@ export function compileRecipe(raw: unknown): Recipe {
     }
     return {
         id,
-        priority: numField(raw, 'priority') ?? 100,
         capture: stringField(raw, 'capture'),
         rules: rulesRaw.map((r, i) => {
             try {
@@ -385,9 +384,4 @@ function isObject(v: unknown): v is Record<string, unknown> {
 function stringField(o: Record<string, unknown>, key: string): string | undefined {
     const value = o[key]
     return typeof value === 'string' ? value : undefined
-}
-
-function numField(o: Record<string, unknown>, key: string): number | undefined {
-    const value = o[key]
-    return typeof value === 'number' ? value : undefined
 }

@@ -305,6 +305,14 @@ class OAuthValidator(OAuth2Validator):
         request.client = app
         return request.client
 
+    def validate_silent_login(self, request) -> bool:
+        # Called by oauthlib's OIDC validator for `prompt=none` openid requests. Neither
+        # the base class nor django-oauth-toolkit implements this, so the default raises
+        # NotImplementedError. Returning False here lets oauthlib emit `login_required`
+        # to the client instead of crashing with a 500.
+        user = getattr(request, "user", None)
+        return bool(user and getattr(user, "is_authenticated", False))
+
     def validate_client_id(self, client_id, request, *args, **kwargs):
         """
         Validate client_id, supporting CIMD URL-form client_ids.

@@ -101,6 +101,24 @@ class TestSubscription(BaseTest):
         with self.assertRaises(ValueError):
             _ = subscription.resource_type
 
+    @parameterized.expand(
+        [
+            ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),
+            ("dashboard", None, 2, None, Subscription.ResourceType.DASHBOARD),
+            ("prompt", None, None, "Summarize signups", Subscription.ResourceType.AI_PROMPT),
+            ("insight_takes_precedence", 1, 2, "ignored", Subscription.ResourceType.INSIGHT),
+        ]
+    )
+    def test_derive_resource_type(
+        self, _name: str, insight_id: int | None, dashboard_id: int | None, prompt: str | None, expected: str
+    ):
+        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt) == expected
+
+    @parameterized.expand([("all_none", None), ("empty_prompt", "")])
+    def test_derive_resource_type_raises_when_relationless(self, _name: str, prompt: str | None):
+        with pytest.raises(ValueError, match="no insight, dashboard, or prompt"):
+            Subscription.derive_resource_type(None, None, prompt)
+
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()
         subscription.save()
@@ -330,6 +348,22 @@ class TestSubscription(BaseTest):
             bysetpos=bysetpos,
         )
         assert subscription.summary == expected_summary
+
+    @parameterized.expand(
+        [
+            ("daily", "daily", 1),
+            ("weekly", "weekly", 7),
+            ("monthly", "monthly", 30),
+            ("yearly", "yearly", 365),
+            ("unknown_falls_back_to_weekly", "", 7),
+        ]
+    )
+    def test_ai_report_window_days(self, _name, frequency, expected_days):
+        # Construct with a valid cadence (the model eagerly builds an rrule on init), then assign
+        # the case under test — `ai_report_window_days` reads `frequency` live.
+        subscription = Subscription(frequency="daily")
+        subscription.frequency = frequency
+        assert subscription.ai_report_window_days == expected_days
 
     def test_subscription_delivery_creation(self):
         subscription = self._create_insight_subscription()
