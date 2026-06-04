@@ -29,6 +29,7 @@ from posthog.models.oauth import (
     OAuthApplicationAccessLevel,
     OAuthGrant,
     OAuthRefreshToken,
+    revoke_application_sessions,
 )
 from posthog.models.team.team import Team
 
@@ -1243,6 +1244,46 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_racing_app_revoke_is_rejected(self):
+        # A refresh validates its token in autocommit, before save_bearer_token takes the row
+        # lock, so revoke_application_sessions can commit in between and the refresh would mint
+        # tokens that escape the bulk revoke. The mint-time sessions_revoked_at check closes it,
+        # including within the 120s refresh-token grace period that keeps a just-revoked token
+        # valid through validate_refresh_token.
+        refresh_token = self._create_refreshable_token_pair("openid")
+
+        with freeze_time("2026-01-01 00:00:05"):
+            revoke_application_sessions(self.confidential_application)
+
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token.token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self.assertFalse(
+            OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
+        )
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_succeeds_for_token_issued_after_revoke(self):
+        # A token minted after the revoke stamp (i.e. the client re-authorized) refreshes normally.
+        self.confidential_application.sessions_revoked_at = timezone.now()
+        self.confidential_application.save()
+
+        with freeze_time("2026-01-01 00:00:05"):
+            refresh_token = self._create_refreshable_token_pair("openid")
+            data = self._refresh(refresh_token.token)
+
+        self.assertIn("access_token", data)
 
     @parameterized.expand(
         [
