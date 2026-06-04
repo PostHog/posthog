@@ -96,7 +96,7 @@ jobs:
                     # Canonical sandbox-host image used by BOTH the Modal pool
                     # (production) and the Docker pool (local dev). Bakes
                     # /sandbox/dispatch.js + /sandbox/host.js into a thin
-                    # node:24-alpine. The chart wires the resulting reference
+                    # node:24.13.0-alpine. The chart wires the resulting reference
                     # into both pools via SANDBOX_HOST_IMAGE. GHCR-only —
                     # ECR push is skipped because Modal pulls from GHCR and
                     # the chart doesn't deploy this image as a service (no

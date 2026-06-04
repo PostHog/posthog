@@ -16,7 +16,9 @@
 # identical content) AND against a plain node base if the chart ever points
 # at one.
 
-FROM node:24-alpine
+# Pinned to a specific minor (matches services/agents/Dockerfile's
+# NODE_VERSION) so the base image can't silently shift between builds.
+FROM node:24.13.0-alpine
 
 # Run as a non-root user inside the container. Defense in depth even though
 # the Docker pool uses --network=none and Modal sandboxes are isolated by

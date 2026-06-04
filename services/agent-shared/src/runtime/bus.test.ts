@@ -1,7 +1,7 @@
 /**
  * RedisSessionEventBus integration test.
  *
- * Skips when no Redis is reachable at REDIS_URL (default redis://localhost:6379)
+ * Skips when no Redis is reachable at REDIS_URL (default local Redis URL)
  * — vitest in CI without redis just no-ops the suite. When reachable, this is
  * a real round-trip: two bus instances (publisher + subscriber), each with
  * their own pub/sub pair to redis, prove cross-process semantics in-process.
@@ -9,6 +9,7 @@
 
 import { RedisSessionEventBus, SessionEvent } from './bus'
 
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 
 async function isReachable(): Promise<boolean> {

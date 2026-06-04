@@ -128,6 +128,7 @@ export class NoopSessionEventBus implements SessionEventBus {
 /* -------------------------------------------------------------------------- */
 
 export interface RedisSessionEventBusOptions {
+    // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
     /** ioredis-compatible URL, e.g. `redis://localhost:6379`. */
     url: string
     /**
