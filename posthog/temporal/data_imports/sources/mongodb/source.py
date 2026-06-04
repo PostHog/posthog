@@ -26,6 +26,11 @@ from posthog.temporal.data_imports.sources.mongodb.mongo import (
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+_MONGO_UNREACHABLE_MESSAGE = (
+    "Could not reach your MongoDB cluster. Check that the cluster is running and that PostHog's "
+    "IP addresses are allowlisted in your database's network access settings."
+)
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -43,6 +48,13 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "AuthenticationFailed": "MongoDB authentication failed. Please check the username and password for this source.",
             "Authentication failed": "MongoDB authentication failed. Please check the username and password for this source.",
             "SSL handshake failed": None,
+            # pymongo raises ServerSelectionTimeoutError ("No servers found yet" / "No replica set
+            # members found yet") when it can't reach any cluster node for the whole selection
+            # timeout. On a managed cluster this is a persistent connectivity problem — the worker
+            # IP isn't allowlisted, or the cluster is paused/decommissioned — not a momentary blip
+            # (a mid-sync outage surfaces differently), so retrying the job won't recover it.
+            "No servers found yet": _MONGO_UNREACHABLE_MESSAGE,
+            "No replica set members found yet": _MONGO_UNREACHABLE_MESSAGE,
         }
 
     def get_schemas(

@@ -337,6 +337,13 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
             ("ssl_failure", "SSL handshake failed: certificate verify failed"),
+            # Cluster unreachable for the whole selection timeout — persistent connectivity issue.
+            ("no_servers", "No servers found yet, Timeout: 5.0s, Topology Description: ..."),
+            (
+                "no_replica_set_members",
+                "No replica set members found yet, Timeout: 10.0s, Topology Description: "
+                "<TopologyDescription topology_type: ReplicaSetNoPrimary>",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -346,8 +353,8 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("server_selection_timeout", "No servers found yet, Timeout: 5.0s"),
             ("connection_reset", "connection closed"),
+            ("network_timeout", "NetworkTimeout: timed out reading from socket"),
         ]
     )
     def test_transient_errors_are_retryable(self, _name, error_msg):
@@ -358,3 +365,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
     def test_auth_failure_has_friendly_message(self):
         assert self.non_retryable["AuthenticationFailed"] is not None
         assert "password" in self.non_retryable["AuthenticationFailed"].lower()
+
+    def test_unreachable_cluster_has_friendly_message(self):
+        assert self.non_retryable["No servers found yet"] is not None
+        assert "allowlist" in self.non_retryable["No servers found yet"].lower()
