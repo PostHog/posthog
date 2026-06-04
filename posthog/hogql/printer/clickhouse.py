@@ -20,6 +20,7 @@ from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.types import PrintableMaterializedColumn, PrintableMaterializedPropertyGroupItem
+from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
@@ -373,6 +374,10 @@ class ClickHousePrinter(BasePrinter):
         return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
+        # Opt-in inline rendering for known-safe literal strings (fixed sentinels from property lowering),
+        # so lowered concrete SQL matches the printer's hand-built strings instead of a placeholder.
+        if node.inline and isinstance(node.value, str):
+            return self._print_escaped_string(node.value)
         if (
             node.value is None
             or isinstance(node.value, bool)
@@ -473,29 +478,7 @@ class ClickHousePrinter(BasePrinter):
         Given a table type, returns the set of property names that should be stripped
         from the JSON blob based on restricted_properties in the context.
         """
-        from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
-        from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
-
-        from products.event_definitions.backend.models.property_definition import PropertyDefinition
-
-        if not isinstance(table_type, ast.BaseTableType):
-            return set()
-
-        try:
-            table = table_type.resolve_database_table(self.context)
-        except Exception:
-            return set()
-
-        if isinstance(table, EventsPersonSubTable):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        elif isinstance(table, EventsTable):
-            prop_def_type = PropertyDefinition.Type.EVENT
-        elif isinstance(table, (PersonsTable, RawPersonsTable)):
-            prop_def_type = PropertyDefinition.Type.PERSON
-        else:
-            return set()
-
-        return {name for name, ptype in self.context.restricted_properties or set() if ptype == prop_def_type}
+        return restricted_property_keys_for_table_type(table_type, self.context)
 
     def _get_property_group_source_for_field(
         self, field_type: ast.FieldType, property_name: str

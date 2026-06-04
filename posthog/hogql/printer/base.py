@@ -1220,8 +1220,9 @@ class BasePrinter(Visitor[str]):
                     if not isinstance(resolved_field, DatabaseField):
                         raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
-                if self.context.within_non_hogql_query and type_with_name_in_scope == type:
-                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                if type.unqualified or (self.context.within_non_hogql_query and type_with_name_in_scope == type):
+                    # Do not prepend table name: either an explicitly-unqualified synthetic field (property
+                    # lowering, non-HogQL fragment), or a non-hogql context where we don't know the real table.
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 

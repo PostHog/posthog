@@ -711,9 +711,11 @@ class TestPrinter(BaseTest):
             ),
         )
 
+        # The lowering pass reads a group property as `if(has(g, k), g[k], null)`, result-equivalent to the printer's
+        # `has(g, k) ? g[k] : null` ternary.
         self.assertEqual(
             self._expr("properties['foo']", context),
-            "has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null",
+            "if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL)",
         )
         self.assertEqual(context.values["hogql_val_0"], "foo")
 
@@ -737,7 +739,7 @@ class TestPrinter(BaseTest):
 
         self.assertEqual(
             self._expr("person.properties['foo']", context),
-            "has(events.person_properties_map_custom, %(hogql_val_0)s) ? events.person_properties_map_custom[%(hogql_val_0)s] : null",
+            "if(has(events.person_properties_map_custom, %(hogql_val_0)s), events.person_properties_map_custom[%(hogql_val_1)s], NULL)",
         )
         self.assertEqual(context.values["hogql_val_0"], "foo")
 
@@ -885,14 +887,14 @@ class TestPrinter(BaseTest):
         # filter so it won't be used here.
         self._test_property_group_comparison(
             "properties.key = '' as eq",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)) AS eq",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) AS eq",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
         self._test_property_group_comparison(
             "equals(properties.key, '') as eq",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s)) AS eq",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) AS eq",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
         )
 
@@ -961,15 +963,15 @@ class TestPrinter(BaseTest):
         # We check which skip indexes are used on the test DB, but please test this on a prod-sized DB too when changing this.
         self._test_property_group_comparison(
             "properties.key IN ('a', 'b')",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
-            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_1)s], tuple(%(hogql_val_2)s, %(hogql_val_3)s)))",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": "a", "hogql_val_3": "b"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
         self._test_property_group_comparison(
             "properties.key IN ['a', 'b']",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_0)s], tuple(%(hogql_val_1)s, %(hogql_val_2)s)))",
-            {"hogql_val_0": "key", "hogql_val_1": "a", "hogql_val_2": "b"},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), in(events.properties_group_custom[%(hogql_val_1)s], tuple(%(hogql_val_2)s, %(hogql_val_3)s)))",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": "a", "hogql_val_3": "b"},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
@@ -991,8 +993,8 @@ class TestPrinter(BaseTest):
         # Single empty string does need to check if the key exists as well as equality
         self._test_property_group_comparison(
             "properties.key IN ''",
-            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_0)s], %(hogql_val_1)s))",
-            {"hogql_val_0": "key", "hogql_val_1": ""},
+            "and(has(events.properties_group_custom, %(hogql_val_0)s), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s))",
+            {"hogql_val_0": "key", "hogql_val_1": "key", "hogql_val_2": ""},
             expected_skip_indexes_used={"properties_group_custom_keys_bf"},
             expected_skip_indexes_not_used={"properties_group_custom_values_bf"},
         )
@@ -1008,21 +1010,23 @@ class TestPrinter(BaseTest):
         self.assertTrue(
             HogQLGlobalSettings().transform_null_in
         )  # if changing this assumption, you'll need to change the printer too
+        # `IN NULL` is not optimized (unoptimized IN(NULL) is true if key absent OR value null); the lowering pass
+        # reads the property as `if(has(g,k), g[k], null)`, result-equivalent to the printer's `has ? [] : null` ternary.
         self._test_property_group_comparison(
             "properties.key in NULL",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
+            "in(if(has(events.properties_group_custom, %(hogql_val_2)s), events.properties_group_custom[%(hogql_val_3)s], NULL), NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, NULL)",
+            "in(if(has(events.properties_group_custom, %(hogql_val_2)s), events.properties_group_custom[%(hogql_val_3)s], NULL), NULL)",
         )
         self._test_property_group_comparison(
             "properties.key in (NULL, NULL, NULL)",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, tuple(NULL, NULL, NULL))",
+            "in(if(has(events.properties_group_custom, %(hogql_val_2)s), events.properties_group_custom[%(hogql_val_3)s], NULL), tuple(NULL, NULL, NULL))",
         )
         self._test_property_group_comparison(
             "properties.key in [NULL, NULL, NULL]",
-            "in(has(events.properties_group_custom, %(hogql_val_2)s) ? events.properties_group_custom[%(hogql_val_2)s] : null, [NULL, NULL, NULL])",
+            "in(if(has(events.properties_group_custom, %(hogql_val_2)s), events.properties_group_custom[%(hogql_val_3)s], NULL), [NULL, NULL, NULL])",
         )
 
         # Don't optimize comparisons to types that require additional type conversions.
@@ -1155,10 +1159,12 @@ class TestPrinter(BaseTest):
 
         parsed = parse_select("SELECT properties.file_type AS ft FROM events WHERE ft = 'image/svg'")
         printed, _ = prepare_and_print_ast(parsed, build_context(PropertyGroupsMode.OPTIMIZED), dialect="clickhouse")
+        # The SELECT reads the group property as `if(has(g, k), g[k], null)` (result-equivalent to the printer's
+        # ternary); the WHERE comparison still optimizes to a bare `equals(g[k], v)` so the values bloom-filter applies.
         assert printed == (
-            "SELECT has(events.properties_group_custom, %(hogql_val_0)s) ? events.properties_group_custom[%(hogql_val_0)s] : null AS ft "
+            "SELECT if(has(events.properties_group_custom, %(hogql_val_0)s), events.properties_group_custom[%(hogql_val_1)s], NULL) AS ft "
             "FROM events "
-            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_1)s], %(hogql_val_2)s)) "
+            f"WHERE and(equals(events.team_id, {self.team.pk}), equals(events.properties_group_custom[%(hogql_val_2)s], %(hogql_val_3)s)) "
             "LIMIT 50000"
         )
 
@@ -2451,8 +2457,10 @@ class TestPrinter(BaseTest):
             "hogql_val_5": [1, 0],
         }
 
+    # The property-lowering pass also imports get_materialized_column_for_property, so both copies must be mocked.
+    @patch("posthog.hogql.transforms.property_lowering.get_materialized_column_for_property")
     @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
-    def test_ai_trace_id_optimizations(self, mock_get_mat_col):
+    def test_ai_trace_id_optimizations(self, mock_get_mat_col, mock_get_mat_col_lowering):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
@@ -2467,6 +2475,7 @@ class TestPrinter(BaseTest):
 
         # Basic equality comparison - no ifNull wrapping
         mock_get_mat_col.return_value = mock_mat_col
+        mock_get_mat_col_lowering.return_value = mock_mat_col
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_trace_id = 'trace123'", context)
@@ -2513,6 +2522,7 @@ class TestPrinter(BaseTest):
 
         # Verify other properties still get normal treatment
         mock_get_mat_col.return_value = None  # No materialized column for other props
+        mock_get_mat_col_lowering.return_value = None
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         sql = self._select("SELECT * FROM events WHERE properties.other_prop = 'value'", context)
@@ -2527,8 +2537,9 @@ class TestPrinter(BaseTest):
             sql,
         )
 
+    @patch("posthog.hogql.transforms.property_lowering.get_materialized_column_for_property")
     @patch("posthog.hogql.printer.base.get_materialized_column_for_property")
-    def test_ai_session_id_optimizations(self, mock_get_mat_col):
+    def test_ai_session_id_optimizations(self, mock_get_mat_col, mock_get_mat_col_lowering):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
@@ -2543,6 +2554,7 @@ class TestPrinter(BaseTest):
 
         # Basic equality comparison - no ifNull wrapping
         mock_get_mat_col.return_value = mock_mat_col
+        mock_get_mat_col_lowering.return_value = mock_mat_col
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
 
         sql = self._select("SELECT * FROM events WHERE properties.$ai_session_id = 'session123'", context)
@@ -2962,8 +2974,8 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
-            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
+            f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser`, "
+            f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # both lowered reads carry the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
             f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
@@ -4224,15 +4236,15 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     def test_materialized_column_optimized_equality_comparison_nullable(self) -> None:
         # Nullable columns need wrapping to handle NULL properly
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
-            # equals: use AND IS NOT NULL to preserve skip index usage
+            # equals: use AND isNotNull to preserve skip index usage
             self._test_materialized_column_comparison(
                 "properties.test_prop = 'some_value'",
-                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                f"and(equals(events.{mat_col.name}, %(hogql_val_0)s), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "some_value"},
             )
             self._test_materialized_column_comparison(
                 "'some_value' = properties.test_prop",
-                f"(equals(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                f"and(equals(events.{mat_col.name}, %(hogql_val_0)s), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "some_value"},
             )
             # notEquals: use ifNull since skip index is less important here
@@ -4289,9 +4301,9 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
             self._test_materialized_column_comparison(
                 f"properties.test_prop {op} 'some_value'",
-                f"({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s) "
-                f"AND notEquals(events.{mat_col.name}, '') "
-                f"AND notEquals(events.{mat_col.name}, 'null'))",
+                f"and({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s), "
+                f"notEquals(events.{mat_col.name}, ''), "
+                f"notEquals(events.{mat_col.name}, 'null'))",
                 {"hogql_val_0": "some_value"},
             )
 
@@ -4304,11 +4316,11 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_materialized_column_optimized_range_comparison_nullable(self, op: str, ch_fn: str) -> None:
-        # Nullable: replace ``ifNull(less(col, x), 0)`` (opaque to minmax) with ``(less(col, x) AND col IS NOT NULL)`` — same WHERE semantics (``NULL AND FALSE = FALSE``), minmax-friendly.
+        # Nullable: replace ``ifNull(less(col, x), 0)`` (opaque to minmax) with ``and(less(col, x), isNotNull(col))`` — same WHERE semantics (``NULL AND FALSE = FALSE``), minmax-friendly.
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 f"properties.test_prop {op} 'some_value'",
-                f"({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s) AND (events.{mat_col.name} IS NOT NULL))",
+                f"and({ch_fn}(events.{mat_col.name}, %(hogql_val_0)s), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "some_value"},
             )
 
@@ -4739,7 +4751,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         with materialized("events", "test_prop", is_nullable=True) as mat_col:
             self._test_materialized_column_comparison(
                 "properties.test_prop in ('value1', 'value2')",
-                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), events.mat_test_prop IS NOT NULL)",
+                f"and(has([%(hogql_val_0)s, %(hogql_val_1)s], events.{mat_col.name}), isNotNull(events.{mat_col.name}))",
                 {"hogql_val_0": "value1", "hogql_val_1": "value2"},
             )
 

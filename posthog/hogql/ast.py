@@ -649,6 +649,10 @@ class ExpressionFieldType(Type):
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
+    # When True, the ClickHouse printer emits this field unqualified (no `table.` prefix). Set by the property
+    # lowering pass on the synthetic physical-column fields it builds for `within_non_hogql_query` fragments,
+    # which splice into a fixed-scope statement (e.g. a lightweight DELETE) that rejects table-qualified columns.
+    unqualified: bool = False
 
     def resolve_database_field(self, context: HogQLContext) -> Optional[FieldOrTable]:
         if isinstance(self.table_type, BaseTableType):
@@ -948,6 +952,10 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
+    # When True, the ClickHouse printer renders a literal string value inline (escaped) instead of as a
+    # parameterized placeholder. Only set on known-safe fixed sentinels (e.g. '', 'null') emitted by the
+    # property-lowering pass, so its concrete SQL matches the printer's hand-built strings byte-for-byte.
+    inline: bool = False
 
 
 # Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.
