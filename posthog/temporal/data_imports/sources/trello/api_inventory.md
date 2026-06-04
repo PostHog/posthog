@@ -9,16 +9,16 @@ tracked-session request logs).
 
 ## Endpoints
 
-| Schema          | Path                          | Scope  | Pagination            | Incremental | Notes |
-| --------------- | ----------------------------- | ------ | --------------------- | ----------- | ----- |
-| `boards`        | `/members/me/boards`          | member | none (single request) | full        | |
-| `organizations` | `/members/me/organizations`   | member | none (single request) | full        | Trello workspaces |
-| `lists`         | `/boards/{id}/lists`          | board  | none (single request) | full        | fan-out per board |
-| `cards`         | `/boards/{id}/cards`          | board  | none (single request) | full        | fan-out per board; open cards only by default |
-| `checklists`    | `/boards/{id}/checklists`     | board  | none (single request) | full        | fan-out per board |
-| `labels`        | `/boards/{id}/labels`         | board  | none (single request) | full        | fan-out per board |
-| `members`       | `/boards/{id}/members`        | board  | none (single request) | full        | board members; deduped across boards on `id` |
-| `actions`       | `/boards/{id}/actions`        | board  | `before`/`since` cursor | **incremental** | newest-first; `since` is a genuine server-side filter |
+| Schema          | Path                        | Scope  | Pagination              | Incremental     | Notes                                                 |
+| --------------- | --------------------------- | ------ | ----------------------- | --------------- | ----------------------------------------------------- |
+| `boards`        | `/members/me/boards`        | member | none (single request)   | full            |                                                       |
+| `organizations` | `/members/me/organizations` | member | none (single request)   | full            | Trello workspaces                                     |
+| `lists`         | `/boards/{id}/lists`        | board  | none (single request)   | full            | fan-out per board                                     |
+| `cards`         | `/boards/{id}/cards`        | board  | none (single request)   | full            | fan-out per board; open cards only by default         |
+| `checklists`    | `/boards/{id}/checklists`   | board  | none (single request)   | full            | fan-out per board                                     |
+| `labels`        | `/boards/{id}/labels`       | board  | none (single request)   | full            | fan-out per board                                     |
+| `members`       | `/boards/{id}/members`      | board  | none (single request)   | full            | board members; deduped across boards on `id`          |
+| `actions`       | `/boards/{id}/actions`      | board  | `before`/`since` cursor | **incremental** | newest-first; `since` is a genuine server-side filter |
 
 `boards` is fetched (id-only) before every board-scoped endpoint to drive the fan-out.
 

@@ -118,5 +118,4 @@ Get your API key from [trello.com/power-ups/admin](https://trello.com/power-ups/
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            incremental_field=inputs.incremental_field,
         )

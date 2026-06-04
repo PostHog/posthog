@@ -49,7 +49,7 @@ class TestSourceConfig:
         assert config.releaseStatus == "alpha"
         assert [f.name for f in config.fields] == ["api_key", "api_token"]
         # Both credentials must be stored as secrets.
-        assert all(f.secret for f in config.fields)
+        assert all(getattr(f, "secret", False) for f in config.fields)
 
 
 class TestGetSchemas:
@@ -97,26 +97,36 @@ class TestResumableSourceManager:
 
 
 class TestSourceForPipeline:
-    def test_plumbs_arguments(self) -> None:
-        manager = mock.Mock()
-        with mock.patch("posthog.temporal.data_imports.sources.trello.source.trello_source") as trello_source:
-            TrelloSource().source_for_pipeline(_config(), manager, _inputs(schema_name="actions"))
-
-        kwargs = trello_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["api_token"] == "token"
-        assert kwargs["endpoint"] == "actions"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["incremental_field"] == "date"
-
-    def test_drops_last_value_when_not_incremental(self) -> None:
+    @parameterized.expand(
+        [
+            ("incremental", "actions", True, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            # The cursor value is dropped when the schema is not synced incrementally.
+            ("full_refresh", "boards", False, "2026-01-01T00:00:00Z", None),
+        ]
+    )
+    def test_plumbs_arguments(
+        self,
+        _name: str,
+        schema_name: str,
+        incremental: bool,
+        last_value: str,
+        expected_last_value: str | None,
+    ) -> None:
         manager = mock.Mock()
         with mock.patch("posthog.temporal.data_imports.sources.trello.source.trello_source") as trello_source:
             TrelloSource().source_for_pipeline(
                 _config(),
                 manager,
-                _inputs(schema_name="boards", should_use_incremental_field=False),
+                _inputs(
+                    schema_name=schema_name,
+                    should_use_incremental_field=incremental,
+                    db_incremental_field_last_value=last_value,
+                ),
             )
 
-        assert trello_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        kwargs = trello_source.call_args.kwargs
+        assert kwargs["api_key"] == "key"
+        assert kwargs["api_token"] == "token"
+        assert kwargs["endpoint"] == schema_name
+        assert kwargs["should_use_incremental_field"] is incremental
+        assert kwargs["db_incremental_field_last_value"] == expected_last_value

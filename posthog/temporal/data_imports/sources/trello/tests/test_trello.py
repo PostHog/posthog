@@ -1,12 +1,13 @@
 import dataclasses
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 from unittest import mock
 
 import requests
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.sources.trello.settings import TRELLO_ENDPOINTS
 from posthog.temporal.data_imports.sources.trello.trello import (
     TrelloResumeConfig,
@@ -257,7 +258,6 @@ class TestActionsIncremental:
                 session,
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=cutoff,
-                incremental_field="date",
             )
 
         actions_url = session.return_value.get.call_args_list[1].args[0]
@@ -301,7 +301,7 @@ class TestActionsIncremental:
                     config=config,
                     headers={},
                     logger=mock.Mock(),
-                    batcher=batcher,
+                    batcher=cast(Batcher, batcher),
                     manager=manager,
                     since=None,
                     before=None,
@@ -375,7 +375,7 @@ class TestRetryClassification:
             session.return_value.get.return_value = _make_response(status=status)
             # __wrapped__ skips tenacity so we assert the single-attempt classification.
             try:
-                _fetch.__wrapped__("https://api.trello.com/1/members/me", {}, mock.Mock())
+                _fetch.__wrapped__("https://api.trello.com/1/members/me", {}, mock.Mock())  # type: ignore[attr-defined]
             except TrelloRetryableError:
                 return
             raise AssertionError("expected TrelloRetryableError")
