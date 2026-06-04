@@ -177,8 +177,6 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
-        # Skip the transform (and its AST traversal) entirely when pushdown is off, so the common production
-        # default is zero-cost. The gate mirrors the one inside the transform.
         if events_pushdown_enabled(context.modifiers):
             with context.timings.measure("events_predicate_pushdown"):
                 node = apply_events_predicate_pushdown(node, context)
