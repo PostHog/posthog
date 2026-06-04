@@ -807,11 +807,14 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def _write_touches_ai_subscription(self, request, view) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
-        # Mutating or test-delivering an existing subscription — resolve its kind by pk. Keyed on
-        # prompt presence (the same signal safely_get_queryset uses), fail-closed across teams.
+        # Mutating or test-delivering an existing subscription — resolve its kind by pk, scoped to
+        # the current team. Keyed on prompt presence (the same signal safely_get_queryset uses).
         pk = view.kwargs.get("pk")
         return bool(pk) and (
-            Subscription.objects.filter(pk=pk).exclude(prompt__isnull=True).exclude(prompt="").exists()
+            Subscription.objects.filter(pk=pk, team_id=self.team_id)
+            .exclude(prompt__isnull=True)
+            .exclude(prompt="")
+            .exists()
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
