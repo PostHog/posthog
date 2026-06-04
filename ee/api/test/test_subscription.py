@@ -12,9 +12,11 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
 from posthog.models.integration import Integration
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
@@ -32,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.access_control import AccessControl
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 
 
@@ -2123,6 +2126,79 @@ class TestAISubscriptionAPI(APILicensedTest):
                 headers=headers,
             )
         assert response.status_code == expected_status, response.json()
+
+    def _enable_access_control_feature(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+    def _restrict_query_access(self) -> None:
+        # Demote the session user from owner (which bypasses AC) to member, enable the
+        # ACCESS_CONTROL feature, and write an explicit query "none" row so they fall below
+        # the read level required to run AI HogQL.
+        self._enable_access_control_feature()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="query",
+            resource_id=None,
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        # Drop any access-control state cached on a prior request in the same test.
+        cache.clear()
+
+    @parameterized.expand(
+        [
+            # The query-read gate fires only for AI prompt subscriptions (which run HogQL);
+            # insight subscriptions carry no prompt and stay unaffected for a restricted member.
+            ("create_ai", "ai_prompt", "create", status.HTTP_403_FORBIDDEN),
+            ("deliver_ai", "ai_prompt", "test_delivery", status.HTTP_403_FORBIDDEN),
+            ("create_insight", "insight", "create", status.HTTP_201_CREATED),
+            ("deliver_insight", "insight", "test_delivery", status.HTTP_202_ACCEPTED),
+        ]
+    )
+    def test_session_query_restricted_member(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, flow, expected_status
+    ):
+        self._mock_temporal(mock_sync)
+        if flow == "create":
+            if resource_kind == "ai_prompt":
+                self._enable_ai()
+                payload = self._make_ai_payload()
+            else:
+                payload = self._insight_payload()
+            self._restrict_query_access()
+            response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        else:
+            sub_id = self._create_subscription_for(resource_kind)
+            self._restrict_query_access()
+            response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/test-delivery/")
+        assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            # The owner bypasses access controls; a plain member with no explicit query row keeps
+            # the default "editor" level. Both clear the read gate, so the create path must not regress.
+            ("owner", False),
+            ("member_without_query_restriction", True),
+        ]
+    )
+    def test_session_unrestricted_user_can_create_ai(self, mock_is_cloud, mock_flag, mock_sync, _name, as_member):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        if as_member:
+            self._enable_access_control_feature()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save(update_fields=["level"])
+            cache.clear()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(),
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     def test_creates_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()

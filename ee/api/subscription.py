@@ -27,6 +27,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import is_cloud
 from posthog.constants import (
     SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY,
@@ -816,6 +817,21 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             .exclude(prompt="")
             .exists()
         )
+
+    def check_permissions(self, request) -> None:
+        super().check_permissions(request)
+        # dangerously_get_required_scopes enforces query:read for AI writes, but only for
+        # API-token auth — session-authenticated requests bypass API scopes entirely. Mirror
+        # the requirement here so a session user with subscription write but no query access
+        # can't have an AI subscription run HogQL and deliver analytics on their behalf.
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            return
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            return
+        if self._write_touches_ai_subscription(
+            request, self
+        ) and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise exceptions.PermissionDenied("You need query access to create or deliver AI prompt subscriptions.")
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
