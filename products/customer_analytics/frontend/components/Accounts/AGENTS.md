@@ -29,3 +29,13 @@ We track user actions on the Accounts list with `posthog.capture()`. Conventions
 | `customer analytics account note clicked`           | `AccountNotebooksExpansion.tsx` note `<Link>` `onClick`                                | `notebook_short_id`                                                                                                                                                     |
 
 > **Keep this table up to date.** Whenever you add, rename, or remove a `posthog.capture()` event in the Accounts area — or change its properties — update this table in the same change. An agent reading this file should be able to trust it as the source of truth for what the Accounts list reports.
+
+### Adding features and events
+
+- **Instrument every new feature as you build it.** Any new user action on the accounts list should emit a `posthog.capture`, following this product's pattern and the wider PostHog pattern:
+  - Add the event name to the `AccountsEvents` const in `constants.ts` and capture through it — never a raw string (a typo silently forks a new event in PostHog).
+  - Keep the naming convention (`customer analytics accounts <verb> <object>`) and `snake_case` property keys.
+  - Type discriminator property _values_ with a union (e.g. `AccountFilterType`, `AccountRoleKey`) rather than bare strings, so the value set is typo-proof and self-documenting — these are what dashboard breakdowns key off.
+  - Fire from the kea logic listener where the values live; only fire from a component when no action exists. If the trigger is also dispatched by URL sync or cross-filter cascades, add a dedicated report action (see `reportFilterChange`).
+  - Add a row to the table above.
+- **Update the monitoring dashboard whenever events change.** New or changed events must be reflected in the "Customer analytics: Accounts list usage" dashboard in PostHog — add a new insight or extend an existing one so the metric is actually visible, don't just emit the event. For example, if you add a new tab to the expanded account row, its click event should feed the engagement-funnel insight (the "opened a link or note" step) and the feature-adoption insight — not just be captured.
