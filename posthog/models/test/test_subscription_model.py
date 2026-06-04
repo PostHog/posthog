@@ -331,6 +331,22 @@ class TestSubscription(BaseTest):
         )
         assert subscription.summary == expected_summary
 
+    @parameterized.expand(
+        [
+            ("daily", "daily", 1),
+            ("weekly", "weekly", 7),
+            ("monthly", "monthly", 30),
+            ("yearly", "yearly", 365),
+            ("unknown_falls_back_to_weekly", "", 7),
+        ]
+    )
+    def test_ai_report_window_days(self, _name, frequency, expected_days):
+        # Construct with a valid cadence (the model eagerly builds an rrule on init), then assign
+        # the case under test — `ai_report_window_days` reads `frequency` live.
+        subscription = Subscription(frequency="daily")
+        subscription.frequency = frequency
+        assert subscription.ai_report_window_days == expected_days
+
     def test_subscription_delivery_creation(self):
         subscription = self._create_insight_subscription()
 

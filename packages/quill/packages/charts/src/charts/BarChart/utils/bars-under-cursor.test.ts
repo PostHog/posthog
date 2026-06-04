@@ -7,6 +7,7 @@ import {
     barContainsPointOnBandAxis,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
+    groupedBandSlotAtCursor,
 } from './bars-under-cursor'
 
 const verticalBar: BarRect = { x: 100, y: 120, width: 50, height: 200, corners: {}, dataIndex: 0 }
@@ -162,5 +163,39 @@ describe('findVisibleStackedSegment — overdraw clip', () => {
         const smallWidth = Math.abs(scales.value(20) - scales.value(0))
         expect(visible?.series.key).toBe('big')
         expect(visible?.nextSmallerExtent).toBeCloseTo(smallWidth, 5)
+    })
+})
+
+describe('groupedBandSlotAtCursor', () => {
+    const labels = ['x', 'y']
+    const series: Series[] = [
+        { key: 'a', label: 'A', data: [1, 1] },
+        { key: 'b', label: 'B', data: [2, 2] },
+        { key: 'c', label: 'C', data: [3, 3] },
+    ]
+    const grouped = createBarScales(series, labels, dimensions, { barLayout: 'grouped', axisOrientation: 'vertical' })
+    const start = grouped.band('x')!
+    const bandwidth = grouped.group!.bandwidth()
+    const slotXOf = (key: string): number => start + grouped.group!(key)!
+    const centerOf = (key: string): number => slotXOf(key) + bandwidth / 2
+    const farLeft = start - 1000
+    const farRight = start + 1000
+
+    it.each(['a', 'b', 'c'])('returns the slot of the bar the cursor sits inside (%s)', (key) => {
+        expect(groupedBandSlotAtCursor(grouped, 'x', centerOf(key))).toEqual({ x: slotXOf(key), width: bandwidth })
+    })
+
+    it('snaps to the nearest bar by center when the cursor falls outside the bars', () => {
+        expect(groupedBandSlotAtCursor(grouped, 'x', farLeft)?.x).toBeCloseTo(slotXOf('a'), 5)
+        expect(groupedBandSlotAtCursor(grouped, 'x', farRight)?.x).toBeCloseTo(slotXOf('c'), 5)
+    })
+
+    it('returns undefined for an unknown label', () => {
+        expect(groupedBandSlotAtCursor(grouped, 'missing', start)).toBeUndefined()
+    })
+
+    it('returns undefined when there is no group scale (non-grouped layout)', () => {
+        const stacked = createBarScales(series, labels, dimensions, { barLayout: 'stacked' })
+        expect(groupedBandSlotAtCursor(stacked, 'x', start)).toBeUndefined()
     })
 })

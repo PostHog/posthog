@@ -100,7 +100,10 @@ export function useChartInteraction<Meta = unknown>({
                 interactionAxis,
                 prev.hoverPosition,
                 effectivePositionResolveRef.current,
-                scales.extent?.(labels[prev.dataIndex])
+                scales.extent?.(labels[prev.dataIndex]),
+                prev.hoverPosition
+                    ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition)
+                    : undefined
             )
         },
         // resolveValueRef / effectivePositionResolveRef are stable
@@ -170,7 +173,8 @@ export function useChartInteraction<Meta = unknown>({
                         interactionAxis,
                         { x: mouseX, y: mouseY },
                         effectivePositionResolve,
-                        scales.extent?.(labels[index])
+                        scales.extent?.(labels[index]),
+                        scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
                     )
                 )
             }

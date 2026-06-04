@@ -164,7 +164,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
-                "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
+                "required": True,
+                "min_value": 1,
+                "help_text": (
+                    "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). "
+                    "Required on create; must be 1 or greater."
+                ),
             },
             "byweekday": {
                 "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
