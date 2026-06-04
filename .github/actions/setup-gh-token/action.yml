@@ -1,11 +1,23 @@
 name: Mint setup-action GitHub token
-description: |
-    Mint a short-lived GitHub App token so actions/setup-* resolve their version manifest off a
-    dedicated rate-limit bucket instead of the shared per-repo GITHUB_TOKEN.
-    Fails open: when the app secrets are absent (forks, or before the app is provisioned), minting
-    is skipped and the empty `token` output lets callers fall back to github.token. Gate the caller
-    step with `if: github.event_name != 'pull_request' || head.repo.full_name == github.repository`
-    and consume it as `token: ${{ steps.<id>.outputs.token || github.token }}`.
+description: Mint a short-lived GitHub App token so actions/setup-* resolve version manifests off a dedicated rate-limit bucket. Fails open to github.token when the app secrets are absent.
+
+# Why: actions/setup-* resolve their version manifest from the GitHub API using the shared per-repo
+# GITHUB_TOKEN. A dedicated App token gives those lookups their own rate-limit bucket.
+#
+# Fails open: when the app secrets are absent (forks, or before the app is provisioned), minting is
+# skipped and the empty `token` output lets callers fall back to github.token.
+#
+# Usage — gate the caller step so forks skip minting, then OR the output with github.token:
+#
+#     - id: setup-gh-token
+#       if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+#       uses: ./.github/actions/setup-gh-token
+#       with:
+#           client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+#           private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+#     - uses: actions/setup-node@...
+#       with:
+#           token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
 inputs:
     client-id:
