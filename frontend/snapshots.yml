@@ -1495,7 +1495,7 @@ snapshots:
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--populated--dark:
         hash: v1.k794b7964.7343596d9b2962f09988bcc29ae97cf6645c2f376be199079df7406c95a16beb.A4L2NY08Q_hmkwE6-t2slrfQ44-SuZbG2ft0q54J6RA
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--populated--light:
-        hash: v1.k794b7964.f8a0dfee4c5a61a1df65e8b434b2f907660f58ae867eb0c6387cfba2e976787f.u55hvtEOMBX3Zd6ptPjIQI5F6qG7th6rCUBLBpnfYGg
+        hash: v1.k794b7964.47484e48cdaa6e6c138c1902a8e51637e902f9bd4b9a68263f25e191220f15c7.IpMh7Zu-MceXVWfDeQv7mp59NuGDawrEYf7sXj5S7fY
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--setup-unavailable--dark:
         hash: v1.k794b7964.7d69dce6ed2191849537eb642d3c89ac2236362de6063c36b330d8539b7fffb9.N2VC2kWXD-FMFINftmH1CnhNzb6araUv6QuurqnkaI8
     dashboards-dashboard-widgets-widget-types-error-tracking-top-issues--setup-unavailable--light:
@@ -4287,9 +4287,9 @@ snapshots:
     scenes-app-customer-analytics-accounts--row-expanded-empty--light:
         hash: v1.k794b7964.904bd5b939f99d43408ae3a8a814a3c299bd57bf13a0fd1d98ff6033fd66e343.K1Z16ICEF6-O9kIej8kGnYyarloq2oZH5rdtmx-8Hu0
     scenes-app-customer-analytics-accounts--row-expanded-links-disabled--dark:
-        hash: v1.k794b7964.f8d8a5c20d80ca1683d5fc3177ffbc4738d71505a39d7bbed0533ee19a98f949.9wsoIV1txvBqzEcGpRqs-7HEHXBF06-yZvQIvxXFSjU
+        hash: v1.k794b7964.db477f267006ea1a7c62dcc6650babdb05173670d274cb6e2c13eb7d507efdee.u0g7FlaBy1aMwj2qdxZtZwbP5SbJrJAQ_8yzC13I6Ps
     scenes-app-customer-analytics-accounts--row-expanded-links-disabled--light:
-        hash: v1.k794b7964.7e0417ec68b8e0dbecf3d7c3a81edf5d74ef9814b952678a753246c72aaff10b.bH4HCkNLMeiFZpX2Ko6LhdEp8TH0VgejsNB4Wp1UI24
+        hash: v1.k794b7964.b351959bb62bd40e5bcf62b774dc9d22484ae233784b67b7b64c29fc22c5e90a.pkRs8TqG9UAOhgvNduTlGYGfkoG9UGg35yf77xuRh6A
     scenes-app-customer-analytics-accounts--row-expanded-with-note--dark:
         hash: v1.k794b7964.3c9ce002ecb9931c56ef82618cc1625ee847a7f8df2a35c490006e4b356e6fb5.bK3yVZfb-U4TUMJHKvLemkMdqx6YNKdkFC2lnrWBgYg
     scenes-app-customer-analytics-accounts--row-expanded-with-note--light:
