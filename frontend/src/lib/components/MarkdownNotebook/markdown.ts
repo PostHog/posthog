@@ -26,6 +26,7 @@ type PropParseResult = {
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
 const ORDERED_LIST_REGEX = /^\s*\d+\.\s+/
 const BULLET_LIST_REGEX = /^\s*[-*+]\s+/
+const LIST_ITEM_REGEX = /^(\s*)(\d+\.|[-*+])\s+(.*)$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
@@ -78,8 +79,18 @@ export function serializeNode(node: NotebookBlockNode): string {
             .join('\n')
     }
     if (node.type === 'list') {
+        const orderedCounters: number[] = []
         return node.items
-            .map((item, index) => `${node.ordered ? `${index + 1}.` : '-'} ${serializeInlineNodes(item)}`)
+            .map((item) => {
+                const depth = Math.max(0, item.depth)
+                const ordered = item.ordered ?? node.ordered
+                orderedCounters.length = depth + 1
+                const marker = ordered ? `${(orderedCounters[depth] ?? 0) + 1}.` : '-'
+                if (ordered) {
+                    orderedCounters[depth] = (orderedCounters[depth] ?? 0) + 1
+                }
+                return `${'  '.repeat(depth)}${marker} ${serializeInlineNodes(item.children)}`
+            })
             .join('\n')
     }
     if (node.type === 'code') {
@@ -279,10 +290,11 @@ function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
 
     while (nextLineIndex < lines.length) {
         const line = lines[nextLineIndex]
-        if (ordered ? !ORDERED_LIST_REGEX.test(line) : !BULLET_LIST_REGEX.test(line)) {
+        const listItem = parseListItemLine(line)
+        if (!listItem) {
             break
         }
-        items.push(parseInlineMarkdown(line.replace(ordered ? ORDERED_LIST_REGEX : BULLET_LIST_REGEX, '')))
+        items.push(listItem)
         nextLineIndex += 1
     }
 
@@ -295,6 +307,24 @@ function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
         },
         nextLineIndex,
     }
+}
+
+function parseListItemLine(line: string): NotebookListBlockNode['items'][number] | null {
+    const match = line.match(LIST_ITEM_REGEX)
+    if (!match) {
+        return null
+    }
+
+    return {
+        children: parseInlineMarkdown(match[3]),
+        depth: getListItemDepth(match[1]),
+        ordered: /^\d+\.$/.test(match[2]),
+    }
+}
+
+function getListItemDepth(indentation: string): number {
+    const columns = [...indentation].reduce((total, character) => total + (character === '\t' ? 4 : 1), 0)
+    return Math.floor(columns / 2)
 }
 
 function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {

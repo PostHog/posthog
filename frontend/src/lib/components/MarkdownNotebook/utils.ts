@@ -39,7 +39,7 @@ export function getNodeText(node: NotebookBlockNode): string {
         return getInlineText(node.children)
     }
     if (node.type === 'list') {
-        return node.items.map(getInlineText).join('\n')
+        return node.items.map((item) => getInlineText(item.children)).join('\n')
     }
     if (node.type === 'code') {
         return node.text

@@ -38,11 +38,17 @@ export type NotebookTextBlockNode = {
     children: NotebookInlineNode[]
 }
 
+export type NotebookListItem = {
+    children: NotebookInlineNode[]
+    depth: number
+    ordered?: boolean
+}
+
 export type NotebookListBlockNode = {
     id: string
     type: 'list'
     ordered: boolean
-    items: NotebookInlineNode[][]
+    items: NotebookListItem[]
 }
 
 export type NotebookCodeBlockNode = {

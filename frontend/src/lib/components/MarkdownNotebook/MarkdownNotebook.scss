@@ -338,10 +338,44 @@ h3.MarkdownNotebook__text-block--heading {
     margin-left: 2.25rem;
 }
 
+.MarkdownNotebook__list-block {
+    line-height: 1.55;
+}
+
 .MarkdownNotebook__list-block ol,
 .MarkdownNotebook__list-block ul {
     padding-left: 1.25rem;
     margin: 0;
+}
+
+.MarkdownNotebook__list-block ol {
+    list-style: decimal outside;
+}
+
+.MarkdownNotebook__list-block ul {
+    list-style: disc outside;
+}
+
+.MarkdownNotebook__list-block ul ul {
+    list-style-type: circle;
+}
+
+.MarkdownNotebook__list-block ul ul ul {
+    list-style-type: square;
+}
+
+.MarkdownNotebook__list-block li {
+    padding-left: 0.125rem;
+}
+
+.MarkdownNotebook__list-item-content {
+    min-height: 1.55em;
+    border-radius: 0.25rem;
+    outline: none;
+}
+
+.MarkdownNotebook__list-item-content:focus {
+    background: var(--bg-light);
 }
 
 .MarkdownNotebook__code-block,

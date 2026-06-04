@@ -41,6 +41,19 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
+    it('round-trips nested markdown lists', () => {
+        const markdown = `- Parent
+  - Child
+    - Grandchild
+- Sibling
+
+1. First
+  1. Nested first
+2. Second`
+
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+    })
+
     it('preserves node identity for targeted text updates', () => {
         const previous = parseMarkdownNotebook(`Activation improved today.
 
@@ -625,6 +638,254 @@ Third paragraph`,
         })
 
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
+    })
+
+    it('supports drag selection across text blocks', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const firstTextNode = textBlocks[0].firstChild
+        const secondTextNode = textBlocks[1].firstChild
+
+        expect(firstTextNode).toBeInstanceOf(Text)
+        expect(secondTextNode).toBeInstanceOf(Text)
+
+        const startRange = document.createRange()
+        startRange.setStart(firstTextNode as Text, 2)
+        startRange.collapse(true)
+        const endRange = document.createRange()
+        endRange.setStart(secondTextNode as Text, 4)
+        endRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn((clientX: number) => (clientX === 10 ? startRange : endRange)),
+        })
+
+        fireEvent.mouseDown(textBlocks[0], { button: 0, clientX: 10, clientY: 10 })
+        fireEvent.mouseMove(window.document, { clientX: 40, clientY: 40 })
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('rst paragraph')
+        expect(selectedText).toContain('Seco')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+    })
+
+    it('keeps text visible when changing a paragraph to a heading', () => {
+        const { container, rerender } = render(createElement(MarkdownNotebook, { value: 'Selected heading text' }))
+
+        expect(container.querySelector('p.MarkdownNotebook__text-block')?.textContent).toEqual('Selected heading text')
+
+        rerender(createElement(MarkdownNotebook, { value: '# Selected heading text' }))
+
+        expect(container.querySelector('h1.MarkdownNotebook__text-block')?.textContent).toEqual('Selected heading text')
+    })
+
+    it('copies selected notebook content as markdown including components', () => {
+        const markdown = `Intro paragraph
+
+<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
+
+Closing paragraph`
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const firstTextNode = textBlocks[0].firstChild
+        const secondTextNode = textBlocks[1].firstChild
+
+        expect(notebook).toBeInstanceOf(HTMLElement)
+        expect(firstTextNode).toBeInstanceOf(Text)
+        expect(secondTextNode).toBeInstanceOf(Text)
+
+        act(() => {
+            const range = document.createRange()
+            range.setStart(firstTextNode as Text, 6)
+            range.setEnd(secondTextNode as Text, 7)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        const clipboardData = {
+            setData: jest.fn(),
+        }
+        fireEvent.copy(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith(
+            'text/plain',
+            `paragraph
+
+<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
+
+Closing`
+        )
+        expect(clipboardData.setData).toHaveBeenCalledWith(
+            'text/markdown',
+            `paragraph
+
+<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
+
+Closing`
+        )
+    })
+
+    it('pastes markdown as notebook blocks', () => {
+        const onChange = jest.fn()
+        const pastedMarkdown = `# Pasted heading
+
+<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />
+
+Tail with **bold** text`
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        fireEvent.paste(textBlock, {
+            clipboardData: {
+                getData: jest.fn((type: string) => (type === 'text/plain' ? pastedMarkdown : '')),
+            },
+        })
+
+        expect(container.querySelector('h1.MarkdownNotebook__text-block')?.textContent).toEqual('Pasted heading')
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('p.MarkdownNotebook__text-block')?.textContent).toEqual('Tail with bold text')
+        expect(onChange).toHaveBeenLastCalledWith(pastedMarkdown)
+    })
+
+    it('pastes inline markdown into the active text block', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'Hello ', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textNode = textBlock.firstChild
+
+        expect(textNode).toBeInstanceOf(Text)
+
+        act(() => {
+            const range = document.createRange()
+            range.setStart(textNode as Text, 6)
+            range.setEnd(textNode as Text, 6)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        fireEvent.paste(textBlock, {
+            clipboardData: {
+                getData: jest.fn((type: string) => (type === 'text/plain' ? '**bold**' : '')),
+            },
+        })
+
+        expect(textBlock.textContent).toEqual('Hello bold')
+        expect(onChange).toHaveBeenLastCalledWith('Hello **bold**')
+    })
+
+    it('renders nested lists as editable list items', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `- Parent
+  - Child
+- Sibling`,
+                onChange,
+            })
+        )
+        const listBlock = container.querySelector('.MarkdownNotebook__list-block')
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+
+        expect(listBlock).toBeInstanceOf(HTMLElement)
+        expect(listBlock?.querySelector('ul ul')).toBeInstanceOf(HTMLElement)
+        expect(listItems).toHaveLength(3)
+        expect(listItems.map((item) => item.textContent)).toEqual(['Parent', 'Child', 'Sibling'])
+        expect(listItems[1].getAttribute('contenteditable')).toEqual('true')
+
+        listItems[1].textContent = 'Updated child'
+        fireEvent.input(listItems[1])
+
+        expect(onChange).toHaveBeenLastCalledWith(`- Parent
+  - Updated child
+- Sibling`)
+    })
+
+    it('indents list items with tab while preserving selection', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `- Parent
+- Child`,
+                onChange,
+            })
+        )
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+        const childTextNode = listItems[1].firstChild
+
+        expect(childTextNode).toBeInstanceOf(Text)
+
+        act(() => {
+            const range = document.createRange()
+            range.setStart(childTextNode as Text, 3)
+            range.setEnd(childTextNode as Text, 3)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        fireEvent.keyDown(listItems[1], { key: 'Tab' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`- Parent
+  - Child`)
+        expect(document.activeElement?.textContent).toEqual('Child')
+        expect(window.getSelection()?.focusOffset).toEqual(3)
+    })
+
+    it('copies selected list items as markdown', () => {
+        const markdown = `- Parent
+  - Child
+- Sibling`
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const listItems = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__list-item-content')
+        ) as HTMLElement[]
+        const parentTextNode = listItems[0].firstChild
+        const childTextNode = listItems[1].firstChild
+
+        expect(parentTextNode).toBeInstanceOf(Text)
+        expect(childTextNode).toBeInstanceOf(Text)
+
+        act(() => {
+            const range = document.createRange()
+            range.setStart(parentTextNode as Text, 2)
+            range.setEnd(childTextNode as Text, 3)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        const clipboardData = {
+            setData: jest.fn(),
+        }
+        fireEvent.copy(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith(
+            'text/plain',
+            `- rent
+  - Chi`
+        )
     })
 
     it('moves the formatting toolbar below selections at the top of the viewport', () => {
