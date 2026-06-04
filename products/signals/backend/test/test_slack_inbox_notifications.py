@@ -88,13 +88,7 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
         report,
         priority="P1",
         source_products=["error_tracking"],
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-        recipients=[recipient],
-||||||| Common ancestor
-        recipient=recipient,
-=======
         reviewer_mentions=["<@U123>"],
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
     )
 
     assert blocks[0]["text"]["text"] == "📬 Checkout errors spiked"
@@ -127,18 +121,6 @@ def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
     assert blocks[1]["text"]["text"] == "*❗ P2 • Matched to <@U1> <@U2> per code*"
 
 
-def test_build_message_blocks_tags_all_recipients() -> None:
-    report = SignalReport(id="report-uuid", title="Shared channel report")
-    recipients = [
-        _RecipientPresentation(slack_mention="<@U123>", plain_name="Marcus Twix"),
-        _RecipientPresentation(slack_mention=None, plain_name="Dana Snickers"),
-    ]
-    blocks, text = _build_message_blocks(report, priority="P2", source_products=[], recipients=recipients)
-
-    assert blocks[1]["text"]["text"].startswith("*❗ P2 • Matched to <@U123>, Dana Snickers per code*")
-    assert text == "Inbox for Marcus Twix, Dana Snickers (P2): Shared channel report"
-
-
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
     report = SignalReport(
         id="report-uuid",
@@ -151,13 +133,7 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
         report,
         priority="P1",
         source_products=["error_tracking"],
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-        recipients=[recipient],
-||||||| Common ancestor
-        recipient=recipient,
-=======
         reviewer_mentions=["<@U123>"],
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
         implementation_pr_url=pr_url,
     )
 
@@ -174,13 +150,7 @@ def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
         report,
         priority=None,
         source_products=[],
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-        recipients=[recipient],
-||||||| Common ancestor
-        recipient=recipient,
-=======
         reviewer_mentions=["Marcus Twix"],
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
         implementation_pr_url=None,
     )
 
@@ -204,13 +174,7 @@ def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expect
         report,
         priority=priority,
         source_products=[],
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-        recipients=[recipient],
-||||||| Common ancestor
-        recipient=recipient,
-=======
         reviewer_mentions=["<@U123>"],
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
     )
 
     assert blocks[1]["text"]["text"] == f"*{expected_priority_label} • Matched to <@U123> per code*"

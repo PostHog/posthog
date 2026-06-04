@@ -1,5 +1,6 @@
 """Slack notifications for signals inbox items.
 
+<<<<<<< New base: resolve conflicts
 <<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
 When a report transitions to READY (a new inbox item lands), we look up the
 suggested reviewers from its `suggested_reviewers` artefact, resolve them to
@@ -30,13 +31,46 @@ not silently swallow these.
 Messages are framed for public channels: each post names the suggested reviewer
 (Slack @mention when email matches the workspace, otherwise their PostHog name).
 =======
+||||||| Common ancestor
+<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
+When a report transitions to READY (a new inbox item lands), we look up the
+suggested reviewers from its `suggested_reviewers` artefact, resolve them to
+PostHog users, and dispatch a Slack message for each user that has configured a
+Slack channel and integration in their `SignalUserAutonomyConfig`.
+
+Reviewers are grouped by their resolved Slack channel so each channel receives a
+single message — when several reviewers point at the same channel, that one
+message tags all of them rather than posting once per reviewer.
+
+Each user's `slack_notification_min_priority` filters out reports below the
+configured threshold (P0 is highest). When the report has no priority
+judgement, we notify regardless of the user's threshold — the inbox should
+not silently swallow these.
+
+Messages are framed for public channels: each post names the suggested reviewers
+(Slack @mention when email matches the workspace, otherwise their PostHog name).
+||||||| Common ancestor
+When a report transitions to READY (a new inbox item lands), we look up the
+suggested reviewers from its `suggested_reviewers` artefact, resolve them to
+PostHog users, and dispatch a Slack message to each user that has configured a
+Slack channel and integration in their `SignalUserAutonomyConfig`.
+
+Each user's `slack_notification_min_priority` filters out reports below the
+configured threshold (P0 is highest). When the report has no priority
+judgement, we notify regardless of the user's threshold — the inbox should
+not silently swallow these.
+
+Messages are framed for public channels: each post names the suggested reviewer
+(Slack @mention when email matches the workspace, otherwise their PostHog name).
+=======
+=======
+>>>>>>> Current commit: resolve conflicts
 Each suggested reviewer on a ready report is routed to exactly one Slack channel:
 their own configured channel if they set one (filtered by their min-priority),
 otherwise the team-default channel, otherwise nowhere. Reviewers sharing a channel —
 notably everyone falling back to the team default — get a single post that mentions
 only the reviewers routed there. A report with no resolvable reviewers posts nothing.
 All sends are best-effort.
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
 """
 
 from __future__ import annotations
@@ -315,13 +349,6 @@ def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[Use
     return mentions
 
 
-def _recipient_label(recipient: _RecipientPresentation) -> str:
-    # Mention pings the user inside mrkdwn; otherwise escape the plain name so it renders literally.
-    return recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace("<", "&lt;").replace(
-        ">", "&gt;"
-    )
-
-
 def _format_source_product_labels(source_products: list[str]) -> str:
     if not source_products:
         return ""
@@ -347,13 +374,7 @@ def _build_message_blocks(
     *,
     priority: str | None,
     source_products: list[str],
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-    recipients: list[_RecipientPresentation],
-||||||| Common ancestor
-    recipient: _RecipientPresentation,
-=======
     reviewer_mentions: list[str],
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
     implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
@@ -361,19 +382,9 @@ def _build_message_blocks(
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-    recipient_label = ", ".join(_recipient_label(recipient) for recipient in recipients)
-    metadata_parts = [f"Matched to {recipient_label} per code"]
-||||||| Common ancestor
-    recipient_label = recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace(
-        "<", "&lt;"
-    ).replace(">", "&gt;")
-    metadata_parts = [f"Matched to {recipient_label} per code"]
-=======
     # Mentions live in the mrkdwn section (not the plain_text header, which would show the
     # raw `<@U…>` token). They are joined as-is — `_resolve_reviewer_mentions` escaped names.
     metadata_parts: list[str] = []
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
     if priority:
         metadata_parts.append(_slack_priority_label(priority))
     if reviewer_mentions:
@@ -426,14 +437,7 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-    recipient_names = ", ".join(recipient.plain_name for recipient in recipients)
-    fallback_text = f"Inbox for {recipient_names}{priority_suffix}: {title_line}"
-||||||| Common ancestor
-    fallback_text = f"Inbox for {recipient.plain_name}{priority_suffix}: {title_line}"
-=======
     fallback_text = f"Inbox item{priority_suffix}: {title_line}"
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
     return blocks, fallback_text
 
 
@@ -561,54 +565,6 @@ def dispatch_inbox_item_notifications(
     sources = source_products or []
     implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
 
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-    # Several reviewers can resolve to the same channel — group them so each channel gets a
-    # single message that still tags every matched reviewer. Keyed by integration + channel id,
-    # since the same channel id under a different integration is a distinct destination.
-    channels: dict[tuple[int, str], list[SignalUserAutonomyConfig]] = {}
-    for config in targets:
-        if not _meets_min_priority(priority, config.slack_notification_min_priority):
-            continue
-        if config.user_id not in users_by_id:
-            logger.warning(
-                "signals_inbox_slack_notification_missing_user",
-                extra={"report_id": report_id, "team_id": team_id, "user_id": config.user_id},
-            )
-            continue
-        integration = config.slack_notification_integration
-        channel = config.slack_notification_channel
-        if integration is None or not channel:
-            continue
-        channels.setdefault((integration.id, _channel_id_from_target(channel)), []).append(config)
-
-    sent = 0
-    for configs in channels.values():
-        # All configs in a group share the same integration and resolved channel id.
-        integration = configs[0].slack_notification_integration
-        channel = configs[0].slack_notification_channel
-        if integration is None or not channel:
-            continue  # Needed to satisfy mypy
-
-||||||| Common ancestor
-    sent = 0
-    for config in targets:
-        if not _meets_min_priority(priority, config.slack_notification_min_priority):
-            continue
-
-        user = users_by_id.get(config.user_id)
-        if user is None:
-            logger.warning(
-                "signals_inbox_slack_notification_missing_user",
-                extra={"report_id": report_id, "team_id": team_id, "user_id": config.user_id},
-            )
-            continue
-
-        integration = config.slack_notification_integration
-        channel = config.slack_notification_channel
-        if integration is None or not channel:
-            continue
-
-=======
     sent = 0
     for route in routes:
         channel_id = _channel_id_from_target(route.channel)
@@ -618,57 +574,18 @@ def dispatch_inbox_item_notifications(
             "channel": _channel_display_name(route.channel),
             "destination": "team" if route.is_team_channel else "user",
         }
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
         try:
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-            slack = SlackIntegration(integration)
-            recipients = [
-                _recipient_presentation(users_by_id[config.user_id], slack, integration) for config in configs
-            ]
-||||||| Common ancestor
-            slack = SlackIntegration(integration)
-            recipient = _recipient_presentation(user, slack, integration)
-=======
             slack = SlackIntegration(route.integration)
             mentions = _resolve_reviewer_mentions(slack, route.users)
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
             blocks, text = _build_message_blocks(
                 report,
                 priority=priority,
                 source_products=sources,
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-                recipients=recipients,
-||||||| Common ancestor
-                recipient=recipient,
-=======
                 reviewer_mentions=mentions,
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
                 implementation_pr_url=implementation_pr_url,
             )
             slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
             sent += 1
         except Exception:
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-            logger.exception(
-                "Failed to deliver signals inbox-item Slack notification",
-                extra={
-                    "report_id": report_id,
-                    "team_id": team_id,
-                    "user_ids": [config.user_id for config in configs],
-                    "channel": _channel_display_name(channel),
-                },
-            )
-||||||| Common ancestor
-            logger.exception(
-                "Failed to deliver signals inbox-item Slack notification",
-                extra={
-                    "report_id": report_id,
-                    "team_id": team_id,
-                    "user_id": config.user_id,
-                    "channel": _channel_display_name(channel),
-                },
-            )
-=======
             logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
     return sent
