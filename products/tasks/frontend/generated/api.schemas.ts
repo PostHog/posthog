@@ -292,6 +292,11 @@ export type TaskApiLatestRun = { [key: string]: unknown } | null
 
 export interface TaskApi {
     readonly id: string
+    /**
+     * Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the task UUID and can be used in place of it on detail endpoints.
+     * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+     */
+    readonly display_id: string
     /** @nullable */
     readonly task_number: number | null
     readonly slug: string
@@ -374,6 +379,11 @@ export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null
 
 export interface PatchedTaskApi {
     readonly id?: string
+    /**
+     * Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the task UUID and can be used in place of it on detail endpoints.
+     * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+     */
+    readonly display_id?: string
     /** @nullable */
     readonly task_number?: number | null
     readonly slug?: string

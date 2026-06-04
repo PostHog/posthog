@@ -25608,6 +25608,11 @@ export namespace Schemas {
 
     export interface Task {
       readonly id: string;
+      /**
+         * Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the task UUID and can be used in place of it on detail endpoints.
+         * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+         */
+      readonly display_id: string;
       /** @nullable */
       readonly task_number: number | null;
       readonly slug: string;
@@ -31704,6 +31709,11 @@ export namespace Schemas {
 
     export interface PatchedTask {
       readonly id?: string;
+      /**
+         * Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the task UUID and can be used in place of it on detail endpoints.
+         * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+         */
+      readonly display_id?: string;
       /** @nullable */
       readonly task_number?: number | null;
       readonly slug?: string;
