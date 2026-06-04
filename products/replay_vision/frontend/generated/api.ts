@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EstimateRequestApi,
     EstimateResponseApi,
+    ObservationStatsApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
@@ -22,6 +23,7 @@ import type {
     VisionQuotaApi,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
+    VisionScannersObservationsStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -282,6 +284,44 @@ export const visionScannersObservationsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getVisionScannersObservationsStatsRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/`
+}
+
+/**
+ * Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.
+ */
+export const visionScannersObservationsStatsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams,
+    options?: RequestInit
+): Promise<ObservationStatsApi> => {
+    return apiMutator<ObservationStatsApi>(
+        getVisionScannersObservationsStatsRetrieveUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
