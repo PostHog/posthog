@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AddDashboardWidgetsBatchRequestApi,
+    AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CopyDashboardTemplateApi,
@@ -29,27 +31,35 @@ import type {
     DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
+    DashboardsMoveTileCreateParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
     DashboardsRunInsightsRetrieveParams,
+    DashboardsRunWidgetsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsWidgetCatalogRetrieveParams,
+    DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
     DataColorThemesListParams,
     DeleteTileRequestApi,
+    MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDashboardTemplateApi,
     PatchedDataColorThemeApi,
+    PatchedMoveTileRequestApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
+    RunWidgetsResponseApi,
     UpdateTextTileRequestApi,
+    WidgetCatalogResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -505,7 +515,7 @@ export const getDashboardsCopyTileCreateUrl = (
 }
 
 /**
- * Copy an existing dashboard tile to another dashboard (insight or text card; new tile row).
+ * Copy an existing dashboard tile to another dashboard (insight, text card, or widget tile).
  */
 export const dashboardsCopyTileCreate = async (
     projectId: string,
@@ -601,6 +611,41 @@ export const dashboardsDeleteTile = async (
     })
 }
 
+export const getDashboardsMoveTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsMoveTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/move_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/move_tile/`
+}
+
+export const dashboardsMoveTileCreate = async (
+    projectId: string,
+    id: number,
+    moveTileRequestApi: MoveTileRequestApi,
+    params?: DashboardsMoveTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsMoveTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(moveTileRequestApi),
+    })
+}
+
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
     id: number,
@@ -624,15 +669,15 @@ export const getDashboardsMoveTilePartialUpdateUrl = (
 export const dashboardsMoveTilePartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboardApi?: NonReadonly<PatchedDashboardApi>,
+    patchedMoveTileRequestApi?: PatchedMoveTileRequestApi,
     params?: DashboardsMoveTilePartialUpdateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getDashboardsMoveTilePartialUpdateUrl(projectId, id, params), {
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsMoveTilePartialUpdateUrl(projectId, id, params), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardApi),
+        body: JSON.stringify(patchedMoveTileRequestApi),
     })
 }
 
@@ -701,6 +746,38 @@ export const dashboardsRunInsightsRetrieve = async (
     options?: RequestInit
 ): Promise<RunInsightsResponseApi> => {
     return apiMutator<RunInsightsResponseApi>(getDashboardsRunInsightsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDashboardsRunWidgetsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: DashboardsRunWidgetsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/run_widgets/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/run_widgets/`
+}
+
+export const dashboardsRunWidgetsRetrieve = async (
+    projectId: string,
+    id: number,
+    params: DashboardsRunWidgetsRetrieveParams,
+    options?: RequestInit
+): Promise<RunWidgetsResponseApi> => {
+    return apiMutator<RunWidgetsResponseApi>(getDashboardsRunWidgetsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -815,6 +892,44 @@ export const dashboardsUpdateTextTileCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(updateTextTileRequestApi),
+    })
+}
+
+export const getDashboardsWidgetsBatchCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsWidgetsBatchCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/widgets/batch/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/widgets/batch/`
+}
+
+/**
+ * Add multiple widget tiles to a dashboard in one atomic request.
+ */
+export const dashboardsWidgetsBatchCreate = async (
+    projectId: string,
+    id: number,
+    addDashboardWidgetsBatchRequestApi: AddDashboardWidgetsBatchRequestApi,
+    params?: DashboardsWidgetsBatchCreateParams,
+    options?: RequestInit
+): Promise<AddDashboardWidgetsBatchResponseApi> => {
+    return apiMutator<AddDashboardWidgetsBatchResponseApi>(getDashboardsWidgetsBatchCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(addDashboardWidgetsBatchRequestApi),
     })
 }
 
@@ -938,6 +1053,39 @@ export const dashboardsCreateUnlistedDashboardCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dashboardApi),
+    })
+}
+
+export const getDashboardsWidgetCatalogRetrieveUrl = (
+    projectId: string,
+    params?: DashboardsWidgetCatalogRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/widget_catalog/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/widget_catalog/`
+}
+
+/**
+ * List registered dashboard widget types and config hints for agents.
+ */
+export const dashboardsWidgetCatalogRetrieve = async (
+    projectId: string,
+    params?: DashboardsWidgetCatalogRetrieveParams,
+    options?: RequestInit
+): Promise<WidgetCatalogResponseApi> => {
+    return apiMutator<WidgetCatalogResponseApi>(getDashboardsWidgetCatalogRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -16,6 +16,7 @@ from products.signals.backend.models import (
     SignalReportTask,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.slack_inbox_notifications import (
     _build_message_blocks,
     _meets_min_priority,
@@ -33,9 +34,9 @@ from products.tasks.backend.models import Task, TaskRun
         # No threshold → always notify
         ("P0", None, True),
         ("P4", None, True),
-        (None, None, True),
-        # Report without a priority always notifies (we don't silently swallow)
-        (None, AutonomyPriority.P0, True),
+        # Report without a priority never notifies
+        (None, None, False),
+        (None, AutonomyPriority.P0, False),
         # P0 is highest — P1 with min P0 should NOT notify
         ("P1", AutonomyPriority.P0, False),
         # P0 with min P2 notifies
@@ -44,8 +45,8 @@ from products.tasks.backend.models import Task, TaskRun
         ("P2", AutonomyPriority.P2, True),
         # P3 with min P2 does not
         ("P3", AutonomyPriority.P2, False),
-        # Unknown priority value → notify (fallback to "no judgement")
-        ("XX", AutonomyPriority.P1, True),
+        # Unknown priority value → skip until a valid priority judgment is persisted
+        ("XX", AutonomyPriority.P1, False),
     ],
 )
 def test_meets_min_priority(report_priority: str | None, min_priority: str | None, expected: bool) -> None:
@@ -74,7 +75,7 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
         report,
         priority="P1",
         source_products=["error_tracking"],
-        recipient=recipient,
+        recipients=[recipient],
     )
 
     assert blocks[0]["text"]["text"] == "📬 Checkout errors spiked"
@@ -95,6 +96,18 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
     assert text == "Inbox for Marcus Twix (P1): Checkout errors spiked"
 
 
+def test_build_message_blocks_tags_all_recipients() -> None:
+    report = SignalReport(id="report-uuid", title="Shared channel report")
+    recipients = [
+        _RecipientPresentation(slack_mention="<@U123>", plain_name="Marcus Twix"),
+        _RecipientPresentation(slack_mention=None, plain_name="Dana Snickers"),
+    ]
+    blocks, text = _build_message_blocks(report, priority="P2", source_products=[], recipients=recipients)
+
+    assert blocks[1]["text"]["text"].startswith("*❗ P2 • Matched to <@U123>, Dana Snickers per code*")
+    assert text == "Inbox for Marcus Twix, Dana Snickers (P2): Shared channel report"
+
+
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
     report = SignalReport(
         id="report-uuid",
@@ -108,7 +121,7 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
         report,
         priority="P1",
         source_products=["error_tracking"],
-        recipient=recipient,
+        recipients=[recipient],
         implementation_pr_url=pr_url,
     )
 
@@ -126,7 +139,7 @@ def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
         report,
         priority=None,
         source_products=[],
-        recipient=recipient,
+        recipients=[recipient],
         implementation_pr_url=None,
     )
 
@@ -151,7 +164,7 @@ def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expect
         report,
         priority=priority,
         source_products=[],
-        recipient=recipient,
+        recipients=[recipient],
     )
 
     assert blocks[1]["text"]["text"] == f"*{expected_priority_label} • Matched to <@U123> per code*"
@@ -220,11 +233,19 @@ def _make_ready_report(
     title: str = "Test report",
     summary: str = "Summary text",
     priority: str | None = None,
+    actionability: str | None = ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
     suggested_logins: list[str] | None = None,
 ) -> SignalReport:
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title=title, summary=summary, signal_count=3, total_weight=1.0
     )
+    if actionability:
+        SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            content=json.dumps({"actionability": actionability}),
+        )
     if priority:
         SignalReportArtefact.objects.create(
             team=team,
@@ -273,7 +294,7 @@ def test_dispatch_no_notification_when_user_has_no_slack_config(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer@example.com", "review-bot")
     SignalUserAutonomyConfig.objects.create(user=user)  # no slack config
-    report = _make_ready_report(team, suggested_logins=["review-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["review-bot"])
 
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
@@ -317,6 +338,41 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("priority", "actionability"),
+    [
+        (None, ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
+        (AutonomyPriority.P1, None),
+        ("XX", ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
+        (AutonomyPriority.P1, ActionabilityChoice.NOT_ACTIONABLE),
+    ],
+)
+def test_dispatch_skips_until_immediately_actionable_with_valid_priority(
+    org_and_team: tuple[Organization, Team], priority: str | None, actionability: str | None
+) -> None:
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-missing-judgment@example.com", "missing-judgment-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(
+        team,
+        priority=priority,
+        actionability=actionability,
+        suggested_logins=["missing-judgment-bot"],
+    )
+
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 0
+    assert slack_cls.call_count == 0
+
+
+@pytest.mark.django_db
 def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer-pr@example.com", "pr-bot")
@@ -326,7 +382,7 @@ def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(team, suggested_logins=["pr-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["pr-bot"])
     _create_implementation_task_with_run(team, report, pr_url="https://github.com/org/repo/pull/99")
 
     fake_client = MagicMock()
@@ -381,7 +437,7 @@ def test_dispatch_ignores_slack_config_from_another_team(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C123|#inbox",
     )
-    report = _make_ready_report(report_team, suggested_logins=["other-team-bot"])
+    report = _make_ready_report(report_team, priority=AutonomyPriority.P1, suggested_logins=["other-team-bot"])
 
     fake_client = MagicMock()
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
@@ -408,7 +464,7 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
         slack_notification_integration=integration,
         slack_notification_channel="C2|#b",
     )
-    report = _make_ready_report(team, suggested_logins=["alpha-login", "beta-login"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["alpha-login", "beta-login"])
 
     fake_client = MagicMock()
     fake_client.chat_postMessage.side_effect = [Exception("slack down"), {"ok": True}]
@@ -424,3 +480,46 @@ def test_dispatch_continues_after_per_user_failure(org_and_team):
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 2
+
+
+@pytest.mark.django_db
+def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_team):
+    org, team = org_and_team
+    user1 = _make_reviewer_user(org, "shared1@example.com", "shared-login-1")
+    user2 = _make_reviewer_user(org, "shared2@example.com", "shared-login-2")
+    integration = _make_slack_integration(team, user1)
+    # Both reviewers point at the same channel id — the display alias differs but the id matches.
+    SignalUserAutonomyConfig.objects.create(
+        user=user1,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    SignalUserAutonomyConfig.objects.create(
+        user=user2,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox-alias",
+    )
+    report = _make_ready_report(
+        team, priority=AutonomyPriority.P1, suggested_logins=["shared-login-1", "shared-login-2"]
+    )
+
+    mentions = {"shared1@example.com": "U_ONE", "shared2@example.com": "U_TWO"}
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            side_effect=lambda _slack, email: mentions.get(email),
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert fake_client.chat_postMessage.call_count == 1
+    call_kwargs = fake_client.chat_postMessage.call_args.kwargs
+    assert call_kwargs["channel"] == "C123"
+    # The single message still tags both reviewers that resolved to the channel.
+    section_text = call_kwargs["blocks"][1]["text"]["text"]
+    assert "Matched to <@U_ONE>, <@U_TWO> per code" in section_text

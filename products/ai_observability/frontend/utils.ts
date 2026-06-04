@@ -455,13 +455,53 @@ export function extractTextContent(item: unknown): string | undefined {
     return undefined
 }
 
+// Pulls the user-visible text out of a whole message. Walks a content array (joining
+// per-part text), falls back to the `{type, content: string}` legacy wrapper, and
+// otherwise returns '' (caller decides what to do with an empty string).
+export function extractText(message: CompatMessage): string {
+    const content = message.content
+    if (typeof content === 'string') {
+        return content
+    }
+    if (Array.isArray(content)) {
+        const parts: string[] = []
+        for (const part of content) {
+            const text = extractTextContent(part)
+            if (text !== undefined) {
+                parts.push(text)
+            }
+        }
+        return parts.join('\n')
+    }
+    if (hasStringContentField(content)) {
+        return content.content
+    }
+    return ''
+}
+
+// Like `extractText`, but with one extra fallback for the custom function-shape
+// tool-result user message (`{role:'user', content:[{type:'function', tool_name, content}]}`).
+export function extractInternalContent(message: CompatMessage): string {
+    const text = extractText(message)
+    if (text.length > 0) {
+        return text
+    }
+    if (Array.isArray(message.content)) {
+        return message.content
+            .map((p) => (isObject(p) && isString(p.content) ? p.content : ''))
+            .filter(Boolean)
+            .join('\n')
+    }
+    return ''
+}
+
 export function isAnthropicToolCallMessage(output: unknown): output is AnthropicToolCallMessage {
     return !!output && typeof output === 'object' && 'type' in output && output.type === 'tool_use'
 }
 
-// There are more tags that point to an internal-only scaffold message, but these are the most common
+// There are more tags that point to an internal-only message, but these are the most common
 // ones, i.e. the ones we can most confidently hide by default.
-const SCAFFOLD_TAG_ALLOWLIST: ReadonlySet<string> = new Set([
+const INTERNAL_TAG_ALLOWLIST: ReadonlySet<string> = new Set([
     'system-reminder',
     'system_reminder',
     'system_reminder_message',
@@ -471,7 +511,7 @@ const SCAFFOLD_TAG_ALLOWLIST: ReadonlySet<string> = new Set([
 
 // Regex for the case where an entire message body consists of exactly one balanced XML wrapper.
 // We don't accept content that contains multiple top-level wrappers nor leading/trailing text
-const SCAFFOLD_WRAPPER_REGEX = /^\s*<([a-z][a-z0-9_-]*)>[\s\S]*?<\/\1>\s*$/
+const INTERNAL_WRAPPER_REGEX = /^\s*<([a-z][a-z0-9_-]*)>[\s\S]*?<\/\1>\s*$/
 
 // Reduces content to a single text body (flat string, single typed-parts text part,
 // or legacy `{content: string}`); returns `undefined` for multi-part / unknown shapes.
@@ -491,10 +531,10 @@ function extractSoleTextContent(content: CompatMessage['content']): string | und
     return undefined
 }
 
-// Returns the matched scaffold tag iff `message` is a user-role message whose entire
-// content is one balanced wrapper from `SCAFFOLD_TAG_ALLOWLIST` (e.g.
+// Returns the matched internal tag iff `message` is a user-role message whose entire
+// content is one balanced wrapper from `INTERNAL_TAG_ALLOWLIST` (e.g.
 // `<system_reminder>foo</system_reminder>`)
-export function getScaffoldTagName(message: CompatMessage): string | undefined {
+export function getInternalTagName(message: CompatMessage): string | undefined {
     if (message.role !== 'user') {
         return undefined
     }
@@ -502,16 +542,45 @@ export function getScaffoldTagName(message: CompatMessage): string | undefined {
     if (!body) {
         return undefined
     }
-    const match = SCAFFOLD_WRAPPER_REGEX.exec(body)
+    const match = INTERNAL_WRAPPER_REGEX.exec(body)
     if (!match) {
         return undefined
     }
     const tag = match[1]
-    return SCAFFOLD_TAG_ALLOWLIST.has(tag) ? tag : undefined
+    return INTERNAL_TAG_ALLOWLIST.has(tag) ? tag : undefined
 }
 
-export function isInternalScaffoldMessage(message: CompatMessage): boolean {
-    return getScaffoldTagName(message) !== undefined
+export function isInternalTagMessage(message: CompatMessage): boolean {
+    return getInternalTagName(message) !== undefined
+}
+
+// Matches tool-result-shaped content {type: 'function', tool_name: string, content: ...}`
+// with NO nested `function` object to distinguish from a tool call
+function isCustomFunctionToolResult(item: unknown): boolean {
+    return isObject(item) && item.type === 'function' && isString(item.tool_name) && !isObject(item.function)
+}
+
+export function isToolResult(item: unknown): boolean {
+    return (
+        isAnthropicToolResultMessage(item) ||
+        isVercelSDKToolResultMessage(item) ||
+        isOpenAIResponsesFunctionCallOutput(item) ||
+        isCustomFunctionToolResult(item)
+    )
+}
+
+// A user-role message whose content is exclusively tool-results is framework-emitted
+// noise (the user did not write it, their agent appended tool responses into the
+// conversation history).
+export function isInternalToolResultUserMessage(message: CompatMessage): boolean {
+    if (message.role !== 'user') {
+        return false
+    }
+    const { content } = message
+    if (!Array.isArray(content) || content.length === 0) {
+        return false
+    }
+    return content.every(isToolResult)
 }
 
 export function isToolStepItem(item: unknown): boolean {
@@ -1223,14 +1292,14 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     if (isAnthropicThinkingMessage(rawMessage)) {
         return [
             {
-                role: normalizeRole('assistant (thinking)', roleToUse),
+                role: normalizeRole(INTERNAL_THINKING_ROLE, roleToUse),
                 content: rawMessage.thinking,
             },
         ]
     }
     // Tool result completion
     if (isAnthropicToolResultMessage(rawMessage)) {
-        const toolResultRole = normalizeRole('assistant (tool result)', roleToUse)
+        const toolResultRole = normalizeRole(INTERNAL_TOOL_RESULT_ROLE, roleToUse)
         if (Array.isArray(rawMessage.content)) {
             return rawMessage.content
                 .map((content) => normalizeMessage(content, toolResultRole))
@@ -1273,7 +1342,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
     if (isOpenAIResponsesFunctionCallOutput(rawMessage)) {
         return [
             {
-                role: normalizeRole('assistant (tool result)', roleToUse),
+                role: normalizeRole(INTERNAL_TOOL_RESULT_ROLE, roleToUse),
                 content: rawMessage.output,
                 tool_call_id: rawMessage.call_id,
             },
@@ -1289,7 +1358,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: normalizeRole('assistant (thinking)', roleToUse),
+                role: normalizeRole(INTERNAL_THINKING_ROLE, roleToUse),
                 content: summaryText,
             },
         ]
@@ -1346,7 +1415,7 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
         }
         return [
             {
-                role: normalizeRole('assistant (tool result)', roleToUse),
+                role: normalizeRole(INTERNAL_TOOL_RESULT_ROLE, roleToUse),
                 content,
                 tool_call_id: rawMessage.toolCallId,
             },
@@ -1470,6 +1539,9 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
 // Synthetic role used by `normalizeMessages` to surface the `$ai_tools` payload
 // as a pseudo-message
 export const AVAILABLE_TOOLS_ROLE = 'available tools'
+
+export const INTERNAL_THINKING_ROLE = 'assistant (thinking)'
+export const INTERNAL_TOOL_RESULT_ROLE = 'assistant (tool result)'
 
 // Returns the tool names invoked across events in chronological order (duplicates preserved)
 export function getToolNamesCalled(events: LLMTraceEvent[]): string[] {

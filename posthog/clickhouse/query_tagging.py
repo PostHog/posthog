@@ -54,6 +54,7 @@ class Product(StrEnum):
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    REPLAY_VISION = "replay_vision"
     REVENUE_ANALYTICS = "revenue_analytics"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
@@ -170,7 +171,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.WEB_OVERVIEW_QUERY
             | NodeKind.WEB_STATS_TABLE_QUERY
             | NodeKind.WEB_GOALS_QUERY
-            | NodeKind.WEB_TRENDS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY

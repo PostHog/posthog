@@ -1045,6 +1045,9 @@ describe('LogsIngestionConsumer', () => {
             hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
             hub.LOGS_LIMITER_TTL_SECONDS = 3600
 
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
             const messages = [
                 ...(await createKafkaMessages([createLogMessage()], {
                     token: team.api_token,
@@ -1610,11 +1613,11 @@ describe('LogsIngestionConsumer', () => {
     })
 
     describe('TracesIngestionConsumer billing identity', () => {
-        const createTracesIngestionConsumer = (): TracesIngestionConsumer => {
+        const createTracesIngestionConsumer = (configOverrides: Record<string, any> = {}): TracesIngestionConsumer => {
             const tracesConsumer = new TracesIngestionConsumer(
                 // Blank the traces Redis host so it reuses the hub's pool (like the logs-consumer tests),
                 // avoiding a second eager pool that would keep handles open after the suite.
-                { ...hub, ...getDefaultTracesIngestionConsumerConfig(), TRACES_REDIS_HOST: '' },
+                { ...hub, ...getDefaultTracesIngestionConsumerConfig(), TRACES_REDIS_HOST: '', ...configOverrides },
                 {
                     ...hub,
                     outputs: new IngestionOutputs<AppMetricsOutput | LogsOutput | LogsDlqOutput>({
@@ -1673,6 +1676,25 @@ describe('LogsIngestionConsumer', () => {
             await tracesConsumer['filterQuotaLimitedMessages'](parsed)
 
             expect(hub.quotaLimiting.isTeamTokenQuotaLimited).toHaveBeenCalledWith(team.api_token, 'traces_mb_ingested')
+        })
+
+        it('rate-limits against its own Redis key namespace, not the logs one', () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+            const prefix = tracesConsumer['rateLimiter']['rateLimiter'].getKeyPrefix()
+
+            expect(prefix).toBe('@posthog-test/traces-rate-limiter/tokens')
+            expect(prefix).not.toContain('logs-rate-limiter')
+        })
+
+        it('applies TRACES_LIMITER_* tuning rather than the logs limiter config', () => {
+            const tracesConsumer = createTracesIngestionConsumer({
+                TRACES_LIMITER_BUCKET_SIZE_KB: 42,
+                TRACES_LIMITER_REFILL_RATE_KB_PER_SECOND: 7,
+            })
+            const limiterConfig = tracesConsumer['rateLimiter']['config']
+
+            expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
+            expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
         })
     })
 })

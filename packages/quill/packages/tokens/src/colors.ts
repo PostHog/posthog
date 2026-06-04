@@ -117,8 +117,10 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // ── Status (independent of theme hue) ─────────
         destructive: [oklch(0.92, 0.03, 32.22), oklch(0.24, 0.03, 2.79), 'bg-destructive'],
         'destructive-foreground': [
-            oklch(0.59, 0.2, 23.61),
-            oklch(0.6316, 0.1927, 24.53),
+            // Darkened from L=0.59 → 0.51 to clear WCAG AA (5.0:1) on the light
+            // destructive surface; the prior value sat at ~3.6:1.
+            oklch(0.51, 0.2, 23.61),
+            oklch(0.6605, 0.1821, 23.51),
             'text-destructive-foreground',
         ],
 
