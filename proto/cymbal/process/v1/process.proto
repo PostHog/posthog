@@ -134,18 +134,16 @@ message ServiceState {
   // True when the pod is preparing to shut down. Routers should stop sending
   // new work; in-flight requests are still served.
   bool draining = 2;
-  // True when the stream API should receive new work.
-  bool accepting_stream = 3;
-  // True when the batch API should receive new work.
-  bool accepting_batch = 4;
+  // True when this instance should receive new process work.
+  bool healthy = 3;
   // Current process-wide item load, if known.
-  uint32 in_flight_items = 5;
+  uint32 in_flight_items = 4;
   // Configured process-wide item capacity, if known. A zero value means the
   // service did not report a capacity.
-  uint32 max_in_flight_items = 6;
+  uint32 max_in_flight_items = 5;
   // Monotonic per-subscription sequence assigned by the server, starting at 1
   // for the first tick of each Subscribe stream.
-  uint64 sequence = 7;
+  uint64 sequence = 6;
   // Optional short human-readable note. Not interpreted by the router.
-  string message = 8;
+  string message = 7;
 }

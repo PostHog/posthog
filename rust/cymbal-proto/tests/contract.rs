@@ -204,8 +204,7 @@ fn process_subscribe_reports_service_state() {
     let state = ServiceState {
         service_instance_id: "cymbal/pod-1".to_string(),
         draining: false,
-        accepting_stream: true,
-        accepting_batch: true,
+        healthy: true,
         in_flight_items: 7,
         max_in_flight_items: 128,
         sequence: 3,
@@ -220,8 +219,7 @@ fn process_subscribe_reports_service_state() {
     assert_eq!(decoded_request.tick_hint_ms, 500);
     assert_eq!(decoded_state.service_instance_id, "cymbal/pod-1");
     assert!(!decoded_state.draining);
-    assert!(decoded_state.accepting_stream);
-    assert!(decoded_state.accepting_batch);
+    assert!(decoded_state.healthy);
     assert_eq!(decoded_state.in_flight_items, 7);
     assert_eq!(decoded_state.max_in_flight_items, 128);
     assert_eq!(decoded_state.sequence, 3);
