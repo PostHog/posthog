@@ -317,3 +317,19 @@ class TestMessageTemplatesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         self.message_template.refresh_from_db()
         assert self.message_template.message_category_id == own_category.id
+
+    def test_update_template_with_plaintext_only_email(self):
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={
+                "content": {
+                    "email": {
+                        "subject": "Test Subject",
+                        "text": "Plain body",
+                        "html": "",
+                    }
+                }
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
