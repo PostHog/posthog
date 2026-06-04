@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { rateLimitBlockedByTeam } from '@/hono/metrics'
-import { recordRateLimitBlock } from '@/hono/rate-limit-telemetry'
+import { __resetTrackedTeamIds, recordRateLimitBlock } from '@/hono/rate-limit-telemetry'
 import type { RateLimitResult } from '@/hono/rate-limiter'
 import type { RequestProperties } from '@/lib/request-properties'
 
@@ -22,7 +22,12 @@ async function teamValue(teamId: string, scope = 'mcp_sustained'): Promise<numbe
 describe('recordRateLimitBlock', () => {
     beforeEach(() => {
         rateLimitBlockedByTeam.reset()
+        __resetTrackedTeamIds()
     })
+
+    async function totalSeries(): Promise<number> {
+        return (await rateLimitBlockedByTeam.get()).values.length
+    }
 
     it('labels by the client-supplied project id without touching redis', async () => {
         const get = vi.fn()
@@ -49,5 +54,25 @@ describe('recordRateLimitBlock', () => {
         })
         await expect(recordRateLimitBlock({ get } as never, makeProps(), blocked())).resolves.toBeUndefined()
         expect(await teamValue('unresolved')).toBe(1)
+    })
+
+    it.each([['not-a-number'], ['12345678901234567890'], ['1; DROP']])(
+        'buckets a non-numeric or oversized project id %j as unresolved',
+        async (projectId) => {
+            const get = vi.fn()
+            await recordRateLimitBlock({ get } as never, makeProps({ projectId }), blocked())
+            expect(await teamValue('unresolved')).toBe(1)
+            expect(get).not.toHaveBeenCalled()
+        }
+    )
+
+    it('caps distinct team series and routes the overflow to other', async () => {
+        const get = vi.fn()
+        for (let i = 0; i < 1500; i += 1) {
+            await recordRateLimitBlock({ get } as never, makeProps({ projectId: String(i) }), blocked())
+        }
+        // 1000 real teams + the "other" overflow bucket = 1001 series, never 1500
+        expect(await totalSeries()).toBe(1001)
+        expect(await teamValue('other')).toBe(500)
     })
 })
