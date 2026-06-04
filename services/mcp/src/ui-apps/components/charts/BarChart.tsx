@@ -1,20 +1,9 @@
 import { type ReactElement } from 'react'
 
-import {
-    type ChartTheme,
-    type Series as ChartSeries,
-    type YAxisFormat,
-    TimeSeriesBarChart,
-} from '@posthog/quill-charts'
+import { type Series as ChartSeries, type YAxisFormat, TimeSeriesBarChart } from '@posthog/quill-charts'
 
 import { formatDate } from '../utils'
-
-// Series palette mirroring base.css `--posthog-chart-*`. Canvas can't read CSS
-// custom properties, so we hand the chart concrete hexes. The chart picks one
-// per series by index; the legend uses the same array to stay in sync.
-const CHART_COLORS = ['#1d4aff', '#621da6', '#42827e', '#ce0e74', '#f14f58', '#7c440e', '#529a0a', '#0476fb']
-
-const THEME: ChartTheme = { colors: CHART_COLORS }
+import { CHART_COLORS, CHART_THEME } from './theme'
 
 export interface DataPoint {
     x: number
@@ -57,7 +46,7 @@ export function BarChart({
                 <TimeSeriesBarChart
                     series={chartSeries}
                     labels={labels}
-                    theme={THEME}
+                    theme={CHART_THEME}
                     config={{
                         xAxis: { tickFormatter: (value) => formatDate(value) },
                         yAxis: {
