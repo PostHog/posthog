@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
+import { BarChart } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { BarChart } from 'lib/hog-charts'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -14,14 +14,20 @@ import { ScannerInsightsChart } from './ScannerInsightsChart'
 function OverviewPanel({
     title,
     subtitle,
+    disabled,
     children,
 }: {
     title: string
     subtitle?: React.ReactNode
+    disabled?: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <div className="border rounded p-4 bg-surface-primary space-y-3">
+        <div
+            className={`border rounded p-4 space-y-3 ${
+                disabled ? 'bg-surface-secondary opacity-60' : 'bg-surface-primary'
+            }`}
+        >
             <div className="flex items-baseline justify-between gap-2">
                 <span className="text-sm font-medium">{title}</span>
                 {subtitle && <span className="text-xs text-muted tabular-nums">{subtitle}</span>}
@@ -33,17 +39,19 @@ function OverviewPanel({
 
 function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
     const { monitorStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
-    const { yesTotal, noTotal } = monitorStats
-    const total = yesTotal + noTotal
+    const { yesTotal, noTotal, inconclusiveTotal } = monitorStats
+    const total = yesTotal + noTotal + inconclusiveTotal
     if (total === 0) {
         return null
     }
     const yesPct = Math.round((yesTotal / total) * 100)
+    const noPct = Math.round((noTotal / total) * 100)
+    const inconclusivePct = Math.max(0, 100 - yesPct - noPct)
 
     return (
         <OverviewPanel title="Verdict mix" subtitle={`${total} verdict${total === 1 ? '' : 's'}`}>
             <LemonProgress percent={yesPct} />
-            <div className="flex items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-center gap-4 text-sm">
                 <span className="flex items-center gap-2">
                     <LemonTag type="success">Yes</LemonTag>
                     <span className="tabular-nums">
@@ -53,20 +61,31 @@ function MonitorOverview({ scannerId, tabId }: { scannerId: string; tabId: strin
                 <span className="flex items-center gap-2">
                     <LemonTag type="default">No</LemonTag>
                     <span className="tabular-nums">
-                        {noTotal} ({100 - yesPct}%)
+                        {noTotal} ({noPct}%)
                     </span>
                 </span>
+                {inconclusiveTotal > 0 && (
+                    <span className="flex items-center gap-2">
+                        <LemonTag type="muted">Inconclusive</LemonTag>
+                        <span className="tabular-nums">
+                            {inconclusiveTotal} ({inconclusivePct}%)
+                        </span>
+                    </span>
+                )}
             </div>
         </OverviewPanel>
     )
 }
 
 function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { classifierTagStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scanner, classifierTagStats } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const { fixedRanked, freeformRanked, totalWithTags } = classifierTagStats
-    if (totalWithTags === 0) {
+    // Wait for the scanner config — without it `freeformAllowed` defaults to `false` and the panel flashes the
+    // "disabled" copy while the config is still loading.
+    if (totalWithTags === 0 || !scanner || scanner.scanner_type !== 'classifier') {
         return null
     }
+    const freeformAllowed = !!scanner.scanner_config.allow_freeform_tags
 
     const renderRanked = (ranked: [string, number][], emptyMessage: string): JSX.Element => {
         if (ranked.length === 0) {
@@ -94,21 +113,32 @@ function ClassifierOverview({ scannerId, tabId }: { scannerId: string; tabId: st
                 {renderRanked(fixedRanked, 'No fixed-vocabulary tags emitted yet.')}
             </OverviewPanel>
 
-            <OverviewPanel title="Top freeform tags" subtitle="outside configured vocabulary">
-                {renderRanked(freeformRanked, 'No freeform tags emitted.')}
+            <OverviewPanel
+                title="Top freeform tags"
+                subtitle={freeformAllowed ? 'outside configured vocabulary' : 'disabled'}
+                disabled={!freeformAllowed}
+            >
+                {freeformAllowed ? (
+                    renderRanked(freeformRanked, 'No freeform tags emitted yet.')
+                ) : (
+                    <div className="text-muted text-sm">
+                        Freeform tags are disabled for this scanner — the model can only pick from your configured
+                        vocabulary. Enable "Allow freeform tags" in the scanner config to let it propose new ones.
+                    </div>
+                )}
             </OverviewPanel>
         </div>
     )
 }
 
 function ScorerOverview({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scorerScores, scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scorerSummary, scorerHistogram } = useValues(replayScannerLogic({ id: scannerId, tabId }))
     const theme = useMemo(() => buildTheme(), [])
     if (!scorerSummary || !scorerHistogram) {
         return null
     }
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerScores.length} scored`}>
+        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`}>
             <div className="h-40 flex flex-col">
                 <BarChart
                     labels={scorerHistogram.labels}

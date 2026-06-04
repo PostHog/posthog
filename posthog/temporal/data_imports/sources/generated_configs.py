@@ -62,6 +62,14 @@ class HubspotCustomPropertiesConfig(config.Config):
 
 
 @config.config
+class ServiceNowAuthMethodConfig(config.Config):
+    selection: Literal["basic", "api_key"] = "basic"
+    username: str | None = None
+    password: str | None = None
+    api_key: str | None = None
+
+
+@config.config
 class SnowflakeAuthTypeConfig(config.Config):
     user: str
     selection: Literal["password", "keypair"] = "password"
@@ -85,7 +93,8 @@ class VitallyRegionConfig(config.Config):
 
 @config.config
 class ActiveCampaignSourceConfig(config.Config):
-    pass
+    api_url: str
+    api_key: str
 
 
 @config.config
@@ -95,7 +104,8 @@ class AdjustSourceConfig(config.Config):
 
 @config.config
 class AircallSourceConfig(config.Config):
-    pass
+    api_id: str
+    api_token: str
 
 
 @config.config
@@ -150,7 +160,8 @@ class AzureBlobSourceConfig(config.Config):
 
 @config.config
 class BambooHRSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -192,7 +203,7 @@ class BrazeSourceConfig(config.Config):
 
 @config.config
 class BrevoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -202,12 +213,13 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class CalendlySourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config
 class CampaignMonitorSourceConfig(config.Config):
-    pass
+    api_key: str
+    client_id: str
 
 
 @config.config
@@ -218,7 +230,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChartMogulSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -251,7 +263,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class CloseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -266,7 +278,7 @@ class ConfluenceSourceConfig(config.Config):
 
 @config.config
 class ConvertKitSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -277,7 +289,8 @@ class ConvexSourceConfig(config.Config):
 
 @config.config
 class CopperSourceConfig(config.Config):
-    pass
+    api_key: str
+    user_email: str
 
 
 @config.config
@@ -306,7 +319,8 @@ class DoItSourceConfig(config.Config):
 
 @config.config
 class DripSourceConfig(config.Config):
-    pass
+    api_token: str
+    account_id: str
 
 
 @config.config
@@ -321,7 +335,7 @@ class ElasticsearchSourceConfig(config.Config):
 
 @config.config
 class EventbriteSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -336,7 +350,8 @@ class FirebaseSourceConfig(config.Config):
 
 @config.config
 class FreshdeskSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -400,12 +415,14 @@ class GoogleSheetsSourceConfig(config.Config):
 
 @config.config
 class GorgiasSourceConfig(config.Config):
-    pass
+    gorgias_domain: str
+    email: str
+    api_key: str
 
 
 @config.config
 class GranolaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -461,7 +478,7 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeverSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -494,12 +511,13 @@ class MailchimpSourceConfig(config.Config):
 
 @config.config
 class MailerLiteSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class MailjetSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
 
 
 @config.config
@@ -554,12 +572,13 @@ class NetSuiteSourceConfig(config.Config):
 
 @config.config
 class NotionSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class OktaSourceConfig(config.Config):
-    pass
+    okta_domain: str
+    api_key: str
 
 
 @config.config
@@ -589,7 +608,7 @@ class PaddleSourceConfig(config.Config):
 
 @config.config
 class PagerDutySourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -654,7 +673,7 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class PostmarkSourceConfig(config.Config):
-    pass
+    server_token: str
 
 
 @config.config
@@ -669,12 +688,13 @@ class QuickBooksSourceConfig(config.Config):
 
 @config.config
 class RechargeSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class RecurlySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -742,7 +762,8 @@ class SentrySourceConfig(config.Config):
 
 @config.config
 class ServiceNowSourceConfig(config.Config):
-    pass
+    instance_url: str
+    auth_method: ServiceNowAuthMethodConfig
 
 
 @config.config
@@ -759,7 +780,7 @@ class ShopifySourceConfig(config.Config):
 
 @config.config
 class ShortcutSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -791,7 +812,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SquareSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -814,7 +836,8 @@ class SupabaseSourceConfig(config.Config):
 
 @config.config
 class SurveyMonkeySourceConfig(config.Config):
-    pass
+    access_token: str
+    data_center: Literal["us", "eu", "ca"] = config.value(default="us")
 
 
 @config.config
@@ -865,12 +888,15 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class WebflowSourceConfig(config.Config):
-    pass
+    api_token: str
+    site_id: str
 
 
 @config.config
 class WooCommerceSourceConfig(config.Config):
-    pass
+    store_url: str
+    consumer_key: str
+    consumer_secret: str
 
 
 @config.config

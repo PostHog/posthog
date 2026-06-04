@@ -57,7 +57,7 @@ export function LogsAlertNotificationDetailScene(): JSX.Element {
         if (firstSlackIntegration) {
             loadAllSlackChannels()
         }
-    }, [firstSlackIntegration?.id, loadAllSlackChannels])
+    }, [firstSlackIntegration?.id, loadAllSlackChannels, firstSlackIntegration])
 
     const loading = alertLoading || hogFunctionsLoading
     const displayLabel = destinationGroup ? resolveGroupLabel(destinationGroup, slackChannels) : 'Destination'
