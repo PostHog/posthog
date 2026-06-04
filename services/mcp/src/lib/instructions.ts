@@ -12,7 +12,7 @@ export function buildActiveEnvironmentContextPrompt(
     user?: CachedUser,
     org?: CachedOrg,
     project?: CachedProject,
-    projectBaseUrl?: string
+    regionalBaseUrl?: string
 ): string | undefined {
     if (!user && !org && !project) {
         return undefined
@@ -30,9 +30,14 @@ export function buildActiveEnvironmentContextPrompt(
         } else {
             lines.push(`You are currently in project "${projectName}" (id: ${projectId}).`)
         }
-        if (projectBaseUrl) {
-            lines.push(`Project base URL: ${projectBaseUrl}. Prefix PostHog app paths with this when emitting links.`)
-        }
+    }
+    if (regionalBaseUrl) {
+        const origin = regionalBaseUrl.replace(/^https?:\/\//, '')
+        lines.push(
+            project?.id !== undefined
+                ? `Base URL: ${origin} — add /project/${project.id} for project-scoped paths.`
+                : `Base URL: ${origin}.`
+        )
     }
     if (project) {
         lines.push(`Project timezone: ${project.timezone ?? 'UTC'}.`)

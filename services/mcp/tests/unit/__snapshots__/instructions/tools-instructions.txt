@@ -203,17 +203,12 @@ The user's name is Jane Doe (jane@acme.com).
 
 ### URL patterns
 
-PostHog app URLs must be full URLs that include the origin and the `/project/:id/` prefix — bare paths are not clickable in MCP clients like Cursor or Claude Desktop. Never include `/-/` in URLs.
+PostHog app links must be full URLs (origin + path) — bare paths aren't clickable in MCP clients like Cursor or Claude Desktop. Use Markdown with descriptive anchor text, e.g. `[Cohorts](https://us.posthog.com/project/1/cohorts)`. Never include `/-/`.
 
-- When a tool result includes `_posthogUrl` (or any other field whose name ends in `url`), surface it to the user verbatim. Do not strip the origin or the `/project/:id/` prefix.
-- When constructing a link to a PostHog page that isn't returned by a tool, prefix the path with the project base URL given in the active-environment block (e.g. `https://us.posthog.com/project/1`).
-- Use Markdown with descriptive anchor text, for example `[Cohorts view](https://us.posthog.com/project/1/cohorts)`.
-
-Key URL paths (to be combined with the project base URL):
-
-- Settings: `/settings/<section-id>` where section IDs use hyphens, e.g. `/settings/organization-members`, `/settings/environment-replay`, `/settings/user-api-keys`
-- Data management: `/data-management/events`, `/data-management/properties`
-- Billing: `/organization/billing`
+- If a tool result has a `*url` field (e.g. `_posthogUrl`), surface it verbatim — never rewrite or strip it.
+- Otherwise build the link from the Base URL in the active-environment block (don't double-prefix):
+  - Project-scoped paths → Base URL + `/project/:id`: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`), `/data-management/events`, `/data-management/properties`, and most pages.
+  - Org-/account-level paths → Base URL only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
 
 ### Sharing feedback on this MCP server
 
