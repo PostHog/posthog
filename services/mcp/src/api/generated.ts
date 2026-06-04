@@ -15656,6 +15656,27 @@ export namespace Schemas {
       Boolean: 'boolean',
     } as const;
 
+    export type EvaluationConditionPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * A trigger condition set controlling which generations an evaluation runs on.
+     */
+    export interface EvaluationCondition {
+      /**
+         * Stable identifier for this condition set.
+         * @maxLength 100
+         */
+      id: string;
+      /**
+         * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_percentage?: number;
+      /** Property filters (event or person) that scope which generations match this condition set. */
+      properties?: EvaluationConditionPropertiesItem[];
+    }
+
     /**
      * * `openai` - Openai
     * `anthropic` - Anthropic
@@ -15717,8 +15738,8 @@ export namespace Schemas {
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
-      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-      conditions?: unknown;
+      /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+      conditions?: EvaluationCondition[];
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -28280,8 +28301,8 @@ export namespace Schemas {
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;
-      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-      conditions?: unknown;
+      /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+      conditions?: EvaluationCondition[];
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
