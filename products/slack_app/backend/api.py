@@ -1532,32 +1532,23 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        result = load_integrations(
-            slack_team_id=slack_team_id,
-            kinds=[SLACK_INTEGRATION_KIND],
-            slack_user_id=str(event.get("user") or ""),
-            user=None,
-            channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
-            thread_ts=(event.get("thread_ts") or event.get("ts"))
-            if isinstance(event.get("thread_ts") or event.get("ts"), str)
-            else None,
+        workspace_candidates = list(
+            Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
+            .select_related("team", "team__organization", "created_by")
+            .order_by("id")
         )
-        if not result.candidates:
+        if not workspace_candidates:
             return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # First gate: identify the mentioning Slack user as a PostHog ``User``
-        # who is a member of an org connected to this workspace. We only do this
-        # once this region has decided to handle the event, so the membership
-        # query runs against the local DB where the candidate integrations live.
         slack_user_id_str = str(event.get("user") or "")
         posthog_user = (
             _resolve_posthog_user_from_event(
                 slack_user_id=slack_user_id_str,
-                probe_integration=result.candidates[0],
-                candidate_integrations=result.candidates,
+                probe_integration=workspace_candidates[0],
+                candidate_integrations=workspace_candidates,
             )
             if slack_user_id_str
             else None
@@ -1572,19 +1563,19 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        # Re-scope candidates to those the resolved user can access. ``resolve_from_candidates``
-        # already filters by ``user.teams`` and applies the thread/user-default/workspace-default
-        # precedence — re-running it with ``user=posthog_user`` replaces the initial unfiltered
-        # resolution with one the user is actually allowed to act under.
+        # Single resolution pass with the resolved user — ``resolve_from_candidates``
+        # filters by ``user.teams`` and applies the thread/user-default/workspace-default
+        # precedence against accessible candidates only.
+        channel_str = event.get("channel") if isinstance(event.get("channel"), str) else None
+        thread_ts_value = event.get("thread_ts") or event.get("ts")
+        thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
         result = resolve_from_candidates(
-            result.candidates,
+            workspace_candidates,
             slack_team_id=slack_team_id,
             slack_user_id=slack_user_id_str,
             user=posthog_user,
-            channel=event.get("channel") if isinstance(event.get("channel"), str) else None,
-            thread_ts=(event.get("thread_ts") or event.get("ts"))
-            if isinstance(event.get("thread_ts") or event.get("ts"), str)
-            else None,
+            channel=channel_str,
+            thread_ts=thread_ts_str,
         )
         if not result.candidates:
             logger.warning(
@@ -1619,7 +1610,7 @@ def route_posthog_code_event_to_relevant_region(
             _post_channel_approval_prompt(slack, mention_target, event)
             return ROUTE_HANDLED_LOCALLY
 
-        return _start_mention_workflow(event, mention_target, slack_team_id, event_id, user_id=posthog_user.id)
+        return _start_mention_workflow(event, mention_target, slack_team_id, event_id, posthog_user=posthog_user)
 
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
@@ -1845,7 +1836,7 @@ def _report_slack_mention_received(
     integration: Integration,
     slack_team_id: str,
     *,
-    user_id: int | None = None,
+    posthog_user: User | None = None,
 ) -> None:
     """Capture a product-analytics event each time the @PostHog bot is mentioned.
 
@@ -1854,7 +1845,7 @@ def _report_slack_mention_received(
     Slack user is resolved to a PostHog ``User`` so the event is attributed to a real person where
     one exists; otherwise it falls back to a stable Slack-derived distinct id.
 
-    When the caller has already resolved the PostHog user at routing time it passes ``user_id``
+    When the caller has already resolved the PostHog user at routing time it passes ``posthog_user``
     so we skip the redundant Slack ``users.info`` + ``OrganizationMembership`` roundtrip.
     """
     try:
@@ -1865,16 +1856,12 @@ def _report_slack_mention_received(
         is_first_message_in_session = raw_thread_ts is None or raw_thread_ts == message_ts
 
         slack_user_id = event.get("user") if isinstance(event.get("user"), str) and event.get("user") else None
-        if user_id is not None:
-            posthog_user = User.objects.filter(id=user_id).first()
-        elif slack_user_id:
+        if posthog_user is None and slack_user_id:
             posthog_user = _resolve_posthog_user_from_event(
                 slack_user_id=slack_user_id,
                 probe_integration=integration,
                 candidate_integrations=[integration],
             )
-        else:
-            posthog_user = None
         # Prefer the resolved PostHog user's distinct id so the event attributes to a real person;
         # fall back to a stable Slack-derived id so anonymous-but-valid mentions are still captured.
         identified_distinct_id = posthog_user.distinct_id if posthog_user else None
@@ -1920,9 +1907,9 @@ def _start_mention_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    user_id: int,
+    posthog_user: User,
 ) -> str:
-    _report_slack_mention_received(event, integration, slack_team_id, user_id=user_id)
+    _report_slack_mention_received(event, integration, slack_team_id, posthog_user=posthog_user)
     if _resolve_pending_repo_picker_from_followup(event, integration):
         return ROUTE_HANDLED_LOCALLY
     workflow_inputs = PostHogCodeSlackMentionWorkflowInputs(
@@ -1930,7 +1917,7 @@ def _start_mention_workflow(
         integration_id=integration.id,
         slack_team_id=slack_team_id,
         slack_event_id=event_id,
-        user_id=user_id,
+        user_id=posthog_user.id,
     )
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent

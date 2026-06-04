@@ -283,10 +283,10 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             if followup_handled:
                 return
 
-            # ``user_id`` is now resolved at routing time (api.py). Histories
-            # started before that change carry ``inputs.user_id is None`` and
-            # replay through the legacy activity; new starts skip it. Both
-            # branches match the recorded command stream — see plan notes.
+            # Histories started before ``user_id`` was added to inputs replay
+            # through the legacy activity so the recorded ScheduleActivityTask
+            # still matches the workflow's command stream. New starts carry the
+            # id and skip the activity.
             if inputs.user_id is None:
                 user_id = await _execute_posthog_code_activity(
                     resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
