@@ -9,6 +9,9 @@ import { OrganizationMemberType } from '~/types'
 
 import type { accountRelatedUsersLogicType } from './accountRelatedUsersLogicType'
 
+// The account org-members endpoint returns a slim member shape — only id + user are serialized.
+export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user'>
+
 export const PAGE_SIZE = 5
 
 export interface AccountRelatedUsersLogicProps {
@@ -33,7 +36,7 @@ export const accountRelatedUsersLogic = kea<accountRelatedUsersLogicType>([
     }),
     loaders(({ props, values }) => ({
         membersResponse: [
-            null as CountedPaginatedResponse<OrganizationMemberType> | null,
+            null as CountedPaginatedResponse<AccountOrganizationMember> | null,
             {
                 loadMembers: async (_ = null, breakpoint) => {
                     try {

@@ -5,16 +5,14 @@ import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 import { fullName } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
-import { OrganizationMemberType } from '~/types'
-
-import { accountRelatedUsersLogic, PAGE_SIZE } from './accountRelatedUsersLogic'
+import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 
 export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
     const { membersResponse, membersResponseLoading, page } = useValues(logic)
     const { setPage } = useActions(logic)
 
-    const columns: LemonTableColumns<OrganizationMemberType> = [
+    const columns: LemonTableColumns<AccountOrganizationMember> = [
         {
             title: 'User',
             key: 'user',
@@ -37,7 +35,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
     ]
 
     return (
-        <LemonTable<OrganizationMemberType>
+        <LemonTable<AccountOrganizationMember>
             size="small"
             embedded
             dataSource={membersResponse?.results ?? []}

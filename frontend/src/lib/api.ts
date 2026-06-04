@@ -3539,7 +3539,7 @@ const api = {
         async listForOrg(
             organizationId: OrganizationType['id'],
             params: { limit?: number; offset?: number } = {}
-        ): Promise<CountedPaginatedResponse<OrganizationMemberType>> {
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
