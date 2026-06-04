@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, patch
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.batch_exports.models import BatchExport, BatchExportDestination
 from posthog.models.utils import uuid7
 from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse, insert_sessions_in_clickhouse
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BACKFILL_INFO_QUERY_TIMEOUT_SECONDS,
     GetBackfillInfoInputs,

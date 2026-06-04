@@ -26,6 +26,8 @@ import {
     UserInterviewTopicsSendInvitesCreateBody,
     UserInterviewTopicsSendInvitesCreateParams,
     UserInterviewsListQueryParams,
+    UserInterviewsPartialUpdateBody,
+    UserInterviewsPartialUpdateParams,
     UserInterviewsRetrieveParams,
     UserInterviewsSearchCreateBody,
 } from '@/generated/user_interviews/api'
@@ -79,6 +81,12 @@ const userInterviewTopicsCreate = (): ToolBase<typeof UserInterviewTopicsCreateS
         }
         if (params.questions !== undefined) {
             body['questions'] = params.questions
+        }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
         }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'POST',
@@ -295,6 +303,12 @@ const userInterviewTopicsPartialUpdate = (): ToolBase<
         if (params.questions !== undefined) {
             body['questions'] = params.questions
         }
+        if (params.invite_subject !== undefined) {
+            body['invite_subject'] = params.invite_subject
+        }
+        if (params.invite_message !== undefined) {
+            body['invite_message'] = params.invite_message
+        }
         const result = await context.api.request<Schemas.UserInterviewTopic>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interview_topics/${encodeURIComponent(String(params.id))}/`,
@@ -392,12 +406,35 @@ const userInterviewsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/`,
             query: {
+                classifications: params.classifications,
                 limit: params.limit,
                 offset: params.offset,
                 topic: params.topic,
             },
         })
         return await withPostHogUrl(context, result, '/user_interviews')
+    },
+})
+
+const UserInterviewsPartialUpdateSchema = UserInterviewsPartialUpdateParams.omit({ project_id: true }).extend(
+    UserInterviewsPartialUpdateBody.omit({ interviewee_emails: true, summary: true, audio: true }).shape
+)
+
+const userInterviewsPartialUpdate = (): ToolBase<typeof UserInterviewsPartialUpdateSchema, Schemas.UserInterview> => ({
+    name: 'user-interviews-partial-update',
+    schema: UserInterviewsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof UserInterviewsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.classifications !== undefined) {
+            body['classifications'] = params.classifications
+        }
+        const result = await context.api.request<Schemas.UserInterview>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/user_interviews/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -433,6 +470,9 @@ const userInterviewsSearch = (): ToolBase<typeof UserInterviewsSearchSchema, Sch
         if (params.topic_id !== undefined) {
             body['topic_id'] = params.topic_id
         }
+        if (params.classifications !== undefined) {
+            body['classifications'] = params.classifications
+        }
         if (params.limit !== undefined) {
             body['limit'] = params.limit
         }
@@ -461,6 +501,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'user-interview-topics-retrieve': userInterviewTopicsRetrieve,
     'user-interview-topics-send-invites': userInterviewTopicsSendInvites,
     'user-interviews-list': userInterviewsList,
+    'user-interviews-partial-update': userInterviewsPartialUpdate,
     'user-interviews-retrieve': userInterviewsRetrieve,
     'user-interviews-search': userInterviewsSearch,
 }

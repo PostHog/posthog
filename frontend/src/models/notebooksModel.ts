@@ -175,6 +175,8 @@ export const notebooksModel = kea<notebooksModelType>([
 
     listeners(({ asyncActions }) => ({
         createNotebookFromDashboard: async ({ dashboard }) => {
+            // TODO(widgets): Dashboard widget tiles are intentionally skipped: notebook query nodes only support
+            // insight-backed HogQL queries today, not run_widgets widget types/config.
             const queries = dashboard.tiles.reduce(
                 (acc, tile) => {
                     if (!tile.insight) {

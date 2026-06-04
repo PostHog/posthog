@@ -77,9 +77,19 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs
 # HeadlessExperimental.beginFrame for deterministic frame-by-frame capture
 # via puppeteer-capture (virtual time, no rAF dependency).
 #
-FROM node:24.13.0-bookworm-slim
+# Major-only tag so weekly rebuilds pick up the latest 24.x (node + bundled OpenSSL/V8 patches).
+# Must stay same major as the build stage (node 24) for native-addon ABI, and keep -bookworm-slim
+# so glibc / system libs match what the addons were linked against in the build stage.
+FROM node:24-bookworm-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Cache-bust marker for the floated deps below (ffmpeg, chrome-headless-shell). The weekly
+# scheduled rebuild passes a changing value, invalidating the apt/npx layers so security
+# updates are actually re-fetched; normal builds pass the constant default and reuse cache.
+# Without this, the unpinned layers' cache key never changes and the rebuild is a no-op.
+ARG DEPS_CACHE_BUST=pinned
+RUN echo "deps cache bust: ${DEPS_CACHE_BUST}"
 
 # Install runtime dependencies: librdkafka, chrome-headless-shell deps, ffmpeg
 RUN apt-get update && \
@@ -97,7 +107,8 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl3=3.0.19-1~deb12u2" \
-    "ffmpeg=7:5.1.8-0+deb12u1" \
+    # ffmpeg intentionally unpinned: tracks the latest bookworm candidate so security point-updates flow in on rebuild
+    "ffmpeg" \
     # Shared libraries required by chrome-headless-shell
     libasound2 \
     libatk-bridge2.0-0 \
@@ -123,8 +134,9 @@ RUN apt-get update && \
 
 # Install chrome-headless-shell via @puppeteer/browsers CLI.
 # This provides the minimal Chrome binary that supports HeadlessExperimental.
-# NOTE: Version is pinned to avoid upstream breakage. Bump periodically for security patches.
-RUN npx --yes @puppeteer/browsers install chrome-headless-shell@148.0.7778.178 \
+# Tracks the stable channel so security patches flow in; the weekly scheduled rebuild
+# re-resolves it and the validation step below guards install-time breakage.
+RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
     --path /opt/chrome-headless-shell && \
     ln -s "$(find /opt/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" /usr/local/bin/chrome-headless-shell
 

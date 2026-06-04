@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
-import { useActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -17,6 +17,7 @@ jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
     useActions: jest.fn(),
+    useAsyncActions: jest.fn(),
 }))
 
 jest.mock('scenes/dashboard/dashboardLogic', () => ({
@@ -134,8 +135,13 @@ jest.mock('react-grid-layout/extras', () => ({
     ),
 }))
 
+jest.mock('@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem', () => ({
+    DashboardWidgetItem: () => <div data-attr="widget-card" />,
+}))
+
 const mockedUseValues = useValues as jest.Mock
 const mockedUseActions = useActions as jest.Mock
+const mockedUseAsyncActions = useAsyncActions as jest.Mock
 
 describe('DashboardItems', () => {
     beforeEach(() => {
@@ -190,6 +196,7 @@ describe('DashboardItems', () => {
                     removeTile: jest.fn(),
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
+                    refreshDashboardWidgets: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
@@ -217,10 +224,64 @@ describe('DashboardItems', () => {
 
             return {}
         })
+
+        mockedUseAsyncActions.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    updateWidgetTile: jest.fn(),
+                }
+            }
+
+            return {}
+        })
     })
 
     it('matches snapshot in edit mode with layout zoom enabled', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
+    })
+
+    it('hides widget tiles on public dashboards', () => {
+        const widgetTile = {
+            id: 2,
+            widget: { id: 1, widget_type: 'error_tracking_list', config: {} },
+            layouts: { sm: [{ i: '2', x: 0, y: 0, w: 6, h: 5 }] },
+        }
+
+        mockedUseValues.mockImplementation((logic) => {
+            if (logic === dashboardLogic) {
+                return {
+                    dashboard: { id: 5 },
+                    tiles: [widgetTile],
+                    layouts: widgetTile.layouts,
+                    dashboardMode: null,
+                    placement: DashboardPlacement.Public,
+                    isRefreshingQueued: () => false,
+                    isRefreshing: () => false,
+                    highlightedInsightId: null,
+                    refreshStatus: {},
+                    itemsLoading: false,
+                    dashboardStreaming: false,
+                    effectiveEditBarFilters: {},
+                    effectiveDashboardVariableOverrides: {},
+                    temporaryBreakdownColors: [],
+                    dataColorThemeId: null,
+                    canEditDashboard: false,
+                    layoutZoom: 1,
+                    dashboardWidgetsEnabled: true,
+                    widgetResultsByTileId: {},
+                    widgetRefreshStatus: {},
+                }
+            }
+
+            if (logic === dashboardsModel) {
+                return { nameSortedDashboards: [] }
+            }
+
+            return {}
+        })
+
+        const { queryByTestId } = render(<DashboardItems />)
+        expect(queryByTestId('widget-card')).not.toBeInTheDocument()
     })
 })

@@ -1,6 +1,5 @@
 import './LogsFilterBar.scss'
 
-import equal from 'fast-deep-equal'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
@@ -127,13 +126,17 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
 }
 
 const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filters, id, utcDateRange } = useValues(logsViewerFiltersLogic)
+    const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
+    // Taxonomic value suggestions should respect any active scope (e.g. the person-tab
+    // distinct_id pin), so pass the combined query view rather than the user-editable
+    // filterGroup. The UniversalFilters `group` prop stays on the editable filterGroup
+    // so chips reflect what the user can actually edit.
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-        filterGroup,
+        filterGroup: queryFilterGroup,
         serviceNames,
     }
 
@@ -154,7 +157,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
 
 const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, filters: logsFilters } = useValues(logsViewerFiltersLogic)
+    const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 
@@ -171,7 +174,7 @@ const LogsFilterSearch = (): JSX.Element => {
         taxonomicGroupTypes,
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
-            filterGroup: logsFilters.filterGroup,
+            filterGroup: queryFilterGroup,
             serviceNames: logsFilters.serviceNames,
         },
         onChange: (taxonomicGroup, value, item) => {
@@ -227,7 +230,6 @@ const LogsFilterSearch = (): JSX.Element => {
 const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean }): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const { replaceGroupValue, removeGroupValue } = useActions(universalFiltersLogic)
-    const { pinnedFilters } = useValues(logsViewerFiltersLogic)
 
     if (filterGroup.values.length === 0) {
         return null
@@ -236,14 +238,6 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                // Pinned filters are enforced by the embedding scene (e.g. distinct_id
-                // scope on a person profile). They're applied to the query but hidden
-                // from the chip list — matching how Events / Exceptions hide their
-                // structural person scope. Without this, a user could click in and
-                // edit values that conceptually shouldn't be theirs to edit.
-                if (pinnedFilters?.values.some((pv) => equal(pv, filterOrGroup))) {
-                    return null
-                }
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />

@@ -27,7 +27,8 @@ from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.mixins import validated_request
@@ -41,6 +42,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -52,6 +54,14 @@ from .automation_service import (
     run_task_automation,
     sync_automation_schedule,
     update_automation_run_result,
+)
+from .metrics import (
+    StreamConnectionOutcome,
+    observe_stream_connection_closed,
+    observe_stream_connection_opened,
+    observe_stream_length_on_connect,
+    observe_stream_resume_gap,
+    origin_product_label,
 )
 from .models import (
     TASK_PRESENCE_TTL_SECONDS,
@@ -220,6 +230,28 @@ def _is_internal_debug_team(team_id: int | None) -> bool:
     return team_id == 2 and settings.CLOUD_DEPLOYMENT == "US"
 
 
+class _SchemaAwareLimitOffsetPagination(LimitOffsetPagination):
+    """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
+
+    def get_schema_operation_parameters(self, view):
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter.get("name") == self.limit_query_param:
+                parameter["schema"]["default"] = self.default_limit
+                if self.max_limit is not None:
+                    parameter["schema"]["maximum"] = self.max_limit
+                parameter["schema"]["minimum"] = 1
+            elif parameter.get("name") == self.offset_query_param:
+                parameter["schema"]["default"] = 0
+                parameter["schema"]["minimum"] = 0
+        return parameters
+
+
+class TasksPagination(_SchemaAwareLimitOffsetPagination):
+    default_limit = 50
+    max_limit = 100
+
+
 def task_visibility_q(user_id: int | None) -> Q:
     """Filter for tasks visible to the given user.
 
@@ -243,13 +275,6 @@ def task_run_visibility_q(user_id: int | None) -> Q:
         | Q(task__created_by__isnull=True)
         | Q(task__origin_product=Task.OriginProduct.SIGNAL_REPORT)
     )
-
-
-class TasksAccessPermission(BasePermission):
-    message = "You need a valid invite code to access this feature."
-
-    def has_permission(self, request, view) -> bool:
-        return has_tasks_access(request.user)
 
 
 def _parse_slack_thread_url(url: str) -> tuple[str, str] | None:
@@ -317,6 +342,14 @@ def _slack_repo_research_payload(
     }
 
 
+_FULL_MCP_RUN_SOURCES: frozenset[RunSource | None] = frozenset({None, RunSource.MANUAL})
+
+
+def _resolve_posthog_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
+    run_source = parse_run_state(task_run.state).run_source
+    return "full" if run_source in _FULL_MCP_RUN_SOURCES else "read_only"
+
+
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -328,9 +361,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = Task.objects.all()
+    pagination_class = TasksPagination
 
     @validated_request(
         query_serializer=TaskListQuerySerializer,
@@ -710,6 +744,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 run_id=str(task_run.id),
                 team_id=task.team.id,
                 user_id=getattr(self.request.user, "id", None),
+                posthog_mcp_scopes=_resolve_posthog_mcp_scopes(task_run),
             )
             logger.info(f"Workflow trigger completed for task {task.id}, run {task_run.id}")
         except Exception as e:
@@ -1128,7 +1163,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = TaskAutomationSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = TaskAutomation.objects.all()
     filter_rewrite_rules = {"team_id": "task__team_id"}
@@ -1164,7 +1199,7 @@ class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskAutomationSerializer(automation, context=self.get_serializer_context()).data)
 
 
-@extend_schema(tags=["task-runs"])
+@extend_schema(tags=["task-runs", "tasks"])
 class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     API for managing task runs. Each run represents an execution of a task.
@@ -1176,13 +1211,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = TaskRun.objects.select_related(
         "task", "task__created_by", "task__github_integration", "task__github_user_integration"
     ).all()
     http_method_names = ["get", "post", "patch", "head", "options"]
     filter_rewrite_rules = {"team_id": "team_id"}
+    pagination_class = TasksPagination
 
     @validated_request(
         responses={
@@ -1612,6 +1648,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 run_id=str(task_run.id),
                 team_id=task.team.id,
                 user_id=getattr(self.request.user, "id", None),
+                posthog_mcp_scopes=_resolve_posthog_mcp_scopes(task_run),
             )
             logger.info("Workflow trigger completed for task %s, run %s", task.id, task_run.id)
         except Exception as e:
@@ -2662,51 +2699,90 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         last_event_id = request.headers.get("Last-Event-ID")
         start_latest = request.GET.get("start") == "latest"
         format_sse_event = self._format_sse_event
+        origin_product = origin_product_label(task_run)
 
         async def async_stream() -> AsyncGenerator[bytes, None]:
             redis_stream = TaskRunRedisStream(stream_key)
-            delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
-            wait_started_at = asyncio.get_running_loop().time()
-            last_keepalive_at = wait_started_at
-
-            while not await redis_stream.exists():
-                now = asyncio.get_running_loop().time()
-                if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
-                    yield format_sse_event({"error": "Stream not available"}, event_name="error")
-                    return
-
-                if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
-                    last_keepalive_at = now
-                    yield format_sse_event(
-                        TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
-                        event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
-                    )
-
-                await asyncio.sleep(delay)
-                delay = min(
-                    delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
-                    TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
-                )
-
-            start_id = last_event_id or "0"
-            if not last_event_id and start_latest:
-                start_id = await redis_stream.get_latest_stream_id() or "0"
+            connection_started_at = asyncio.get_running_loop().time()
+            # Default to client_disconnect: any exit that isn't an explicit
+            # completion/error/unavailable is the client (or proxy) going away.
+            outcome: StreamConnectionOutcome = "client_disconnect"
+            # Record opened inside the try so the closed counter only fires when
+            # the open succeeded — keeps opened/closed balanced for the
+            # active-connections gauge regardless of which increment fails.
+            opened = False
             try:
-                async for stream_item in redis_stream.read_stream_entries(
-                    start_id=start_id,
-                    keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
-                ):
-                    if stream_item is None:
+                observe_stream_connection_opened(origin_product)
+                opened = True
+                delay = TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS
+                wait_started_at = asyncio.get_running_loop().time()
+                last_keepalive_at = wait_started_at
+
+                while not await redis_stream.exists():
+                    now = asyncio.get_running_loop().time()
+                    if now - wait_started_at >= TASK_RUN_STREAM_WAIT_TIMEOUT_SECONDS:
+                        outcome = "unavailable"
+                        yield format_sse_event({"error": "Stream not available"}, event_name="error")
+                        return
+
+                    if now - last_keepalive_at >= TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS:
+                        last_keepalive_at = now
                         yield format_sse_event(
                             TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
                             event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
                         )
-                        continue
-                    event_id, event = stream_item
-                    yield format_sse_event(event, event_id=event_id)
-            except TaskRunStreamError as e:
-                logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
-                yield format_sse_event({"error": str(e)}, event_name="error")
+
+                    await asyncio.sleep(delay)
+                    delay = min(
+                        delay + TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS,
+                        TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS,
+                    )
+
+                # Only reconnects (Last-Event-ID set) can suffer a trimmed resume
+                # point, and that's the only case where stream depth vs the trim
+                # cap is interesting — so skip the extra Redis reads on fresh
+                # connects. Best-effort: never break the stream.
+                if last_event_id:
+                    try:
+                        observe_stream_length_on_connect(await redis_stream.get_length())
+                        if await redis_stream.resume_point_trimmed(last_event_id):
+                            observe_stream_resume_gap(origin_product)
+                            logger.warning(
+                                "task_run_stream_resume_gap",
+                                extra={"stream_key": stream_key, "last_event_id": last_event_id},
+                            )
+                    except Exception:
+                        logger.warning(
+                            "task_run_stream_attach_observe_failed",
+                            extra={"stream_key": stream_key},
+                            exc_info=True,
+                        )
+
+                start_id = last_event_id or "0"
+                if not last_event_id and start_latest:
+                    start_id = await redis_stream.get_latest_stream_id() or "0"
+                try:
+                    async for stream_item in redis_stream.read_stream_entries(
+                        start_id=start_id,
+                        keepalive_interval_seconds=TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS,
+                    ):
+                        if stream_item is None:
+                            yield format_sse_event(
+                                TASK_RUN_STREAM_KEEPALIVE_PAYLOAD,
+                                event_name=TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME,
+                            )
+                            continue
+                        event_id, event = stream_item
+                        yield format_sse_event(event, event_id=event_id)
+                    outcome = "completed"
+                except TaskRunStreamError as e:
+                    outcome = "stream_error"
+                    logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
+                    yield format_sse_event({"error": str(e)}, event_name="error")
+            finally:
+                if opened:
+                    duration = asyncio.get_running_loop().time() - connection_started_at
+                    observe_stream_connection_closed(origin_product, outcome, duration)
 
         return StreamingHttpResponse(
             async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_to_sync(lambda: async_stream()),
@@ -2837,7 +2913,7 @@ class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
     ]
-    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SandboxEnvironment.objects.all()
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]

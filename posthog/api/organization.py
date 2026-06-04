@@ -276,6 +276,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_create_projects",
             "members_can_use_personal_api_keys",
             "allow_publicly_shared_resources",
             "member_count",
@@ -386,6 +387,16 @@ class OrganizationSerializer(
             if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
                 raise serializers.ValidationError(
                     "You must upgrade your plan to configure who can send invites.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_members_can_create_projects(self, value: bool) -> bool:
+        # Gated behind the organization invite settings entitlement for now (will move to a dedicated feature later).
+        if self.instance and self.instance.members_can_create_projects != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure who can create projects.",
                     code="payment_required",
                 )
         return value

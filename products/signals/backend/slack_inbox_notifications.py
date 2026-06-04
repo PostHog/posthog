@@ -2,15 +2,18 @@
 
 When a report transitions to READY (a new inbox item lands), we look up the
 suggested reviewers from its `suggested_reviewers` artefact, resolve them to
-PostHog users, and dispatch a Slack message to each user that has configured a
+PostHog users, and dispatch a Slack message for each user that has configured a
 Slack channel and integration in their `SignalUserAutonomyConfig`.
 
-Each user's `slack_notification_min_priority` filters out reports below the
-configured threshold (P0 is highest). When the report has no priority
-judgement, we notify regardless of the user's threshold — the inbox should
-not silently swallow these.
+Reviewers are grouped by their resolved Slack channel so each channel receives a
+single message — when several reviewers point at the same channel, that one
+message tags all of them rather than posting once per reviewer.
 
-Messages are framed for public channels: each post names the suggested reviewer
+Each user's `slack_notification_min_priority` filters out reports below the
+configured threshold (P0 is highest). Reports with pending actionability or
+priority judgments are not dispatchable until those judgments are persisted.
+
+Messages are framed for public channels: each post names the suggested reviewers
 (Slack @mention when email matches the workspace, otherwise their PostHog name).
 """
 
@@ -36,6 +39,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
@@ -59,6 +63,14 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P4,
 )
 
+_SLACK_PRIORITY_LABELS: dict[str, str] = {
+    AutonomyPriority.P0: "🆘 P0",
+    AutonomyPriority.P1: "‼️ P1",
+    AutonomyPriority.P2: "❗ P2",
+    AutonomyPriority.P3: "⚠️ P3",
+    AutonomyPriority.P4: "👀 P4",
+}
+
 _SOURCE_PRODUCT_LABELS: dict[str, str] = {
     choice.value: str(choice.label) for choice in SignalSourceConfig.SourceProduct
 }
@@ -73,17 +85,21 @@ def _priority_rank(value: str | None) -> int | None:
         return None
 
 
+def _slack_priority_label(value: str) -> str:
+    return _SLACK_PRIORITY_LABELS.get(value, value)
+
+
 def _meets_min_priority(report_priority: str | None, min_priority: str | None) -> bool:
     """Whether a report with the given priority meets the user's min-priority threshold.
 
-    `min_priority=None` notifies for every report. When the report has no priority
-    (no priority_judgment artefact yet, or unrecognised value), we still notify —
-    suppression would silently drop new inbox items, which the user did not opt into.
+    `min_priority=None` notifies for every report with a recognised priority.
+    Missing or unrecognised report priorities do not notify because Slack
+    notifications only go out once actionability and priority are persisted.
     """
-    if min_priority is None:
-        return True
     report_rank = _priority_rank(report_priority)
     if report_rank is None:
+        return False
+    if min_priority is None:
         return True
     min_rank = _priority_rank(min_priority)
     if min_rank is None:
@@ -92,7 +108,7 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
     return report_rank <= min_rank
 
 
-def _latest_priority(report: SignalReport) -> str | None:
+def _get_latest_priority(report: SignalReport) -> str | None:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
         .order_by("-created_at")
@@ -110,9 +126,29 @@ def _latest_priority(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _get_latest_actionability(report: SignalReport) -> str | None:
+    art = (
+        report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        .order_by("-created_at")
+        .first()
+    )
+    if art is None:
+        return None
+    try:
+        data = json.loads(art.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("actionability")
+    return value if isinstance(value, str) else None
+
+
 @dataclass(frozen=True)
 class _RecipientPresentation:
-    header_label: str  # `<@U…>` mention or display name for the header
+    # `<@U…>` mention if we resolved the user's Slack ID — only renders inside mrkdwn
+    # blocks (header blocks are plain_text and would show the raw `<@U…>` string).
+    slack_mention: str | None
     plain_name: str
 
 
@@ -224,8 +260,15 @@ def _recipient_presentation(
 ) -> _RecipientPresentation:
     plain_name = _posthog_user_display_name(user)
     slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
-    header_label = f"<@{slack_user_id}>" if slack_user_id else plain_name
-    return _RecipientPresentation(header_label=header_label, plain_name=plain_name)
+    slack_mention = f"<@{slack_user_id}>" if slack_user_id else None
+    return _RecipientPresentation(slack_mention=slack_mention, plain_name=plain_name)
+
+
+def _recipient_label(recipient: _RecipientPresentation) -> str:
+    # Mention pings the user inside mrkdwn; otherwise escape the plain name so it renders literally.
+    return recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;"
+    )
 
 
 def _format_source_product_labels(source_products: list[str]) -> str:
@@ -253,17 +296,20 @@ def _build_message_blocks(
     *,
     priority: str | None,
     source_products: list[str],
-    recipient: _RecipientPresentation,
+    recipients: list[_RecipientPresentation],
     implementation_pr_url: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
-    header_text = f"Inbox for {recipient.header_label}"
-    if priority:
-        header_text = f"{header_text} · {priority}"
+    header_text = f"📬 {title_line}"
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    body_parts = [f"*{title_line}*"]
+    recipient_label = ", ".join(_recipient_label(recipient) for recipient in recipients)
+    metadata_parts = [f"Matched to {recipient_label} per code"]
+    if priority:
+        metadata_parts.insert(0, _slack_priority_label(priority))
+
+    body_parts: list[str] = [f"*{' • '.join(metadata_parts)}*"]
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
         body_parts.append(summary_text)
@@ -306,7 +352,8 @@ def _build_message_blocks(
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox for {recipient.plain_name}{priority_suffix}: {title_line}"
+    recipient_names = ", ".join(recipient.plain_name for recipient in recipients)
+    fallback_text = f"Inbox for {recipient_names}{priority_suffix}: {title_line}"
     return blocks, fallback_text
 
 
@@ -317,9 +364,7 @@ def dispatch_inbox_item_notifications(
 ) -> int:
     """Send Slack notifications for a newly-ready report. Returns count of messages sent.
 
-    Best-effort: per-target Slack errors are logged but do not raise. We only raise
-    on programmer error (missing report). The caller is the temporal summary workflow,
-    which already swallows notification exceptions.
+    Best-effort: per-target Slack errors are logged but do not raise.
     """
     try:
         report = SignalReport.objects.get(id=report_id, team_id=team_id)
@@ -330,41 +375,60 @@ def dispatch_inbox_item_notifications(
         )
         return 0
 
+    if report.status != SignalReport.Status.READY:
+        return 0
+    if _get_latest_actionability(report) != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
+        return 0
+
+    priority = _get_latest_priority(report)
+    if _priority_rank(priority) is None:
+        return 0
+
     targets = _notification_targets_for_report(report)
     if not targets:
         return 0
 
-    priority = _latest_priority(report)
     sources = source_products or []
     implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
     users_by_id = {user.id: user for user in User.objects.filter(id__in=[config.user_id for config in targets])}
 
-    sent = 0
+    # Several reviewers can resolve to the same channel — group them so each channel gets a
+    # single message that still tags every matched reviewer. Keyed by integration + channel id,
+    # since the same channel id under a different integration is a distinct destination.
+    channels: dict[tuple[int, str], list[SignalUserAutonomyConfig]] = {}
     for config in targets:
         if not _meets_min_priority(priority, config.slack_notification_min_priority):
             continue
-
-        user = users_by_id.get(config.user_id)
-        if user is None:
+        if config.user_id not in users_by_id:
             logger.warning(
                 "signals_inbox_slack_notification_missing_user",
                 extra={"report_id": report_id, "team_id": team_id, "user_id": config.user_id},
             )
             continue
-
         integration = config.slack_notification_integration
         channel = config.slack_notification_channel
         if integration is None or not channel:
             continue
+        channels.setdefault((integration.id, _channel_id_from_target(channel)), []).append(config)
+
+    sent = 0
+    for configs in channels.values():
+        # All configs in a group share the same integration and resolved channel id.
+        integration = configs[0].slack_notification_integration
+        channel = configs[0].slack_notification_channel
+        if integration is None or not channel:
+            continue  # Needed to satisfy mypy
 
         try:
             slack = SlackIntegration(integration)
-            recipient = _recipient_presentation(user, slack, integration)
+            recipients = [
+                _recipient_presentation(users_by_id[config.user_id], slack, integration) for config in configs
+            ]
             blocks, text = _build_message_blocks(
                 report,
                 priority=priority,
                 source_products=sources,
-                recipient=recipient,
+                recipients=recipients,
                 implementation_pr_url=implementation_pr_url,
             )
             slack.client.chat_postMessage(
@@ -379,7 +443,7 @@ def dispatch_inbox_item_notifications(
                 extra={
                     "report_id": report_id,
                     "team_id": team_id,
-                    "user_id": config.user_id,
+                    "user_ids": [config.user_id for config in configs],
                     "channel": _channel_display_name(channel),
                 },
             )
