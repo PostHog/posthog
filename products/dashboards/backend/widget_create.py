@@ -21,6 +21,7 @@ def prepare_widget_tile_create(
     config: dict[str, Any],
     user: User | None = None,
     user_access_control: UserAccessControl | None = None,
+    dashboard_quick_filter_ids: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     if not dashboard_widgets_enabled(team=team, user=user):
         raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
@@ -39,5 +40,10 @@ def prepare_widget_tile_create(
         )
         check_widget_tile_product_access(probe_widget, user_access_control)
 
-    validated_config = validate_widget_config(widget_type, config)
+    validated_config = validate_widget_config(
+        widget_type,
+        config,
+        team_id=team.id,
+        dashboard_quick_filter_ids=dashboard_quick_filter_ids,
+    )
     return widget_type, validated_config

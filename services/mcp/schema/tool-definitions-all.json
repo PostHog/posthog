@@ -1123,7 +1123,7 @@
         }
     },
     "dashboard-widget-catalog-list": {
-        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config.",
+        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. For error_tracking_list, config supports limit, orderBy, orderDirection, status, assignee, dateRange.date_from, filterTestAccounts, and widgetFilters (see config_schema_hints.widgetFilters.entry and allowed_filter_names).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "List dashboard widget catalog",
@@ -1137,7 +1137,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). error_tracking_list config may include status, assignee, dateRange, and widgetFilters (property filters keyed by filter id). For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",
@@ -1152,7 +1152,7 @@
         "feature_flag": "dashboard-widgets"
     },
     "dashboard-widgets-run": {
-        "description": "Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag. Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Returns per-tile errors when the caller lacks product access for a widget type (see required_product_access on dashboard-widget-catalog-list).",
+        "description": "Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag. Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a comma-separated list.             Each successful result includes results (rows), limit (page size), totalCount, totalCountCapped (when the true total exceeds the count cap), and hasMore. Returns per-tile errors when the caller lacks product access for a widget type (see required_product_access on dashboard-widget-catalog-list). Not available on public/shared dashboard views.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Run dashboard widgets",

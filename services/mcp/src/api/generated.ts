@@ -3821,6 +3821,41 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `user` - user
+    * `role` - role
+     */
+    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
+
+
+    export const AssigneeTypeEnum = {
+      User: 'user',
+      Role: 'role',
+    } as const;
+
+    export interface ErrorTrackingAssignee {
+      /** User ID or role UUID to filter by. */
+      id: string | number | null;
+      /** Assignee target type: user or role.
+
+      * `user` - user
+      * `role` - role */
+      type: AssigneeTypeEnum;
+    }
+
+    export interface WidgetFilterConfigEntry {
+      /** Filter UUID; must match the widgetFilters map key. */
+      filterId: string;
+      /** Event property key (for example $environment). */
+      propertyName: string;
+      /** Selected option id from the filter definition. */
+      optionId: string;
+      /** Property filter operator (for example exact, is_not, icontains). */
+      operator: string;
+      /** Filter value as a string, list of strings, or null. */
+      value?: unknown;
+    }
+
+    /**
      * * `-14d` - -14d
     * `-1h` - -1h
     * `-24h` - -24h
@@ -3855,9 +3890,14 @@ export namespace Schemas {
       date_from?: DateFromEnum | null;
     }
 
+    /**
+     * Widget filter selections keyed by filter id. For error_tracking_list, only filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported.
+     */
+    export type ErrorTrackingListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+
     export interface ErrorTrackingListWidgetConfig {
       /**
-         * Maximum number of issues to return.
+         * Maximum number of issues to return (page size).
          * @minimum 1
          * @maximum 25
          */
@@ -3884,7 +3924,11 @@ export namespace Schemas {
       * `suppressed` - suppressed
       * `all` - all */
       status?: ErrorTrackingIssueStatusEnum;
-      /** Optional relative date range override. */
+      /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
+      assignee?: ErrorTrackingAssignee | null;
+      /** Widget filter selections keyed by filter id. For error_tracking_list, only filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported. */
+      widgetFilters?: ErrorTrackingListWidgetConfigWidgetFilters;
+      /** Relative date range for issues (date_from only on widgets). */
       dateRange?: WidgetDateRange | null;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;
@@ -3910,6 +3954,11 @@ export namespace Schemas {
       StartTime: 'start_time',
     } as const;
 
+    /**
+     * Widget filter selections keyed by filter id. Uses dashboard filter definitions (QuickFilterContext dashboards). Event property filters are applied to the recordings query.
+     */
+    export type SessionReplayListWidgetConfigWidgetFilters = {[key: string]: WidgetFilterConfigEntry};
+
     export interface SessionReplayListWidgetConfig {
       /**
          * Maximum number of recordings to return.
@@ -3933,6 +3982,8 @@ export namespace Schemas {
       orderDirection?: OrderDirectionEnum;
       /** Optional relative date range override. */
       dateRange?: WidgetDateRange | null;
+      /** Widget filter selections keyed by filter id. Uses dashboard filter definitions (QuickFilterContext dashboards). Event property filters are applied to the recordings query. */
+      widgetFilters?: SessionReplayListWidgetConfigWidgetFilters;
       /** When omitted, follows the project default for filtering test accounts. */
       filterTestAccounts?: boolean;
     }
@@ -7649,18 +7700,6 @@ export namespace Schemas {
       /** @nullable */
       download_url: string | null;
     }
-
-    /**
-     * * `user` - user
-    * `role` - role
-     */
-    export type AssigneeTypeEnum = typeof AssigneeTypeEnum[keyof typeof AssigneeTypeEnum];
-
-
-    export const AssigneeTypeEnum = {
-      User: 'user',
-      Role: 'role',
-    } as const;
 
     export interface AsyncDeletionStatus {
       /** The UUID of the person whose events are queued for deletion. */
@@ -12163,7 +12202,7 @@ export namespace Schemas {
          * @nullable
          */
       widget_type: string | null;
-      /** Live widget query result payload. */
+      /** Live widget query result payload. List widgets return results (array), limit (configured page size), hasMore (boolean), totalCount (matching rows for current filters), totalCountCapped (true when totalCount hit the widget max and more may exist), and optional offset/nextOffset. error_tracking_list results are issue summaries; session_replay_list results are recording metadata. */
       result: unknown;
       /**
          * Error message when the widget could not be run.
@@ -14531,16 +14570,6 @@ export namespace Schemas {
       volumeRange?: number[];
       /** Labeled volume buckets. */
       volume_buckets?: ErrorTrackingVolumeBucket[];
-    }
-
-    export interface ErrorTrackingAssignee {
-      /** User ID or role UUID to filter by. */
-      id: string | number | null;
-      /** Assignee target type: user or role.
-
-      * `user` - user
-      * `role` - role */
-      type: AssigneeTypeEnum;
     }
 
     export interface ErrorTrackingAssigneeResponse {
