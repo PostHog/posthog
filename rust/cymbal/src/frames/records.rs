@@ -215,28 +215,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ttl_policy_uses_resolved_and_unresolved_ttls() {
-        let policy = FrameResultTtlPolicy::new(Duration::seconds(1800), Duration::seconds(300));
-        let id = RawFrameId::new("frame".to_string(), 1);
+    fn ttl_policy_applies_expected_ttl_with_deterministic_jitter() {
+        for (name, resolved_ttl, unresolved_ttl, all_resolved, min_ttl, max_ttl) in [
+            (
+                "resolved",
+                Duration::seconds(1800),
+                Duration::seconds(300),
+                true,
+                Duration::seconds(1800),
+                Duration::seconds(1980),
+            ),
+            (
+                "unresolved",
+                Duration::seconds(1800),
+                Duration::seconds(300),
+                false,
+                Duration::seconds(300),
+                Duration::seconds(330),
+            ),
+            (
+                "deterministic jitter",
+                Duration::seconds(100),
+                Duration::seconds(100),
+                true,
+                Duration::seconds(100),
+                Duration::seconds(110),
+            ),
+        ] {
+            let policy = FrameResultTtlPolicy::new(resolved_ttl, unresolved_ttl);
+            let id = RawFrameId::new("frame".to_string(), 1);
 
-        let resolved_ttl = policy.ttl_for_resolved_status(&id, true);
-        let unresolved_ttl = policy.ttl_for_resolved_status(&id, false);
+            let ttl = policy.ttl_for_resolved_status(&id, all_resolved);
 
-        assert!(resolved_ttl >= Duration::seconds(1800));
-        assert!(resolved_ttl <= Duration::seconds(1980));
-        assert!(unresolved_ttl >= Duration::seconds(300));
-        assert!(unresolved_ttl <= Duration::seconds(330));
-    }
-
-    #[test]
-    fn ttl_policy_adds_deterministic_jitter() {
-        let policy = FrameResultTtlPolicy::new(Duration::seconds(100), Duration::seconds(100));
-        let id = RawFrameId::new("frame".to_string(), 1);
-
-        let ttl = policy.ttl_for_resolved_status(&id, true);
-
-        assert_eq!(ttl, policy.ttl_for_resolved_status(&id, true));
-        assert!(ttl >= Duration::seconds(100));
-        assert!(ttl <= Duration::seconds(110));
+            assert_eq!(
+                ttl,
+                policy.ttl_for_resolved_status(&id, all_resolved),
+                "{name}"
+            );
+            assert!(ttl >= min_ttl, "{name}");
+            assert!(ttl <= max_ttl, "{name}");
+        }
     }
 }
