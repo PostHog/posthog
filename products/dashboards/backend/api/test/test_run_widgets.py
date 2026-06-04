@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -502,7 +504,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_widgets_skips_total_count_when_page_has_more(self, mock_runner_cls: MagicMock) -> None:
-        issue = {
+        issue: dict[str, Any] = {
             "id": "issue-1",
             "name": "TypeError",
             "description": "boom",
@@ -537,7 +539,7 @@ class TestDashboardRunWidgets(APIBaseTest):
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_error_tracking_list_widget_can_include_total_count(self, mock_runner_cls: MagicMock) -> None:
-        issue = {
+        issue: dict[str, Any] = {
             "id": "issue-1",
             "name": "TypeError",
             "description": "boom",

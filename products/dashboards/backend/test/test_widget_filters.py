@@ -4,6 +4,8 @@ from django.test import TestCase
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.schema import EventPropertyFilter
+
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
     build_property_group_filter_from_widget_filters,
@@ -65,7 +67,9 @@ class TestWidgetFilters(TestCase):
             }
         )
         assert filter_group is not None
-        assert filter_group.values[0].values[0].key == "$environment"
+        property_filter = filter_group.values[0].values[0]
+        assert isinstance(property_filter, EventPropertyFilter)
+        assert property_filter.key == "$environment"
 
     def test_validate_error_tracking_widget_filters_rejects_unknown_property(self) -> None:
         with self.assertRaises(DRFValidationError):
