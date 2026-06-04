@@ -93,7 +93,8 @@ class VitallyRegionConfig(config.Config):
 
 @config.config
 class ActiveCampaignSourceConfig(config.Config):
-    pass
+    api_url: str
+    api_key: str
 
 
 @config.config
@@ -217,7 +218,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CampaignMonitorSourceConfig(config.Config):
-    pass
+    api_key: str
+    client_id: str
 
 
 @config.config

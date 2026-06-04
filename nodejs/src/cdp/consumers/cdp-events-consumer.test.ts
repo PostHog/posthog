@@ -1015,6 +1015,7 @@ describe('hog flow processing', () => {
                     }
                     return Promise.resolve(result)
                 }),
+                fetchGroupTypesByProjectIds: jest.fn().mockResolvedValue({}),
             }
 
             processor['groupsManager'] = new GroupsManagerService(hub.teamManager, mockGroupRepo)

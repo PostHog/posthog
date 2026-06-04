@@ -15,7 +15,9 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.slo.types import SloOperation, SloOutcome
 
+from products.dashboards.backend.api import widget_openapi_serializers as widget_openapi_serializers_module
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.widget_catalog import WIDGET_CATALOG
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, WIDGET_REGISTRY, validate_widget_config
@@ -35,6 +37,13 @@ class TestWidgetRegistry(APIBaseTest):
         assert frozenset(WIDGET_CATALOG.keys()) == registry_types
         for widget_type, entry in WIDGET_CATALOG.items():
             assert entry["widget_type"] == widget_type
+
+    def test_openapi_widget_config_serializers_match_registry(self) -> None:
+        openapi_serializers = widget_openapi_serializers_module._DashboardWidgetConfigOpenApi.serializers
+        assert len(openapi_serializers) == len(EXPECTED_WIDGET_TYPES), (
+            "Add a *WidgetConfigSerializer for each widget type in widget_openapi_serializers.py. "
+            f"serializers={len(openapi_serializers)} expected={len(EXPECTED_WIDGET_TYPES)}"
+        )
 
     def test_validate_widget_config_unknown_type(self) -> None:
         with self.assertRaises(Exception):
@@ -458,3 +467,60 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertEqual(body["results"][0]["error"], "API key missing required scope 'error_tracking:read'")
+
+    @patch(
+        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
+    )
+    @patch("posthog.slo.events.posthoganalytics.capture")
+    def test_run_widgets_emits_slo_on_successful_widget_delivery(
+        self, mock_capture: MagicMock, mock_calculate: MagicMock
+    ) -> None:
+        mock_calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        self._run(dashboard_id, [tile_id])
+
+        started_calls = [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "slo_operation_started"
+            and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
+        ]
+        completed_calls = [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "slo_operation_completed"
+            and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
+        ]
+        self.assertEqual(len(started_calls), 1)
+        self.assertEqual(len(completed_calls), 1)
+        self.assertEqual(started_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")
+        self.assertEqual(started_calls[0].kwargs["properties"]["dashboard_id"], dashboard_id)
+        self.assertEqual(started_calls[0].kwargs["properties"]["tile_id"], tile_id)
+        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.SUCCESS)
+
+    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
+    @patch("posthog.slo.events.posthoganalytics.capture")
+    def test_run_widgets_emits_slo_failure_when_widget_query_raises(
+        self, mock_capture: MagicMock, mock_runner_cls: MagicMock
+    ) -> None:
+        mock_runner_cls.return_value.calculate.side_effect = Exception("boom")
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile_id = dashboard_json["tiles"][0]["id"]
+
+        self._run(dashboard_id, [tile_id])
+
+        completed_calls = [
+            call
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "slo_operation_completed"
+            and call.kwargs.get("properties", {}).get("operation") == SloOperation.DASHBOARD_WIDGET_DELIVERY
+        ]
+        self.assertEqual(len(completed_calls), 1)
+        self.assertEqual(completed_calls[0].kwargs["properties"]["outcome"], SloOutcome.FAILURE)
+        self.assertEqual(completed_calls[0].kwargs["properties"]["widget_type"], "error_tracking_list")
