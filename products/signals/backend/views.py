@@ -42,6 +42,7 @@ from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Team, User
@@ -300,6 +301,15 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
 
 
+class _SingletonSchema(PostHogAutoSchema):
+    """`list` returns the single config object, not a collection. Stops drf-spectacular from
+    wrapping the response in an array/paginated type so the generated client returns a single
+    SignalTeamConfigApi instead of a list page."""
+
+    def _is_list_view(self, serializer=None) -> bool:
+        return False
+
+
 class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Team-level signal autonomy config (singleton per team).
 
@@ -312,6 +322,8 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = SignalTeamConfigSerializer
     queryset = SignalTeamConfig.objects.all()
     scope_object = "task"
+    pagination_class = None
+    schema = _SingletonSchema()
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         if request.method in ("GET", "HEAD", "OPTIONS"):

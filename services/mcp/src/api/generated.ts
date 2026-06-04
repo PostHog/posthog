@@ -25038,33 +25038,6 @@ export namespace Schemas {
       results: SignalSourceConfig[];
     }
 
-    export interface SignalTeamConfig {
-      readonly id: string;
-      default_autostart_priority?: AutonomyPriorityEnum;
-      /** Which coding agent acts on this team's signal reports: `posthog_code` (the internal Tasks runner) or `cursor` (an external Cursor cloud agent). Governs both the automatic autonomy path and the default for the manual dispatch button. Connecting Cursor does not change this — a team only routes to Cursor once this is set to `cursor`.
-
-      * `posthog_code` - PostHog Code
-      * `cursor` - Cursor */
-      default_coding_agent?: CodingAgentEnum;
-      /**
-         * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
-         * @maxLength 255
-         * @nullable
-         */
-      default_slack_notification_channel?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    export interface PaginatedSignalTeamConfigList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: SignalTeamConfig[];
-    }
-
     export interface SnapshotHistoryEntry {
       current_artifact?: Artifact | null;
       run_id: string;
@@ -37484,6 +37457,24 @@ export namespace Schemas {
       task_url?: string | null;
       /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
       summary: string;
+    }
+
+    export interface SignalTeamConfig {
+      readonly id: string;
+      default_autostart_priority?: AutonomyPriorityEnum;
+      /** Which coding agent acts on this team's signal reports: `posthog_code` (the internal Tasks runner) or `cursor` (an external Cursor cloud agent). Governs both the automatic autonomy path and the default for the manual dispatch button. Connecting Cursor does not change this — a team only routes to Cursor once this is set to `cursor`.
+
+      * `posthog_code` - PostHog Code
+      * `cursor` - Cursor */
+      default_coding_agent?: CodingAgentEnum;
+      /**
+         * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+         * @maxLength 255
+         * @nullable
+         */
+      default_slack_notification_channel?: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface _User {
@@ -49906,17 +49897,6 @@ export namespace Schemas {
     };
 
     export type SessionRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type SignalsConfigListParams = {
     /**
      * Number of results to return per page.
      */

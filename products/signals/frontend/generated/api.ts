@@ -18,7 +18,6 @@ import type {
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
-    PaginatedSignalTeamConfigListApi,
     PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -36,7 +35,6 @@ import type {
     SignalSourceConfigApi,
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
-    SignalsConfigListParams,
     SignalsProcessingListParams,
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
@@ -62,20 +60,8 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getSignalsConfigListUrl = (projectId: string, params?: SignalsConfigListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/config/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/config/`
+export const getSignalsConfigRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
 }
 
 /**
@@ -84,12 +70,8 @@ export const getSignalsConfigListUrl = (projectId: string, params?: SignalsConfi
 GET  /signals/config/  → retrieve
 POST /signals/config/  → update
  */
-export const signalsConfigList = async (
-    projectId: string,
-    params?: SignalsConfigListParams,
-    options?: RequestInit
-): Promise<PaginatedSignalTeamConfigListApi> => {
-    return apiMutator<PaginatedSignalTeamConfigListApi>(getSignalsConfigListUrl(projectId, params), {
+export const signalsConfigRetrieve = async (projectId: string, options?: RequestInit): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

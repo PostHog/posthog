@@ -53,15 +53,6 @@ export interface SignalTeamConfigApi {
     readonly updated_at: string
 }
 
-export interface PaginatedSignalTeamConfigListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: SignalTeamConfigApi[]
-}
-
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -1213,17 +1204,6 @@ export interface SignalUserAutonomyConfigApi {
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
-}
-
-export type SignalsConfigListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type SignalsProcessingListParams = {

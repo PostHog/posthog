@@ -17,7 +17,7 @@ import { Breadcrumb } from '~/types'
 
 import {
     signalsConfigCreate,
-    signalsConfigList,
+    signalsConfigRetrieve,
     signalsReportsCursorConnectionCreate,
     signalsReportsCursorConnectionDestroy,
     signalsReportsCursorConnectionRetrieve,
@@ -132,7 +132,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         teamConfig: [
             null as SignalTeamConfigApi | null,
             {
-                loadTeamConfig: async () => await signalsConfigList(String(getCurrentTeamId())),
+                loadTeamConfig: async () => await signalsConfigRetrieve(String(getCurrentTeamId())),
                 saveTeamDefaultAgent: async ({ agent }: { agent: CodingAgentEnumApi }) =>
                     await signalsConfigCreate(String(getCurrentTeamId()), { default_coding_agent: agent }),
             },
