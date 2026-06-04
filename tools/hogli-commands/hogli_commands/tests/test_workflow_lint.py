@@ -599,7 +599,8 @@ class TestCheckoutFullDepthCheck:
                 timeout-minutes: 5
                 steps:
                   # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
-                  - uses: actions/checkout@v6
+                  - name: Checkout mirror
+                    uses: actions/checkout@v6
                     with:
                       fetch-depth: 0
             """,
@@ -648,6 +649,32 @@ class TestCheckoutFullDepthCheck:
         )
         [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
         assert "allow-full-depth-checkout" in issue.message
+
+    def test_allow_marker_does_not_apply_to_previous_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+
+                  # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert issue.step == "step[0]"
+        assert "fetch-depth: 0" in issue.message
 
     def test_fails_filter_combined_with_sparse_checkout(self, tmp_path: Path) -> None:
         _write(

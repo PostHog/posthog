@@ -10,6 +10,7 @@ from ..model import Step, Workflow
 
 ALLOW_MARKER = "hogli-lint: allow-full-depth-checkout"
 CHECKOUT_USES_RE = re.compile(r"^\s*(?:-\s*)?uses:\s*actions/checkout@", re.IGNORECASE)
+STEP_START_RE = re.compile(r"^\s*-\s")
 
 
 def _is_checkout(step: Step) -> bool:
@@ -46,6 +47,28 @@ def _allow_marker_has_reason(line: str) -> bool:
     return reason.strip().startswith("--") and bool(reason.strip()[2:].strip())
 
 
+def _step_start_line(lines: list[str], uses_idx: int) -> int:
+    for idx in range(uses_idx, max(-1, uses_idx - 8), -1):
+        if STEP_START_RE.search(lines[idx]):
+            return idx
+    return uses_idx
+
+
+def _checkout_has_allow_marker(lines: list[str], uses_idx: int) -> bool:
+    step_start = _step_start_line(lines, uses_idx)
+    for candidate in lines[step_start : uses_idx + 1]:
+        if ALLOW_MARKER in candidate and _allow_marker_has_reason(candidate):
+            return True
+
+    idx = step_start - 1
+    while idx >= 0 and lines[idx].strip().startswith("#"):
+        if ALLOW_MARKER in lines[idx] and _allow_marker_has_reason(lines[idx]):
+            return True
+        idx -= 1
+
+    return False
+
+
 @cache
 def _allowed_checkout_ordinals(path: str) -> frozenset[int]:
     """Return checkout step ordinals with a nearby allow marker.
@@ -62,8 +85,7 @@ def _allowed_checkout_ordinals(path: str) -> frozenset[int]:
     for idx, line in enumerate(lines):
         if not CHECKOUT_USES_RE.search(line):
             continue
-        window = lines[max(0, idx - 4) : min(len(lines), idx + 12)]
-        if any(ALLOW_MARKER in candidate and _allow_marker_has_reason(candidate) for candidate in window):
+        if _checkout_has_allow_marker(lines, idx):
             allowed.add(checkout_ordinal)
         checkout_ordinal += 1
 
