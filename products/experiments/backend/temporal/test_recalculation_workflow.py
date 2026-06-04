@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 from parameterized import parameterized
@@ -154,6 +155,32 @@ class TestExperimentMetricsRecalculationWorkflow:
         # Workflow must complete without the validating activity raising — i.e., every progress call has exactly
         # one of mark_started / mark_completed set.
         await _run_workflow([mock_discover, progress_with_xor_guard, mock_calculate])
+
+    @parameterized.expand(
+        [
+            # name, failed_uuids, metrics, expected_status — covers both return sites (empty and fan-out) and
+            # both terminal status values. Without this, either return site could silently lose the counter
+            # call without any test failure.
+            ("empty_completes", set(), [], "completed"),
+            ("all_succeed_completes", set(), [_metric("m1"), _metric("m2")], "completed"),
+            ("any_failure_fails", {"m1"}, [_metric("m1"), _metric("m2")], "failed"),
+        ]
+    )
+    async def test_workflow_finished_counter_fires_with_terminal_status(
+        self, name: str, failed_uuids: set, metrics: list[ExperimentMetricToRecalculate], expected_status: str
+    ):
+        metric_results = {
+            uuid_: MetricRecalculationResult(metric_uuid=uuid_, success=False, error_step="calculation")
+            for uuid_ in failed_uuids
+        }
+        activities, _progress, _calls = _make_mock_activities(metrics=metrics, metric_results=metric_results)
+
+        with patch(
+            "products.experiments.backend.temporal.recalculation_workflow.increment_workflow_finished"
+        ) as mock_finished:
+            await _run_workflow(activities)
+
+        mock_finished.assert_called_once_with(expected_status)
 
     async def test_workflow_fails_non_retryable_if_start_activity_returns_none(self):
         # The workflow narrows the start activity's Optional[str] return into a real str via an if/raise

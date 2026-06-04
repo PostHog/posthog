@@ -1,9 +1,10 @@
 """Prometheus metrics for the experiment metrics recalculation workflow.
 
-Follows the established Temporal interceptor pattern (see products/batch_exports/backend/temporal/metrics.py).
-The latency histograms named in ``EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS`` are emitted by the
-Temporal Prometheus runtime once their bucket boundaries are registered in ``posthog/temporal/common/worker.py``.
-This interceptor additionally emits success/failure counters that back Grafana dashboards and alert rules.
+Follows the established Temporal interceptor pattern (see posthog/temporal/ai_observability/metrics.py).
+Emits two latency histograms via ``ExecutionTimeRecorder`` (activity-level, labeled by activity_type;
+workflow-level, end-to-end) plus counters for activity success/failure and workflow starts. The histogram
+names match ``EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS`` so the bucket boundaries
+registered in ``posthog/temporal/common/worker.py`` actually apply.
 """
 
 import typing
@@ -19,6 +20,8 @@ from temporalio.worker import (
     WorkflowInboundInterceptor,
     WorkflowInterceptorClassInput,
 )
+
+from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
 
 # The workflow type name (matches @workflow.defn(name=...) in recalculation_workflow).
 _RECALCULATION_WORKFLOW_TYPE = "experiment-metrics-recalculation-workflow"
@@ -46,6 +49,20 @@ EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS = [
 ]
 
 
+def increment_workflow_finished(status: str) -> None:
+    """Workflow-body callsite for the terminal lifecycle counter.
+
+    Emitted from inside `ExperimentMetricsRecalculationWorkflow.run` rather than the interceptor so the
+    `status` attribute can be the run's business-level outcome (`"completed"` / `"failed"`, where `"failed"`
+    means at least one metric failed). An interceptor-based version would only see exception-vs-no-exception,
+    which conflates a 9-of-10-failed run with a healthy one.
+    """
+    workflow.metric_meter().with_additional_attributes({"status": status}).create_counter(
+        "experiment_metrics_recalculation_workflow_finished",
+        "Number of experiment metrics recalculation workflows that reached a terminal state.",
+    ).add(1)
+
+
 class _ActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> typing.Any:
         activity_type = activity.info().activity_type
@@ -54,7 +71,12 @@ class _ActivityInboundInterceptor(ActivityInboundInterceptor):
 
         meter = activity.metric_meter().with_additional_attributes({"activity_type": activity_type})
         try:
-            result = await super().execute_activity(input)
+            with ExecutionTimeRecorder(
+                "experiment_metrics_recalculation_activity_execution_latency",
+                description="Execution latency for experiment metrics recalculation activities.",
+                histogram_attributes={"activity_type": activity_type},
+            ):
+                result = await super().execute_activity(input)
         except Exception:
             meter.create_counter(
                 "experiment_metrics_recalculation_activity_failures",
@@ -76,7 +98,11 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
             "experiment_metrics_recalculation_workflow_started",
             "Number of experiment metrics recalculation workflows started.",
         ).add(1)
-        return await super().execute_workflow(input)
+        with ExecutionTimeRecorder(
+            "experiment_metrics_recalculation_workflow_execution_latency",
+            description="End-to-end execution latency for the experiment metrics recalculation workflow.",
+        ):
+            return await super().execute_workflow(input)
 
 
 class ExperimentsRecalculationMetricsInterceptor(Interceptor):
