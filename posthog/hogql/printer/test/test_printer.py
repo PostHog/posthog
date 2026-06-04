@@ -2082,6 +2082,37 @@ class TestPrinter(BaseTest):
             f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
+    @parameterized.expand(
+        [
+            # (hogql aggregate over if(cond, <literal>, NULL), fragment ClickHouse rewrites to a non-countIf …If form)
+            ("count_distinct", "count(DISTINCT if(event = 'x', 1, NULL))", "count(DISTINCT if("),
+            ("max", "max(if(event = 'x', 1, NULL))", "max(if("),
+            ("avg", "avg(if(event = 'x', 1, NULL))", "avg(if("),
+            ("sum", "sum(if(event = 'x', 1, NULL))", "sum(if("),
+        ]
+    )
+    def test_conditional_aggregate_over_nullable_literal_is_rewrite_bait(self, _name, expr, fragment):
+        # Reproduces ClickHouse THERE_IS_NO_COLUMN (Code 8) on the distributed events table with the new analyzer.
+        # ClickHouse's optimize_rewrite_aggregate_function_with_if (default 1, analyzer-only) rewrites
+        # e.g. max(if(cond, 1, NULL)) -> maxIf(1, cond). The constant in the non-NULL branch is constant-folded
+        # to a different type on the initiator (_CAST(1_UInt8, 'Nullable(UInt8)')) than on the shards
+        # (_CAST(1_Nullable(UInt8), 'Nullable(UInt8)')), so distributed column matching fails at planning time.
+        # See ClickHouse issue #82941. Plain count(if(...)) -> countIf survives; the other …If rewrites do not.
+        #
+        # NOTE: this is a multi-shard-only bug. The test ClickHouse is single-shard with the analyzer off, so it
+        # cannot reproduce the runtime error here — verification stays in prod (multi-shard). This test instead
+        # pins the two preconditions the printer currently emits, and will flip to green once either fix lands:
+        #   (a) HogQLGlobalSettings sets optimize_rewrite_aggregate_function_with_if=0 (settings fix), or
+        #   (b) the printer casts the literal to Nullable(...) so both sides agree on its type (printer fix).
+        printed = self._print(f"SELECT {expr} AS c FROM events", settings=HogQLGlobalSettings())
+
+        # (1) The query still feeds ClickHouse the rewrite-bait shape (literal in the non-NULL branch, NULL else).
+        self.assertIn(fragment, printed)
+        self.assertNotIn("toNullable(", printed)  # printer fix would wrap the literal
+
+        # (2) The settings that would defuse the rewrite are not applied today.
+        self.assertNotIn("optimize_rewrite_aggregate_function_with_if", printed)
+
     def test_print_timezone(self):
         context = HogQLContext(
             team_id=self.team.pk,
