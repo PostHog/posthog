@@ -905,7 +905,8 @@ class WorkOSSourceConfig(config.Config):
 
 @config.config
 class WrikeSourceConfig(config.Config):
-    pass
+    access_token: str
+    host: str
 
 
 @config.config

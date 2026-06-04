@@ -117,6 +117,7 @@ the row lists both.
 | webflow          | HTTP                        | requests                                                        | ✅                          |
 | woocommerce      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| wrike            | HTTP                        | requests                                                        | ✅                          |
 | zendesk          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 
 ### Notes on partially-tracked sources
@@ -219,7 +220,6 @@ doesn't conflict with concurrent PRs.
 - twilio
 - twitter_ads
 - workday
-- wrike
 - xero
 - youtube_analytics
 - zoho_crm
