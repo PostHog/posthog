@@ -35,6 +35,7 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
+from posthog.scopes import PRIVILEGED_SCOPES
 from posthog.security.url_validation import is_url_allowed
 
 from .dcr import validate_client_name
@@ -93,18 +94,29 @@ class CIMDGlobalThrottle(SimpleRateThrottle):
 CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMDSustainedThrottle, CIMDGlobalThrottle]
 
 
-class CIMDMetadataDocument(TypedDict, total=False):
-    client_id: str
-    client_name: str
-    redirect_uris: list[str]
-    logo_uri: str
-    grant_types: list[str]
-    response_types: list[str]
-    token_endpoint_auth_method: str
-    # Optional PostHog extension: if present, PostHog will look up the token
-    # and link this CIMD app to the owning organization. Verified partners get
-    # a higher default rate limit and an identity trail for abuse response.
-    posthog_verification_token: str
+class ComPostHogNamespace(TypedDict, total=False):
+    verification_token: str
+    scopes: list[str]
+
+
+# Functional form required: "com.posthog" is not a valid Python identifier.
+CIMDMetadataDocument = TypedDict(
+    "CIMDMetadataDocument",
+    {
+        "client_id": str,
+        "client_name": str,
+        "redirect_uris": list[str],
+        "logo_uri": str,
+        "grant_types": list[str],
+        "response_types": list[str],
+        "token_endpoint_auth_method": str,
+        # Legacy top-level token — still read for backwards compatibility.
+        "posthog_verification_token": str,
+        # Preferred namespace — takes precedence over the legacy top-level key.
+        "com.posthog": ComPostHogNamespace,
+    },
+    total=False,
+)
 
 
 def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
@@ -311,12 +323,37 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
 
 
 def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
-    """Look up a CIMD metadata `posthog_verification_token`. Returns the token
-    record (with its organization) on match, or None if missing or invalid."""
+    """Look up a verification token from CIMD metadata, preferring the nested
+    `com.posthog.verification_token` and falling back to the legacy top-level
+    `posthog_verification_token`. Returns the token record on match, or None."""
+    com_posthog = metadata.get("com.posthog")
+    if isinstance(com_posthog, dict):
+        nested_raw = com_posthog.get("verification_token")
+        if nested_raw and isinstance(nested_raw, str):
+            return find_cimd_verification_token(nested_raw)
+
     raw = metadata.get("posthog_verification_token")
     if not raw or not isinstance(raw, str):
         return None
     return find_cimd_verification_token(raw)
+
+
+def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Read com.posthog.scopes if present, stripping privileged scopes.
+
+    Returns None when the field is absent — callers treat that as a no-op
+    (leave existing scopes untouched). Returns a (possibly empty) list when
+    the field is present, even after privileged entries are filtered out.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    raw_scopes = com_posthog.get("scopes")
+    if raw_scopes is None:
+        return None
+    if not isinstance(raw_scopes, list):
+        return None
+    return [s for s in raw_scopes if isinstance(s, str) and s not in PRIVILEGED_SCOPES]
 
 
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
@@ -330,6 +367,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
     verification = _resolve_verification_token(metadata)
+    resolved_scopes = _resolve_scopes(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -344,6 +382,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
+        scopes=resolved_scopes if resolved_scopes is not None else [],
         user=None,
     )
     app.full_clean()
@@ -389,6 +428,11 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     verification = _resolve_verification_token(metadata)
     new_org = verification.organization if verification else None
     update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
+
+    resolved_scopes = _resolve_scopes(metadata)
+    if resolved_scopes is not None:
+        app.scopes = resolved_scopes
+        update_fields.append("scopes")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:
@@ -503,7 +547,10 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
                     "cache_ttl": cache_ttl,
                     "is_verified": new_app.organization_id is not None,
                     "organization_id": str(new_app.organization_id) if new_app.organization_id else None,
-                    "had_verification_token_attempt": bool(metadata.get("posthog_verification_token")),
+                    "had_verification_token_attempt": bool(
+                        metadata.get("posthog_verification_token")
+                        or (isinstance(ns := metadata.get("com.posthog"), dict) and ns.get("verification_token"))
+                    ),
                 },
             )
             return new_app
