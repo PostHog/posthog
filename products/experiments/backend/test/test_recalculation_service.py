@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
@@ -81,6 +81,43 @@ class TestRecalculationService(BaseTest):
         assert second["id"] == first["id"]
         # Only one job row was created across both calls.
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
+
+    @parameterized.expand(
+        [
+            # (name, status, stale_field) — both lifecycle anchors must release the experiment when their
+            # respective timestamp is past the staleness threshold. Without this, a Temporal-connect failure
+            # that also lost its rollback UPDATE permanently locks the experiment out of recalculations.
+            ("pending_stale_by_created_at", "pending", "created_at"),
+            ("in_progress_stale_by_started_at", "in_progress", "started_at"),
+        ]
+    )
+    def test_request_recalculation_recovers_from_stale_active_row(self, name: str, status: str, stale_field: str):
+        exp = self._launched_experiment(flag_key=f"stale-{name}")
+        long_ago = timezone.now() - timedelta(hours=2)
+        stale_kwargs: dict = {"team": self.team, "experiment": exp, "status": status}
+        if stale_field == "created_at":
+            # created_at uses auto_now_add so we have to update after create.
+            stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs)
+            ExperimentMetricsRecalculation.objects.filter(id=stale_row.id).update(created_at=long_ago)
+        else:
+            stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs, started_at=long_ago)
+
+        result = request_recalculation(exp, self.user, "manual")
+
+        # A fresh row was created (NOT the stale one) and the stale row was marked FAILED.
+        assert result["is_existing"] is False
+        assert result["id"] != str(stale_row.id)
+        stale_row.refresh_from_db()
+        assert stale_row.status == "failed"
+
+    def test_request_recalculation_does_not_recover_recent_active_row(self):
+        # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the
+        # status. This pins the threshold is doing real work and we aren't accidentally short-circuiting it.
+        exp = self._launched_experiment(flag_key="recent-pending")
+        recent_row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+        result = request_recalculation(exp, self.user, "manual")
+        assert result["is_existing"] is True
+        assert result["id"] == str(recent_row.id)
 
     def test_request_recalculation_rejects_unlaunched(self):
         exp = Experiment.objects.create(

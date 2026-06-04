@@ -9,7 +9,11 @@ Module-level free functions (not methods on ExperimentService) so the API view c
   the run id).
 """
 
+from datetime import timedelta
 from uuid import UUID
+
+from django.db.models import Q
+from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
@@ -25,6 +29,14 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import _find_metric_dict
+
+# How long an active (PENDING/IN_PROGRESS) row blocks new recalculations. Beyond this, the row is treated as
+# stale and a fresh recalc is allowed. Sized to be safely above the workflow's worst-case end-to-end runtime
+# (discovery retries + per-metric calc retries + progress activities) so a legitimately-slow run can finish
+# without being clobbered, but tight enough that an operator can recover within an hour if the workflow
+# never started (Temporal connect failure, transient infra issue, etc.). See the rollback in views.py for the
+# happy-path failure handling; this TTL is the defense-in-depth backstop if that rollback itself fails.
+_STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
 
 def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict] | None = None) -> tuple[int, int]:
@@ -87,15 +99,33 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
 
     with team_scope(experiment.team_id, canonical=True):
-        existing = ExperimentMetricsRecalculation.objects.filter(
+        # Activity-aware staleness: PENDING rows anchor on created_at (workflow never reached its start
+        # activity); IN_PROGRESS rows anchor on started_at (workflow began executing then stalled). A row past
+        # the threshold is treated as dead and skipped, so a fresh recalc can start. Without this, a PENDING
+        # row left orphaned by a Temporal-connect failure that also lost its rollback UPDATE would permanently
+        # lock the experiment out of recalculations.
+        threshold = timezone.now() - _STALE_RECALC_THRESHOLD
+        existing = (
+            ExperimentMetricsRecalculation.objects.filter(experiment=experiment)
+            .filter(
+                Q(status=ExperimentMetricsRecalculation.Status.PENDING, created_at__gte=threshold)
+                | Q(status=ExperimentMetricsRecalculation.Status.IN_PROGRESS, started_at__gte=threshold)
+            )
+            .first()
+        )
+        if existing:
+            return build_job_payload(existing, is_existing=True)
+
+        # No fresh active row, but stale tombstones might still hold the per-experiment uniqueness constraint
+        # (unique_active_metrics_recalculation_per_experiment). Mark them FAILED so the constraint releases
+        # and the new row can land. Status reflects reality — these workflows are not coming back.
+        ExperimentMetricsRecalculation.objects.filter(
             experiment=experiment,
             status__in=[
                 ExperimentMetricsRecalculation.Status.PENDING,
                 ExperimentMetricsRecalculation.Status.IN_PROGRESS,
             ],
-        ).first()
-        if existing:
-            return build_job_payload(existing, is_existing=True)
+        ).update(status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=timezone.now())
 
         recalc = ExperimentMetricsRecalculation.objects.create(
             team=experiment.team,
