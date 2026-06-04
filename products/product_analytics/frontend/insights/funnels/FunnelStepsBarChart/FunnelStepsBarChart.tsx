@@ -92,7 +92,9 @@ export function FunnelStepsBarChart({
             }
             const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0
             const variant: FunnelStepWithConversionMetrics = step.nested_breakdown?.[breakdownIndex] ?? step
-            openPersonsModalForSeries({ step, series: variant, converted: true })
+            // The bar's filled extent is the converted portion; the track above it is the drop-off.
+            // `inTrackArea` tells us which the user clicked, restoring the legacy StepBar behavior.
+            openPersonsModalForSeries({ step, series: variant, converted: !clickData.inTrackArea })
         },
         [steps, openPersonsModalForSeries]
     )
