@@ -291,7 +291,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
 ) -> MetricRecalculationResult:
     close_old_connections()
 
-    query_to_dt = datetime.fromisoformat(query_to)
+    try:
+        query_to_dt = datetime.fromisoformat(query_to)
+    except ValueError as e:
+        raise ApplicationError(
+            f"query_to {query_to!r} is not a valid ISO datetime string: {e}",
+            non_retryable=True,
+        )
     state = _get_recalc_state(recalculation_id)
 
     # Defense-in-depth at the activity boundary: the workflow constructs all four args from its own state,

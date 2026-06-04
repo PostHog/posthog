@@ -428,6 +428,13 @@ class TestCalculateActivity(BaseTest):
                 {"clear_query_to": True},
                 "has no query_to set",
             ),
+            # Parse failure before the cross-checks even run — without explicit handling this would escape as a
+            # bare ValueError, hit Temporal's broad retry policy, and burn slots on a deterministic parse error.
+            (
+                "query_to_unparseable",
+                {"query_to_override": "not-an-iso-string"},
+                "is not a valid ISO datetime string",
+            ),
         ]
     )
     def test_input_validation_fails_non_retryable(self, name: str, build_kwargs: dict, expected_fragment: str):
