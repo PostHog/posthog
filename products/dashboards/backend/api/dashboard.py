@@ -2494,9 +2494,9 @@ class DashboardsViewSet(
             dashboard=dashboard,
             dashboard__team__project_id=self.team.project_id,
         )
-        if tile.text is not None:
+        if tile.insight_id is None and tile.widget_id is None:
             raise exceptions.ValidationError(
-                "Text tiles are not supported here — use the update text tile endpoint to edit a text tile."
+                "Only insight and widget tiles can be updated here — use the update text tile endpoint for text tiles."
             )
 
         tile_updates: list[str] = []

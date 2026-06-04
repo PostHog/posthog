@@ -6,7 +6,10 @@ from rest_framework import status
 from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
@@ -71,6 +74,14 @@ class TestDashboardUpdateTile(APIBaseTest):
 
         assert DashboardTile.objects.get(id=tile_id).color == "blue"
 
+    def test_sets_layouts(self) -> None:
+        dashboard_id, tile_id = self._make_tile("insight")
+        layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+
+        self._update(dashboard_id, {"tile_id": tile_id, "layouts": layouts})
+
+        assert DashboardTile.objects.get(id=tile_id).layouts == layouts
+
     def test_only_updates_provided_fields(self) -> None:
         dashboard_id, tile_id = self._make_tile("insight")
         DashboardTile.objects.filter(id=tile_id).update(color="green")
@@ -99,5 +110,15 @@ class TestDashboardUpdateTile(APIBaseTest):
         self._update(
             dashboard_id,
             {"tile_id": other_tile_id, "show_description": False},
+            expected_status=status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_rejects_dashboard_from_other_team(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="other"), name="other")
+        other_dashboard = Dashboard.objects.create(team=other_team, name="other")
+
+        self._update(
+            other_dashboard.id,
+            {"tile_id": 1, "show_description": False},
             expected_status=status.HTTP_404_NOT_FOUND,
         )
