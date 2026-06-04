@@ -53,6 +53,8 @@ class SlackUserProfileCache(UUIDModel):
     is_owner = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Null is treated as stale (rows predating this field).
+    refreshed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
