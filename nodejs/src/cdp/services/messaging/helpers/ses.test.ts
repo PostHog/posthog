@@ -170,6 +170,31 @@ describe('SesWebhookHandler', () => {
         expect(result.optOutRecipients).toEqual([])
     })
 
+    it('rejects raw (non-SNS) deliveries when signature verification is required', async () => {
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: [
+                        {
+                            emailAddress: 'victim@example.com',
+                            action: 'failed',
+                            status: '5.1.1',
+                            diagnosticCode: 'bad',
+                        },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                    reportingMTA: 'mta',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {}, verifySignature: true })
+        expect(result.status).toBe(403)
+        expect(result.optOutRecipients).toBeUndefined()
+    })
+
     it('parses a raw Complaint event', async () => {
         const body = [
             {

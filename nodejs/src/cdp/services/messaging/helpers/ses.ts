@@ -326,8 +326,12 @@ export class SesWebhookHandler {
 
         logger.info('[SesWebhookHandler] parsed', { parsed })
 
-        // If SNS envelope present and verification requested, verify signature
-        if ('envelope' in parsed && opts.verifySignature) {
+        // When verification is required the message must be a signed SNS envelope. Raw deliveries
+        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
+        if (opts.verifySignature) {
+            if (!('envelope' in parsed)) {
+                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
+            }
             logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
             const ok = await this.verifySnsSignature(parsed.envelope)
             logger.info('[SesWebhookHandler] signature verified', { ok })
