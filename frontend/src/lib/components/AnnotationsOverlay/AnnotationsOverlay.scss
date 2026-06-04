@@ -25,14 +25,6 @@
         transform: scale(var(--annotations-badge-scale));
         transform-origin: center;
     }
-
-    > .AnnotationsBadge__emoji {
-        font-size: 1.25rem;
-        line-height: 1;
-        transition: transform 200ms ease; // Match the badge's scale animation
-        transform: scale(var(--annotations-badge-scale));
-        transform-origin: center;
-    }
 }
 
 .AnnotationsPopover {
