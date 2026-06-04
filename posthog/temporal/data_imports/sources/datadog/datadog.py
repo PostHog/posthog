@@ -186,6 +186,9 @@ def get_rows(
     config = DATADOG_ENDPOINTS[endpoint]
     headers = _get_headers(api_key, app_key)
     host = base_url(site)
+    # One tracked session reused across pages and retries; credentials are redacted from logged
+    # URLs and captured samples.
+    session = make_tracked_session(headers=headers, redact_values=(api_key, app_key))
 
     params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
@@ -203,8 +206,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> Any:
-        session = make_tracked_session(redact_values=(api_key, app_key))
-        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise DatadogRetryableError(f"Datadog API error (retryable): status={response.status_code}, url={page_url}")
