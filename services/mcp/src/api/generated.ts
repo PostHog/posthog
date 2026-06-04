@@ -7035,7 +7035,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** Optional name for the threshold. */
       name?: string;
-      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
     }
 
@@ -26059,7 +26059,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** Optional name for the threshold. */
       name?: string;
-      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
       readonly alerts: readonly Alert[];
     }

@@ -23,10 +23,10 @@ tools:
             Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For
             threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold
             configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly
-            detection: set detector_config with a detector type (zscore, mad,
-            iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold
-            (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR
-            logic. Requires an insight ID and at least one subscribed user.
+            detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos,
+            isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and
+            window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at
+            least one subscribed user.
 
             Note: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe
             on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe
@@ -98,8 +98,8 @@ tools:
             Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed
             users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly
             detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower
-            or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a
-            relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
+            or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string
+            (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
 
             Note: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create
             for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list
