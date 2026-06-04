@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
@@ -45,7 +45,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "alert name",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "calculation_interval": "daily",
         }
         response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -65,7 +65,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "detector_config": None,
             "threshold": {
-                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
+                "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
                 "created_at": mock.ANY,
                 "id": mock.ANY,
                 "name": "",
@@ -91,6 +91,62 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
         assert len(alerts.json()["results"]) == 0
+
+    def test_create_threshold_alert_rejects_empty_bounds(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "calculation_interval": "daily",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "At least one threshold bound" in str(response.json())
+
+    def test_patch_legacy_empty_bounds_alert_without_touching_threshold(self) -> None:
+        threshold = Threshold.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            configuration={"type": InsightThresholdType.ABSOLUTE, "bounds": {}},
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="legacy no-op",
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            threshold=threshold,
+            calculation_interval=AlertCalculationInterval.DAILY,
+            enabled=True,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert.id}",
+            {"enabled": False},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.enabled is False
+
+    def test_patch_empty_threshold_bounds_rejected(self) -> None:
+        creation_request = {
+            "insight": self.insight["id"],
+            "subscribed_users": [self.user.id],
+            "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "name": "alert name",
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+            "calculation_interval": "daily",
+        }
+        alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "At least one threshold bound" in str(response.json())
 
     def test_incorrect_creation(self) -> None:
         creation_request = {
@@ -129,7 +185,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -164,7 +220,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks limit test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -198,7 +254,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks offset test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -228,7 +284,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks date test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -271,7 +327,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "checks window test",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -317,7 +373,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 ],
                 "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
                 "name": "alert name",
             }
             self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -337,7 +393,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -372,7 +428,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -409,7 +465,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -456,7 +512,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             ],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
             "state": AlertState.FIRING,
         }
@@ -505,7 +561,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 {
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                     "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
                 },
                 "absolute value alerts require an absolute threshold",
             ),
@@ -519,7 +575,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         creation_request = {
             "insight": pie_insight["id"],
             "subscribed_users": [self.user.id],
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
             **overrides,
         }
@@ -543,7 +599,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 "absolute_with_percentage_threshold_via_patch",
                 {
                     "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {}}},
+                    "threshold": {"configuration": {"type": InsightThresholdType.PERCENTAGE, "bounds": {"upper": 100}}},
                 },
                 "absolute value alerts require an absolute threshold",
             ),
@@ -555,7 +611,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
         }
         alert = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()
@@ -596,7 +652,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert name",
             "calculation_interval": "weekly",
         }
@@ -619,7 +675,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "quiet alert",
             "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
         }
@@ -635,7 +691,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "bad quiet",
             "schedule_restriction": {
                 "blocked_windows": [
@@ -654,7 +710,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "snap next",
             "calculation_interval": "hourly",
         }
@@ -678,7 +734,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "alert",
             "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "23:00"}]},
         }
@@ -703,7 +759,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "quiet hours alert",
             "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
             **extra,
@@ -832,7 +888,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "subscribed_users": [self.user.id],
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "name": "patch me",
             "calculation_interval": "daily",
         }
@@ -889,7 +945,7 @@ class TestInvestigationAgentValidation(APIBaseTest):
             "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "name": "investigation alert",
-            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+            "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             "calculation_interval": "daily",
             "detector_config": detector_config,
             "investigation_agent_enabled": enabled,
@@ -1303,7 +1359,7 @@ class TestAlertAPIKeyAccess(APIBaseTest):
                 "name": "New Alert",
                 "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
-                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {}}},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
             },
             HTTP_AUTHORIZATION=f"Bearer {api_key}",
         )
