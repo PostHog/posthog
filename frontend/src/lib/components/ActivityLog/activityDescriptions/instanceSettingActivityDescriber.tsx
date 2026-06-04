@@ -6,6 +6,8 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 
+import { ActivityScope } from '~/types'
+
 // Kept in sync with the sentinels the backend records in posthog/api/instance_settings.py.
 const REDACTED = '<redacted>'
 const UNSET = '<unset>'
@@ -33,7 +35,7 @@ export const instanceSettingActivityDescriber: Describer = (
     logItem: ActivityLogItem,
     asNotification?: boolean
 ): HumanizedChange => {
-    if (logItem.scope !== 'InstanceSetting' || logItem.activity !== 'updated') {
+    if (logItem.scope !== ActivityScope.INSTANCE_SETTING || logItem.activity !== 'updated') {
         return defaultDescriber(logItem, asNotification)
     }
 

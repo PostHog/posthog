@@ -48,31 +48,18 @@ describe('instanceSettingActivityDescriber', () => {
         expect(text).toContain('changed instance setting GITHUB_APP_SLUG from "" to "posthog-app"')
     })
 
-    it('renders a secret install as "set" without leaking sentinels', () => {
-        const text = describedText(makeLogItem('EMAIL_HOST_PASSWORD', '<unset>', '<redacted>'))
-        expect(text).toContain('set instance setting EMAIL_HOST_PASSWORD')
+    // Each secret transition must render its verb and never echo the raw sentinels. The
+    // `<unset>` → `<unset>` pair has no mapped verb and must render "updated" rather than
+    // falling through to the cleartext "changed … from … to …" branch.
+    it.each([
+        ['set', '<unset>', '<redacted>'],
+        ['rotated', '<redacted>', '<redacted>'],
+        ['cleared', '<redacted>', '<unset>'],
+        ['updated', '<unset>', '<unset>'],
+    ])('renders a secret %s transition without leaking sentinels', (verb, before, after) => {
+        const text = describedText(makeLogItem('EMAIL_HOST_PASSWORD', before, after))
+        expect(text).toContain(`${verb} instance setting EMAIL_HOST_PASSWORD`)
         expect(text).not.toContain('<redacted>')
-        expect(text).not.toContain('<unset>')
-    })
-
-    it('renders a secret rotation as "rotated" without leaking sentinels', () => {
-        const text = describedText(makeLogItem('EMAIL_HOST_PASSWORD', '<redacted>', '<redacted>'))
-        expect(text).toContain('rotated instance setting EMAIL_HOST_PASSWORD')
-        expect(text).not.toContain('<redacted>')
-    })
-
-    it('renders a secret clear as "cleared" without leaking sentinels', () => {
-        const text = describedText(makeLogItem('EMAIL_HOST_PASSWORD', '<redacted>', '<unset>'))
-        expect(text).toContain('cleared instance setting EMAIL_HOST_PASSWORD')
-        expect(text).not.toContain('<redacted>')
-        expect(text).not.toContain('<unset>')
-    })
-
-    it('renders an unrecognized secret transition generically without leaking sentinels', () => {
-        // A sentinel pair with no mapped verb (e.g. <unset> → <unset>) must not fall
-        // through to the cleartext branch and echo the raw marker into the audit line.
-        const text = describedText(makeLogItem('EMAIL_HOST_PASSWORD', '<unset>', '<unset>'))
-        expect(text).toContain('updated instance setting EMAIL_HOST_PASSWORD')
         expect(text).not.toContain('<unset>')
         expect(text).not.toContain('changed instance setting')
     })
