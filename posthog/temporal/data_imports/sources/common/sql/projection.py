@@ -13,11 +13,27 @@ from __future__ import annotations
 
 from typing import TypeVar
 
+from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.types import Column, Table
 
 _TColumnValue = TypeVar("_TColumnValue")
 _ColumnT = TypeVar("_ColumnT", bound=Column)
+
+
+def _normalize_for_match(name: str) -> str:
+    """Fold a column name into the dlt-normalized namespace for comparison.
+
+    `enabled_columns` / primary keys / incremental fields arrive in the source
+    namespace (e.g. Snowflake's uppercase `HOUSEHOLD_ID`), while warehouse
+    `DataWarehouseTable.columns` keys are dlt-normalized (snake_cased + lowercased,
+    e.g. `household_id`). Matching either side raw drops every column. Normalizing
+    both sides lines them up; for already-normalized names it's a no-op.
+    """
+    try:
+        return NamingConvention.normalize_identifier(name)
+    except ValueError:
+        return name
 
 
 def compute_projected_columns(
@@ -81,15 +97,31 @@ def filter_dwh_columns_by_enabled_columns(
     primary_keys: list[str] | None,
     incremental_field: str | None = None,
 ) -> dict[str, _TColumnValue]:
-    """Filter `DataWarehouseTable.columns`-shaped dict to the projection."""
+    """Filter `DataWarehouseTable.columns`-shaped dict to the projection.
+
+    `columns` keys are in the dlt-normalized namespace for warehouse tables but in
+    the source namespace for direct-postgres callers, while `enabled_columns` /
+    primary keys / incremental field always arrive in the source namespace. Both
+    sides are folded through `_normalize_for_match` so the comparison lines up
+    regardless — a raw set-membership test silently drops every column when source
+    names aren't already lowercase (e.g. Snowflake's uppercase identifiers).
+
+    If the projection would empty out an otherwise non-empty table, fall back to all
+    columns: an empty `columns` dict leaves the table unqueryable (`SELECT *` returns
+    no rows), which is never the intended result of a column selection. This mirrors
+    the empty-result fallback in `compute_projected_columns`.
+    """
     if enabled_columns is None:
         return columns
-    retained: set[str] = set(enabled_columns)
+    retained: set[str] = {_normalize_for_match(name) for name in enabled_columns}
     for pk in primary_keys or []:
-        retained.add(pk)
+        retained.add(_normalize_for_match(pk))
     if incremental_field:
-        retained.add(incremental_field)
-    return {name: column for name, column in columns.items() if name in retained}
+        retained.add(_normalize_for_match(incremental_field))
+    filtered = {name: column for name, column in columns.items() if _normalize_for_match(name) in retained}
+    if columns and not filtered:
+        return columns
+    return filtered
 
 
 def project_arrow_columns(
