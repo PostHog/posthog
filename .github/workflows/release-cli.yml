@@ -504,15 +504,8 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
-                  notes_file="$RUNNER_TEMP/notes.txt"
-                  printf '%s\n' "$ANNOUNCEMENT_BODY" > "$notes_file"
-
-                  prerelease_args=()
-                  if [ -n "$PRERELEASE_FLAG" ]; then
-                      prerelease_args+=("$PRERELEASE_FLAG")
-                  fi
-
-                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${prerelease_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$notes_file" artifacts/*
+                  echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
     publish-npm:
         needs:
