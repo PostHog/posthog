@@ -111,3 +111,41 @@ class TestTaskFileSystem(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertFalse(task.deleted)
         self.assertEqual(self._task_rows(task).get().path, "Tasks/My Task")
+
+    def test_tree_delete_blocked_for_other_users_task(self):
+        # A teammate filed a task they own. The current user (admin or not) must not be able to
+        # delete it via the generic file system endpoint, since that would soft-delete the task.
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(title="Their Task", created_by=other_user)
+        self.client.force_authenticate(other_user)
+        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
+        entry = self._task_rows(task).get()
+
+        self.client.force_authenticate(self.user)
+        response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{entry.id}/")
+
+        self.assertEqual(response.status_code, 403, response.content)
+        task.refresh_from_db()
+        self.assertFalse(task.deleted)
+        self.assertTrue(self._task_rows(task).exists())
+
+    def test_tree_undo_blocked_for_other_users_task(self):
+        other_user = self.create_organization_user("victim")
+        task = self.create_task(title="Their Task", created_by=other_user)
+        self.client.force_authenticate(other_user)
+        self.client.post(f"/api/projects/@current/tasks/{task.id}/file/")
+        entry = self._task_rows(task).get()
+        # Soft-delete the task as the owner so undo has something to restore.
+        task.deleted = True
+        task.save()
+
+        self.client.force_authenticate(self.user)
+        undo_response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_file_system/undo_delete/",
+            {"items": [{"type": "task", "ref": str(task.id), "path": entry.path}]},
+            format="json",
+        )
+
+        self.assertEqual(undo_response.status_code, 403, undo_response.content)
+        task.refresh_from_db()
+        self.assertTrue(task.deleted)

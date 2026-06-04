@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rest_framework.exceptions import PermissionDenied
+
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     DeletionContext,
@@ -18,6 +20,8 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
+from products.tasks.backend.api import task_visibility_q
+from products.tasks.backend.models import Task as _Task
 
 
 def _first_non_blank(*values: str | None) -> str | None:
@@ -277,6 +281,23 @@ def _action_post_restore(context: RestoreContext, action: Any) -> None:
     )
 
 
+def _ensure_task_visible_to_user(task: Any, user: Any | None) -> None:
+    # Mirror TaskViewSet.task_visibility_q: tasks belong to their creator (plus team-wide
+    # signal-pipeline tasks and legacy unowned tasks). Without this, anyone with file system
+    # write access could delete or restore another user's filed task via the generic flow.
+    user_id = getattr(user, "id", None)
+    if not _Task.objects.filter(task_visibility_q(user_id), pk=task.id).exists():
+        raise PermissionDenied("You do not have permission to modify this task.")
+
+
+def _task_pre_delete(context: DeletionContext, task: Any) -> None:
+    _ensure_task_visible_to_user(task, context.user)
+
+
+def _task_pre_restore(context: RestoreContext, task: Any) -> None:
+    _ensure_task_visible_to_user(task, context.user)
+
+
 def _task_post_delete(context: DeletionContext, task: Any) -> None:
     _log_deletion_activity(
         context,
@@ -440,6 +461,8 @@ def register_core_file_system_types() -> None:
         "Task",
         undo_message="Send PATCH /api/projects/@current/tasks/{id} with deleted=false.",
     )
+    register_pre_delete_hook("task", _task_pre_delete)
+    register_pre_restore_hook("task", _task_pre_restore)
     register_post_delete_hook("task", _task_post_delete)
     register_post_restore_hook("task", _task_post_restore)
 

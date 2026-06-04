@@ -1420,6 +1420,9 @@ def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs
 # so the tree can't surface a dead reference. delete_file is a no-op when no entry exists.
 @receiver(post_save, sender=Task)
 def _unfile_task_on_soft_delete(sender, instance: Task, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "deleted" not in update_fields:
+        return
     if instance.deleted:
         delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
 
