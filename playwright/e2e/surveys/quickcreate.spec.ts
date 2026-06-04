@@ -13,8 +13,16 @@ const saveFeatureFlag = async (page: Page): Promise<void> => {
     )
     await saveButton.click()
     await responsePromise
+    // Wait for the GET request that loads the feature flags list after navigation
+    const listResponsePromise = page.waitForResponse(
+        (resp) =>
+            resp.url().includes('/api/projects') &&
+            resp.url().includes('/feature_flags') &&
+            resp.request().method() === 'GET' &&
+            resp.status() === 200
+    )
     await page.goto(urls.featureFlags())
-    await page.waitForLoadState('networkidle')
+    await listResponsePromise
 }
 
 const expectFlagEnabled = async (page: Page, name: string): Promise<void> => {
@@ -187,8 +195,15 @@ test.describe('Quick create survey from feature flag', () => {
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
+        const listResponsePromise = page.waitForResponse(
+            (resp) =>
+                resp.url().includes('/api/projects') &&
+                resp.url().includes('/feature_flags') &&
+                resp.request().method() === 'GET' &&
+                resp.status() === 200
+        )
         await page.goto(urls.featureFlags())
-        await page.waitForLoadState('networkidle')
+        await listResponsePromise
         await expect(page.locator('h1')).toContainText('Feature flags')
         await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
