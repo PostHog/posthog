@@ -79,6 +79,11 @@ class TestSourceConfig:
         assert fields["project_id"].type == SourceFieldInputConfigType.TEXT
 
 
+class TestConnectionHostFields:
+    def test_region_and_project_require_secret_re_entry(self) -> None:
+        assert set(MixpanelSource().connection_host_fields) == {"region", "project_id"}
+
+
 class TestGetSchemas:
     def test_all_schemas(self) -> None:
         schemas = {s.name: s for s in MixpanelSource().get_schemas(_config(), team_id=1)}

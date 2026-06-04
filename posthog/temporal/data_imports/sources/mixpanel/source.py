@@ -33,6 +33,12 @@ class MixpanelSource(ResumableSource[MixpanelSourceConfig, MixpanelResumeConfig]
         return ExternalDataSourceType.MIXPANEL
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host and `project_id` the project the stored service-account secret is
+        # sent to; retargeting either must re-require the secret so it can't be aimed elsewhere.
+        return ["region", "project_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MIXPANEL,
