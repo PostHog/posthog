@@ -12,6 +12,7 @@ import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { isSubscriptionEnabled } from 'scenes/subscriptions/components/SubscriptionsTable'
+import { urls } from 'scenes/urls'
 
 import { SubscriptionType } from '~/types'
 
@@ -234,12 +235,15 @@ export function ManageSubscriptions({
             </LemonModal.Content>
 
             <LemonModal.Footer>
-                <div className="flex-1">
+                <div className="flex-1 flex gap-2">
                     {hasResourceSubs || hasAiSubs ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
                             Add subscription
                         </LemonButton>
                     ) : null}
+                    <LemonButton type="tertiary" to={urls.subscriptions()}>
+                        View all subscriptions
+                    </LemonButton>
                 </div>
                 <LemonButton type="secondary" onClick={onCancel}>
                     Close
