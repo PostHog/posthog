@@ -168,10 +168,10 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 
 Use `posthog-cli api` for all PostHog-related queries and operations from this repository. Prefer `posthog-cli api` over direct MCP tool calls whenever the CLI is available.
 
-Follow progressive disclosure for every PostHog task:
+You must follow this required progressive disclosure workflow for every PostHog task. Do not skip steps, even if you think you already know the right tool or schema.
 
 1. Start by searching for the tool you need with `posthog-cli api search <term>` or list tools with `posthog-cli api tools`.
-2. Inspect the expected input schema with `posthog-cli api info <tool>` and `posthog-cli api schema <tool> [field.path]`.
+2. Inspect the expected input schema with `posthog-cli api info <tool>`. This `info` step is required before every `call`. Use `posthog-cli api schema <tool> [field.path]` to drill into nested fields when needed.
 3. Try the tool with `posthog-cli api call --json <tool> '<json>'` so output can be piped to `jq` or saved to disk.
 
 - Use `posthog-cli api call --dry-run ...` before mutations.
