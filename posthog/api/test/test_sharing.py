@@ -1484,10 +1484,11 @@ class TestSharedCohortInlining(APIBaseTest):
 
     @staticmethod
     def _parse_exported_cohorts(html: str) -> list[dict]:
-        return TestSharing._parse_exported_data(html).get("cohorts", [])
+        return TestSharedCohortInlining._parse_exported_data(html).get("cohorts", [])
 
     @mock_exporter_template
     def test_shared_dashboard_includes_widget_metadata_only(self):
+        dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
         widget = DashboardWidget.all_teams.create(
             team_id=self.team.id,
             widget_type="error_tracking_list",
@@ -1497,13 +1498,13 @@ class TestSharedCohortInlining(APIBaseTest):
             last_modified_by=self.user,
         )
         DashboardTile.objects.create(
-            dashboard=self.dashboard,
+            dashboard=dashboard,
             team_id=self.team.id,
             widget=widget,
             layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
         )
 
-        config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+        config = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         response = self.client.get(f"/shared/{config.access_token}")
         assert response.status_code == 200
 
