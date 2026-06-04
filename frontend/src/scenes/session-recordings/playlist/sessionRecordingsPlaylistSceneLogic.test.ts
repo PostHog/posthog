@@ -27,6 +27,9 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/session_recording_playlists/:id': mockPlaylist,
+                '/api/projects/:team/session_recording_playlists/:id/recordings': {
+                    results: [],
+                },
             },
             post: {
                 '/api/projects/:team/session_recording_playlists/:id/playlist_viewed': [200, {}],
