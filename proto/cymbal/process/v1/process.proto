@@ -136,14 +136,9 @@ message ServiceState {
   bool draining = 2;
   // True when this instance should receive new process work.
   bool healthy = 3;
-  // Current process-wide item load, if known.
-  uint32 in_flight_items = 4;
-  // Configured process-wide item capacity, if known. A zero value means the
-  // service did not report a capacity.
-  uint32 max_in_flight_items = 5;
   // Monotonic per-subscription sequence assigned by the server, starting at 1
   // for the first tick of each Subscribe stream.
-  uint64 sequence = 6;
+  uint64 sequence = 4;
   // Optional short human-readable note. Not interpreted by the router.
-  string message = 7;
+  string message = 5;
 }
