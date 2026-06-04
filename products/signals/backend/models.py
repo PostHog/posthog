@@ -412,7 +412,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         related_name="signal_scout_configs",
     )
-    # The `signals-scout-*` LLMSkill this row controls. The coordinator auto-creates a
+    # The `signals-scout-*` LLMSkill this row references (controlling only its scheduling /
+    # enablement, not the skill itself). The coordinator auto-creates a
     # row when it discovers a scout skill on a participating team, so a user authoring
     # `signals-scout-foo` gets a row (on the default schedule) on the next tick.
     skill_name = models.CharField(max_length=200)
