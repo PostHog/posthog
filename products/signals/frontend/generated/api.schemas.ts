@@ -7,6 +7,61 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `P0` - P0
+ * `P1` - P1
+ * `P2` - P2
+ * `P3` - P3
+ * `P4` - P4
+ */
+export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
+
+export const AutonomyPriorityEnumApi = {
+    P0: 'P0',
+    P1: 'P1',
+    P2: 'P2',
+    P3: 'P3',
+    P4: 'P4',
+} as const
+
+/**
+ * * `posthog_code` - PostHog Code
+ * `cursor` - Cursor
+ */
+export type CodingAgentEnumApi = (typeof CodingAgentEnumApi)[keyof typeof CodingAgentEnumApi]
+
+export const CodingAgentEnumApi = {
+    PosthogCode: 'posthog_code',
+    Cursor: 'cursor',
+} as const
+
+export interface SignalTeamConfigApi {
+    readonly id: string
+    default_autostart_priority?: AutonomyPriorityEnumApi
+    /** Which coding agent acts on this team's signal reports: `posthog_code` (the internal Tasks runner) or `cursor` (an external Cursor cloud agent). Governs both the automatic autonomy path and the default for the manual dispatch button. Connecting Cursor does not change this — a team only routes to Cursor once this is set to `cursor`.
+
+  * `posthog_code` - PostHog Code
+  * `cursor` - Cursor */
+    default_coding_agent?: CodingAgentEnumApi
+    /**
+     * Default Slack channel for this team's signal inbox notifications, in the same `channel_id|#channel-name` shape PostHog uses elsewhere (only the channel id is required). Null means no team-level default; per-user channels still apply.
+     * @maxLength 255
+     * @nullable
+     */
+    default_slack_notification_channel?: string | null
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedSignalTeamConfigListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: SignalTeamConfigApi[]
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -108,22 +163,40 @@ export interface PaginatedSignalReportListApi {
     results: SignalReportApi[]
 }
 
-export interface CursorDispatchResponseApi {
+export interface SignalDispatchRequestApi {
+    /** Which coding agent to dispatch this report to: `posthog_code` or `cursor`. Omit to use the team's configured default agent.
+
+  * `posthog_code` - PostHog Code
+  * `cursor` - Cursor */
+    agent?: CodingAgentEnumApi
+}
+
+export interface SignalDispatchResponseApi {
+    /** The coding agent the report was dispatched to.
+
+  * `posthog_code` - PostHog Code
+  * `cursor` - Cursor */
+    agent: CodingAgentEnumApi
     /**
-     * Identifier Cursor assigned to the dispatched cloud agent run.
+     * For the Cursor path: identifier Cursor assigned to the dispatched cloud agent run.
      * @nullable
      */
-    agent_id: string | null
+    agent_id?: string | null
     /**
-     * URL to the agent run in Cursor, when Cursor returns one.
+     * A destination for the dispatched work: the Cursor agent run URL, or the internal Task URL.
      * @nullable
      */
     agent_url?: string | null
     /**
-     * Initial run status reported by Cursor (e.g. queued, running).
+     * For the Cursor path: initial run status reported by Cursor (e.g. queued, running).
      * @nullable
      */
     agent_status?: string | null
+    /**
+     * For the PostHog Code path: id of the internal implementation Task that was started.
+     * @nullable
+     */
+    task_id?: string | null
 }
 
 /**
@@ -162,6 +235,16 @@ export interface SignalReportStateRequestApi {
 export interface CursorConnectionStatusApi {
     /** Whether this team has a Cursor integration configured. */
     connected: boolean
+    /**
+     * Whether the connected Cursor account can see any repositories (GitHub connected at the Cursor account level). Null when not connected or the probe could not run.
+     * @nullable
+     */
+    has_repo_access?: boolean | null
+    /**
+     * Whether the connected Cursor account is on a plan that can run cloud agents. False when Cursor reports `plan_required` (free tier). Null when not connected or the probe could not run.
+     * @nullable
+     */
+    plan_ok?: boolean | null
 }
 
 export interface CursorConnectionRequestApi {
@@ -813,23 +896,6 @@ export interface EvidenceEntryApi {
     entity_id?: string | null
 }
 
-/**
- * * `P0` - P0
- * `P1` - P1
- * `P2` - P2
- * `P3` - P3
- * `P4` - P4
- */
-export type AutonomyPriorityEnumApi = (typeof AutonomyPriorityEnumApi)[keyof typeof AutonomyPriorityEnumApi]
-
-export const AutonomyPriorityEnumApi = {
-    P0: 'P0',
-    P1: 'P1',
-    P2: 'P2',
-    P3: 'P3',
-    P4: 'P4',
-} as const
-
 export interface TimeRangeApi {
     /** ISO-8601 inclusive lower bound for the finding's window. */
     date_from: string
@@ -1091,6 +1157,17 @@ export interface SignalUserAutonomyConfigApi {
     slack_notification_min_priority?: AutonomyPriorityEnumApi | BlankEnumApi | null
     readonly created_at: string
     readonly updated_at: string
+}
+
+export type SignalsConfigListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type SignalsProcessingListParams = {

@@ -11,7 +11,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CursorConnectionRequestApi,
     CursorConnectionStatusApi,
-    CursorDispatchResponseApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
     ForgetRequestApi,
@@ -19,18 +18,23 @@ import type {
     PaginatedPauseStateResponseListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PaginatedSignalTeamConfigListApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
     ScratchpadEntryApi,
+    SignalDispatchRequestApi,
+    SignalDispatchResponseApi,
     SignalReportApi,
     SignalReportStateRequestApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
+    SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
+    SignalsConfigListParams,
     SignalsProcessingListParams,
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
@@ -55,6 +59,62 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getSignalsConfigListUrl = (projectId: string, params?: SignalsConfigListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/config/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+
+GET  /signals/config/  → retrieve
+POST /signals/config/  → update
+ */
+export const signalsConfigList = async (
+    projectId: string,
+    params?: SignalsConfigListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalTeamConfigListApi> => {
+    return apiMutator<PaginatedSignalTeamConfigListApi>(getSignalsConfigListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsConfigCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/config/`
+}
+
+/**
+ * Team-level signal autonomy config (singleton per team).
+
+GET  /signals/config/  → retrieve
+POST /signals/config/  → update
+ */
+export const signalsConfigCreate = async (
+    projectId: string,
+    signalTeamConfigApi?: NonReadonly<SignalTeamConfigApi>,
+    options?: RequestInit
+): Promise<SignalTeamConfigApi> => {
+    return apiMutator<SignalTeamConfigApi>(getSignalsConfigCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalTeamConfigApi),
+    })
+}
 
 export const getSignalsProcessingListUrl = (projectId: string, params?: SignalsProcessingListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -165,21 +225,28 @@ export const signalsReportsRetrieve = async (
     })
 }
 
-export const getSignalsReportsDispatchToCursorCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/signals/reports/${id}/dispatch_to_cursor/`
+export const getSignalsReportsDispatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/dispatch/`
 }
 
 /**
- * Dispatch this report to a Cursor Cloud Agent. Behind the signals-cursor-dispatch flag.
+ * Dispatch this report to a coding agent. Behind the signals-cursor-dispatch flag.
+
+The agent comes from the request body (`posthog_code` | `cursor`), falling back to the
+team's `default_coding_agent`. Connecting Cursor never changes the default — a team only
+routes to Cursor once the default is set to `cursor` or an explicit `agent=cursor` is passed.
  */
-export const signalsReportsDispatchToCursorCreate = async (
+export const signalsReportsDispatchCreate = async (
     projectId: string,
     id: string,
+    signalDispatchRequestApi?: SignalDispatchRequestApi,
     options?: RequestInit
-): Promise<CursorDispatchResponseApi> => {
-    return apiMutator<CursorDispatchResponseApi>(getSignalsReportsDispatchToCursorCreateUrl(projectId, id), {
+): Promise<SignalDispatchResponseApi> => {
+    return apiMutator<SignalDispatchResponseApi>(getSignalsReportsDispatchCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalDispatchRequestApi),
     })
 }
 
@@ -224,6 +291,9 @@ export const getSignalsReportsCursorConnectionRetrieveUrl = (projectId: string) 
 
 /**
  * Get or set this team's Cursor connection (the key a settings UI configures, stored per team).
+
+On GET (and after a POST) the connection is probed against Cursor so the UI can surface the
+Pro-plan and GitHub-not-connected walls at connect time rather than on first dispatch.
  */
 export const signalsReportsCursorConnectionRetrieve = async (
     projectId: string,
@@ -241,6 +311,9 @@ export const getSignalsReportsCursorConnectionCreateUrl = (projectId: string) =>
 
 /**
  * Get or set this team's Cursor connection (the key a settings UI configures, stored per team).
+
+On GET (and after a POST) the connection is probed against Cursor so the UI can surface the
+Pro-plan and GitHub-not-connected walls at connect time rather than on first dispatch.
  */
 export const signalsReportsCursorConnectionCreate = async (
     projectId: string,
