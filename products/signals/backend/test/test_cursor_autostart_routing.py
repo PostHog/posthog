@@ -149,33 +149,19 @@ def _internal_task_mock() -> MagicMock:
 SIGNAL_REPORT_TASK_CREATE_PATH = "products.signals.backend.auto_start.SignalReportTask.objects.acreate"
 
 
+# Cursor routing requires BOTH the flag on and a resolvable key; if either is missing
+# (flag off, or no key), it falls back to the internal Tasks runner.
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_uses_internal_task_when_flag_off(ateam, areport, auser):
+@pytest.mark.parametrize("flag_enabled,cursor_key", [(False, "test-key"), (True, "")])
+async def test_uses_internal_task_when_not_routed(ateam, areport, auser, flag_enabled, cursor_key):
     with (
         patch(ASSIGNEE_PATH, return_value=auser),
-        patch(FLAG_PATH, return_value=False),
+        patch(FLAG_PATH, return_value=flag_enabled),
         patch(DISPATCH_PATH) as mock_dispatch,
         patch(CREATE_AND_RUN_PATH, return_value=_internal_task_mock()) as mock_create_and_run,
         patch(SIGNAL_REPORT_TASK_CREATE_PATH, new=AsyncMock()),
-        override_settings(CURSOR_API_KEY="test-key", SITE_URL="https://us.posthog.com"),
-    ):
-        await _run(ateam, areport, auser)
-
-    mock_create_and_run.assert_called_once()
-    mock_dispatch.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_uses_internal_task_when_key_empty(ateam, areport, auser):
-    with (
-        patch(ASSIGNEE_PATH, return_value=auser),
-        patch(FLAG_PATH, return_value=True),
-        patch(DISPATCH_PATH) as mock_dispatch,
-        patch(CREATE_AND_RUN_PATH, return_value=_internal_task_mock()) as mock_create_and_run,
-        patch(SIGNAL_REPORT_TASK_CREATE_PATH, new=AsyncMock()),
-        override_settings(CURSOR_API_KEY="", SITE_URL="https://us.posthog.com"),
+        override_settings(CURSOR_API_KEY=cursor_key, SITE_URL="https://us.posthog.com"),
     ):
         await _run(ateam, areport, auser)
 

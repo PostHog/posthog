@@ -107,6 +107,7 @@ def _gather_findings(report: SignalReport) -> tuple[list[str], list[str]]:
         try:
             content = json.loads(artefact.content)
         except (json.JSONDecodeError, TypeError):
+            logger.warning("signals.cursor_dispatch.bad_finding_json", report_id=str(report.id))
             continue
         if not isinstance(content, dict):
             continue
