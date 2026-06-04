@@ -118,13 +118,24 @@ jobs:
                   name: artifacts-plan-dist-manifest
                   path: plan-dist-manifest.json
 
+    authorize-manual-release:
+        needs:
+            - plan
+        if: ${{ needs.plan.outputs.publishing == 'true' && inputs.source != 'release-cli' }}
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 5
+        environment: Release
+        steps:
+            - run: echo "Manual cargo-dist release approved"
+
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
         # Let the initial task tell us to not run (currently very blunt)
         needs:
             - plan
-        if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' || inputs.tag == 'dry-run') && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
+            - authorize-manual-release
+        if: ${{ always() && needs.plan.result == 'success' && fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload' || inputs.tag == 'dry-run') && (needs.plan.outputs.publishing != 'true' || inputs.source == 'release-cli' || needs.authorize-manual-release.result == 'success') && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.
@@ -202,7 +213,9 @@ jobs:
     build-global-artifacts:
         needs:
             - plan
+            - authorize-manual-release
             - build-local-artifacts
+        if: ${{ always() && needs.plan.result == 'success' && needs.build-local-artifacts.result == 'success' && (needs.plan.outputs.publishing != 'true' || inputs.source == 'release-cli' || needs.authorize-manual-release.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 15
         env:
@@ -246,16 +259,6 @@ jobs:
                   path: |
                       ${{ steps.cargo-dist.outputs.paths }}
                       ${{ env.BUILD_MANIFEST_NAME }}
-
-    authorize-manual-release:
-        needs:
-            - plan
-        if: ${{ needs.plan.outputs.publishing == 'true' && inputs.source != 'release-cli' }}
-        runs-on: 'ubuntu-22.04'
-        timeout-minutes: 5
-        environment: Release
-        steps:
-            - run: echo "Manual cargo-dist release approved"
 
     # Determines if we should publish/announce
     host:
