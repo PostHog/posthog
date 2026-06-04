@@ -156,18 +156,23 @@ def get_rows(
         if not items:
             break
 
-        # Capture the next-page link before iterating so we can checkpoint after each batch.
         next_url = data.get("links", {}).get("next")
+
+        # Checkpoint the CURRENT page URL, not the next one: the batcher buffers across
+        # page boundaries, so a yield can flush rows from several pages at once. On
+        # resume we re-fetch this page and rely on primary-key merge to dedupe the rows
+        # already yielded. Advancing the checkpoint to next_url here would strand any
+        # current-page rows still buffered (not yet yielded) if we crashed mid-page.
+        checkpoint_url = url
 
         for item in items:
             batcher.batch(item)
 
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save state after yielding so a crash re-yields the last batch
-                # (merge dedupes on primary key) rather than skipping it.
-                if next_url:
-                    resumable_source_manager.save_state(ProductboardResumeConfig(next_url=next_url))
+                # Save state after yielding (not before) so a crash re-yields the last
+                # batch rather than skipping it.
+                resumable_source_manager.save_state(ProductboardResumeConfig(next_url=checkpoint_url))
 
         if not next_url:
             break

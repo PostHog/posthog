@@ -67,7 +67,7 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
                 supports_append=PRODUCTBOARD_ENDPOINTS[endpoint].supports_incremental,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:

@@ -73,16 +73,27 @@ class TestFormatIncrementalValue:
 
 
 class TestBuildUrl:
-    def test_no_params(self):
-        assert _build_url("https://api.productboard.com/v2/notes", {}) == "https://api.productboard.com/v2/notes"
-
-    def test_entity_type_bracket_key_is_literal(self):
-        url = _build_url("https://api.productboard.com/v2/entities", {"type[]": "feature"})
-        assert url == "https://api.productboard.com/v2/entities?type[]=feature"
-
-    def test_timestamp_value_is_encoded(self):
-        url = _build_url("https://api.productboard.com/v2/notes", {"updatedFrom": "2023-10-01T10:00:00Z"})
-        assert url == "https://api.productboard.com/v2/notes?updatedFrom=2023-10-01T10%3A00%3A00Z"
+    @pytest.mark.parametrize(
+        "base_url, params, expected",
+        [
+            # No params returns the bare URL.
+            ("https://api.productboard.com/v2/notes", {}, "https://api.productboard.com/v2/notes"),
+            # The bracket entity-filter key is kept literal.
+            (
+                "https://api.productboard.com/v2/entities",
+                {"type[]": "feature"},
+                "https://api.productboard.com/v2/entities?type[]=feature",
+            ),
+            # Values (e.g. ISO timestamps) are percent-encoded.
+            (
+                "https://api.productboard.com/v2/notes",
+                {"updatedFrom": "2023-10-01T10:00:00Z"},
+                "https://api.productboard.com/v2/notes?updatedFrom=2023-10-01T10%3A00%3A00Z",
+            ),
+        ],
+    )
+    def test_build_url(self, base_url, params, expected):
+        assert _build_url(base_url, params) == expected
 
 
 class TestBuildInitialParams:
@@ -171,9 +182,12 @@ class TestGetRows:
 
     @mock.patch("posthog.temporal.data_imports.sources.productboard.productboard.Batcher", _FakeBatcher)
     @mock.patch("posthog.temporal.data_imports.sources.productboard.productboard.make_tracked_session")
-    def test_saves_state_after_each_page_with_next_link(self, mock_session):
-        next_url = "https://api.productboard.com/v2/notes?pageCursor=c2"
-        page1 = _make_response({"data": [{"id": "1"}], "links": {"next": next_url}})
+    def test_checkpoints_current_page_not_next(self, mock_session):
+        # The checkpoint must be the page we just processed, so resume re-fetches it and
+        # merge-dedupes — never the next page (which would strand still-buffered rows).
+        page1_url = "https://api.productboard.com/v2/notes"
+        page2_url = "https://api.productboard.com/v2/notes?pageCursor=c2"
+        page1 = _make_response({"data": [{"id": "1"}], "links": {"next": page2_url}})
         page2 = _make_response({"data": [{"id": "2"}], "links": {}})
         mock_session.return_value = _session_returning([page1, page2])
 
@@ -182,10 +196,10 @@ class TestGetRows:
 
         list(get_rows("token", "notes", mock.MagicMock(), manager))
 
-        # State is saved only while a next page exists (last page has no link).
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert all(isinstance(s, ProductboardResumeConfig) for s in saved)
-        assert [s.next_url for s in saved] == [next_url]
+        # First page's yield checkpoints the first page URL (not page2_url), second the second.
+        assert [s.next_url for s in saved] == [page1_url, page2_url]
 
     @mock.patch("posthog.temporal.data_imports.sources.productboard.productboard.make_tracked_session")
     def test_resumes_from_saved_state(self, mock_session):
