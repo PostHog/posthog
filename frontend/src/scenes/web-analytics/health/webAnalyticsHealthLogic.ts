@@ -54,7 +54,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     path(['scenes', 'web-analytics', 'health', 'webAnalyticsHealthLogic']),
 
     connect(() => ({
-        values: [teamLogic, ['currentTeam', 'currentTeamId']],
+        values: [teamLogic, ['currentTeam', 'currentTeamIdStrict']],
         actions: [
             eventUsageLogic,
             [
@@ -99,10 +99,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         healthIssues: {
             __default: null as HealthIssuesResponse | null,
             loadHealthIssues: async (): Promise<HealthIssuesResponse | null> => {
-                if (!values.currentTeamId) {
-                    return null
-                }
-                const url = `api/environments/${values.currentTeamId}/health_issues/?status=active&dismissed=false`
+                const url = `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active&dismissed=false`
                 return await api.get(url)
             },
         },
@@ -390,7 +387,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                 passed_count: overallHealthStatus.passedCount,
             })
 
-            const url = `api/environments/${values.currentTeamId}/health_issues/refresh/`
+            const url = `api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`
             try {
                 const response = await api.create<{
                     scheduled_kinds: string[]
