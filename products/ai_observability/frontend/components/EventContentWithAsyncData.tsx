@@ -5,7 +5,7 @@ import {
     ConversationMessagesDisplay,
 } from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
-import { normalizeMessage, normalizeMessages } from '../utils'
+import { normalizeMessage, normalizeMessages } from '../messageNormalization'
 import { AIDataLoading } from './AIDataLoading'
 import { JSONValueDisplay } from './JSONValueDisplay'
 

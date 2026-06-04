@@ -47,6 +47,8 @@ class TeamInline(TabularInlinePaginated):
             "delete_recordings",
             "remote_config_cache_actions",
             "api_token_display",
+            "admit_state",
+            "policy_cache_blob",
         )
     ] + ["displayed_name"]
 
