@@ -131,37 +131,7 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
 
-    @parameterized.expand(
-        [
-            # Flag off: every daily period in range is present, including the recent incomplete ones.
-            # user_a's two entrances both converted; recent_entrant shows as a non-converter, which is
-            # exactly what drags the recent trend down.
-            (
-                "keeps_incomplete_periods_when_off",
-                False,
-                [date(2021, 6, day) for day in range(7, 19)],  # 2021-06-07 .. 2021-06-18 inclusive
-                {date(2021, 6, 7): (1, 1), date(2021, 6, 12): (1, 1), date(2021, 6, 15): (1, 0)},
-            ),
-            # Flag on: now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only
-            # once its whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e.
-            # entrances on or before 2021-06-10. The old entrance that converted is retained even though
-            # its conversion event is recent; the recent entrance (06-12) and non-converter (06-15) are gone.
-            (
-                "drops_incomplete_periods_when_on",
-                True,
-                [date(2021, 6, day) for day in range(7, 11)],  # 2021-06-07 .. 2021-06-10
-                {date(2021, 6, 7): (1, 1)},
-            ),
-        ]
-    )
-    @freeze_time("2021-06-18 12:00:00")
-    def test_hide_incomplete_conversion_window_periods(
-        self,
-        _name: str,
-        hide_incomplete_periods: bool,
-        expected_days: list[date],
-        expected_counts: dict[date, tuple[int, int]],
-    ):
+    def _run_conversion_window_trends(self, *, hide_incomplete_periods: bool) -> list[dict]:
         # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
         # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
         # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
@@ -190,13 +160,36 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
                 hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
             ),
         )
-        results = FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
 
+    @freeze_time("2021-06-18 12:00:00")
+    def test_keeps_incomplete_conversion_window_periods_by_default(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=False)
         by_day = {row["timestamp"].date(): row for row in results}
-        self.assertEqual([row["timestamp"].date() for row in results], expected_days)
-        for day, (reached_from, reached_to) in expected_counts.items():
-            self.assertEqual(by_day[day]["reached_from_step_count"], reached_from)
-            self.assertEqual(by_day[day]["reached_to_step_count"], reached_to)
+
+        # every daily period in range is present, including the recent incomplete ones
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 19)])
+        # both of user_a's entrances converted
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
+        # recent entrant shows as a non-converter, which is what drags the recent trend down
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_hides_incomplete_conversion_window_periods_when_enabled(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=True)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
+        # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
+        # on or before 2021-06-10.
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 11)])
+        # the old entrance that converted is retained, even though its conversion event is recent
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
+        self.assertNotIn(date(2021, 6, 12), by_day)
+        self.assertNotIn(date(2021, 6, 15), by_day)
 
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_only_one_user_reached_one_step(self, timezone):
