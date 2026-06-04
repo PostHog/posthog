@@ -192,6 +192,22 @@ where
                 .unwrap_or("unknown"),
         );
 
+        let client: Arc<str> = Arc::from(
+            request
+                .headers()
+                .get("x-client-name")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("unknown"),
+        );
+
+        let caller_tag: Arc<str> = Arc::from(
+            request
+                .headers()
+                .get("x-caller-tag")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or(""),
+        );
+
         let config = self.config.clone();
         let mut inner = self.inner.clone();
 
@@ -258,7 +274,9 @@ where
             // Client doesn't accept gzip — return the collected body uncompressed.
             if !accepts_gzip {
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough_no_gzip", "method" => method.clone()).increment(1);
-                if let Some(body) = check_response_size(&config, &method, total_size) {
+                if let Some(body) =
+                    check_response_size(&config, &method, &client, &caller_tag, total_size)
+                {
                     return Ok(Response::from_parts(parts, body));
                 }
                 let data = concat_chunks(&chunks);
@@ -277,7 +295,9 @@ where
                 || already_compressed
             {
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough_small", "method" => method.clone()).increment(1);
-                if let Some(body) = check_response_size(&config, &method, total_size) {
+                if let Some(body) =
+                    check_response_size(&config, &method, &client, &caller_tag, total_size)
+                {
                     return Ok(Response::from_parts(parts, body));
                 }
                 let gzip_overhead_ms = gzip_start.elapsed().as_secs_f64() * 1000.0;
@@ -308,8 +328,13 @@ where
                     // Size check on the compressed output — this is the actual
                     // number of bytes that will go over the wire.
                     let compressed_frame_size = GRPC_HEADER_SIZE + bytes.len();
-                    if let Some(body) = check_response_size(&config, &method, compressed_frame_size)
-                    {
+                    if let Some(body) = check_response_size(
+                        &config,
+                        &method,
+                        &client,
+                        &caller_tag,
+                        compressed_frame_size,
+                    ) {
                         return Ok(Response::from_parts(parts, body));
                     }
 
@@ -359,6 +384,8 @@ where
 fn check_response_size(
     config: &AsyncGzipConfig,
     method: &Arc<str>,
+    client: &Arc<str>,
+    caller_tag: &Arc<str>,
     size: usize,
 ) -> Option<ResponseBody> {
     let limit = config.max_response_size?;
@@ -371,6 +398,7 @@ fn check_response_size(
     counter!(
         "grpc_gzip_response_over_limit_total",
         "method" => method.clone(),
+        "client" => client.clone(),
         "enforced" => if enforced { "true" } else { "false" },
     )
     .increment(1);
@@ -380,6 +408,8 @@ fn check_response_size(
             response_size_bytes = size,
             limit_bytes = limit,
             method = %method,
+            client = %client,
+            caller_tag = %caller_tag,
             "oversized gRPC response (monitor mode)"
         );
         return None;
@@ -389,6 +419,8 @@ fn check_response_size(
         response_size_bytes = size,
         limit_bytes = limit,
         method = %method,
+        client = %client,
+        caller_tag = %caller_tag,
         "rejecting oversized gRPC response"
     );
 
