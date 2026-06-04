@@ -16,8 +16,20 @@ pub fn find_repo_root() -> Result<PathBuf> {
 }
 
 pub fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
+    // Compute the actual merge base so we don't pick up unrelated master
+    // commits when the PR base SHA is behind the branch's rebase point.
+    let merge_base_out = Command::new("git")
+        .args(["merge-base", base_ref, "HEAD"])
+        .output()
+        .context("failed to run git merge-base")?;
+    let diff_base = if merge_base_out.status.success() {
+        String::from_utf8(merge_base_out.stdout)?.trim().to_string()
+    } else {
+        base_ref.to_string()
+    };
+
     let out = Command::new("git")
-        .args(["diff", "--name-only", &format!("{base_ref}...HEAD")])
+        .args(["diff", "--name-only", &format!("{diff_base}...HEAD")])
         .output()
         .context("failed to run git diff")?;
     anyhow::ensure!(
