@@ -83,7 +83,12 @@ def _fetch_page(url: str, headers: dict[str, str], logger: FilteringBoundLogger)
 
     if response.status_code == 429:
         retry_after_header = response.headers.get("Retry-After")
-        retry_after = float(retry_after_header) if retry_after_header and retry_after_header.isdigit() else None
+        try:
+            # Retry-After is normally integer seconds, but tolerate fractional values too.
+            retry_after = float(retry_after_header) if retry_after_header else None
+        except ValueError:
+            # A non-numeric value (e.g. an HTTP-date) falls back to exponential backoff.
+            retry_after = None
         logger.warning(f"LaunchDarkly rate limited (429), retrying. retry_after={retry_after_header}, url={url}")
         raise LaunchDarklyRetryableError(f"LaunchDarkly rate limited: url={url}", retry_after=retry_after)
 
@@ -111,10 +116,10 @@ def _fetch_project_keys(headers: dict[str, str], logger: FilteringBoundLogger) -
     url: str | None = _initial_url("/projects", LAUNCHDARKLY_ENDPOINTS["projects"].page_size)
     while url:
         data = _fetch_page(url, headers, logger)
+        # `key` is the identifier every fan-out URL is built from; fail fast rather than
+        # silently dropping a project (and all its environments/flags/metrics) if it's absent.
         for item in data.get("items", []):
-            key = item.get("key")
-            if key:
-                keys.append(key)
+            keys.append(item["key"])
         url = _next_url_from(data)
     return keys
 
