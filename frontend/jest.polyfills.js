@@ -6,7 +6,6 @@ const { TextEncoder, TextDecoder } = require('node:util')
 const { ReadableStream, WritableStream, TransformStream } = require('node:stream/web')
 const { Blob, File } = require('node:buffer')
 const { BroadcastChannel } = require('node:worker_threads')
-const { setImmediate, clearImmediate } = require('node:timers')
 
 // configurable so @mswjs/interceptors can wrap Request/Response when the server starts.
 const define = (props) =>
@@ -18,7 +17,6 @@ const define = (props) =>
     )
 
 // undici references TextEncoder/streams at module-eval time, so define these first.
-// jsdom lacks setImmediate/clearImmediate, so provide Node's.
 define({
     TextEncoder,
     TextDecoder,
@@ -28,8 +26,6 @@ define({
     Blob,
     File,
     BroadcastChannel,
-    setImmediate,
-    clearImmediate,
 })
 
 // jsdom's setTimeout returns a number, but undici's internal fast-timer calls `.refresh()`/`.unref()`
@@ -60,6 +56,16 @@ define({
         return handle
     },
     clearTimeout: (handle) => jsdomClearTimeout(handleId(handle)),
+})
+
+// jsdom lacks setImmediate/clearImmediate, which undici needs. Node's setImmediate fires on the
+// libuv check phase, which keeps running after jsdom tears down the window — and React 18's
+// scheduler prefers setImmediate for performWorkUntilDeadline, so its render work lands
+// post-teardown and throws "The `document` global ... is not defined anymore", crashing the whole
+// file. Route it through the jsdom-bound setTimeout above so it tears down with the window instead.
+define({
+    setImmediate: (callback, ...args) => globalThis.setTimeout(callback, 0, ...args),
+    clearImmediate: (handle) => globalThis.clearTimeout(handle),
 })
 
 // undici's fetch calls performance.markResourceTiming, which jsdom's performance lacks.
