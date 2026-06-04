@@ -1183,18 +1183,21 @@ class TestOAuthAPI(APIBaseTest):
             scoped_organizations=None,
         )
 
-    def _refresh_and_get_scopes(self, refresh_token: OAuthRefreshToken) -> set[str]:
+    def _refresh(self, refresh_token: str) -> dict:
         response = self.post(
             "/oauth/token/",
             {
                 "grant_type": "refresh_token",
-                "refresh_token": refresh_token.token,
+                "refresh_token": refresh_token,
                 "client_id": self.confidential_application.client_id,
                 "client_secret": "test_confidential_client_secret",
             },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        new_access_token = OAuthAccessToken.objects.get(token=response.json()["access_token"])
+        return response.json()
+
+    def _refresh_and_get_scopes(self, refresh_token: OAuthRefreshToken) -> set[str]:
+        new_access_token = OAuthAccessToken.objects.get(token=self._refresh(refresh_token.token)["access_token"])
         return set((new_access_token.scope or "").split())
 
     @parameterized.expand(
@@ -1303,24 +1306,11 @@ class TestOAuthAPI(APIBaseTest):
 
         refresh_token = self._create_refreshable_token_pair("openid experiment:read insight:read")
 
-        def refresh(token: str) -> dict:
-            response = self.post(
-                "/oauth/token/",
-                {
-                    "grant_type": "refresh_token",
-                    "refresh_token": token,
-                    "client_id": self.confidential_application.client_id,
-                    "client_secret": "test_confidential_client_secret",
-                },
-            )
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            return response.json()
-
-        first = refresh(refresh_token.token)
+        first = self._refresh(refresh_token.token)
         first_scopes = set(OAuthAccessToken.objects.get(token=first["access_token"]).scope.split())
         self.assertEqual(first_scopes, {"openid", "experiment:read"})
 
-        second = refresh(first["refresh_token"])
+        second = self._refresh(first["refresh_token"])
         second_scopes = set(OAuthAccessToken.objects.get(token=second["access_token"]).scope.split())
         self.assertEqual(second_scopes, {"openid", "experiment:read"})
 
