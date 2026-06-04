@@ -13,6 +13,7 @@ describe('CLI AGENTS.md installer', () => {
 
         expect(target).toBe(path.join(dir, 'AGENTS.md'))
         expect(content).toContain('posthog-cli api search <term>')
+        expect(content).toContain('Prefer `posthog-cli api` over direct MCP tool calls')
         expect(content).toContain('posthog-cli api skill list')
     })
 
