@@ -27,8 +27,10 @@ logger = structlog.get_logger(__name__)
 
 
 # Single source of truth lives in the generated schema (frontend/src/queries/schema/schema-general.ts),
-# so the backend limit and the frontend's cannot drift.
-PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength().root
+# so the backend limit and the frontend's cannot drift. Read the field default rather than
+# instantiating: the generated RootModel carries a Field() default, which the pydantic mypy plugin
+# treats as a required __init__ arg.
+PROMPT_MAX_LENGTH: int = int(SubscriptionAIPromptMaxLength.model_fields["root"].default)
 EVENT_NAMES_SAMPLE_LIMIT = 20
 # bounds the Postgres scan + context size for the dormant-events list
 NO_DATA_EVENT_NAMES_LIMIT = 25
