@@ -288,6 +288,29 @@ class TestSingleRequestEndpoints:
             assert list(mp._fetch_annotations("us", "u", "s", "123", LOGGER)) == []
 
 
+class TestGetRowsExportWindow:
+    def _captured_window(self, **kwargs) -> tuple[date, date]:
+        with patch.object(mp, "_iter_export", return_value=iter([])) as mock_iter:
+            list(mp.get_rows("us", "u", "s", "123", "export", LOGGER, FakeManager(), **kwargs))  # type: ignore[arg-type]
+        call = mock_iter.call_args
+        return call.kwargs["start_date"], call.kwargs["end_date"]
+
+    def test_future_cursor_clamps_start_to_today(self) -> None:
+        future = int(datetime(2999, 1, 1, tzinfo=UTC).timestamp())
+        start_date, end_date = self._captured_window(
+            should_use_incremental_field=True, db_incremental_field_last_value=future
+        )
+        assert start_date == end_date == datetime.now(UTC).date()
+
+    def test_past_cursor_used_as_start(self) -> None:
+        past = int(datetime(2020, 1, 1, tzinfo=UTC).timestamp())
+        start_date, end_date = self._captured_window(
+            should_use_incremental_field=True, db_incremental_field_last_value=past
+        )
+        assert start_date == date(2020, 1, 1)
+        assert end_date == datetime.now(UTC).date()
+
+
 class TestMixpanelSource:
     @parameterized.expand(
         [

@@ -299,8 +299,13 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     if endpoint == "export":
         last_value_date = _to_date(db_incremental_field_last_value) if should_use_incremental_field else None
-        start_date = last_value_date or (datetime.now(UTC).date() - timedelta(days=DEFAULT_EXPORT_LOOKBACK_DAYS))
         end_date = datetime.now(UTC).date()
+        start_date = last_value_date or (end_date - timedelta(days=DEFAULT_EXPORT_LOOKBACK_DAYS))
+        # A future cursor (clock skew or bad event data) would make start_date > end_date and the
+        # day loop a no-op, silently skipping the sync. Clamp to today so we still sync the latest day.
+        if start_date > end_date:
+            logger.warning(f"Mixpanel export: incremental cursor {start_date.isoformat()} is in the future; syncing today")
+            start_date = end_date
         yield from _iter_export(
             region, username, secret, project_id, logger, manager, start_date=start_date, end_date=end_date
         )
