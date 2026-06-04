@@ -154,9 +154,44 @@ class TestSlackFormatting(SimpleTestCase):
         slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, "")
         content, parsed_rich_content = slack_to_content_and_rich_content(slack_text, slack_blocks)
 
-        assert content == "line1  \nline2\n\nline3"
+        assert content == "line1  \nline2\n\n\n\nline3"
         assert parsed_rich_content is not None
-        assert len(parsed_rich_content["content"]) == 2
+        # 3 paragraphs: original 2 + spacer section between them
+        assert len(parsed_rich_content["content"]) == 3
+
+    def test_outbound_multi_paragraph_produces_spacer_sections(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "para1"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "para2"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "para3"}]},
+            ],
+        }
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+
+        elements = slack_blocks[0]["elements"]
+        # 3 content sections + 2 spacer sections = 5
+        assert len(elements) == 5
+        assert elements[0]["elements"][0]["text"] == "para1"
+        assert elements[1]["elements"][0]["text"] == "\n"
+        assert elements[2]["elements"][0]["text"] == "para2"
+        assert elements[3]["elements"][0]["text"] == "\n"
+        assert elements[4]["elements"][0]["text"] == "para3"
+
+    def test_single_paragraph_has_no_spacer(self) -> None:
+        rich_content = {
+            "type": "doc",
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "only one"}]},
+            ],
+        }
+
+        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
+        assert slack_blocks is not None
+        assert len(slack_blocks[0]["elements"]) == 1
 
     def test_outbound_excludes_images_from_text_when_requested(self) -> None:
         rich_content = {
