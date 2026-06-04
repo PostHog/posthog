@@ -2378,6 +2378,9 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(props["reason"], "invalid_scope")
         self.assertEqual(props["app_id"], str(self.confidential_application.pk))
         self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
 
     def test_authorize_success_does_not_capture_invalid_scope_event(self):
         self._set_ceiling("experiment:read")

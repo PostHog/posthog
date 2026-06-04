@@ -673,6 +673,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return [IsAuthenticated()]
         return []
 
+    @staticmethod
+    def _registration_type(application: OAuthApplication) -> str:
+        if application.is_cimd_client:
+            return "cimd"
+        return "dcr" if application.is_dcr_client else "manual"
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -717,7 +723,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Track OAuth authorization attempts with the authenticated user
-        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        registration_type = self._registration_type(application)
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_requested",
@@ -884,9 +890,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
         if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
             distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None)
-            registration_type = (
-                "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
-            )
+            registration_type = self._registration_type(application)
             properties = {
                 "reason": "invalid_scope",
                 "client_name": application.name,
