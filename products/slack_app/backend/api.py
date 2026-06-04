@@ -5,6 +5,7 @@ import uuid
 import asyncio
 import hashlib
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse, urlunparse
 
@@ -13,6 +14,7 @@ from django.core import signing
 from django.core.cache import cache
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
 import requests
@@ -85,7 +87,7 @@ ROUTE_NO_INTEGRATION = "no_integration"
 
 PICKER_TOKEN_SALT = "posthog_code_repo_picker"
 PICKER_TOKEN_MAX_AGE_SECONDS = 900
-SLACK_USER_INFO_CACHE_TTL_SECONDS = 600
+SLACK_USER_PROFILE_TTL = timedelta(hours=1)
 
 _MAX_GITHUB_REPOS = 500
 REPO_LIST_CACHE_TTL_SECONDS = 300
@@ -173,14 +175,6 @@ class RulesCommand:
     project_team_id: int | None = None
 
 
-def _slack_user_info_cache_key(integration_id: int, slack_user_id: str) -> str:
-    return f"posthog_code_slack_user_info:{integration_id}:{slack_user_id}"
-
-
-def _slack_user_id_by_email_cache_key(integration_id: int, normalized_email: str) -> str:
-    return f"posthog_code_slack_user_id_by_email:{integration_id}:{normalized_email}"
-
-
 def _format_slack_user_info_payload(
     *, email: str | None, display_name: str, real_name: str, is_admin: bool, is_owner: bool
 ) -> dict[str, Any]:
@@ -216,7 +210,7 @@ def _get_slack_user_info_from_db(integration: Integration, slack_user_id: str) -
     except DatabaseError:
         logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
         return None
-    if not profile:
+    if not profile or not profile.refreshed_at or timezone.now() - profile.refreshed_at >= SLACK_USER_PROFILE_TTL:
         return None
 
     return _format_slack_user_info_payload(
@@ -241,6 +235,7 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
                 "real_name": profile.get("real_name") or "",
                 "is_admin": bool(user.get("is_admin")),
                 "is_owner": bool(user.get("is_owner")),
+                "refreshed_at": timezone.now(),
             },
         )
     except DatabaseError:
@@ -248,20 +243,13 @@ def _persist_slack_user_info(integration: Integration, slack_user_id: str, user_
 
 
 def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> dict[str, Any]:
-    cache_key = _slack_user_info_cache_key(integration.id, slack_user_id)
-    cached = cache.get(cache_key)
-    if isinstance(cached, dict):
-        return cached
-
     cached_db = _get_slack_user_info_from_db(integration, slack_user_id)
     if isinstance(cached_db, dict):
-        cache.set(cache_key, cached_db, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return cached_db
 
     user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
     if user_info:
         _persist_slack_user_info(integration, slack_user_id, user_info)
-        cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return user_info
     return {}
 
@@ -282,7 +270,9 @@ def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_ema
     except DatabaseError:
         logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
         return None
-    return profile.slack_user_id if profile else None
+    if not profile or not profile.refreshed_at or timezone.now() - profile.refreshed_at >= SLACK_USER_PROFILE_TTL:
+        return None
+    return profile.slack_user_id
 
 
 def lookup_slack_user_id_by_email(
@@ -293,20 +283,14 @@ def lookup_slack_user_id_by_email(
     """Resolve a Slack user ID from a PostHog user email.
 
     Uses ``SlackUserProfileCache`` (populated by ``resolve_slack_user`` and prior lookups),
-    then ``users.lookupByEmail``. Results are cached per integration + email.
+    then ``users.lookupByEmail``.
     """
     normalized_email = email.strip().lower()
     if not normalized_email:
         return None
 
-    cache_key = _slack_user_id_by_email_cache_key(integration.id, normalized_email)
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return cached or None
-
     slack_user_id = _get_slack_user_id_by_email_from_db(integration, normalized_email)
     if slack_user_id:
-        cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return slack_user_id
 
     try:
@@ -320,27 +304,35 @@ def lookup_slack_user_id_by_email(
                 email=email,
                 error=error_code,
             )
-        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return None
 
     if not user_info.get("ok"):
-        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return None
 
     user = user_info.get("user")
     if not isinstance(user, dict) or not user.get("id"):
-        cache.set(cache_key, "", timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return None
 
     slack_user_id = str(user["id"])
     _persist_slack_user_info(integration, slack_user_id, user_info)
-    cache.set(
-        _slack_user_info_cache_key(integration.id, slack_user_id),
-        user_info,
-        timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
-    )
-    cache.set(cache_key, slack_user_id, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
+    _purge_stale_email_rows(integration, normalized_email, slack_user_id)
     return slack_user_id
+
+
+def _purge_stale_email_rows(integration: Integration, normalized_email: str, keep_slack_user_id: str) -> None:
+    """Drop rows that share an email with the authoritative Slack user ID we just resolved.
+
+    Without this, an orphan row (same email, older Slack user ID) can outrank the fresh one
+    in ``_get_slack_user_id_by_email_from_db`` and trigger a fresh ``users.lookupByEmail`` call
+    on every request.
+    """
+    try:
+        SlackUserProfileCache.objects.filter(
+            integration_id=integration.id,
+            email__iexact=normalized_email,
+        ).exclude(slack_user_id=keep_slack_user_id).delete()
+    except DatabaseError:
+        logger.warning("posthog_code_slack_user_cache_db_unavailable", integration_id=integration.id)
 
 
 QUOTA_EXHAUSTED_MESSAGE = (
@@ -424,11 +416,6 @@ def resolve_slack_user(
             fresh_user_info = _normalize_slack_response(slack.client.users_info(user=slack_user_id))
             if fresh_user_info:
                 _persist_slack_user_info(integration, slack_user_id, fresh_user_info)
-                cache.set(
-                    _slack_user_info_cache_key(integration.id, slack_user_id),
-                    fresh_user_info,
-                    timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS,
-                )
                 slack_email = fresh_user_info.get("user", {}).get("profile", {}).get("email")
 
         if not slack_email:

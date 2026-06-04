@@ -116,6 +116,24 @@ describe('TrendsLineChart', () => {
             expect(tooltip.row('Spike')).toContain('3')
         })
 
+        it('shows every breakdown value when a formula is applied', async () => {
+            renderInsight({
+                query: buildTrendsQuery({
+                    series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                    breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+                    trendsFilter: { formula: 'A' },
+                }),
+                featureFlags: HOG_CHARTS_FLAG,
+            })
+
+            await chart.clickAtIndex(2)
+
+            const tooltip = createInsightTooltipAccessor(chart.getTooltip()!)
+            expect(tooltip.row('Spike')).toContain('3')
+            expect(tooltip.row('Bramble')).toContain('1')
+            expect(tooltip.row('Prickles')).toContain('1')
+        })
+
         it('shows current and previous period rows in compare mode', async () => {
             renderInsight({
                 query: buildTrendsQuery({
