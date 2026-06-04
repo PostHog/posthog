@@ -276,6 +276,36 @@ class TestConversationEvents(BaseTest):
         assert groups["project"] == str(self.team.uuid)
         assert "instance" in groups
 
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids")
+    def test_capture_message_received_groups_from_person_org(self, mock_get_persons, mock_capture):
+        from posthog.models.person.person import Person
+
+        person_org = Organization.objects.create(name="Person Org")
+        person_user = User.objects.create(email="customer@example.com", distinct_id="customer-123")
+        OrganizationMembership.objects.create(user=person_user, organization=person_org)
+
+        mock_get_persons.return_value = [Person(team_id=self.team.id, is_identified=True)]
+
+        capture_message_received(self.ticket, "msg-456", "Hello support")
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is True
+        groups = call_kwargs["properties"]["$groups"]
+        assert groups["organization"] == str(person_org.id)
+        assert groups["project"] == str(self.team.uuid)
+        assert "instance" in groups
+
+    @patch("products.conversations.backend.events.capture_internal")
+    @patch("products.conversations.backend.events.get_persons_by_distinct_ids", side_effect=Exception("db timeout"))
+    def test_capture_message_received_still_fires_on_person_lookup_failure(self, mock_get_persons, mock_capture):
+        capture_message_received(self.ticket, "msg-456", "Hello support")
+
+        mock_capture.assert_called_once()
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["process_person_profile"] is False
+        assert "$groups" not in call_kwargs["properties"]
+
     @parameterized.expand(
         [
             ("user_not_found", False, False),
