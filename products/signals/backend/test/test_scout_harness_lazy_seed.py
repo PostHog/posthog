@@ -217,6 +217,24 @@ class TestDiscoverCanonicalSkills:
         with pytest.raises(CanonicalSkillParseError):
             discover_canonical_skills(tmp_path)
 
+    def test_duplicate_frontmatter_name_raises(self, tmp_path: Path) -> None:
+        # Two directories declaring the same `name` would make the sync flap the team's row
+        # between both definitions every coordinator tick — reject it at discovery.
+        for dir_name in ("signals-scout-dup-a", "signals-scout-dup-b"):
+            _write_canonical_skill(
+                tmp_path,
+                dir_name=dir_name,
+                frontmatter="""
+                    ---
+                    name: signals-scout-dup
+                    description: dup skill
+                    ---
+                """,
+                body=f"# {dir_name}\n",
+            )
+        with pytest.raises(CanonicalSkillParseError, match="Duplicate canonical skill name"):
+            discover_canonical_skills(tmp_path)
+
     def test_in_repo_canonical_set_parses_cleanly(self) -> None:
         # Exercises the production manifest at `products/signals/skills/` — growing the
         # canonical set is a deliberate edit, so this serves as the lock.

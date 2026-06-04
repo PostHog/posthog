@@ -216,11 +216,18 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
     Skipping a malformed canonical entry would mask author errors; instead we let
     `CanonicalSkillParseError` propagate so the harness fails loud and the canonical source
     gets fixed.
+
+    Frontmatter `name`s must be unique across the fleet. The sync reconciles per skill name,
+    so two directories declaring the same `name` with differing content would make each
+    coordinator tick rewrite the team's row to the first definition and then the second,
+    bumping versions forever. We reject the collision here so a misauthored fleet fails loud
+    on the first read instead of flapping silently.
     """
     base = skills_dir or _SKILLS_DIR
     if not base.is_dir():
         return ()
     discovered: list[CanonicalSkill] = []
+    by_name: dict[str, Path] = {}
     for entry in sorted(base.iterdir()):
         if not entry.is_dir():
             continue
@@ -228,7 +235,13 @@ def discover_canonical_skills(skills_dir: Path | None = None) -> tuple[Canonical
             continue
         if not (entry / "SKILL.md").is_file():
             continue
-        discovered.append(_parse_canonical_skill(entry))
+        skill = _parse_canonical_skill(entry)
+        if skill.name in by_name:
+            raise CanonicalSkillParseError(
+                f"Duplicate canonical skill name {skill.name!r}: declared in both {by_name[skill.name]} and {entry}"
+            )
+        by_name[skill.name] = entry
+        discovered.append(skill)
     return tuple(discovered)
 
 
