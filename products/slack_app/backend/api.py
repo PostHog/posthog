@@ -54,10 +54,11 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.models import SlackChannel, SlackUserProfileCache
-from products.slack_app.backend.services.integration_resolver import (
+from products.slack_app.backend.services.integration_resolver import load_integrations
+from products.slack_app.backend.services.integration_service import (
+    apply_user_access,
     format_project_candidate_list,
-    load_integrations,
-    resolve_from_candidates,
+    resolve_workspace_routing,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
@@ -1532,23 +1533,32 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        workspace_candidates = list(
-            Integration.objects.filter(kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id)
-            .select_related("team", "team__organization", "created_by")
-            .order_by("id")
+        # Step 1: resolve workspace candidates with thread + SlackSettings defaults applied
+        # (user-agnostic). Anything past this point routes against the narrowed result.
+        slack_user_id_str = str(event.get("user") or "")
+        channel_str = event.get("channel") if isinstance(event.get("channel"), str) else None
+        thread_ts_value = event.get("thread_ts") or event.get("ts")
+        thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
+        workspace_result = resolve_workspace_routing(
+            slack_team_id=slack_team_id,
+            kinds=[SLACK_INTEGRATION_KIND],
+            slack_user_id=slack_user_id_str,
+            channel=channel_str,
+            thread_ts=thread_ts_str,
         )
-        if not workspace_candidates:
+        if not workspace_result.candidates:
             return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        slack_user_id_str = str(event.get("user") or "")
+        # Step 2: identify the mentioning Slack user as a PostHog ``User`` who is a member
+        # of an org connected to this workspace.
         posthog_user = (
             _resolve_posthog_user_from_event(
                 slack_user_id=slack_user_id_str,
-                probe_integration=workspace_candidates[0],
-                candidate_integrations=workspace_candidates,
+                probe_integration=workspace_result.candidates[0],
+                candidate_integrations=workspace_result.candidates,
             )
             if slack_user_id_str
             else None
@@ -1563,20 +1573,10 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        # Single resolution pass with the resolved user — ``resolve_from_candidates``
-        # filters by ``user.teams`` and applies the thread/user-default/workspace-default
-        # precedence against accessible candidates only.
-        channel_str = event.get("channel") if isinstance(event.get("channel"), str) else None
-        thread_ts_value = event.get("thread_ts") or event.get("ts")
-        thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
-        result = resolve_from_candidates(
-            workspace_candidates,
-            slack_team_id=slack_team_id,
-            slack_user_id=slack_user_id_str,
-            user=posthog_user,
-            channel=channel_str,
-            thread_ts=thread_ts_str,
-        )
+        # Step 3: narrow to integrations this user can access. Pure Python filter on the
+        # already-resolved set — no extra queries. ``target`` is dropped if the user can't
+        # reach it; we then fall through to picker / sole-candidate below.
+        result = apply_user_access(workspace_result, posthog_user)
         if not result.candidates:
             logger.warning(
                 "posthog_code_no_integration_found",
@@ -1589,7 +1589,7 @@ def route_posthog_code_event_to_relevant_region(
             return ROUTE_HANDLED_LOCALLY
 
         candidates = result.candidates
-        target = result.integration if result.integration in candidates else None
+        target = result.integration
 
         if _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
