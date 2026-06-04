@@ -110,7 +110,11 @@ def iceberg_enabled_for_team(team_id: int) -> bool:
 # A backfill connection may have to wait for duckgres to spin up a fresh worker
 # (a cold worker can require provisioning a new node, which takes minutes), so
 # the handshake budget is generous and `_connect_duckgres` retries with backoff.
-DUCKGRES_CONNECT_TIMEOUT = 60  # seconds
+# Must exceed the duckgres control-plane warmAcquireTimeout (5m): on a warm-pool
+# miss the CP now blocks the connect server-side up to ~5m waiting for a colocated
+# worker (which may need a cold node) instead of bouncing us with "no warm worker
+# available". 330s gives margin over the 300s server block + TLS/handshake.
+DUCKGRES_CONNECT_TIMEOUT = 330  # seconds
 DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
 
 # Worker-profile opt-in. When enabled, a backfill connection asks duckgres for a
