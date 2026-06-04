@@ -29,7 +29,6 @@ from posthog.settings.ingestion import (
     CAPTURE_V1_INTERNAL_ENDPOINT,
     CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
-    CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
 )
 
 logger = structlog.get_logger(__name__)
@@ -344,14 +343,13 @@ def capture_v1_batch_internal(
     historical_migration: bool = False,
     process_person_profile: bool = False,
     max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
-    transport_retries: int = CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
     timeout: float = 2,
 ) -> CaptureV1Result:
     """Submit a batch of events to the v1 analytics capture endpoint.
 
-    ``transport_retries`` controls urllib3-level retries on 5xx (transparent
-    to callers).  ``max_attempts`` caps application-level resubmit rounds
-    for per-event ``retry`` results — the two are independent budgets.
+    Transport-level retries on 5xx are handled by urllib3 (hardcoded at 3,
+    matching v0).  ``max_attempts`` caps application-level resubmit rounds
+    for per-event ``retry`` results.
     """
     payload, uuids = prepare_capture_v1_batch(
         events,
@@ -381,7 +379,7 @@ def capture_v1_batch_internal(
             url,
             HTTPAdapter(
                 max_retries=Retry(
-                    total=transport_retries,
+                    total=3,
                     backoff_factor=0.1,
                     status_forcelist=[500, 502, 503, 504],
                     allowed_methods={"POST"},
