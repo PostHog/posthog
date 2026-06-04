@@ -14,6 +14,7 @@ from django.test import override_settings
 import requests
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.api.oauth.cimd import (
@@ -883,15 +884,14 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
 
     # (d) dual-read: both com.posthog.verification_token and the legacy
     # posthog_verification_token must link the app to the organization.
-    @pytest.mark.parametrize(
-        "token_placement,expected_linked",
+    @parameterized.expand(
         [
             ("nested", True),
             ("top_level", True),
-        ],
+        ]
     )
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_verification_token_dual_read(self, mock_get, _url_mock, token_placement, expected_linked):
+    def test_verification_token_dual_read(self, token_placement, expected_linked, mock_get, _url_mock):
         token, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Dual-read partner", created_by=self.user
         )
@@ -926,15 +926,14 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         self.assertEqual(app.organization_id, self.organization.id)
 
     # (a) + (e) present scopes are written to application.scopes on creation.
-    @pytest.mark.parametrize(
-        "input_scopes,expected_scopes",
+    @parameterized.expand(
         [
-            (["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
-            ([], []),
-        ],
+            ("with_scopes", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
+            ("empty", [], []),
+        ]
     )
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_scopes_written_to_app_on_creation(self, mock_get, _url_mock, input_scopes, expected_scopes):
+    def test_scopes_written_to_app_on_creation(self, _name, input_scopes, expected_scopes, mock_get, _url_mock):
         metadata = _make_metadata(**{"com.posthog": {"scopes": input_scopes}})
         mock_get.return_value = _mock_response(metadata, headers={})
 
