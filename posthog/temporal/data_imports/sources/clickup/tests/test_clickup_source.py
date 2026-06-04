@@ -21,6 +21,10 @@ class TestClickUpSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CLICKUP
 
+    def test_workspace_id_is_a_connection_host_field(self) -> None:
+        # Changing the workspace the token targets must re-require the token.
+        assert self.source.connection_host_fields == ["workspace_id"]
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
