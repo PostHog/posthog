@@ -1079,6 +1079,28 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             assert len(rows) == 2, f"push={push}: expected exactly 2 rows, got {rows}"
             assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
 
+    def test_exec_binding_limit_grouped_join_returns_correct_count(self):
+        # The shape that motivated the gate: events LEFT JOIN a `GROUP BY session_id` subquery, with a LIMIT
+        # that actually BINDS (far more matching events than the limit, several events per session, so the
+        # grouped subquery fans in). The pushed inner LIMIT must cut EVENTS before the join (not the joined
+        # output), so both forms return exactly LIMIT rows from the valid set. 16 in-range events, LIMIT 5.
+        self._create_session("2024-01-02T00:00:00", "u1", "pro", *[f"2024-01-02T10:{m:02d}:00" for m in range(8)])
+        self._create_session("2024-01-05T00:00:00", "u2", "free", *[f"2024-01-05T11:{m:02d}:00" for m in range(8)])
+        flush_persons_and_events()
+        base = (
+            "SELECT timestamp, session.$session_duration AS d FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+        )
+        limited = base + " LIMIT 5"
+        subquery = self._events_subquery(self._print_pushdown_sql(limited))
+        assert "LIMIT 5" in subquery, f"expected the pushed inner LIMIT to bind:\n{subquery}"
+        valid = {tuple(r) for r in (self._results(base + " LIMIT 1000", push_down=False) or [])}
+        assert len(valid) == 16, f"expected 16 distinct matching rows (8 per session x 2), got {len(valid)}"
+        for push in (True, False):
+            rows = self._results(limited, push_down=push) or []
+            assert len(rows) == 5, f"push={push}: LIMIT 5 must bind to exactly 5 rows, got {len(rows)}: {rows}"
+            assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
+
     def _setup_cohort_data(self) -> "Cohort":
         # c_in ($os=Chrome) is in the cohort with 2 in-range events; c_out ($os=Firefox) is out, with 1.
         _create_person(team=self.team, distinct_ids=["c_in"], properties={"$os": "Chrome"}, is_identified=True)
