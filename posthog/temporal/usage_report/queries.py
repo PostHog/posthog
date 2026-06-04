@@ -46,7 +46,7 @@ from typing import Any, Literal
 from django.db.models import Count
 
 from posthog.constants import FlagRequestType
-from posthog.models import GroupTypeMapping
+from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
@@ -77,6 +77,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
+    get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
@@ -96,11 +97,7 @@ from products.surveys.backend.models import Survey
 
 
 def _group_types_total() -> list[dict[str, int]]:
-    return list(
-        GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
-        .annotate(total=Count("id"))
-        .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
-    )
+    return count_group_type_mappings_per_team()
 
 
 def _dashboard_count() -> list[dict[str, int]]:
@@ -423,6 +420,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_ai_credits_used_in_period",
         fn=get_teams_with_ai_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_signals_credits_used_in_period",
+        fn=get_teams_with_signals_credits_used_in_period,
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(

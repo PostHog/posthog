@@ -2,6 +2,7 @@ from products.signals.backend.temporal.agentic.report import run_agentic_report_
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
     fetch_enabled_signals_scout_runs_activity,
+    stamp_dispatched_signals_scout_runs_activity,
 )
 from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
@@ -85,6 +86,7 @@ ACTIVITIES = [
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
     fetch_enabled_signals_scout_runs_activity,
+    stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,

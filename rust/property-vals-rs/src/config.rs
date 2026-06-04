@@ -6,6 +6,7 @@ use std::{num::ParseIntError, str::FromStr};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
+use common_kafka::kafka_producer::EnvelopeEncoding;
 use envconfig::Envconfig;
 use siphasher::sip::SipHasher13;
 
@@ -25,6 +26,12 @@ pub struct Config {
 
     #[envconfig(default = "property_vals_intermediate")]
     pub intermediate_topic: String,
+
+    // Envelope encoding for payloads produced to the intermediate topic. The
+    // merger consumer decodes transparently, so `lz4` can roll out
+    // incrementally. `none` by default.
+    #[envconfig(default = "none")]
+    pub intermediate_topic_encoding: EnvelopeEncoding,
 
     #[envconfig(default = "clickhouse-property-vals-rs-merger")]
     pub merger_consumer_group: String,

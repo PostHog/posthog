@@ -10,9 +10,8 @@ single message — when several reviewers point at the same channel, that one
 message tags all of them rather than posting once per reviewer.
 
 Each user's `slack_notification_min_priority` filters out reports below the
-configured threshold (P0 is highest). When the report has no priority
-judgement, we notify regardless of the user's threshold — the inbox should
-not silently swallow these.
+configured threshold (P0 is highest). Reports with pending actionability or
+priority judgments are not dispatchable until those judgments are persisted.
 
 Messages are framed for public channels: each post names the suggested reviewers
 (Slack @mention when email matches the workspace, otherwise their PostHog name).
@@ -40,6 +39,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
@@ -92,14 +92,14 @@ def _slack_priority_label(value: str) -> str:
 def _meets_min_priority(report_priority: str | None, min_priority: str | None) -> bool:
     """Whether a report with the given priority meets the user's min-priority threshold.
 
-    `min_priority=None` notifies for every report. When the report has no priority
-    (no priority_judgment artefact yet, or unrecognised value), we still notify —
-    suppression would silently drop new inbox items, which the user did not opt into.
+    `min_priority=None` notifies for every report with a recognised priority.
+    Missing or unrecognised report priorities do not notify because Slack
+    notifications only go out once actionability and priority are persisted.
     """
-    if min_priority is None:
-        return True
     report_rank = _priority_rank(report_priority)
     if report_rank is None:
+        return False
+    if min_priority is None:
         return True
     min_rank = _priority_rank(min_priority)
     if min_rank is None:
@@ -108,7 +108,7 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
     return report_rank <= min_rank
 
 
-def _latest_priority(report: SignalReport) -> str | None:
+def _get_latest_priority(report: SignalReport) -> str | None:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
         .order_by("-created_at")
@@ -123,6 +123,24 @@ def _latest_priority(report: SignalReport) -> str | None:
     if not isinstance(data, dict):
         return None
     value = data.get("priority")
+    return value if isinstance(value, str) else None
+
+
+def _get_latest_actionability(report: SignalReport) -> str | None:
+    art = (
+        report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        .order_by("-created_at")
+        .first()
+    )
+    if art is None:
+        return None
+    try:
+        data = json.loads(art.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("actionability")
     return value if isinstance(value, str) else None
 
 
@@ -346,9 +364,7 @@ def dispatch_inbox_item_notifications(
 ) -> int:
     """Send Slack notifications for a newly-ready report. Returns count of messages sent.
 
-    Best-effort: per-target Slack errors are logged but do not raise. We only raise
-    on programmer error (missing report). The caller is the temporal summary workflow,
-    which already swallows notification exceptions.
+    Best-effort: per-target Slack errors are logged but do not raise.
     """
     try:
         report = SignalReport.objects.get(id=report_id, team_id=team_id)
@@ -359,11 +375,19 @@ def dispatch_inbox_item_notifications(
         )
         return 0
 
+    if report.status != SignalReport.Status.READY:
+        return 0
+    if _get_latest_actionability(report) != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
+        return 0
+
+    priority = _get_latest_priority(report)
+    if _priority_rank(priority) is None:
+        return 0
+
     targets = _notification_targets_for_report(report)
     if not targets:
         return 0
 
-    priority = _latest_priority(report)
     sources = source_products or []
     implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
     users_by_id = {user.id: user for user in User.objects.filter(id__in=[config.user_id for config in targets])}
