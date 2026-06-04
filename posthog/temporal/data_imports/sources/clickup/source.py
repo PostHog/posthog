@@ -14,7 +14,7 @@ from posthog.temporal.data_imports.sources.clickup.clickup import (
     clickup_source,
     validate_credentials as validate_clickup_credentials,
 )
-from posthog.temporal.data_imports.sources.clickup.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.clickup.settings import CLICKUP_ENDPOINTS, ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -85,10 +85,9 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint) is not None
-                and len(INCREMENTAL_FIELDS[endpoint]) > 0,
+                supports_incremental=CLICKUP_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=False,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                incremental_fields=CLICKUP_ENDPOINTS[endpoint].incremental_fields,
             )
             for endpoint in ENDPOINTS
         ]
