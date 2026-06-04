@@ -96,13 +96,27 @@ def _select_items(config: SendGridEndpointConfig, data: Any) -> list[dict[str, A
 
 
 def _next_url(
-    config: SendGridEndpointConfig, base_url: str, base_params: dict[str, Any], offset: int, data: Any
+    config: SendGridEndpointConfig,
+    base_url: str,
+    base_params: dict[str, Any],
+    offset: int,
+    data: Any,
+    logger: FilteringBoundLogger,
 ) -> Optional[str]:
     if config.pagination == "offset":
         return _url(base_url, {**base_params, "limit": config.page_size, "offset": offset + config.page_size})
     if config.pagination == "metadata":
         metadata = data.get("_metadata") if isinstance(data, dict) else None
-        return metadata.get("next") if isinstance(metadata, dict) else None
+        next_url = metadata.get("next") if isinstance(metadata, dict) else None
+        if next_url is None:
+            return None
+        # Only follow pagination URLs that stay on the canonical SendGrid host, so a tampered or
+        # compromised API response can't point our authenticated request at an internal address
+        # (SSRF) and leak the API key carried in the Authorization header.
+        if not isinstance(next_url, str) or not next_url.startswith(SENDGRID_BASE_URL):
+            logger.warning(f"SendGrid: ignoring off-host pagination URL: {next_url!r}")
+            return None
+        return next_url
     return None
 
 
@@ -124,6 +138,10 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         url = resume_config.next_url
+        # Guard the persisted resume URL too — only ever saved from a host-pinned next URL, but
+        # re-check so a tampered Redis state can't redirect our authenticated request (SSRF).
+        if not url.startswith(SENDGRID_BASE_URL):
+            raise ValueError(f"SendGrid resume state contains an unexpected URL: {url!r}")
         offset = _offset_from_url(url)
         logger.debug(f"SendGrid: resuming {endpoint} from URL {url}")
     else:
@@ -172,7 +190,7 @@ def get_rows(
             if config.pagination == "offset" and len(items) < config.page_size:
                 break
 
-            next_url = _next_url(config, base_url, base_params, offset, data)
+            next_url = _next_url(config, base_url, base_params, offset, data, logger)
             if not next_url:
                 break
 

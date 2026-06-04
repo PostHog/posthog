@@ -195,6 +195,40 @@ class TestGetRowsMetadataPagination:
         assert manager.save_state.call_args[0][0].next_url == next_url
 
 
+class TestGetRowsOffHostGuard:
+    @pytest.mark.parametrize(
+        "off_host_url",
+        [
+            "http://169.254.169.254/latest/meta-data/",
+            "https://evil.example.com/v3/marketing/lists",
+            "https://api.sendgrid.com.evil.com/v3/marketing/lists",
+        ],
+    )
+    def test_off_host_metadata_next_is_ignored(self, off_host_url: str) -> None:
+        page1 = {"result": [{"id": 1}], "_metadata": {"next": off_host_url}}
+        session = _session_returning(_FakeResponse(200, page1))
+        manager = _manager()
+
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            batches = list(get_rows("k", "marketing_lists", MagicMock(), manager))
+
+        # The tampered next URL is dropped: we yield the first page and stop without following it.
+        assert batches == [[{"id": 1}]]
+        assert session.get.call_count == 1
+        manager.save_state.assert_not_called()
+
+    def test_off_host_resume_url_raises(self) -> None:
+        manager = _manager(
+            can_resume=True,
+            resume_state=SendGridResumeConfig(next_url="http://169.254.169.254/latest/meta-data/"),
+        )
+        session = _session_returning()
+
+        with patch(f"{MODULE}.make_tracked_session", return_value=session):
+            with pytest.raises(ValueError, match="unexpected URL"):
+                list(get_rows("k", "marketing_lists", MagicMock(), manager))
+
+
 class TestGetRowsSingle:
     def test_single_request_no_pagination(self) -> None:
         groups = [{"id": 1}, {"id": 2}]
