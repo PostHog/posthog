@@ -1,3 +1,4 @@
+import json
 import uuid
 import typing as t
 from typing import cast
@@ -35,10 +36,12 @@ from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    COUPON_RESOURCE_NAME as STRIPE_COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME as STRIPE_CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME as STRIPE_CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    DISCOUNT_RESOURCE_NAME as STRIPE_DISCOUNT_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME as STRIPE_DISPUTE_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME as STRIPE_INVOICE_ITEM_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
@@ -128,6 +131,8 @@ class TestExternalDataSource(APIBaseTest):
                             "should_sync": True,
                             "sync_type": "full_refresh",
                         },
+                        {"name": STRIPE_COUPON_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                        {"name": STRIPE_DISCOUNT_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
                     ],
                 },
             },
@@ -580,6 +585,149 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json(), {"message": "Prefix already exists"})
 
+    def _make_external_data_source(
+        self, source_type: str = "Postgres", prefix: t.Optional[str] = None, deleted: bool = False
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type=source_type,
+            created_by=self.user,
+            prefix=prefix,
+            deleted=deleted,
+            job_inputs={},
+        )
+
+    @parameterized.expand(
+        [
+            # (description, existing_sources, requested_prefix, expected_status, expected_message)
+            ("empty team allows no prefix", [], "", 200, None),
+            ("empty team allows any prefix", [], "foo_", 200, None),
+            (
+                "only prefixed sources allow new no-prefix source",
+                [("foo_", False), ("bar_", False)],
+                "",
+                200,
+                None,
+            ),
+            (
+                "only prefixed sources allow new distinct prefix",
+                [("foo_", False)],
+                "baz_",
+                200,
+                None,
+            ),
+            (
+                "duplicate prefix is rejected",
+                [("foo_", False)],
+                "foo_",
+                400,
+                "Prefix already exists",
+            ),
+            (
+                "no-prefix source (null) blocks another no-prefix",
+                [(None, False)],
+                "",
+                400,
+                "Source type already exists. Prefix is required",
+            ),
+            (
+                "no-prefix source (empty string) blocks another no-prefix",
+                [("", False)],
+                "",
+                400,
+                "Source type already exists. Prefix is required",
+            ),
+            (
+                "no-prefix source still allows a prefixed source",
+                [(None, False)],
+                "foo_",
+                200,
+                None,
+            ),
+            (
+                # Regression: GitHub issue #60559
+                "soft-deleted no-prefix source does not block recreation",
+                [(None, True), ("foo_", False), ("bar_", False)],
+                "",
+                200,
+                None,
+            ),
+            (
+                "soft-deleted prefix does not block reuse",
+                [("foo_", True)],
+                "foo_",
+                200,
+                None,
+            ),
+        ]
+    )
+    def test_source_prefix_validation(
+        self,
+        _description: str,
+        existing_sources: list[tuple[t.Optional[str], bool]],
+        requested_prefix: str,
+        expected_status: int,
+        expected_message: t.Optional[str],
+    ) -> None:
+        for prefix, deleted in existing_sources:
+            self._make_external_data_source(source_type="Postgres", prefix=prefix, deleted=deleted)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/source_prefix/",
+            data={"source_type": "Postgres", "prefix": requested_prefix},
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_message is not None:
+            self.assertEqual(response.json(), {"message": expected_message})
+
+    @patch(
+        "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_can_recreate_no_prefix_source_after_deletion(self, _mock_validate):
+        # Regression for GitHub #60559: deleting the only no-prefix source of a
+        # type must allow recreating one with the same (empty) prefix, even when
+        # other prefixed sources of the same type still exist.
+        self._make_external_data_source(source_type="Stripe", prefix="foo_")
+
+        create_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(create_response.status_code, 201, create_response.json())
+        source_id = create_response.json()["id"]
+
+        delete_response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source_id}")
+        self.assertEqual(delete_response.status_code, 204)
+
+        recreate_response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full_refresh"},
+                    ],
+                },
+            },
+        )
+        self.assertEqual(recreate_response.status_code, 201, recreate_response.json())
+
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -856,7 +1004,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
 
         # A cached instance setting lookup can shave off one query depending on test order.
-        with self.assertNumQueries(FuzzyInt(24, 25)):
+        with self.assertNumQueries(FuzzyInt(23, 25)):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -1129,6 +1277,7 @@ class TestExternalDataSource(APIBaseTest):
                 "revenue_analytics_config",
                 "user_access_level",
                 "supports_webhooks",
+                "supports_column_selection",
             ],
         )
         self.assertIsNone(payload["engine"])
@@ -1155,6 +1304,7 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_table_mode": "consolidated",
                     "enabled_columns": None,
                     "available_columns": [],
+                    "source": None,
                 }
             ],
         )
@@ -1241,11 +1391,15 @@ class TestExternalDataSource(APIBaseTest):
 
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
+        "products.data_warehouse.backend.api.external_data_source.bulk_delete_external_data_schedules",
+        return_value=[("schema-id", Exception("Schema schedule delete failed"))],
+    )
+    @patch(
         "products.data_warehouse.backend.api.external_data_source.delete_external_data_schedule",
         side_effect=Exception("External delete failed"),
     )
     def test_delete_external_data_source_soft_deletes_even_if_external_cleanup_fails(
-        self, _mock_delete_schedule, mock_capture_exception
+        self, _mock_delete_schedule, _mock_bulk_delete, mock_capture_exception
     ):
         source = self._create_external_data_source()
         table = DataWarehouseTable.objects.create(
@@ -2213,20 +2367,18 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
 
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
-    @patch(
-        "products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._add_table_to_cdc_publication"
-    )
-    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_slot")
-    @patch("posthog.temporal.data_imports.sources.postgres.postgres.get_primary_key_columns")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.slot_manager.cdc_pg_connection")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
     def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
         self,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
-        mock_setup_cdc_slot,
-        mock_add_table_to_cdc_publication,
+        mock_setup_cdc_resources,
+        mock_add_table,
         _mock_is_cdc_enabled_for_team,
     ):
         source_mock = mock_get_source.return_value
@@ -2260,7 +2412,7 @@ class TestExternalDataSource(APIBaseTest):
         mock_cdc_pg_connection.return_value.__exit__.return_value = None
         mock_get_primary_key_columns.return_value = {"events": ["id"]}
 
-        def setup_cdc_slot(_source_impl, _source_config, source_model, _payload):
+        def setup_cdc_slot(_adapter, source_model, _payload):
             source_model.job_inputs = {
                 **(source_model.job_inputs or {}),
                 "cdc_enabled": True,
@@ -2271,7 +2423,7 @@ class TestExternalDataSource(APIBaseTest):
             source_model.save(update_fields=["job_inputs", "updated_at"])
             return None
 
-        mock_setup_cdc_slot.side_effect = setup_cdc_slot
+        mock_setup_cdc_resources.side_effect = setup_cdc_slot
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -2301,8 +2453,271 @@ class TestExternalDataSource(APIBaseTest):
         assert mock_get_primary_key_columns.call_args.args[1] == "analytics"
         assert mock_get_primary_key_columns.call_args.args[2] == ["events"]
 
-        mock_add_table_to_cdc_publication.assert_called_once()
-        assert mock_add_table_to_cdc_publication.call_args.args[1:] == ("test_pub", "analytics", "events")
+        # The adapter reads the publication name from config itself, so the call is just
+        # (source, schema, table). The first arg is the source model.
+        mock_add_table.assert_called_once()
+        assert mock_add_table.call_args.args[1:] == ("analytics", "events")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_leaves_unenabled_schemas_without_sync_type(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        mock_add_table,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        # A CDC source discovers every table, but the user only enables a few. Tables the user
+        # didn't enable haven't had a sync method set up, so they must be created with a blank
+        # sync_type (the schemas UI keys off this to prompt setup). Only the enabled table gets
+        # the concrete `cdc` method + config + publication add.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "analytics"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "analytics",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=True,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="events",
+            ),
+            SourceSchema(
+                name="analytics.sessions",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=True,
+                columns=[("id", "integer", False)],
+                foreign_keys=[],
+                source_schema="analytics",
+                source_table_name="sessions",
+            ),
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+        mock_get_primary_key_columns.return_value = {"events": ["id"]}
+
+        def setup_cdc_resources(_adapter, source_model, _payload):
+            source_model.job_inputs = {
+                **(source_model.job_inputs or {}),
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            }
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_resources.side_effect = setup_cdc_resources
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "analytics",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "analytics.events", "should_sync": True, "sync_type": "cdc"},
+                        {"name": "analytics.sessions", "should_sync": False, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        enabled = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.events")
+        assert enabled.sync_type == ExternalDataSchema.SyncType.CDC
+        assert enabled.sync_type_config["cdc_mode"] == "snapshot"
+        assert enabled.sync_type_config["cdc_table_mode"] == "consolidated"
+
+        unenabled = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.sessions")
+        assert unenabled.sync_type is None
+        assert unenabled.should_sync is False
+        # No CDC config noise — just the discovered metadata so column selection still works.
+        assert "cdc_mode" not in unenabled.sync_type_config
+        assert "cdc_table_mode" not in unenabled.sync_type_config
+
+        # Only the enabled table is added to the replication publication. The adapter reads the
+        # publication name from config itself, so the call is just (source, schema, table).
+        mock_add_table.assert_called_once()
+        assert mock_add_table.call_args.args[1:] == ("analytics", "events")
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table")
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_rejects_table_without_primary_key(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        mock_add_table,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        # CDC (logical replication) cannot identify rows on UPDATE/DELETE without a primary key.
+        # Frontend gates on `supports_cdc`, but the backend must enforce too — direct API/MCP
+        # callers, or a UI that lost track of `supports_cdc`, would otherwise create a schema
+        # that enters streaming mode and breaks downstream.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="tracking_link",
+                supports_incremental=False,
+                supports_append=False,
+                supports_cdc=False,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="tracking_link",
+            )
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+        # Source DB reports no PK for the table.
+        mock_get_primary_key_columns.return_value = {}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "tracking_link", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "primary key" in response.json()["message"].lower()
+        assert "tracking_link" in response.json()["message"]
+        # No source row left behind on validation failure.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        # CDC slot setup must not run when validation rejects — otherwise we'd leave a
+        # replication slot + publication on the source for a config we're about to refuse.
+        mock_setup_cdc_resources.assert_not_called()
+        mock_add_table.assert_not_called()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_rejects_cdc_schemas_when_source_cdc_disabled(
+        self,
+        mock_get_source,
+        mock_setup_cdc_resources,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        # If the user never toggled CDC on at the source-setup step, `payload.cdc_enabled` is
+        # False and `_setup_cdc_resources` never runs — so no replication slot/publication exists
+        # on the source. Accepting per-schema `sync_type=cdc` in that state would persist
+        # broken configs (no slot, empty PKs, snapshot→streaming flip leaving everything
+        # Failed). Backend must reject up front.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="borrower",
+                supports_incremental=True,
+                supports_append=True,
+                supports_cdc=True,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="borrower",
+            )
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    # Note: no cdc_enabled flag here — source-level CDC is off.
+                    "schemas": [
+                        {"name": "borrower", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "cdc must be enabled" in response.json()["message"].lower()
+        assert "borrower" in response.json()["message"]
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        mock_setup_cdc_resources.assert_not_called()
 
     @parameterized.expand(
         [
@@ -2888,6 +3303,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "webhook_only": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -2956,6 +3372,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_field": "id",
                     "sync_type": None,
                     "supports_webhooks": False,
+                    "webhook_only": False,
                     "available_columns": [
                         {"field": "id", "label": "id", "type": "integer", "nullable": True},
                     ],
@@ -3256,6 +3673,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
                 data={
                     "job_inputs": {
+                        # Adding an SSH tunnel requires re-supplying the database password.
+                        "password": "password",
                         "ssh_tunnel": {
                             "enabled": True,
                             "host": "ssh.example.com",
@@ -3267,7 +3686,7 @@ class TestExternalDataSource(APIBaseTest):
                                 "passphrase": "testphrase",
                                 "private_key": "testkey",
                             },
-                        }
+                        },
                     },
                 },
             )
@@ -3589,6 +4008,363 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "new_password"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_without_api_key_is_rejected(self, mock_validate_credentials):
+        # Freshdesk's connection target is `subdomain`, not `host`. Changing it without re-supplying
+        # the API key must be rejected so the stored key can't be redirected to another tenant.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "attacker"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "acme"
+        assert source.job_inputs["api_key"] == "original_key"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_with_api_key_succeeds(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain_creds",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "newco", "api_key": "new_key"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "newco"
+        assert source.job_inputs["api_key"] == "new_key"
+        mock_validate_credentials.assert_called_once()
+
+    def _servicenow_source(self) -> ExternalDataSource:
+        # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
+        # secret lives nested inside the `auth_method` container.
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="ServiceNow",
+            created_by=self.user,
+            prefix="servicenow_src",
+            job_inputs={
+                "instance_url": "https://acme.service-now.com",
+                "auth_method": {"selection": "api_key", "api_key": "sk_existing"},
+            },
+        )
+
+    @patch(
+        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_servicenow_instance_url_change_without_credentials_is_rejected(self, mock_validate_credentials):
+        source = self._servicenow_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"instance_url": "https://attacker.example.com"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["instance_url"] == "https://acme.service-now.com"
+        assert source.job_inputs["auth_method"]["api_key"] == "sk_existing"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.servicenow.source.ServiceNowSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_servicenow_instance_url_change_with_credentials_succeeds(self, mock_validate_credentials):
+        source = self._servicenow_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "instance_url": "https://new-instance.service-now.com",
+                    "auth_method": {"selection": "api_key", "api_key": "sk_new"},
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["instance_url"] == "https://new-instance.service-now.com"
+        assert source.job_inputs["auth_method"]["api_key"] == "sk_new"
+        mock_validate_credentials.assert_called_once()
+
+    def _custom_source(self, base_url: str, resource_paths: list[str] | None = None) -> ExternalDataSource:
+        paths = resource_paths if resource_paths is not None else ["/users"]
+        manifest = {
+            "client": {"base_url": base_url, "auth": {"type": "api_key", "name": "key", "location": "query"}},
+            "resources": [{"name": f"resource_{i}", "endpoint": {"path": p}} for i, p in enumerate(paths)],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_src",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_api_key": "sk_existing"},
+        )
+
+    @parameterized.expand([("without_credentials", {}, 400), ("with_credentials", {"auth_api_key": "sk_new"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_manifest_host_change(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # The custom source's host lives inside the manifest. Retargeting it to a new host requires
+        # re-supplying the secret; without it the preserved credential would reach a server the editor
+        # chose, so the change is rejected and nothing is persisted.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        persisted_host = "attacker.example.net" if expected_status == 200 else "api.example.com"
+        assert persisted_host in source.job_inputs["manifest_json"]
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_ambiguous_authority_host_change_is_rejected(self, mock_validate_credentials):
+        # `https://attacker\@api.example.com/` connects to `attacker` (urllib3/WHATWG) but parses as
+        # `api.example.com` under naive urlparse — the guard must see the real host and require re-entry.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net\\@api.example.com/",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_same_host_manifest_edit_keeps_credentials(self, mock_validate_credentials):
+        # Editing a manifest without introducing a new host (e.g. tweaking a path) must not force
+        # the user to re-enter the credential — the destination is unchanged.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/v2/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_path_param_host_injection_is_rejected(self, mock_validate_credentials):
+        # The new host is hidden in a path-param value (resolved into the path at sync time), not the
+        # literal path — the guard must still detect it and require re-entry.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [
+                {
+                    "name": "users",
+                    "endpoint": {"path": "{target}", "params": {"target": "https://attacker.example.net/"}},
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_adding_cross_host_resource_is_rejected(self, mock_validate_credentials):
+        # base_url is unchanged, but a resource now points at a brand-new host — the credential would
+        # reach a destination it wasn't going to before, so re-entry is still required.
+        source = self._custom_source("https://api.example.com")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [
+                {"name": "users", "endpoint": {"path": "/users"}},
+                {"name": "leak", "endpoint": {"path": "https://attacker.example.net/data"}},
+            ],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_removing_host_does_not_require_credentials(self, mock_validate_credentials):
+        # Dropping a resource removes a destination host. That can't leak the credential anywhere new,
+        # so it must not force the user to re-enter it.
+        source = self._custom_source("https://api.example.com", resource_paths=["/users", "https://cdn.other.net/data"])
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "api_key", "name": "key", "location": "query"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_existing"
+        mock_validate_credentials.assert_called_once()
+
+    def _okta_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Okta",
+            created_by=self.user,
+            prefix="okta_src",
+            job_inputs={"okta_domain": "company.okta.com", "api_key": "existing_token"},
+        )
+
+    @parameterized.expand([("without_token", {}, 400), ("with_token", {"api_key": "new_token"}, 200)])
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_domain_change_requires_token(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # `okta_domain` is the connection target for Okta. Retargeting it without re-supplying the API
+        # token would send the preserved token to a host the editor chose, so the change is rejected.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "attacker.example.com", **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        source.refresh_from_db()
+        expected_domain = "attacker.example.com" if expected_status == 200 else "company.okta.com"
+        assert source.job_inputs["okta_domain"] == expected_domain
+        assert source.job_inputs["api_key"] == ("new_token" if expected_status == 200 else "existing_token")
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.okta.source.OktaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_okta_source_same_domain_keeps_token(self, mock_validate_credentials):
+        # Re-saving the source without changing the domain must not force the user to re-enter the token.
+        source = self._okta_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"okta_domain": "company.okta.com"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["api_key"] == "existing_token"
         mock_validate_credentials.assert_called_once()
 
     @patch(
@@ -4095,6 +4871,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
                 data={
                     "job_inputs": {
+                        # Disabling the SSH tunnel is an SSH tunnel change — DB password must be re-supplied.
+                        "password": "db_password",
                         "ssh_tunnel": {
                             "enabled": False,
                         },
@@ -4148,6 +4926,8 @@ class TestExternalDataSource(APIBaseTest):
                 f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
                 data={
                     "job_inputs": {
+                        # Re-supply DB password so the failure comes from the mocked credential check below.
+                        "password": "db_password",
                         "ssh_tunnel": {
                             "enabled": False,
                         },
@@ -4203,6 +4983,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
+                    # DB password is re-supplied; SSH auth is missing so SSH credential check fails.
+                    "password": "db_password",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "new-ssh.example.com",
@@ -4255,6 +5037,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
+                    # Changing the SSH tunnel forces re-entry of the database password.
+                    "password": "db_password",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "new-ssh.example.com",
@@ -4313,6 +5097,8 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
+                    # Changing any SSH tunnel field forces re-entry of the database password.
+                    "password": "db_password",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "ssh.example.com",
@@ -4397,6 +5183,175 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
         # After update, it should be normalized to 'auth' format
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
+
+    def test_update_source_ssh_tunnel_change_requires_db_password_reentry(self):
+        """VERIA-311: any change to ssh_tunnel must force the database password to be re-supplied,
+        otherwise an editor could inject a tunnel that exfiltrates the stored credentials."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_veria_311",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                    },
+                },
+            },
+        )
+
+        # Editor swaps the SSH tunnel for an attacker-controlled one without re-entering the DB password.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "ssh_tunnel": {
+                        "enabled": True,
+                        "host": "attacker.example.com",
+                        "port": 22,
+                        "auth": {
+                            "selection": "password",
+                            "username": "sshuser",
+                            "password": "attacker_password",
+                        },
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert "database credentials" in str(response.json())
+
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
+        assert source.job_inputs["password"] == "db_password"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_source_ssh_tunnel_disabled_string_vs_bool_no_false_positive(self, mock_validate_credentials):
+        """Regression: stored `enabled: "False"` must compare equal to incoming JSON `false`.
+
+        A naive `str(value or "")` collapses falsy values to "", so stored "False" would diverge
+        from incoming False and spuriously demand a password re-entry on every save.
+        """
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_disabled_false_string",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "False",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                    },
+                },
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "database": "renamed_db",
+                    "ssh_tunnel": {
+                        "enabled": False,
+                        "host": "ssh.example.com",
+                        "port": 22,
+                    },
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["database"] == "renamed_db"
+        assert source.job_inputs["password"] == "db_password"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_source_ssh_tunnel_no_change_does_not_require_db_password(self, mock_validate_credentials):
+        """Re-submitting the same ssh_tunnel (e.g. when saving an unrelated field after a GET) must
+        NOT force the user to re-enter the database password — that would break the no-op save path."""
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_change",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                    },
+                },
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        ssh_tunnel_from_get = get_response.json()["job_inputs"]["ssh_tunnel"]
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"ssh_tunnel": ssh_tunnel_from_get, "database": "renamed_db"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["database"] == "renamed_db"
+        assert source.job_inputs["password"] == "db_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+        mock_validate_credentials.assert_called_once()
 
     def test_snowflake_auth_type_create_and_update(self):
         """Test that we can create and update the auth type for a Snowflake source"""
@@ -4709,6 +5664,36 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200
         assert payload is not None
 
+    def test_create_custom_source_rejected_when_team_ineligible(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Custom",
+                "prefix": "custom_",
+                "payload": {"manifest_json": "{}"},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] == "Custom REST source is not available for this team."
+
+    def test_create_custom_source_allowed_when_team_eligible(self):
+        with patch(
+            "products.data_warehouse.backend.api.external_data_source.is_custom_source_available_for_team",
+            return_value=True,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Custom",
+                    "prefix": "custom_",
+                    "payload": {"manifest_json": "{}"},
+                },
+            )
+        # Past the team gate, the request fails later on the (empty) manifest rather
+        # than on availability — i.e. the eligibility check no longer blocks it.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["message"] != "Custom REST source is not available for this team."
+
     def test_revenue_analytics_config_created_automatically(self):
         """Test that revenue analytics config is created automatically when external data source is created."""
         source = self._create_external_data_source()
@@ -4965,7 +5950,7 @@ class TestCreateWebhook(APIBaseTest):
         )
 
     def _create_hog_function_template(self):
-        from posthog.models.hog_function_template import HogFunctionTemplate
+        from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
         return HogFunctionTemplate.objects.create(
             template_id="template-warehouse-source-stripe",
@@ -5011,12 +5996,12 @@ class TestCreateWebhook(APIBaseTest):
             category=[],
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_success(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_success(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5042,8 +6027,7 @@ class TestCreateWebhook(APIBaseTest):
 
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_create_webhook_no_job_inputs(self, _mock_flag):
+    def test_create_webhook_no_job_inputs(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -5061,11 +6045,10 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["message"] == "Source has no configuration"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_external_creation_fails(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_external_creation_fails(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result(success=False, error="Permission denied")
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5083,10 +6066,9 @@ class TestCreateWebhook(APIBaseTest):
 
         assert HogFunction.objects.filter(team=self.team, type="warehouse_source_webhook").exists()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_url_uses_cloud_deployment(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5099,10 +6081,9 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://webhooks.us.posthog.com")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     @override_settings(CLOUD_DEPLOYMENT=None, SITE_URL="https://my.posthog.instance")
-    def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_url_uses_site_url_for_self_hosted(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5115,12 +6096,12 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["webhook_url"].startswith("https://my.posthog.instance")
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_merges_schemas_on_update(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5152,8 +6133,7 @@ class TestCreateWebhook(APIBaseTest):
         assert charge_object_type in schema_mapping
         assert customer_object_type in schema_mapping
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_create_webhook_template_not_in_db(self, _mock_flag):
+    def test_create_webhook_template_not_in_db(self):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
@@ -5164,10 +6144,9 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "sync_hog_function_templates" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_saves_extra_inputs(self, mock_create_webhook, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+    def test_create_webhook_saves_extra_inputs(self, mock_create_webhook):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_test123"})
 
@@ -5187,11 +6166,10 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs is not None
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_test123"
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs(self, mock_create_webhook, mock_inputs_updated, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+    def test_update_webhook_inputs(self, mock_create_webhook, mock_inputs_updated):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result()
         mock_inputs_updated.return_value = (True, None)
@@ -5225,12 +6203,9 @@ class TestCreateWebhook(APIBaseTest):
         assert call_args.args[2] == self.team.pk
         assert call_args.args[3] == {"signing_secret": "whsec_manual123"}
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_propagates_failure_from_source(
-        self, mock_create_webhook, mock_inputs_updated, _mock_flag
-    ):
+    def test_update_webhook_inputs_propagates_failure_from_source(self, mock_create_webhook, mock_inputs_updated):
         # If the source's webhook_inputs_updated reports failure (e.g. Customer.io
         # rejects the request to enable the webhook), surface that to the caller as
         # a 400 instead of returning 200 + success=true while the webhook stays
@@ -5254,9 +6229,8 @@ class TestCreateWebhook(APIBaseTest):
         assert body["success"] is False
         assert "Customer.io rejected" in body["error"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    def test_update_webhook_inputs_requires_job_inputs(self, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs_requires_job_inputs(self, mock_inputs_updated):
         # Sources persisted without job_inputs can't be parsed into a config, so
         # we should bail out with a 400 before saving anything to the HogFunction.
         source = self._create_stripe_source(job_inputs={})
@@ -5272,9 +6246,8 @@ class TestCreateWebhook(APIBaseTest):
         assert response.json()["message"] == "Source has no configuration"
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    def test_update_webhook_inputs_rejects_invalid_keys(self, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs_rejects_invalid_keys(self, mock_inputs_updated):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
@@ -5288,9 +6261,8 @@ class TestCreateWebhook(APIBaseTest):
         assert "Invalid input keys" in response.json()["message"]
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
-    def test_update_webhook_inputs_no_hog_function(self, mock_inputs_updated, _mock_flag):
+    def test_update_webhook_inputs_no_hog_function(self, mock_inputs_updated):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
 
@@ -5304,9 +6276,8 @@ class TestCreateWebhook(APIBaseTest):
         assert "No webhook function found" in response.json()["message"]
         mock_inputs_updated.assert_not_called()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_rejects_blanked_required_field(self, mock_create_webhook, _mock_flag):
+    def test_update_webhook_inputs_rejects_blanked_required_field(self, mock_create_webhook):
         mock_create_webhook.return_value = self._webhook_result()
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5322,14 +6293,11 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "signing_secret" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(
-        self, mock_create_webhook, _mock_flag
-    ):
+    def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
         from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
         self._create_hog_function_template()
@@ -5396,8 +6364,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not support webhooks" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_update_webhook_inputs_rejects_empty_payload(self, _mock_flag):
+    def test_update_webhook_inputs_rejects_empty_payload(self):
         source = self._create_stripe_source()
 
         response = self.client.post(
@@ -5409,18 +6376,17 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "No inputs provided" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.webhook_inputs_updated")
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_rotates_secret_without_webhook_schemas(
-        self, mock_create_webhook, mock_inputs_updated, _mock_flag
+        self, mock_create_webhook, mock_inputs_updated
     ):
         # Regression for Zendesk 57818: the signing secret is a source-level credential
         # stored on the HogFunction inputs, not per-schema. A source can legitimately
         # have zero schemas on webhook sync (e.g. Stripe with all schemas on incremental
         # polling) and still need its signing secret rotated to keep the existing
         # webhook hog function authenticating deliveries.
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result()
         mock_inputs_updated.return_value = (True, None)
@@ -5447,15 +6413,15 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.encrypted_inputs["signing_secret"]["value"] == "whsec_rotated"
         mock_inputs_updated.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
-    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook, _mock_flag):
+    def test_create_webhook_maps_all_webhook_schemas(self, mock_create_webhook):
         """Regression: creating a source with multiple webhook tables then hitting the
         create_webhook endpoint must populate schema_mapping for every webhook schema.
         Webhook schemas have sync_type='webhook' (not 'incremental')."""
         mock_create_webhook.return_value = self._webhook_result()
-        from posthog.models.hog_functions.hog_function import HogFunction
         from posthog.temporal.data_imports.sources.stripe.constants import RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
@@ -5816,7 +6782,7 @@ class TestWebhookInfo(APIBaseTest):
         )
 
     def _create_hog_function(self, source: ExternalDataSource, enabled: bool = True):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         return HogFunction.objects.create(
             team=self.team,
@@ -5834,8 +6800,7 @@ class TestWebhookInfo(APIBaseTest):
             },
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_webhook_info_non_webhook_source(self, _mock_flag):
+    def test_webhook_info_non_webhook_source(self):
         source = self._create_postgres_source()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
@@ -5844,8 +6809,7 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["supports_webhooks"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_webhook_info_no_hog_function(self, _mock_flag):
+    def test_webhook_info_no_hog_function(self):
         source = self._create_stripe_source()
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/webhook_info/")
@@ -5855,9 +6819,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["supports_webhooks"] is True
         assert data["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
-    def test_webhook_info_with_hog_function(self, mock_get_info, _mock_flag):
+    def test_webhook_info_with_hog_function(self, mock_get_info):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
@@ -5885,9 +6848,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["external_status"]["status"] == "enabled"
         assert data["external_status"]["enabled_events"] == ["charge.created", "charge.updated"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
-    def test_webhook_info_external_not_found(self, mock_get_info, _mock_flag):
+    def test_webhook_info_external_not_found(self, mock_get_info):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(exists=False)
@@ -5902,9 +6864,8 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["exists"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info")
-    def test_webhook_info_external_error(self, mock_get_info, _mock_flag):
+    def test_webhook_info_external_error(self, mock_get_info):
         from posthog.temporal.data_imports.sources.common.base import ExternalWebhookInfo
 
         mock_get_info.return_value = ExternalWebhookInfo(
@@ -5922,8 +6883,7 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"]["error"] is not None
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_webhook_info_source_returns_none(self, _mock_flag):
+    def test_webhook_info_source_returns_none(self):
         """When a source doesn't implement get_external_webhook_info, external_status should be null."""
         source = self._create_stripe_source()
         self._create_hog_function(source)
@@ -5941,12 +6901,11 @@ class TestWebhookInfo(APIBaseTest):
         assert data["exists"] is True
         assert data["external_status"] is None
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
     )
-    def test_webhook_info_masks_set_secret_input(self, _mock_info, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+    def test_webhook_info_masks_set_secret_input(self, _mock_info):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = self._create_stripe_source()
         hog_function = self._create_hog_function(source)
@@ -5968,11 +6927,10 @@ class TestWebhookInfo(APIBaseTest):
         data = response.json()
         assert data["inputs"] == {"signing_secret": {"secret": True}}
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.get_external_webhook_info", return_value=None
     )
-    def test_webhook_info_omits_unset_inputs(self, _mock_info, _mock_flag):
+    def test_webhook_info_omits_unset_inputs(self, _mock_info):
         source = self._create_stripe_source()
         self._create_hog_function(source)
 
@@ -5998,7 +6956,7 @@ class TestDeleteWebhook(APIBaseTest):
         )
 
     def _create_hog_function(self, source: ExternalDataSource, enabled: bool = True):
-        from posthog.models.hog_functions.hog_function import HogFunction
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         return HogFunction.objects.create(
             team=self.team,
@@ -6043,9 +7001,8 @@ class TestDeleteWebhook(APIBaseTest):
             should_sync=True,
         )
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
-    def test_delete_webhook_success(self, mock_delete_webhook, _mock_flag):
+    def test_delete_webhook_success(self, mock_delete_webhook):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
@@ -6068,8 +7025,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.deleted is True
         assert hog_function.enabled is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_blocked_by_webhook_schemas(self, _mock_flag):
+    def test_delete_webhook_blocked_by_webhook_schemas(self):
         source = self._create_stripe_source()
         self._create_webhook_schema(source, "Customers")
         self._create_hog_function(source)
@@ -6082,9 +7038,8 @@ class TestDeleteWebhook(APIBaseTest):
         assert "webhook sync" in response.json()["message"]
         assert "Customers" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
-    def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook, _mock_flag):
+    def test_delete_webhook_external_fails_still_deletes_hog_function(self, mock_delete_webhook):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=False, error="Permission denied")
@@ -6107,8 +7062,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert hog_function.deleted is True
         assert hog_function.enabled is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_no_hog_function(self, _mock_flag):
+    def test_delete_webhook_no_hog_function(self):
         source = self._create_stripe_source()
 
         response = self.client.post(
@@ -6120,8 +7074,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert data["success"] is True
         assert data["external_deleted"] is False
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_non_webhook_source(self, _mock_flag):
+    def test_delete_webhook_non_webhook_source(self):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
@@ -6139,8 +7092,7 @@ class TestDeleteWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not support webhooks" in response.json()["message"]
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
-    def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self, _mock_flag):
+    def test_delete_webhook_no_job_inputs_still_cleans_up_hog_function(self):
         source = self._create_stripe_source(job_inputs={})
         hog_function = self._create_hog_function(source)
 
@@ -6159,11 +7111,11 @@ class TestDeleteWebhook(APIBaseTest):
 
 
 class TestDestroySourceCleansUpWebhook(APIBaseTest):
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook")
-    def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook, _mock_flag):
-        from posthog.models.hog_functions.hog_function import HogFunction
+    def test_destroy_source_deletes_webhook_and_hog_function(self, mock_delete_webhook):
         from posthog.temporal.data_imports.sources.common.base import WebhookDeletionResult
+
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_delete_webhook.return_value = WebhookDeletionResult(success=True)
 
@@ -6198,16 +7150,13 @@ class TestDestroySourceCleansUpWebhook(APIBaseTest):
         assert hog_function.enabled is False
         mock_delete_webhook.assert_called_once()
 
-    @patch("posthog.temporal.data_imports.sources.stripe.source.is_webhook_feature_flag_enabled", return_value=True)
     @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.delete_webhook",
         side_effect=Exception("Stripe API error"),
     )
-    def test_destroy_source_continues_if_webhook_cleanup_fails(
-        self, _mock_delete_webhook, mock_capture_exception, _mock_flag
-    ):
-        from posthog.models.hog_functions.hog_function import HogFunction
+    def test_destroy_source_continues_if_webhook_cleanup_fails(self, _mock_delete_webhook, mock_capture_exception):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -6326,3 +7275,947 @@ class TestExternalDataSourceCreateSerializerValidation(APIBaseTest):
             format="json",
         )
         assert response.status_code == 400
+
+
+def _make_postgres_source(
+    team_id: int,
+    user,
+    *,
+    cdc_enabled: bool = False,
+    management_mode: str = "posthog",
+    slot_name: str = "posthog_slot",
+    pub_name: str = "posthog_pub",
+    extra_job_inputs: dict | None = None,
+) -> ExternalDataSource:
+    job_inputs: dict[str, t.Any] = {
+        "host": "localhost",
+        "port": 5432,
+        "database": "app",
+        "user": "user",
+        "password": "pass",
+        "schema": "public",
+    }
+    if cdc_enabled:
+        job_inputs.update(
+            {
+                "cdc_enabled": True,
+                "cdc_management_mode": management_mode,
+                "cdc_slot_name": slot_name,
+                "cdc_publication_name": pub_name,
+                "cdc_auto_drop_slot": True,
+                "cdc_lag_warning_threshold_mb": 1024,
+                "cdc_lag_critical_threshold_mb": 10240,
+                "cdc_consistent_point": "0/12345",
+            }
+        )
+    if extra_job_inputs:
+        job_inputs.update(extra_job_inputs)
+    return ExternalDataSource.objects.create(
+        team_id=team_id,
+        source_id=str(uuid.uuid4()),
+        connection_id=str(uuid.uuid4()),
+        destination_id=str(uuid.uuid4()),
+        source_type="Postgres",
+        created_by=user,
+        prefix="pg_",
+        job_inputs=job_inputs,
+    )
+
+
+class TestCheckCDCPrerequisitesForSource(APIBaseTest):
+    def test_rejects_source_type_without_cdc_support(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_rejects_invalid_management_mode(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "nonsense"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "cdc_management_mode" in response.json()["message"]
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    def test_uses_stored_credentials_not_client_payload(self, mock_validate) -> None:
+        # The whole point of this endpoint: the client never sends the password (it's
+        # stripped from API responses), so prereqs must validate against the stored source.
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert response.json() == {"valid": True, "errors": []}
+        # The adapter was handed the stored source model — not a client-supplied config dict.
+        called_source = mock_validate.call_args.args[0]
+        assert called_source.pk == source.pk
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=["wal_level must be 'logical'"],
+    )
+    def test_returns_errors_when_prereqs_fail(self, _mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["valid"] is False
+        assert body["errors"] == ["wal_level must be 'logical'"]
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    def test_forwards_self_managed_publication_name(self, mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "self_managed", "cdc_publication_name": "customer_pub"},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
+        assert mock_validate.call_args.kwargs["management_mode"] == "self_managed"
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_returns_400_on_connection_exception(self, _mock_validate) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/check_cdc_prerequisites_for_source/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]
+
+
+class TestEnableCDC(APIBaseTest):
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    def test_enable_cdc_rejects_source_type_without_cdc_support(self, _flag) -> None:
+        # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=False)
+    def test_enable_cdc_rejects_when_team_flag_off(self, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 403
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    def test_enable_cdc_rejects_when_already_enabled(self, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 409
+
+    @parameterized.expand(
+        [
+            ("blank", ""),
+            ("invalid", "garbage_mode"),
+            ("none", None),
+        ]
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    def test_enable_cdc_rejects_invalid_management_mode(self, _name: str, mode_value, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": mode_value},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "cdc_management_mode" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=["wal_level must be 'logical'", "Missing REPLICATION privilege"],
+    )
+    def test_enable_cdc_returns_400_when_prereqs_fail(self, _check, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        body = response.json()
+        assert body["message"] == "CDC prerequisites not met."
+        assert body["errors"] == ["wal_level must be 'logical'", "Missing REPLICATION privilege"]
+        source.refresh_from_db()
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_enable_cdc_returns_400_on_prereq_check_exception(self, _check, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    def test_enable_cdc_posthog_managed_success(
+        self,
+        mock_ensure_cleanup,
+        mock_sync_extraction,
+        mock_setup_cdc_resources,
+        _check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        def setup_cdc_slot(_adapter, source_model, payload):
+            job_inputs = dict(source_model.job_inputs or {})
+            job_inputs.update(
+                {
+                    "cdc_enabled": True,
+                    "cdc_management_mode": payload.get("cdc_management_mode", "posthog"),
+                    "cdc_slot_name": payload.get("cdc_slot_name") or f"posthog_{source_model.id.hex[:12]}",
+                    "cdc_publication_name": (
+                        payload.get("cdc_publication_name") or f"posthog_pub_{source_model.id.hex[:12]}"
+                    ),
+                    "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
+                    "cdc_lag_warning_threshold_mb": payload.get("cdc_lag_warning_threshold_mb", 1024),
+                    "cdc_lag_critical_threshold_mb": payload.get("cdc_lag_critical_threshold_mb", 10240),
+                    "cdc_consistent_point": "0/ABCDEF",
+                }
+            )
+            source_model.job_inputs = job_inputs
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_resources.side_effect = setup_cdc_slot
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "posthog",
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 4096,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {"success": True, "schedules_ready": True}
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert ji["cdc_enabled"] == "True"
+        assert ji["cdc_management_mode"] == "posthog"
+        assert ji["cdc_auto_drop_slot"] == "False"
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 512
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 4096
+        assert ji["cdc_consistent_point"] == "0/ABCDEF"
+
+        mock_sync_extraction.assert_called_once()
+        mock_ensure_cleanup.assert_called_once()
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.sync_cdc_extraction_schedule")
+    @patch("products.data_warehouse.backend.api.external_data_source.ensure_cdc_slot_cleanup_schedule")
+    def test_enable_cdc_self_managed_passes_publication_name(
+        self,
+        _mock_ensure_cleanup,
+        _mock_sync_extraction,
+        mock_setup_cdc_resources,
+        mock_check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        def setup_cdc_slot(_adapter, source_model, payload):
+            job_inputs = dict(source_model.job_inputs or {})
+            job_inputs.update(
+                {
+                    "cdc_enabled": True,
+                    "cdc_management_mode": "self_managed",
+                    "cdc_slot_name": f"posthog_{source_model.id.hex[:12]}",
+                    "cdc_publication_name": payload.get("cdc_publication_name") or "posthog_pub",
+                    "cdc_consistent_point": "0/DEADBEEF",
+                }
+            )
+            source_model.job_inputs = job_inputs
+            source_model.save(update_fields=["job_inputs", "updated_at"])
+            return None
+
+        mock_setup_cdc_resources.side_effect = setup_cdc_slot
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "self_managed",
+                "cdc_publication_name": "customer_pub",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.content
+        # Prereq check forwarded the publication name we received.
+        assert mock_check.call_args.kwargs["publication_name"] == "customer_pub"
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        assert ji["cdc_management_mode"] == "self_managed"
+        assert ji["cdc_publication_name"] == "customer_pub"
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    def test_enable_cdc_returns_400_when_slot_setup_fails(self, mock_setup_cdc_resources, _check, _flag) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        mock_setup_cdc_resources.return_value = "Failed to create replication slot: connection lost"
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={"cdc_management_mode": "posthog"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "connection lost" in response.json()["message"]
+
+        # Source must NOT be deleted (this is not the create path).
+        source.refresh_from_db()
+        assert source.deleted is False
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=False)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists", return_value=False)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
+    def test_enable_cdc_posthog_rolls_back_partial_slot_on_failure(
+        self,
+        mock_cdc_pg_connection,
+        mock_create_slot_and_publication,
+        mock_drop_slot_and_publication,
+        _mock_slot_exists,
+        _mock_publication_exists,
+        _check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        # Fake a no-op connection context — actual slot calls are themselves mocked.
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+
+        mock_create_slot_and_publication.side_effect = RuntimeError("max_replication_slots reached")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "leaky_slot",
+                "cdc_publication_name": "leaky_pub",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "max_replication_slots reached" in response.json()["message"]
+
+        # Best-effort cleanup must run with the exact slot + publication we tried to create.
+        mock_drop_slot_and_publication.assert_called_once()
+        call = mock_drop_slot_and_publication.call_args
+        assert call.args[1] == "leaky_slot"
+        assert call.args[2] == "leaky_pub"
+
+        # Source's job_inputs must NOT have been persisted with cdc_enabled — we never reached save().
+        source.refresh_from_db()
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+        assert source.deleted is False
+
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.validate_prerequisites",
+        return_value=[],
+    )
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists", return_value=False)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=True)
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
+    def test_enable_cdc_self_managed_rolls_back_slot_only_on_failure(
+        self,
+        mock_cdc_pg_connection,
+        _mock_publication_exists,
+        _mock_slot_exists,
+        mock_create_slot,
+        mock_drop_slot,
+        mock_drop_slot_and_publication,
+        _check,
+        _flag,
+    ) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+
+        mock_cdc_pg_connection.return_value.__enter__.return_value = object()
+        mock_cdc_pg_connection.return_value.__exit__.return_value = None
+
+        mock_create_slot.side_effect = RuntimeError("replication permission denied")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
+            data={
+                "cdc_management_mode": "self_managed",
+                "cdc_slot_name": "self_slot",
+                "cdc_publication_name": "customer_owned_pub",
+            },
+            format="json",
+        )
+
+        assert response.status_code == 400
+        assert "replication permission denied" in response.json()["message"]
+
+        # In self-managed mode the publication is customer-owned — only drop the slot.
+        mock_drop_slot.assert_called_once()
+        assert mock_drop_slot.call_args.args[1] == "self_slot"
+        mock_drop_slot_and_publication.assert_not_called()
+
+        source.refresh_from_db()
+        assert (source.job_inputs or {}).get("cdc_enabled") is not True
+        assert source.deleted is False
+
+
+class TestDisableCDC(APIBaseTest):
+    def test_disable_cdc_rejects_source_type_without_cdc_support(self) -> None:
+        # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_disable_cdc_noops_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        assert body.get("already_disabled") is True
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_clears_cdc_keys_and_pauses_schemas(self, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        non_cdc_schema = ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        # Every cdc_* key must be gone — leaving a stale consistent_point behind
+        # would corrupt LSN tracking on re-enable.
+        assert not any(k.startswith("cdc_") for k in ji.keys())
+        # Non-CDC connection fields are preserved.
+        assert ji["host"] == "localhost"
+        assert ji["user"] == "user"
+
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type is None
+        assert cdc_schema.should_sync is False
+
+        # Non-CDC schema must NOT be touched.
+        non_cdc_schema.refresh_from_db()
+        assert non_cdc_schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert non_cdc_schema.should_sync is True
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_soft_deletes_companion_cdc_tables(self, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        cdc_companion = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="pg_orders_cdc",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders_cdc",
+        )
+        main_table = DataWarehouseTable.objects.create(
+            team_id=self.team.pk,
+            name="pg_orders",
+            external_data_source_id=source.pk,
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="s3://bucket/orders",
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        cdc_companion.refresh_from_db()
+        assert cdc_companion.deleted is True
+
+        # Non-_cdc-suffixed table must NOT be soft-deleted by disable_cdc —
+        # the user might still pick a new sync strategy and reuse it.
+        main_table.refresh_from_db()
+        assert main_table.deleted is False
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
+    def test_disable_cdc_cancels_running_workflow(self, mock_cancel, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+        running_job = ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            team_id=self.team.pk,
+            schema=cdc_schema,
+            workflow_id="cdc-extraction-running-workflow",
+            status="Running",
+            rows_synced=0,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+        mock_cancel.assert_called_once_with(running_job.workflow_id)
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
+    def test_disable_cdc_does_not_cancel_non_cdc_running_jobs(self, mock_cancel, _cleanup) -> None:
+        # A running incremental sync on the same source must NOT be cancelled by disable_cdc.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        incremental_schema = ExternalDataSchema.objects.create(
+            name="incremental_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            should_sync=True,
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            team_id=self.team.pk,
+            schema=incremental_schema,
+            workflow_id="incremental-running-workflow",
+            status="Running",
+            rows_synced=0,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+        mock_cancel.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    @patch("products.data_warehouse.backend.api.external_data_source.cancel_external_data_workflow")
+    def test_disable_cdc_does_not_cancel_non_running_workflow(self, mock_cancel, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            team_id=self.team.pk,
+            workflow_id="cdc-extraction-completed-workflow",
+            status="Completed",
+            rows_synced=10,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+        mock_cancel.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        side_effect=RuntimeError("slot drop network blip"),
+    )
+    def test_disable_cdc_succeeds_even_if_external_cleanup_fails(self, _cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        cdc_schema = ExternalDataSchema.objects.create(
+            name="cdc_table",
+            team_id=self.team.pk,
+            source_id=source.pk,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        # The user's intent to disable CDC must be honored even if the customer's DB
+        # is briefly unreachable for the slot drop — we still clear local state.
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs or {}
+        assert "cdc_enabled" not in ji
+
+        cdc_schema.refresh_from_db()
+        assert cdc_schema.sync_type is None
+        assert cdc_schema.should_sync is False
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources",
+        return_value=None,
+    )
+    def test_disable_cdc_calls_source_cleanup_helper(self, mock_cleanup) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/disable_cdc/",
+        )
+        assert response.status_code == 200, response.content
+
+        # Helper called with the source model (drops schedule + slot + publication).
+        mock_cleanup.assert_called_once()
+        called_with = mock_cleanup.call_args.args[0]
+        assert called_with.pk == source.pk
+
+
+class TestUpdateCDCSettings(APIBaseTest):
+    def test_update_cdc_settings_rejects_source_type_without_cdc_support(self) -> None:
+        # Stripe has no CDC adapter — the viewset must surface that as a 400, not crash.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": 100},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_update_cdc_settings_rejects_when_cdc_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": 100},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "CDC is not enabled" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            ("non_numeric", "fast"),
+            ("negative", -10),
+            ("zero", 0),
+        ]
+    )
+    def test_update_cdc_settings_rejects_invalid_thresholds(self, _name: str, value) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": value},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_update_cdc_settings_rejects_warn_not_less_than_crit(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={
+                "cdc_lag_warning_threshold_mb": 5000,
+                "cdc_lag_critical_threshold_mb": 5000,
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "less than" in response.json()["message"]
+
+    def test_update_cdc_settings_validates_warn_vs_existing_crit(self) -> None:
+        # If only `warning` is sent, we must still compare against the persisted critical value.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_lag_warning_threshold_mb": 99999},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "less than" in response.json()["message"]
+
+    def test_update_cdc_settings_partial_update_preserves_other_fields(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        original_slot = source.job_inputs["cdc_slot_name"]
+        original_pub = source.job_inputs["cdc_publication_name"]
+        original_mode = source.job_inputs["cdc_management_mode"]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_auto_drop_slot": False},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert ji["cdc_auto_drop_slot"] == "False"
+        # Untouched fields preserved.
+        assert ji["cdc_slot_name"] == original_slot
+        assert ji["cdc_publication_name"] == original_pub
+        assert ji["cdc_management_mode"] == original_mode
+        # Thresholds preserved at defaults.
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 1024
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 10240
+
+    def test_update_cdc_settings_empty_payload_is_unchanged(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["success"] is True
+        assert body.get("unchanged") is True
+
+    def test_update_cdc_settings_updates_all_tunable_fields(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 256,
+                "cdc_lag_critical_threshold_mb": 2048,
+            },
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        ji = source.job_inputs
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert ji["cdc_auto_drop_slot"] == "False"
+        assert int(ji["cdc_lag_warning_threshold_mb"]) == 256
+        assert int(ji["cdc_lag_critical_threshold_mb"]) == 2048
+
+    def test_update_cdc_settings_coerces_bool_truthiness(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/update_cdc_settings/",
+            data={"cdc_auto_drop_slot": True},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+
+        source.refresh_from_db()
+        # `EncryptedJSONField` round-trips scalar values as strings.
+        assert source.job_inputs["cdc_auto_drop_slot"] == "True"
+
+
+class TestCDCJobInputsExposure(APIBaseTest):
+    def test_retrieve_exposes_cdc_fields_but_not_password(self) -> None:
+        # cdc_* keys aren't source-config form fields; without the explicit allowlist they'd be
+        # stripped from reads as "unknown" and the Configuration page would never see CDC as on.
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        assert response.status_code == 200, response.content
+
+        job_inputs = response.json()["job_inputs"]
+        assert job_inputs["cdc_enabled"] == "True"
+        assert job_inputs["cdc_management_mode"] == "posthog"
+        assert job_inputs["cdc_slot_name"] == "posthog_slot"
+        assert job_inputs["cdc_publication_name"] == "posthog_pub"
+        assert "cdc_lag_warning_threshold_mb" in job_inputs
+        assert "cdc_lag_critical_threshold_mb" in job_inputs
+        # Secret connection field must still be stripped.
+        assert "password" not in job_inputs
+
+    def test_retrieve_omits_cdc_fields_when_not_enabled(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/")
+        assert response.status_code == 200, response.content
+        job_inputs = response.json()["job_inputs"]
+        assert not any(k.startswith("cdc_") for k in job_inputs)
+
+
+class TestCDCStatus(APIBaseTest):
+    def test_rejects_source_type_without_cdc_support(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Stripe",
+            created_by=self.user,
+            job_inputs={"stripe_secret_key": "sk_test_123"},
+        )
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 400
+        assert "CDC is not supported" in response.json()["message"]
+
+    def test_returns_disabled_when_cdc_off(self) -> None:
+        source = _make_postgres_source(self.team.pk, self.user)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        assert response.json() == {"enabled": False}
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+    )
+    def test_returns_live_status_when_enabled(self, mock_get_status) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["enabled"] is True
+        assert body["management_mode"] == "posthog"
+        assert body["slot_name"] == "posthog_slot"
+        assert body["publication_name"] == "posthog_pub"
+        assert body["slot_exists"] is True
+        assert body["publication_exists"] is True
+        assert body["lag_bytes"] == 2048
+        # Read against the stored source model, not a client payload.
+        assert mock_get_status.call_args.args[0].pk == source.pk
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        return_value={"slot_exists": False, "publication_exists": True, "lag_bytes": None},
+    )
+    def test_surfaces_missing_slot(self, _mock_get_status) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["slot_exists"] is False
+        assert body["lag_bytes"] is None
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
+        side_effect=psycopg.OperationalError("connection refused"),
+    )
+    def test_returns_400_when_source_unreachable(self, _mock_get_status) -> None:
+        source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/cdc_status/")
+        assert response.status_code == 400
+        assert "Could not connect to source" in response.json()["message"]

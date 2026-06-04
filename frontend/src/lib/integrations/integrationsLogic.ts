@@ -282,10 +282,8 @@ export const integrationsLogic = kea<integrationsLogicType>([
         },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
-            const { next, token, source, server_id, kind: stateKind } = fromParamsGivenUrl(state)
-            // slack-posthog-code reuses /integrations/slack/callback as its approved redirect URI,
-            // so the real kind is carried in OAuth state and takes precedence over the URL path.
-            const resolvedKind = (stateKind as IntegrationKind) || kind
+            const { next, token, source, server_id } = fromParamsGivenUrl(state)
+            const resolvedKind = kind
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
@@ -392,12 +390,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
-        posthogCodeSlackIntegrations: [
-            (s) => [s.integrations],
-            (integrations) => {
-                return integrations?.filter((x) => x.kind === 'slack-posthog-code')
-            },
-        ],
         getIntegrationsByKind: [
             (s) => [s.integrations],
             (integrations) => {
@@ -410,12 +402,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
             (preflight) => {
                 // TODO: Change this to be based on preflight or something
                 return preflight?.slack_service?.available
-            },
-        ],
-        posthogCodeSlackAvailable: [
-            (s) => [s.preflight],
-            (preflight) => {
-                return preflight?.posthog_code_slack_service?.available
             },
         ],
         getGitHubRepositories: [

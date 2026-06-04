@@ -26,7 +26,7 @@ from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParamete
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.middleware import per_request_logging_context_middleware
-from posthog.models import Cohort, Insight
+from posthog.models import Cohort
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -35,6 +35,7 @@ from posthog.settings import SITE_URL
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _social_auth_backend() -> BaseAuth:
@@ -784,6 +785,11 @@ class TestImpersonationReadOnlyMiddleware(APIBaseTest):
             ("query", "query/", {"query": {"kind": "EventsQuery", "select": ["event"]}}),
             ("query_kind", "query/HogQLQuery/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),
             ("endpoint_materialization_preview", "endpoints/some_endpoint/materialization_preview/", {}),
+            (
+                "external_data_schemas_incremental_fields",
+                "external_data_schemas/00000000-0000-0000-0000-000000000000/incremental_fields/",
+                {},
+            ),
         ]
     )
     def test_read_only_impersonation_allows_allowlisted_post(self, _name, path_suffix, body):
@@ -1694,6 +1700,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         def get_response(request):
             self.captured["client"] = activity_storage.get_client()
             self.captured["user"] = activity_storage.get_user()
+            self.captured["ip_address"] = activity_storage.get_ip_address()
             from django.http import HttpResponse
 
             return HttpResponse()
@@ -1722,6 +1729,31 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         request.user = self.user
         self.middleware(request)
         self.assertEqual(self.captured["client"], "x" * ACTIVITY_LOG_CLIENT_MAX_LENGTH)
+
+    def test_captures_ip_address_from_remote_addr(self):
+        request = self.factory.get("/", REMOTE_ADDR="203.0.113.42")
+        request.user = self.user
+        self.middleware(request)
+        self.assertEqual(self.captured["ip_address"], "203.0.113.42")
+        # Storage is cleared after the request finishes
+        self.assertIsNone(self.activity_storage.get_ip_address())
+
+    def test_captures_ip_address_from_x_forwarded_for(self):
+        request = self.factory.get(
+            "/",
+            HTTP_X_FORWARDED_FOR="198.51.100.7, 10.0.0.1",
+            REMOTE_ADDR="10.0.0.1",
+        )
+        request.user = self.user
+        self.middleware(request)
+        # leftmost XFF entry wins
+        self.assertEqual(self.captured["ip_address"], "198.51.100.7")
+
+    def test_invalid_ip_stored_as_none(self):
+        request = self.factory.get("/", REMOTE_ADDR="not-an-ip")
+        request.user = self.user
+        self.middleware(request)
+        self.assertIsNone(self.captured["ip_address"])
 
 
 class TestCSPMiddleware(APIBaseTest):

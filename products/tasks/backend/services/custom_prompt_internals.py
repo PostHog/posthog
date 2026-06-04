@@ -30,6 +30,24 @@ POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
 
+# Notification method the sandbox agent emits on a terminal failure. The agent
+# classifies upstream failures (rate limits, stream/connection drops, provider
+# errors) via classifyAgentError() and writes the category + raw message here, so
+# the PostHog side can surface the real cause instead of Temporal's opaque
+# "Activity task failed" wrapper.
+AGENT_ERROR_METHOD = "_posthog/error"
+
+
+@dataclass(frozen=True)
+class AgentError:
+    """A terminal error the sandbox agent reported in its S3 log."""
+
+    message: str
+    category: str | None = None
+
+    def describe(self) -> str:
+        return f"{self.category}: {self.message}" if self.category else self.message
+
 
 @dataclass(frozen=True)
 class CustomPromptSandboxContext:
@@ -41,7 +59,7 @@ class CustomPromptSandboxContext:
     sandbox_environment_id: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes | None = None
     model: str | None = None
-    """Override the agent model (e.g. ``"claude-opus-4-7"``). Falls back to the
+    """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
 
@@ -66,6 +84,11 @@ async def create_task_and_trigger(
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
+    # Mirror Task.create_and_run's "full" default when the caller didn't set scopes — passing
+    # None would clobber it. sandbox_environment_id already accepts None.
+    posthog_mcp_scopes: PosthogMcpScopes = (
+        context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
+    )
     task = await sync_to_async(Task.create_and_run)(
         team=team,
         title=title,
@@ -77,9 +100,9 @@ async def create_task_and_trigger(
         mode="background",
         branch=branch,
         signal_report_id=signal_report_id,
-        model=context.model,
+        posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
-        posthog_mcp_scopes=context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full",
+        model=context.model,
         internal=internal,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
@@ -106,6 +129,10 @@ async def poll_for_turn(
     last_new_lines_at = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
     latest_assistant_text: str | None = None
+    # Cursor at start of this turn — passed to _drain_final_log so the terminal-status drain can
+    # recover an agent_message emitted earlier in *this* turn without crossing the previous turn's
+    # boundary (which would return a stale previous-turn response in multi-turn sessions).
+    original_skip_lines = skip_lines
     while elapsed < MAX_POLL_SECONDS:
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
         elapsed += POLL_INTERVAL_SECONDS
@@ -195,8 +222,8 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
-                skip_lines=skip_lines,
                 printed_lines=printed_lines,
+                original_skip_lines=original_skip_lines,
                 verbose=verbose,
                 output_fn=output_fn,
             )
@@ -208,18 +235,25 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
-    skip_lines: int,
     printed_lines: int,
+    original_skip_lines: int,
     verbose: bool,
     output_fn: OutputFn,
 ) -> tuple[str, str | None, int, int]:
     """
     Drain one last S3 read after the TaskRun hit a terminal status. S3 may not have flushed the final agent_message
     before Temporal marked the run done, so we retry the read. Raises RuntimeError if no message is recoverable.
+
+    Re-parses from the start-of-turn cursor (`original_skip_lines`) rather than only the slice past the *last* poll
+    cursor: when the agent emits text mid-run but never reaches `end_turn` (e.g. killed by inactivity timeout
+    mid-tool-call), the agent_message landed in an earlier poll slice and the per-poll cursor has advanced past
+    it. Scanning from start-of-turn recovers it without crossing into the previous turn (which would return a
+    stale earlier-turn response in multi-turn sessions). For single-turn callers `original_skip_lines == 0`, so
+    the scan covers the full log as before. The walk is idempotent and only runs once at terminal status.
     """
     final_message = None
     final_log = None
-    final_lines = skip_lines
+    final_lines = 0
     final_empty_end_turn = False
     for attempt in range(MAX_CONSECUTIVE_STORAGE_ERRORS):
         try:
@@ -227,7 +261,7 @@ async def _drain_final_log(
                 # thread_sensitive=False because of pure I/O (object_storage.read + JSON parsing) and doesn't touch the ORM
                 _check_logs,
                 thread_sensitive=False,
-            )(task_run, skip_lines)
+            )(task_run, skip_lines=original_skip_lines)
             break
         except ObjectStorageError:
             logger.warning(
@@ -242,11 +276,77 @@ async def _drain_final_log(
     printed_lines = _stream_new_lines(final_log, printed_lines, verbose=verbose, output_fn=output_fn)
     if final_message:
         return final_message, final_log, final_lines, printed_lines
+    # Prefer the agent's own classified error over the generic terminal-status message
+    # (Temporal's "Activity task failed"). Only on FAILED — CANCELLED is a user action and
+    # COMPLETED-with-no-message is the empty-turn path, neither of which we want to relabel.
+    if refreshed_status == TaskRun.Status.FAILED:
+        agent_error = _extract_agent_error(final_log, skip_lines=original_skip_lines)
+        if agent_error is not None:
+            cause_text = agent_error.describe()
+            # Persist the real cause so the TaskRun stops showing "Activity task failed".
+            await _persist_task_run_error_message(str(task_run.id), cause_text)
+            raise RuntimeError(
+                f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status} "
+                f"(cause: {cause_text})"
+            )
     reason = "end_turn with empty response" if final_empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
     raise RuntimeError(
         f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
     )
+
+
+def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:
+    """Scan log lines for the agent's structured terminal-error notification.
+
+    Returns the last `_posthog/error` entry carrying a non-empty message (with the
+    classified `error_category` when the agent build provides it), or None when no
+    such entry exists — e.g. an older agent build or a non-agent failure — in which
+    case the caller falls back to the generic terminal-status message.
+    """
+    if not log_content:
+        return None
+    lines = log_content.strip().split("\n")
+    found: AgentError | None = None
+    for line in lines[skip_lines:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != AGENT_ERROR_METHOD:
+            continue
+        params = notification.get("params")
+        if not isinstance(params, dict):
+            continue
+        message = params.get("message")
+        if not isinstance(message, str) or not message.strip():
+            continue
+        raw_category = params.get("error_category")
+        category = raw_category.strip() if isinstance(raw_category, str) and raw_category.strip() else None
+        found = AgentError(message=message.strip(), category=category)
+    return found
+
+
+def _update_task_run_error_message(run_id: str, message: str) -> None:
+    TaskRun.objects.filter(id=run_id).update(error_message=message)
+
+
+async def _persist_task_run_error_message(run_id: str, message: str) -> None:
+    """Best-effort write of the agent's real error onto the TaskRun. The raised
+    RuntimeError already carries the message for Temporal, so a failed write here
+    must not mask the underlying failure."""
+    try:
+        await sync_to_async(_update_task_run_error_message)(run_id, message)
+    except Exception:
+        logger.warning(
+            "custom_prompt - drain_final_log: failed to persist agent error to TaskRun run=%s",
+            run_id,
+            exc_info=True,
+        )
 
 
 def _stream_new_lines(

@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { getSeriesBackgroundColor, getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { useChart } from 'lib/hooks/useChart'
-import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber, humanFriendlyNumber, pluralize } from 'lib/utils'
 
 import {
     ExperimentExposureCriteria,
@@ -230,7 +230,8 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft } = useValues(experimentLogic)
+    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, experiment, excludedVariants } =
+        useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const colors = useChartColors()
 
@@ -319,6 +320,26 @@ export function Exposures(): JSX.Element {
                                         <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
                                 )}
+                                {excludedVariants.length > 0 && (
+                                    <Tooltip
+                                        title={`Excluded from analysis: ${excludedVariants.join(', ')}. Manage on the Variants tab.`}
+                                    >
+                                        <span className="text-secondary text-xs">
+                                            {pluralize(
+                                                excludedVariants.length,
+                                                'variant excluded',
+                                                'variants excluded'
+                                            )}
+                                        </span>
+                                    </Tooltip>
+                                )}
+                                {experiment.holdout && (
+                                    <Tooltip title="Users held out of this experiment and not included in analysis.">
+                                        <LemonTag type="option" className="ml-2">
+                                            {experiment.holdout.name}
+                                        </LemonTag>
+                                    </Tooltip>
+                                )}
                             </>
                         )}
                     </div>
@@ -386,9 +407,24 @@ export function Exposures(): JSX.Element {
                                 <div>
                                     <h3 className="card-secondary">Total exposures</h3>
                                     <LemonTable
+                                        rowClassName={(series) =>
+                                            series.isExcluded || series.isHoldout ? 'opacity-60' : ''
+                                        }
                                         dataSource={[
                                             //This includes EXPERIMENT_VARIANT_MULTIPLE
                                             ...(exposures?.timeseries || []),
+                                            ...excludedVariants.map((variant) => ({
+                                                variant,
+                                                isExcluded: true,
+                                            })),
+                                            ...(experiment.holdout
+                                                ? [
+                                                      {
+                                                          variant: `holdout-${experiment.holdout_id}`,
+                                                          isHoldout: true,
+                                                      },
+                                                  ]
+                                                : []),
                                             { variant: '__total__', isTotal: true },
                                         ]}
                                         columns={[
@@ -425,27 +461,48 @@ export function Exposures(): JSX.Element {
                                             {
                                                 title: 'Exposures',
                                                 key: 'exposures',
-                                                render: function Exposures(_, series) {
-                                                    if (series.isTotal) {
+                                                render: function Exposures(
+                                                    _,
+                                                    { variant, isTotal, isExcluded, isHoldout }
+                                                ) {
+                                                    if (isTotal) {
                                                         return (
                                                             <span className="font-semibold">
                                                                 {humanFriendlyNumber(totalExposures)}
                                                             </span>
                                                         )
                                                     }
-                                                    return humanFriendlyNumber(
-                                                        exposures?.total_exposures[series.variant]
-                                                    )
+                                                    if (isExcluded || isHoldout) {
+                                                        return <span className="text-secondary">—</span>
+                                                    }
+                                                    return humanFriendlyNumber(exposures?.total_exposures[variant])
                                                 },
                                             },
                                             {
                                                 title: '%',
                                                 key: 'percentage',
-                                                render: function Percentage(_, series) {
-                                                    if (series.isTotal) {
+                                                render: function Percentage(
+                                                    _,
+                                                    { variant, isTotal, isExcluded, isHoldout }
+                                                ) {
+                                                    if (isTotal) {
                                                         return (
                                                             <span className="font-semibold">
                                                                 {totalExposures > 0 ? '100.0%' : '-%'}
+                                                            </span>
+                                                        )
+                                                    }
+                                                    if (isExcluded) {
+                                                        return (
+                                                            <span className="text-secondary italic">
+                                                                Excluded from analysis
+                                                            </span>
+                                                        )
+                                                    }
+                                                    if (isHoldout) {
+                                                        return (
+                                                            <span className="text-secondary italic">
+                                                                Reserved (holdout)
                                                             </span>
                                                         )
                                                     }
@@ -462,8 +519,7 @@ export function Exposures(): JSX.Element {
                                                             {total ? (
                                                                 <>
                                                                     {(
-                                                                        (exposures?.total_exposures[series.variant] /
-                                                                            total) *
+                                                                        (exposures?.total_exposures[variant] / total) *
                                                                         100
                                                                     ).toFixed(1)}
                                                                     %

@@ -126,7 +126,7 @@ export interface EndpointResponseApi {
     is_active: boolean
     /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
     data_freshness_seconds: number
-    /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+    /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
      * Absolute URL to execute this endpoint.
@@ -276,7 +276,7 @@ export interface EndpointVersionResponseApi {
     is_active: boolean
     /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
     data_freshness_seconds: number
-    /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+    /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
     endpoint_path: string
     /**
      * Absolute URL to execute this endpoint.
@@ -311,7 +311,7 @@ export interface EndpointVersionResponseApi {
      */
     derived_from_insight: string | null
     /**
-     * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+     * When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.
      * @nullable
      */
     last_executed_at: string | null

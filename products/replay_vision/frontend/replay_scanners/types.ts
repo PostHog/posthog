@@ -1,8 +1,18 @@
+import { LemonTagType } from '@posthog/lemon-ui'
+
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
+import { ScannerModelEnumApi } from '../generated/api.schemas'
 import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
 
-export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer' | 'indexer'
+export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+
+export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
+    monitor: 'primary',
+    classifier: 'completion',
+    scorer: 'warning',
+    summarizer: 'success',
+}
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
@@ -26,20 +36,22 @@ export type FailureKind =
 const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }> = {
     provider_transient: {
         label: 'AI provider unavailable',
-        description: 'The AI provider was temporarily unreachable. PostHog will retry on the next schedule fire.',
+        description:
+            "The AI provider was temporarily unreachable. PostHog will retry on the scanner's next scheduled run.",
     },
     provider_rejected: {
         label: 'AI provider rejected video',
-        description: "The AI provider couldn't process this recording. Other recordings should work.",
+        description: "The AI provider couldn't process this recording. Try a different one.",
     },
     rasterization_failed: {
-        label: 'Rasterization failed',
-        description: "PostHog couldn't render this recording into a video. Other recordings should work.",
+        label: 'Recording video failed',
+        description:
+            "PostHog couldn't render this recording into a video for the AI. Try again, or run the scanner on a different recording.",
     },
     validation_failed: {
         label: 'AI output invalid',
         description:
-            "The AI's response didn't match the scanner schema after several attempts. Try simplifying the scanner prompt.",
+            'The AI returned malformed output after several attempts. Try simplifying or rephrasing the scanner prompt.',
     },
     internal_error: {
         label: 'Internal error',
@@ -83,17 +95,39 @@ export function failureKindDescription(kind: FailureKind): string {
 }
 
 export const DEFAULT_PROVIDER = 'google'
-export const DEFAULT_MODEL = 'gemini-3-flash-preview'
+export const DEFAULT_MODEL: ScannerModelEnumApi = ScannerModelEnumApi.Gemini3FlashPreview
 
 export const ENABLED_OPTIONS: { value: EnabledFilter; label: string }[] = [
     { value: 'enabled', label: 'Enabled' },
     { value: 'disabled', label: 'Disabled' },
 ]
 
-export const MODEL_OPTIONS: { value: string; label: string }[] = [
-    { value: 'gemini-3-flash-preview', label: 'Gemini 3 Flash' },
-    { value: 'gemini-3.1-flash-lite-preview', label: 'Gemini 3 Flash Lite' },
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = [
+    { value: ScannerModelEnumApi.Gemini3FlashPreview, label: 'Gemini 3 Flash' },
+    { value: ScannerModelEnumApi.Gemini31FlashLitePreview, label: 'Gemini 3 Flash Lite' },
 ]
+
+export function modelLabel(model: string | null | undefined): string {
+    if (!model) {
+        return '—'
+    }
+    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? model
+}
+
+export function scannerTypeLabel(scannerType: ScannerType | null | undefined): string {
+    if (!scannerType) {
+        return '—'
+    }
+    return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
+}
+
+export function createdByLabel(user: ReplayScanner['created_by']): string {
+    if (!user) {
+        return ''
+    }
+    const name = [user.first_name, user.last_name].filter(Boolean).join(' ').trim()
+    return name || user.email || `User ${user.id}`
+}
 
 export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; description: string }[] = [
     {
@@ -116,19 +150,15 @@ export const SCANNER_TYPE_OPTIONS: { value: ScannerType; label: string; descript
         label: 'Scorer',
         description: 'Scores the session on a configurable numeric scale.',
     },
-    {
-        value: 'indexer',
-        label: 'Indexer',
-        description: 'Generates semantic embeddings of the session for free-text search.',
-    },
 ]
 
-export type EditorTab = 'configuration' | 'triggers' | 'observations'
+export type EditorTab = 'observations' | 'configuration'
 
-export const ALL_EDITOR_TABS: EditorTab[] = ['configuration', 'triggers', 'observations']
+export const ALL_EDITOR_TABS: EditorTab[] = ['observations', 'configuration']
 
 export interface MonitorScannerConfig {
     prompt: string
+    allow_inconclusive?: boolean
 }
 
 export interface SummarizerScannerConfig {
@@ -140,6 +170,7 @@ export interface ClassifierScannerConfig {
     prompt: string
     tags: string[]
     multi_label: boolean
+    allow_freeform_tags?: boolean
 }
 
 export interface ScorerScannerConfig {
@@ -147,16 +178,11 @@ export interface ScorerScannerConfig {
     scale: { min: number; max: number; label?: string }
 }
 
-export interface IndexerScannerConfig {
-    prompt: string
-}
-
 export type ScannerConfig =
     | MonitorScannerConfig
     | SummarizerScannerConfig
     | ClassifierScannerConfig
     | ScorerScannerConfig
-    | IndexerScannerConfig
 
 export interface BaseReplayScanner {
     id: string
@@ -196,27 +222,7 @@ export interface ScorerScanner extends BaseReplayScanner {
     scanner_config: ScorerScannerConfig
 }
 
-export interface IndexerScanner extends BaseReplayScanner {
-    scanner_type: 'indexer'
-    scanner_config: IndexerScannerConfig
-}
-
-export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner | IndexerScanner
-
-export interface VisionUsagePoint {
-    date: string
-    count: number
-}
-
-export interface VisionQuota {
-    used: number
-    limit: number
-    policy: 'block' | 'usage_based'
-    period_start: string
-    period_end: string
-    /** Daily observation counts across the current period. Optional until the backend exposes it. */
-    usage_history?: VisionUsagePoint[]
-}
+export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
 
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.

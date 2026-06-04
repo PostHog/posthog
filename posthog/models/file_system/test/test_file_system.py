@@ -1,13 +1,23 @@
 from django.test import TestCase
 
-from posthog.models import Insight, Organization, Team, User
-from posthog.models.file_system.file_system import FileSystem, escape_path, join_path, split_path
+from posthog.models import Organization, Team, User
+from posthog.models.file_system.file_system import (
+    DEFAULT_SURFACE,
+    FileSystem,
+    create_or_update_file,
+    delete_file,
+    escape_path,
+    join_path,
+    split_path,
+    surface_q,
+)
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
+from products.product_analytics.backend.models.insight import Insight
 
 
 class TestFileSystemModel(TestCase):
@@ -182,3 +192,101 @@ class TestFileSystemModel(TestCase):
 
         # Confirm total in DB
         self.assertEqual(FileSystem.objects.count(), 2)
+
+
+class TestFileSystemSurface(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user("surface@posthog.com", "testpassword", first_name="Sue")
+        self.organization = Organization.objects.create(name="Surface Org")
+        self.team = Team.objects.create(name="Surface Team", organization=self.organization)
+
+    def test_surface_q_default_matches_null_and_web(self):
+        legacy = FileSystem.objects.create(team=self.team, path="Legacy", type="insight", ref="1", surface=None)
+        web = FileSystem.objects.create(team=self.team, path="Web", type="insight", ref="2", surface="web")
+        FileSystem.objects.create(team=self.team, path="Desktop", type="insight", ref="3", surface="desktop")
+
+        web_ids = set(FileSystem.objects.filter(surface_q(DEFAULT_SURFACE)).values_list("id", flat=True))
+        self.assertEqual(web_ids, {legacy.id, web.id})
+
+        desktop_paths = set(FileSystem.objects.filter(surface_q("desktop")).values_list("path", flat=True))
+        self.assertEqual(desktop_paths, {"Desktop"})
+
+    def test_create_or_update_file_isolates_surfaces(self):
+        create_or_update_file(
+            team=self.team, base_folder="Web", name="Same", file_type="insight", ref="42", href="", meta={}
+        )
+        create_or_update_file(
+            team=self.team,
+            base_folder="Desktop",
+            name="Same",
+            file_type="insight",
+            ref="42",
+            href="",
+            meta={},
+            surface="desktop",
+        )
+
+        rows = FileSystem.objects.filter(type="insight", ref="42").order_by("surface")
+        self.assertEqual(rows.count(), 2)
+        self.assertEqual({r.surface for r in rows}, {"web", "desktop"})
+
+    def test_create_or_update_file_web_updates_legacy_null_row(self):
+        legacy = FileSystem.objects.create(
+            team=self.team, path="Old/Name", type="insight", ref="7", surface=None, shortcut=False
+        )
+
+        create_or_update_file(
+            team=self.team, base_folder="Old", name="New Name", file_type="insight", ref="7", href="", meta={}
+        )
+
+        legacy.refresh_from_db()
+        # The web write matched and renamed the legacy NULL row instead of creating a second one.
+        self.assertEqual(FileSystem.objects.filter(type="insight", ref="7").count(), 1)
+        self.assertEqual(legacy.path, "Old/New Name")
+
+    def test_delete_file_is_scoped_to_surface(self):
+        create_or_update_file(
+            team=self.team, base_folder="Web", name="Keep", file_type="insight", ref="9", href="", meta={}
+        )
+        create_or_update_file(
+            team=self.team,
+            base_folder="Desktop",
+            name="Keep",
+            file_type="insight",
+            ref="9",
+            href="",
+            meta={},
+            surface="desktop",
+        )
+
+        delete_file(team=self.team, file_type="insight", ref="9")
+
+        remaining = FileSystem.objects.filter(type="insight", ref="9")
+        self.assertEqual(remaining.count(), 1)
+        self.assertEqual(remaining.first().surface, "desktop")  # type: ignore
+
+    def test_mixin_models_default_to_web_surface(self):
+        FeatureFlag.objects.create(team=self.team, key="A Flag", created_by=self.user)
+        entry = FileSystem.objects.get(type="feature_flag")
+        self.assertEqual(entry.surface, DEFAULT_SURFACE)
+
+    def test_unfiled_saver_only_sweeps_requested_surface(self):
+        FeatureFlag.objects.create(team=self.team, key="Beta", created_by=self.user)
+        FileSystem.objects.all().delete()
+
+        # No models are registered for the desktop surface, so nothing is swept into it.
+        self.assertEqual(save_unfiled_files(self.team, self.user, surface="desktop"), [])
+        self.assertEqual(FileSystem.objects.count(), 0)
+
+        created = save_unfiled_files(self.team, self.user)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].surface, DEFAULT_SURFACE)
+
+    def test_get_file_system_unfiled_scopes_exclusion_to_surface(self):
+        # Creating the flag files it into the web tree via the post_save signal.
+        FeatureFlag.objects.create(team=self.team, key="Gamma", created_by=self.user)
+
+        # The web exclusion sees it as already filed, so it is not unfiled for web...
+        self.assertEqual(FeatureFlag.get_file_system_unfiled(self.team, surface="web").count(), 0)
+        # ...but it is still unfiled for desktop, whose tree doesn't contain it.
+        self.assertEqual(FeatureFlag.get_file_system_unfiled(self.team, surface="desktop").count(), 1)

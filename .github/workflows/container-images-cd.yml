@@ -23,11 +23,14 @@ jobs:
         name: Build and push PostHog
         if: github.repository == 'PostHog/posthog'
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 30
+        # Bumped from 30: the deploy dispatch now waits for backend CI on this commit
+        # before firing, so the job stays alive through the build + the wait window.
+        timeout-minutes: 75
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
             packages: write # allow push to ghcr.io
+            checks: read # allow reading backend CI check results to gate the deploy
 
         steps:
             - name: Check out
@@ -58,6 +61,7 @@ jobs:
 
             - name: Build and push container image
               id: build
+              continue-on-error: true
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
                   buildx-fallback: false # the fallback is so slow it's better to just fail
@@ -71,21 +75,110 @@ jobs:
                   secrets: |
                       posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
+            - name: Re-login to DockerHub (retry)
+              if: steps.build.outcome == 'failure'
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Re-login to ghcr.io (retry)
+              if: steps.build.outcome == 'failure'
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  registry: ghcr.io
+                  username: ${{ github.actor }}
+                  password: ${{ secrets.GITHUB_TOKEN }}
+
+            - name: Re-configure AWS credentials (retry)
+              if: steps.build.outcome == 'failure'
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Re-login to Amazon ECR (retry)
+              if: steps.build.outcome == 'failure'
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Build and push container image (retry)
+              id: build_retry
+              if: steps.build.outcome == 'failure'
+              continue-on-error: true
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ steps.docker-meta.outputs.tags }}
+                  labels: ${{ steps.docker-meta.outputs.labels }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      COMMIT_HASH=${{ github.sha }}
+                      BUILDKIT_CONTEXT_KEEP_GIT_DIR=1
+                  secrets: |
+                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+
+            - name: Fail if both build attempts failed
+              if: steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
+              run: |
+                  echo "::error::Both build attempts failed. First attempt and retry both unsuccessful."
+                  exit 1
+
             - name: report failure
-              if: failure()
+              if: always() && steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
             - name: report failure to DevEx PostHog
-              if: failure()
+              if: always() && steps.build.outcome == 'failure' && steps.build_retry.outcome != 'success'
               continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN}}
                   event: 'posthog-image-build'
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
+
+            # Gate the deploy on backend CI. The image is already built and pushed above
+            # (ci-backend.yml runs in parallel on the same commit) — we only hold the
+            # deploy *dispatch* to Charts until this commit's backend suite is green.
+            # A stale merge once shipped a red master commit to prod because the dispatch
+            # fired regardless of test results; this is the backstop. Cross-workflow
+            # check-waiting on the same SHA mirrors the pattern in ci-hobby.yml.
+            - name: Wait for backend tests to pass
+              # Only gate automatic master pushes. A manual workflow_dispatch is the
+              # break-glass: it skips the wait so an operator can force a deploy.
+              if: github.event_name == 'push'
+              id: wait-for-backend
+              uses: fountainhead/action-wait-for-check@5a908a24814494009c4bb27c242ea38c93c593be # v1.2.0
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  checkName: Django Tests Pass
+                  ref: ${{ github.sha }}
+                  # Must outlast the longest backend job (django tests: 45m in
+                  # ci-backend.yml) plus its start lag, so a slow-but-green check
+                  # still reports before we give up and block the deploy.
+                  timeoutSeconds: 3300
+                  intervalSeconds: 30
+
+            - name: Block deploy if backend tests did not pass
+              if: github.event_name == 'push'
+              env:
+                  BACKEND_CONCLUSION: ${{ steps.wait-for-backend.outputs.conclusion }}
+              run: |
+                  conclusion="$BACKEND_CONCLUSION"
+                  # `skipped` = the backend suite didn't run for this commit; nothing to gate on.
+                  if [ "$conclusion" = "skipped" ]; then
+                    echo "Backend tests skipped for this commit — proceeding with deploy."
+                    exit 0
+                  fi
+                  if [ "$conclusion" != "success" ]; then
+                    echo "::error::Backend CI for this commit is '${conclusion:-incomplete/timed out}'. Not deploying."
+                    echo "Fix CI and re-run, or trigger this workflow via workflow_dispatch to override."
+                    exit 1
+                  fi
+                  echo "Backend tests passed — proceeding with deploy."
 
             - name: get deployer token
               id: deployer
@@ -112,7 +205,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "posthog",
@@ -142,7 +235,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "ingestion",
@@ -155,7 +248,7 @@ jobs:
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/temporal|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -172,7 +265,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker",
@@ -193,7 +286,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-batch-exports",
@@ -223,7 +316,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-max-ai",
@@ -253,7 +346,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-tasks-agent",
@@ -266,7 +359,7 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/llm_analytics|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^products/exports/backend/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/(ai_observability|llm_analytics)|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -284,7 +377,7 @@ jobs:
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^products/business_knowledge/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -345,7 +438,7 @@ jobs:
               id: check_python_changes_analytics_platform_temporal_worker
               run: |
                   CHANGED_FILES=$(git diff --name-only HEAD^ HEAD | tr '\n' ' ')
-                  SUBS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || SUBS_RESULT="true"
+                  SUBS_RESULT=$(uv run bin/find_python_dependencies.py products.exports.backend.temporal.subscriptions --check-changes "$CHANGED_FILES" | jq -r '.affected') || SUBS_RESULT="true"
                   ALERTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.alerts --check-changes "$CHANGED_FILES" | jq -r '.affected') || ALERTS_RESULT="true"
                   EXPORTS_RESULT=$(uv run bin/find_python_dependencies.py posthog.temporal.exports --check-changes "$CHANGED_FILES" | jq -r '.affected') || EXPORTS_RESULT="true"
                   if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
@@ -365,7 +458,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-billing",
@@ -386,7 +479,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-video-export",
@@ -407,7 +500,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-session-replay",
@@ -428,7 +521,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-replay-vision",
@@ -449,7 +542,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-weekly-digest",
@@ -470,7 +563,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-analytics-platform",
@@ -491,7 +584,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-general-purpose",
@@ -547,7 +640,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-health-check",
@@ -560,7 +653,7 @@ jobs:
             - name: Check for changes that affect llm analytics evals temporal worker
               id: check_changes_llm_analytics_evals_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/llm_analytics|^products/llm_analytics|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/(ai_observability|llm_analytics)|^products/(ai_observability|llm_analytics)|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
@@ -577,7 +670,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-llm-analytics-evals",
@@ -601,7 +694,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-messaging",
@@ -622,7 +715,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-logs-alerting",
@@ -652,7 +745,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-ducklake",
@@ -682,7 +775,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
@@ -712,7 +805,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "warehouse-sources-load",
@@ -733,7 +826,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-warehouse-cdp-producer",
@@ -754,7 +847,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "temporal-worker-data-modeling",
@@ -774,7 +867,7 @@ jobs:
                       {
                         "values": {
                           "image": {
-                            "sha": "${{ steps.build.outputs.digest }}"
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
                           }
                         },
                         "release": "dagster-code-location",

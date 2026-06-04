@@ -24,6 +24,62 @@ describe('ApiClient', () => {
         expect(baseUrl).toBe(customUrl)
     })
 
+    describe('publicBaseUrl', () => {
+        it('defaults publicBaseUrl to baseUrl when not provided', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'http://posthog-web-django.posthog.svc.cluster.local:8000',
+            })
+            expect(client.publicBaseUrl).toBe('http://posthog-web-django.posthog.svc.cluster.local:8000')
+        })
+
+        it('uses publicBaseUrl override when provided', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'http://posthog-web-django.posthog.svc.cluster.local:8000',
+                publicBaseUrl: 'https://us.posthog.com',
+            })
+            expect(client.baseUrl).toBe('http://posthog-web-django.posthog.svc.cluster.local:8000')
+            expect(client.publicBaseUrl).toBe('https://us.posthog.com')
+        })
+
+        it('getProjectBaseUrl uses publicBaseUrl, not baseUrl', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'http://posthog-web-django.posthog.svc.cluster.local:8000',
+                publicBaseUrl: 'https://us.posthog.com',
+            })
+            expect(client.getProjectBaseUrl('42')).toBe('https://us.posthog.com/project/42')
+        })
+
+        it('getProjectBaseUrl returns publicBaseUrl alone for @current', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'http://posthog-web-django.posthog.svc.cluster.local:8000',
+                publicBaseUrl: 'https://us.posthog.com',
+            })
+            expect(client.getProjectBaseUrl('@current')).toBe('https://us.posthog.com')
+        })
+
+        it('getProjectBaseUrl falls back to baseUrl when publicBaseUrl is unset', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'https://eu.posthog.com',
+            })
+            expect(client.getProjectBaseUrl('7')).toBe('https://eu.posthog.com/project/7')
+        })
+
+        it('falls back to baseUrl when publicBaseUrl is an empty string', () => {
+            const client = new ApiClient({
+                apiToken: 'test-token',
+                baseUrl: 'https://eu.posthog.com',
+                publicBaseUrl: '',
+            })
+            expect(client.publicBaseUrl).toBe('https://eu.posthog.com')
+            expect(client.getProjectBaseUrl('7')).toBe('https://eu.posthog.com/project/7')
+        })
+    })
+
     it('should send correct headers on fetch', async () => {
         const mockFetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }))
         vi.stubGlobal('fetch', mockFetch)

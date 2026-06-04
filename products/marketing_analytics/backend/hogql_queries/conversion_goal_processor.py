@@ -1,9 +1,8 @@
-import re
 import math
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import ClassVar, Optional, Union
 
 import structlog
@@ -21,7 +20,6 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models import PropertyDefinition, Team, User
@@ -39,10 +37,6 @@ LN2 = math.log(2)  # ≈ 0.693, used in half-life formula: weight = exp(-ln(2) *
 # At t = half_life, weight = exp(-ln(2)) = 0.5 (exactly half).
 # This follows the industry standard (Google Analytics, Adobe, Mixpanel all use 7-day half-life).
 TIME_DECAY_HALF_LIFE_DIVISOR = 4
-
-# Sentinel datetimes swapped for {time_window_min/max} placeholders after HogQL printing.
-_PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL = datetime(2099, 12, 31, 23, 59, 58, 123456, tzinfo=UTC)
-_PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL = datetime(2099, 12, 31, 23, 59, 59, 654321, tzinfo=UTC)
 
 logger = structlog.get_logger(__name__)
 
@@ -371,11 +365,11 @@ class ConversionGoalProcessor:
             ensure_precomputed,
         )
 
-        query_string, placeholders = self.get_attributed_query_for_precomputation()
+        insert_select = self.get_attributed_query_for_precomputation()
 
         result = ensure_precomputed(
             team=self.team,
-            insert_query=query_string,
+            insert_query=insert_select,
             time_range_start=date_from,
             time_range_end=date_to,
             ttl_seconds={
@@ -385,7 +379,6 @@ class ConversionGoalProcessor:
                 "default": 7 * 24 * 60 * 60,
             },
             table=LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
-            placeholders=placeholders,
         )
 
         if not result.ready:
@@ -397,12 +390,12 @@ class ConversionGoalProcessor:
             date_to=date_to,
         )
 
-    def get_attributed_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
-        """Build the INSERT template that materialises one job's pre-attributed rows.
+    def get_attributed_query_for_precomputation(self) -> ast.SelectQuery:
+        """Build the INSERT SELECT AST that materialises one job's pre-attributed rows.
 
-        Uses {time_window_min}/{time_window_max} placeholders resolved by the framework.
-        Single-touch emits weight=1.0; multi-touch emits N rows per conversion with
-        fractional weights that sum to 1.
+        The time window is left as ``time_window_min``/``time_window_max`` placeholders that the lazy
+        framework resolves per job. Single-touch emits weight=1.0; multi-touch emits N rows per
+        conversion with fractional weights that sum to 1.
         """
         if self.goal.kind not in ("EventsNode", "ActionsNode"):
             raise NotImplementedError(f"Precompute is not supported for goal kind {self.goal.kind!r}")
@@ -415,12 +408,12 @@ class ConversionGoalProcessor:
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.GtEq,
-                right=ast.Constant(value=_PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL),
+                right=ast.Placeholder(expr=ast.Field(chain=["time_window_min"])),
             ),
             ast.CompareOperation(
                 left=ast.Field(chain=["events", "timestamp"]),
                 op=ast.CompareOperationOp.LtEq,
-                right=ast.Constant(value=_PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL),
+                right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
             ),
         ]
         array_collection = self.build_array_collection_query(additional_conditions)
@@ -428,24 +421,9 @@ class ConversionGoalProcessor:
         attribution_window_seconds = self.config.attribution_window_days * DAY_IN_SECONDS
         if self.config.is_multi_touch:
             array_join = self._build_multi_touch_array_join_subquery(array_collection, attribution_window_seconds)
-            insert_select = self._build_multi_touch_attribution_subquery(array_join, for_precompute=True)
-        else:
-            array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
-            insert_select = self._build_single_touch_attribution_subquery(array_join, for_precompute=True)
-
-        printed = to_printed_hogql(insert_select, team=self.team)
-        for sentinel, placeholder in (
-            (_PRECOMPUTE_TIME_WINDOW_MIN_SENTINEL, "{time_window_min}"),
-            (_PRECOMPUTE_TIME_WINDOW_MAX_SENTINEL, "{time_window_max}"),
-        ):
-            printed = _replace_sentinel_datetime(printed, sentinel, placeholder)
-
-        if _PRECOMPUTE_SENTINEL_LITERAL_RE.search(printed):
-            raise RuntimeError(
-                "Failed to substitute precompute time-window sentinels — printer format may have changed"
-            )
-
-        return printed, {}
+            return self._build_multi_touch_attribution_subquery(array_join, for_precompute=True)
+        array_join = self._build_single_touch_array_join_subquery(array_collection, attribution_window_seconds)
+        return self._build_single_touch_attribution_subquery(array_join, for_precompute=True)
 
     def build_attributed_source_from_precomputed(
         self,
@@ -2086,16 +2064,6 @@ class ConversionGoalProcessor:
                 return event_value == conversion_event or event_value == "$pageview"
 
         return False
-
-
-# Matches both HogQL toDateTime and ClickHouse toDateTime64 forms.
-_PRECOMPUTE_SENTINEL_LITERAL_RE = re.compile(r"toDateTime(?:64)?\(\s*'2099-12-31 23:59:5[89]\.\d+'")
-
-
-def _replace_sentinel_datetime(printed: str, sentinel: datetime, replacement: str) -> str:
-    literal = re.escape(sentinel.strftime("%Y-%m-%d %H:%M:%S.%f"))
-    pattern = re.compile(rf"toDateTime(?:64)?\(\s*'{literal}'(?:\s*,\s*6(?:\s*,\s*'[^']+')?)?\s*\)")
-    return pattern.sub(replacement, printed)
 
 
 def add_conversion_goal_property_filters(

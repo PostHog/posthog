@@ -136,14 +136,58 @@ class TestBuildQuery:
 
     def test_incremental_uses_operator_and_orders(self):
         sql, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, "2025-01-01")
-        assert "WHERE IDENTIFIER(%s)" in sql
-        assert "ORDER BY IDENTIFIER(%s) ASC" in sql
-        assert params == ("DB.PUBLIC.t", "created_at", "2025-01-01", "created_at")
+        assert 'WHERE "created_at"' in sql
+        assert 'ORDER BY "created_at" ASC' in sql
+        assert params == ("DB.PUBLIC.t", "2025-01-01")
 
     def test_incremental_seeds_initial_value_when_missing(self):
         # None last-value triggers fallback to incremental_type_to_initial_value
         _, params = _build_query("DB", "PUBLIC", "t", True, "created_at", IncrementalFieldType.DateTime, None)
-        assert params[2] is not None
+        assert params[1] is not None
+
+
+class TestBuildQueryEnabledColumns:
+    def test_full_refresh_none_uses_select_star(self):
+        sql, _ = _build_query("DB", "PUBLIC", "t", False, None, None, None, enabled_columns=None, primary_keys=["id"])
+        assert sql.startswith("SELECT * FROM IDENTIFIER(%s)")
+
+    def test_full_refresh_subset_projects_pk_retained(self):
+        sql, _ = _build_query(
+            "DB", "PUBLIC", "t", False, None, None, None, enabled_columns=["EMAIL"], primary_keys=["ID"]
+        )
+        assert sql.startswith('SELECT "EMAIL", "ID" FROM IDENTIFIER(%s)')
+
+    def test_full_refresh_subset_keeps_incremental_field(self):
+        sql, _ = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            False,
+            None,
+            None,
+            None,
+            enabled_columns=["EMAIL"],
+            primary_keys=["ID"],
+        )
+        assert '"EMAIL"' in sql
+        assert '"ID"' in sql
+
+    def test_incremental_subset_retains_incremental_field(self):
+        sql, params = _build_query(
+            "DB",
+            "PUBLIC",
+            "t",
+            True,
+            "CREATED_AT",
+            IncrementalFieldType.DateTime,
+            "2025-01-01",
+            enabled_columns=["EMAIL"],
+            primary_keys=["ID"],
+        )
+        assert sql.startswith('SELECT "EMAIL", "ID", "CREATED_AT" FROM IDENTIFIER(%s)')
+        assert 'WHERE "CREATED_AT"' in sql
+        assert 'ORDER BY "CREATED_AT" ASC' in sql
+        assert params == ("DB.PUBLIC.t", "2025-01-01")
 
 
 # ---------------------------------------------------------------------------

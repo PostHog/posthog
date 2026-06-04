@@ -593,7 +593,8 @@ export interface ProjectBackwardCompatApi {
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token: string | null
-    readonly updated_at: string
+    /** @nullable */
+    readonly updated_at: string | null
     readonly uuid: string
     readonly api_token: string
     app_urls?: (string | null)[]
@@ -1386,7 +1387,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token?: string | null
-    readonly updated_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
     readonly uuid?: string
     readonly api_token?: string
     app_urls?: (string | null)[]
@@ -2143,143 +2145,34 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
-/**
- * * `team` - Only team
- * `global` - Global
- * `feature_flag` - Feature Flag
- */
-export type DashboardTemplateScopeEnumApi =
-    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
-
-export const DashboardTemplateScopeEnumApi = {
-    Team: 'team',
-    Global: 'global',
-    FeatureFlag: 'feature_flag',
-} as const
-
-export interface DashboardTemplateApi {
-    readonly id: string
+export interface PromotedProductIntentApi {
     /**
-     * @maxLength 400
+     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
      * @nullable
      */
-    template_name?: string | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    dashboard_description?: string | null
-    dashboard_filters?: unknown
-    /** @nullable */
-    tags?: string[] | null
-    tiles?: unknown
-    variables?: unknown
-    /** @nullable */
-    deleted?: boolean | null
-    /** @nullable */
-    readonly created_at: string | null
-    readonly created_by: UserBasicApi
-    /**
-     * @maxLength 8201
-     * @nullable
-     */
-    image_url?: string | null
-    /** @nullable */
-    readonly team_id: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
-    /** @nullable */
-    availability_contexts?: string[] | null
-    /** Manually curated; used to highlight templates in the UI. */
-    is_featured?: boolean
+    product_key: string | null
 }
 
-export interface PatchedDashboardTemplateApi {
-    readonly id?: string
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    template_name?: string | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    dashboard_description?: string | null
-    dashboard_filters?: unknown
-    /** @nullable */
-    tags?: string[] | null
-    tiles?: unknown
-    variables?: unknown
-    /** @nullable */
-    deleted?: boolean | null
-    /** @nullable */
-    readonly created_at?: string | null
-    readonly created_by?: UserBasicApi
-    /**
-     * @maxLength 8201
-     * @nullable
-     */
-    image_url?: string | null
-    /** @nullable */
-    readonly team_id?: number | null
-    scope?: DashboardTemplateScopeEnumApi | BlankEnumApi | null
-    /** @nullable */
-    availability_contexts?: string[] | null
-    /** Manually curated; used to highlight templates in the UI. */
-    is_featured?: boolean
-}
-
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
+export interface SharePasswordApi {
     readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
     readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
 }
 
-export interface PaginatedExportedAssetListApi {
-    count: number
+export interface SharingConfigurationApi {
+    readonly created_at: string
+    enabled?: boolean
     /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
+    readonly access_token: string | null
+    settings?: unknown
+    password_required?: boolean
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export interface FileSystemApi {
@@ -2335,26 +2228,189 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
+export interface FileSystemShortcutApi {
+    readonly id: string
+    /** Display path of the shortcut in the sidebar. */
+    path: string
     /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
      * @maxLength 100
      * @nullable
      */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
 }
 
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
+export interface PaginatedFileSystemShortcutListApi {
+    count: number
     /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcutApi[]
+}
+
+export interface PatchedFileSystemShortcutApi {
+    readonly id?: string
+    /** Display path of the shortcut in the sidebar. */
+    path?: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at?: string
+}
+
+export interface FileSystemShortcutReorderApi {
+    /** IDs of the current user's shortcuts in the desired display order. */
+    ordered_ids: string[]
+}
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
+
+export const PersistedFolderTypeEnumApi = {
+    Home: 'home',
+    Pinned: 'pinned',
+    CustomProducts: 'custom_products',
+} as const
+
+export interface PersistedFolderApi {
+    readonly id: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedPersistedFolderListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PersistedFolderApi[]
+}
+
+export interface PatchedPersistedFolderApi {
+    readonly id?: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type?: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+
+export const ExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -2603,11 +2659,11 @@ export interface SubscriptionApi {
   * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
-    interval?: number
+    interval: number
     /**
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
@@ -2733,8 +2789,8 @@ export interface PatchedSubscriptionApi {
   * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
     interval?: number
@@ -3226,6 +3282,99 @@ export interface PatchedUserApi {
     readonly requires_credential_review?: boolean
 }
 
+export interface UserGitHubAccountApi {
+    /**
+     * GitHub account type for the installation (e.g. User or Organization).
+     * @nullable
+     */
+    type?: string | null
+    /**
+     * GitHub login or organization name tied to the installation.
+     * @nullable
+     */
+    name?: string | null
+}
+
+export interface UserGitHubIntegrationItemApi {
+    /** PostHog UserIntegration row id. */
+    id: string
+    /** Integration kind; always `github` for this API. */
+    kind: string
+    /** GitHub App installation id. */
+    installation_id: string
+    /**
+     * Repository selection mode from GitHub (e.g. selected or all).
+     * @nullable
+     */
+    repository_selection?: string | null
+    /** Installation account metadata from GitHub. */
+    account?: UserGitHubAccountApi | null
+    /** True when this installation id matches a team-level GitHub integration on the active project. */
+    uses_shared_installation: boolean
+    /** When this integration row was created. */
+    created_at: string
+}
+
+export interface UserGitHubIntegrationListResponseApi {
+    /** GitHub personal integrations for the authenticated user. */
+    results: UserGitHubIntegrationItemApi[]
+}
+
+export interface PaginatedUserGitHubIntegrationListResponseListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UserGitHubIntegrationListResponseApi[]
+}
+
+export interface GitHubBranchesResponseApi {
+    /** List of branch names */
+    branches: string[]
+    /**
+     * The default branch of the repository
+     * @nullable
+     */
+    default_branch?: string | null
+    /** Whether more branches exist beyond the returned page */
+    has_more: boolean
+}
+
+export interface GitHubRepoApi {
+    id: number
+    name: string
+    full_name: string
+}
+
+export interface GitHubReposResponseApi {
+    repositories: GitHubRepoApi[]
+    /** Whether more repositories are available beyond this page. */
+    has_more: boolean
+}
+
+export interface GitHubReposRefreshResponseApi {
+    /** The refreshed repository cache. */
+    repositories: GitHubRepoApi[]
+}
+
+export interface UserGitHubLinkStartRequestApi {
+    /**
+     * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
+     * @nullable
+     */
+    team_id?: number | null
+    /** Optional client hint (e.g. posthog_code) for return routing after OAuth. */
+    connect_from?: string
+}
+
+export interface UserGitHubLinkStartResponseApi {
+    /** URL to open in the browser to install or authorize the GitHub App for this user. */
+    install_url: string
+    /** OAuth or install flow used for this GitHub connection. */
+    connect_flow: string
+}
+
 /**
  * * `later` - Later
  * `other` - Other
@@ -3388,6 +3537,43 @@ export type OrganizationsProjectsListParams = {
     search?: string
 }
 
+export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3412,6 +3598,28 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ProjectSecretApiKeysListParams = {
@@ -3583,4 +3791,56 @@ export type UsersListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type UsersIntegrationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type UsersIntegrationsGithubBranchesRetrieveParams = {
+    /**
+     * Maximum number of branches to return
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * Number of branches to skip
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Repository in owner/repo format
+     * @minLength 1
+     */
+    repo: string
+    /**
+     * Optional case-insensitive branch name search query.
+     */
+    search?: string
+}
+
+export type UsersIntegrationsGithubReposRetrieveParams = {
+    /**
+     * Maximum number of repositories to return per request (max 500).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of repositories to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive repository name search query.
+     */
+    search?: string
 }

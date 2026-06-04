@@ -36,9 +36,7 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('verify total pageview count in details table', async () => {
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual([pageviews.expected.total])
+            await insight.trends.expectTotals([pageviews.expected.total])
         })
     })
 
@@ -50,18 +48,14 @@ test.describe('Trends insights', () => {
         await test.step('change event to custom event and verify total', async () => {
             await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual([customEventsWithBreakdown.expected.total])
+            await insight.trends.expectTotals([customEventsWithBreakdown.expected.total])
         })
 
         await test.step('add second series with pageview and verify both totals', async () => {
             await insight.trends.addSeries()
             await insight.trends.selectEvent(1, 'Pageview')
             await insight.trends.waitForChart()
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual([customEventsWithBreakdown.expected.total, pageviews.expected.total])
+            await insight.trends.expectTotals([customEventsWithBreakdown.expected.total, pageviews.expected.total])
         })
 
         await test.step('duplicate first series', async () => {
@@ -111,9 +105,7 @@ test.describe('Trends insights', () => {
 
         await test.step('cumulative line chart shows total in details table', async () => {
             await insight.trends.selectChartType(/^Line chart \(cumulative\)/)
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual([pageviews.expected.total])
+            await insight.trends.expectTotals([pageviews.expected.total])
         })
 
         await test.step('Number chart shows bold number = 38', async () => {
@@ -137,16 +129,12 @@ test.describe('Trends insights', () => {
         await insight.trends.waitForChart()
 
         await test.step('Last 7 days shows total = 38', async () => {
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual([pageviews.expected.total])
+            await insight.trends.expectTotals([pageviews.expected.total])
         })
 
         await test.step('Last 24 hours shows total = 2', async () => {
             await insight.trends.selectDateRange('Last 24 hours')
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual(['2'])
+            await insight.trends.expectTotals(['2'])
         })
 
         await test.step('enable comparison and verify no NaN', async () => {
@@ -177,18 +165,14 @@ test.describe('Trends insights', () => {
         })
 
         await test.step('verify Chrome = 5 and Firefox = 3', async () => {
-            const chromeTotal = await insight.trends.details.row('Chrome').column('Total')
-            const firefoxTotal = await insight.trends.details.row('Firefox').column('Total')
-            expect(chromeTotal).toEqual(customEventsWithBreakdown.expected.chromeCount)
-            expect(firefoxTotal).toEqual(customEventsWithBreakdown.expected.firefoxCount)
+            await insight.trends.expectRowTotal('Chrome', customEventsWithBreakdown.expected.chromeCount)
+            await insight.trends.expectRowTotal('Firefox', customEventsWithBreakdown.expected.firefoxCount)
         })
 
         await test.step('remove breakdown and verify single total returns', async () => {
             await insight.trends.removeBreakdown()
             await insight.trends.waitForChart()
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual([customEventsWithBreakdown.expected.total])
+            await insight.trends.expectTotals([customEventsWithBreakdown.expected.total])
         })
     })
 
@@ -206,9 +190,7 @@ test.describe('Trends insights', () => {
         await test.step('enable formula A + B and verify computed total', async () => {
             await insight.trends.setFormula('A + B')
             await insight.trends.waitForChart()
-            await insight.trends.waitForDetailsTable()
-            const totals = await insight.trends.details.column('Total')
-            expect(totals).toEqual(['46'])
+            await insight.trends.expectTotals(['46'])
         })
 
         await test.step('disable formula mode and verify both series return', async () => {
@@ -342,9 +324,11 @@ test.describe('Trends insights', () => {
             await expect(insight.trends.dateRangeButton).toContainText('Last 30 days')
             await expect(insight.saveButton).toBeEnabled()
             await insight.discard()
-            await insight.trends.waitForChart()
-            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days')
+            // Wait for mode transition to complete first (Edit → View)
             await expect(insight.editButton).toBeVisible()
+            await insight.trends.waitForChart()
+            // Handle race where DateFilter state is lost during mode transition remount
+            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days', { timeout: 10_000 })
         })
 
         await test.step('edit again, make a change, and save', async () => {

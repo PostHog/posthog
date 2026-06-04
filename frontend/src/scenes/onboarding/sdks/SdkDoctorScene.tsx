@@ -1,20 +1,22 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconBell, IconRefresh } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { SDK_TYPE_READABLE_NAME } from './sdkConstants'
 import { SdkSection } from './SdkDoctorComponents'
-import { type OutdatedTrafficAlert, SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
+import { SdkType, sdkDoctorLogic } from './sdkDoctorLogic'
 import { sdkDoctorSceneLogic } from './sdkDoctorSceneLogic'
 
 export const scene: SceneExport = {
@@ -25,14 +27,16 @@ export const scene: SceneExport = {
 export function SdkDoctorScene(): JSX.Element {
     const {
         augmentedData,
-        rawDataLoading: loading,
+        reportLoading: loading,
         needsUpdatingCount,
         hasErrors,
         snoozedUntil,
     } = useValues(sdkDoctorLogic)
     const { isDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const healthAlertsEnabled = !!featureFlags[FEATURE_FLAGS.HEALTH_ALERTS]
 
-    const { loadRawData, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
+    const { loadReport, snoozeSdkDoctor } = useActions(sdkDoctorLogic)
 
     useOnMountEffect(() => {
         posthog.capture('sdk doctor loaded', { needsUpdatingCount })
@@ -40,7 +44,7 @@ export function SdkDoctorScene(): JSX.Element {
 
     const scanEvents = (): void => {
         posthog.capture('sdk doctor scan events')
-        loadRawData({ forceRefresh: true })
+        loadReport({ forceRefresh: true })
     }
 
     const snoozeWarning = (): void => {
@@ -59,6 +63,20 @@ export function SdkDoctorScene(): JSX.Element {
                 }}
                 actions={
                     <>
+                        {healthAlertsEnabled && (
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                to={urls.healthAlerts(['sdk_outdated'])}
+                                onClick={() => {
+                                    posthog.capture('health_alerts_entry_point_clicked', { source: 'sdk_doctor' })
+                                }}
+                                icon={<IconBell className="size-4" />}
+                                tooltip="Subscribe to alerts when SDKs go outdated"
+                            >
+                                Alerts
+                            </LemonButton>
+                        )}
                         <LemonButton
                             size="small"
                             type="primary"
@@ -119,11 +137,9 @@ export function SdkDoctorScene(): JSX.Element {
                             }}
                         >
                             {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>
-                                sdk.outdatedTrafficAlerts.map((alert: OutdatedTrafficAlert) => (
-                                    <p key={`${sdkType}-${alert.version}`} className="text-sm mb-1">
-                                        Version <code className="text-xs font-mono">{alert.version}</code> of the{' '}
-                                        {SDK_TYPE_READABLE_NAME[sdkType as SdkType]} SDK has captured more than{' '}
-                                        {alert.thresholdPercent}% of events in the last 7 days.
+                                sdk.banners.map((banner, index) => (
+                                    <p key={`${sdkType}-${index}`} className="text-sm mb-1">
+                                        {banner}
                                     </p>
                                 ))
                             )}

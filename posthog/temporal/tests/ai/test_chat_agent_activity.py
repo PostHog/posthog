@@ -13,8 +13,9 @@ from posthog.temporal.ai.chat_agent import (
     process_conversation_activity,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.stream.redis_stream import CONVERSATION_STREAM_PREFIX
-from ee.models import Conversation
 
 
 @pytest.mark.django_db(transaction=True)

@@ -31,7 +31,7 @@ class InsightVisitor(
 ):
     @classmethod
     def get_model(cls) -> type[models.Model]:
-        from posthog.models import Insight
+        from products.product_analytics.backend.models.insight import Insight
 
         return Insight
 

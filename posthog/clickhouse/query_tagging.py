@@ -27,6 +27,7 @@ class AccessMethod(StrEnum):
     PERSONAL_API_KEY = "personal_api_key"
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
+    ID_JAG = "id_jag"
 
 
 class Product(StrEnum):
@@ -44,6 +45,7 @@ class Product(StrEnum):
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX_AI = "max_ai"
+    METRICS = "metrics"
     MCP = "mcp"  # queries originating through the MCP server (agent tool calls)
     MCP_ANALYTICS = "mcp_analytics"  # queries from the MCP analytics product (insights, dashboards, sessions)
     MESSAGING = "messaging"
@@ -52,6 +54,7 @@ class Product(StrEnum):
     PLATFORM_AND_SUPPORT = "platform_and_support"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    REPLAY_VISION = "replay_vision"
     REVENUE_ANALYTICS = "revenue_analytics"
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
@@ -125,6 +128,7 @@ SCENE_TO_TAGS: dict[str, FallbackTags | None] = {
     "EndpointScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "EndpointsScene": {"product": Product.ENDPOINTS, "feature": Feature.QUERY},
     "Logs": {"product": Product.LOGS, "feature": Feature.QUERY},
+    "Metrics": {"product": Product.METRICS, "feature": Feature.QUERY},
     "EventDefinition": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitionEdit": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
     "EventDefinitions": {"product": Product.PRODUCT_ANALYTICS, "feature": Feature.EVENT_DEFINITION_SCENE},
@@ -167,7 +171,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             NodeKind.WEB_OVERVIEW_QUERY
             | NodeKind.WEB_STATS_TABLE_QUERY
             | NodeKind.WEB_GOALS_QUERY
-            | NodeKind.WEB_TRENDS_QUERY
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
@@ -248,6 +251,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.DATABASE_SCHEMA_QUERY
             | NodeKind.PROPERTY_VALUES_QUERY
             | NodeKind.USAGE_METRICS_QUERY
+            | NodeKind.ACCOUNTS_QUERY
             # drill-downs — caller's product is what matters
             | NodeKind.ACTORS_QUERY
             | NodeKind.GROUPS_QUERY
@@ -412,6 +416,9 @@ class QueryTags(BaseModel):
     has_joins: Optional[bool] = None
     has_json_operations: Optional[bool] = None
 
+    # True when the query embeds a user-supplied HogQL string; used to split user vs platform errors in system.query_log.
+    contains_user_hogql: Optional[bool] = None
+
     hogql_features: Optional[HogQLFeatures] = None
 
     modifiers: Optional[object] = None
@@ -525,6 +532,18 @@ def tag_queries(**kwargs) -> None:
     query_tags.set(updated_tags)
 
 
+def tag_contains_user_hogql() -> None:
+    """Mark the current query as embedding a user-supplied HogQL string; used to separate user vs platform errors in system.query_log.
+
+    Idempotent — safe to call inside hot loops (recursive ``property_to_expr``, breakdown
+    iteration, ``@property`` accessors) since the early-return skips the ``model_copy``
+    inside ``tag_queries`` after the first call per query context.
+    """
+    if get_query_tag_value("contains_user_hogql"):
+        return
+    tag_queries(contains_user_hogql=True)
+
+
 def get_team_query_tags(team: "Team") -> dict[str, Any]:
     from posthog.models.organization import Organization
 
@@ -577,6 +596,7 @@ EVENT_TAG_MATCHERS: frozenset[str] = frozenset().union(*(matchers for matchers, 
 _TABLE_TO_TAGS: tuple[tuple[frozenset[str], FallbackTags], ...] = (
     (frozenset({"session_replay_events", "raw_session_replay_events"}), {"product": Product.REPLAY}),
     (frozenset({"logs", "log_attributes"}), {"product": Product.LOGS}),
+    (frozenset({"metrics", "metric_attributes"}), {"product": Product.METRICS}),
     (frozenset({"events"}), {"product": Product.PRODUCT_ANALYTICS}),
 )
 

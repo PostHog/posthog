@@ -1,5 +1,6 @@
 import os
 
+from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
@@ -12,6 +13,11 @@ TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
 TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
+
+TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
+TEMPORAL_FALLBACK_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_KEYS", "")) or [SECRET_KEY]
+
+
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
@@ -56,6 +62,13 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
 # set, the CI-follow-up floor is also bypassed so the timer actually fires
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
+
+# Override the delay before the first in-sandbox credential refresh (default 20
+# minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
+# quickly instead of waiting out the GitHub token's lifetime.
+TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
+    "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
+)
 
 TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
@@ -106,5 +119,4 @@ LLMA_SENTIMENT_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-sentiment-ta
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
-DEPLOYMENTS_TASK_QUEUE = _set_temporal_task_queue("deployments-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
