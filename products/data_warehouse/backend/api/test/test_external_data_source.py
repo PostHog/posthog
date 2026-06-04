@@ -4010,6 +4010,63 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_without_api_key_is_rejected(self, mock_validate_credentials):
+        # Freshdesk's connection target is `subdomain`, not `host`. Changing it without re-supplying
+        # the API key must be rejected so the stored key can't be redirected to another tenant.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "attacker"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "acme"
+        assert source.job_inputs["api_key"] == "original_key"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_freshdesk_subdomain_change_with_api_key_succeeds(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Freshdesk",
+            created_by=self.user,
+            prefix="test_freshdesk_subdomain_creds",
+            job_inputs={"source_type": "Freshdesk", "subdomain": "acme", "api_key": "original_key"},
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"subdomain": "newco", "api_key": "new_key"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["subdomain"] == "newco"
+        assert source.job_inputs["api_key"] == "new_key"
+        mock_validate_credentials.assert_called_once()
+
     def _servicenow_source(self) -> ExternalDataSource:
         # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
         # secret lives nested inside the `auth_method` container.

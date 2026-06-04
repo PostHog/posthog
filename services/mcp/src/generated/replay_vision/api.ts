@@ -26,7 +26,7 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
         ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
@@ -63,20 +63,28 @@ export const VisionScannersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod.string().optional().describe('Filter to scanners created by the given user IDs (comma-separated).'),
     emits_signals: zod.boolean().optional().describe('Filter to scanners that emit Signals.'),
-    enabled: zod.boolean().optional().describe('Filter to enabled vs disabled scanners.'),
+    enabled: zod
+        .string()
+        .optional()
+        .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
         .optional()
-        .describe('Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.'),
-    scanner_type: zod
-        .enum(['classifier', 'monitor', 'scorer', 'summarizer'])
-        .optional()
         .describe(
-            'Filter by scanner type (monitor, classifier, scorer, summarizer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
         ),
+    scanner_type: zod
+        .string()
+        .optional()
+        .describe('Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Case-insensitive substring match across name, description, and the prompt in scanner_config.'),
 })
 
 /**
@@ -294,21 +302,24 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            'Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
         ),
     session_id: zod.string().optional().describe('Filter to observations of a specific session recording.'),
-    status: zod
-        .enum(['failed', 'ineligible', 'pending', 'running', 'succeeded'])
+    status: zod.string().optional().describe('Filter by observation status. Accepts a comma-separated list.'),
+    tags: zod
+        .string()
         .optional()
         .describe(
-            'Filter by observation status.\n\n* `pending` - Pending\n* `running` - Running\n* `succeeded` - Succeeded\n* `failed` - Failed\n* `ineligible` - Ineligible'
+            'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
         ),
     triggered_by: zod
-        .enum(['on_demand', 'schedule'])
+        .string()
         .optional()
-        .describe(
-            'Filter by trigger source (schedule or on_demand).\n\n* `schedule` - Schedule\n* `on_demand` - On demand'
-        ),
+        .describe('Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.'),
+    verdict: zod
+        .string()
+        .optional()
+        .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
 })
 
 /**

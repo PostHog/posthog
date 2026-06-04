@@ -2,7 +2,8 @@ import { urls } from 'scenes/urls'
 
 import type { DashboardWidgetProductAccess } from '../types'
 import { ErrorTrackingWidgetPreview } from '../widgets/previews/ErrorTrackingWidgetPreview'
-import { errorTrackingWidgetConfigSchema } from './configSchemas'
+import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
+import { errorTrackingWidgetConfigSchema, sessionReplayWidgetConfigSchema } from './configSchemas'
 import type { WidgetAvailabilityConfig } from './widgetAvailability'
 
 export const DASHBOARD_WIDGET_HEADER_LAYOUTS = ['simple', 'dashboard_tile'] as const
@@ -26,6 +27,7 @@ export const DEFAULT_DASHBOARD_WIDGET_HEADER_META = {
 /** Product area labels keyed by catalog `groupId`. New groups: add here. */
 export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
+    session_replay: 'Session replay',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -47,6 +49,11 @@ export type DashboardWidgetCatalogEntry = {
     headerTitle?: string
     /** When set, the widget title links here on private dashboard placements for users with access. */
     titleHref?: string
+    /** Copy for shared/public dashboard placeholders when live widget data is not loaded. */
+    sharedPlaceholder?: {
+        title: string
+        message: string
+    }
     /** Optional project setup requirement surfaced in widget runtime when unmet (see `widgetAvailability.ts`). */
     availability?: WidgetAvailabilityConfig
 }
@@ -64,6 +71,34 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
         productAccess: 'error_tracking',
         titleHref: urls.errorTracking(),
+        sharedPlaceholder: {
+            title: 'Top issues',
+            message: 'Log in to PostHog to see which errors are affecting your users.',
+        },
+    },
+    session_replay_list: {
+        groupId: 'session_replay',
+        label: 'Recent recordings',
+        description: 'Recent session recordings you can open in the replay player.',
+        headerTitle: 'Recent recordings',
+        defaultConfig: sessionReplayWidgetConfigSchema.parse({
+            dateRange: { date_from: '-7d' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
+        productAccess: 'session_recording',
+        titleHref: urls.replay(),
+        sharedPlaceholder: {
+            title: 'Recent recordings',
+            message: 'Log in to PostHog to watch session replays from this dashboard.',
+        },
+        availability: {
+            requirement: 'session_replay_enabled',
+            unavailableTitle: 'Session replay is not enabled',
+            unavailableReason:
+                'Turn on session recordings for this project to watch recent replays from your dashboard.',
+            setupActionLabel: 'Enable session replay',
+            docsHref: 'https://posthog.com/docs/session-replay',
+        },
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
@@ -72,6 +107,7 @@ export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
 /** New widget types: add preview components here. See products/dashboards/CONTRIBUTING.md. */
 export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => JSX.Element> = {
     error_tracking_list: ErrorTrackingWidgetPreview,
+    session_replay_list: SessionReplayWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {
@@ -103,6 +139,11 @@ export function tryGetDashboardWidgetCatalogEntry(widgetType: string): ResolvedD
     return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
 }
 
+export const DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER = {
+    title: 'Widget data',
+    message: "Log in to PostHog to see this widget's data.",
+} as const
+
 export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): ResolvedDashboardWidgetCatalogEntry {
     return {
         groupId: widgetType,
@@ -113,6 +154,7 @@ export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): Re
         headerTitle: widgetType,
         headerLayout: DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
         headerMeta: DEFAULT_DASHBOARD_WIDGET_HEADER_META,
+        sharedPlaceholder: DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
     }
 }
 

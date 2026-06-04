@@ -97,6 +97,9 @@ tools:
             - updated_at
         requires_ai_consent: true
         feature_flag: replay-vision
+    vision-scanners-creators-retrieve:
+        operation: vision_scanners_creators_retrieve
+        enabled: false
     vision-scanners-delete:
         operation: vision_scanners_destroy
         enabled: true
@@ -205,6 +208,9 @@ tools:
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`.
         feature_flag: replay-vision
+    vision-scanners-observations-stats-retrieve:
+        operation: vision_scanners_observations_stats_retrieve
+        enabled: false
     vision-scanners-partial-update:
         operation: vision_scanners_partial_update
         enabled: false

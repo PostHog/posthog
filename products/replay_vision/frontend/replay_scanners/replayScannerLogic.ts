@@ -1,6 +1,7 @@
+import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -15,12 +16,12 @@ import {
     visionScannersDestroy,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
+    visionScannersObservationsStatsRetrieve,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
 } from '../generated/api'
-import type { EstimateResponseApi, ReplayObservationApi } from '../generated/api.schemas'
+import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
-import { readFixedTags, readFreeformTags, readModelOutput, readTags, readVerdict } from '../utils/observation'
 import type { replayScannerLogicType } from './replayScannerLogicType'
 import { findScannerTemplate } from './scannerTemplates'
 import {
@@ -43,15 +44,7 @@ export type ObservationStatusValue = ReplayObservationApi['status']
 export type ObservationTriggeredByValue = ReplayObservationApi['triggered_by']
 export type ObservationVerdictValue = 'yes' | 'no' | 'inconclusive'
 
-function quantile(sorted: number[], q: number): number {
-    if (sorted.length === 1) {
-        return sorted[0]
-    }
-    const pos = (sorted.length - 1) * q
-    const lo = Math.floor(pos)
-    const hi = Math.ceil(pos)
-    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo)
-}
+export const OBSERVATIONS_PAGE_SIZE = 50
 
 function currentTemplateKey(): string | null {
     const value = router.values.searchParams.template
@@ -111,6 +104,79 @@ function newScanner(templateKey?: string | null): ReplayScanner {
     }
 }
 
+interface ObservationListParams {
+    limit?: number
+    offset?: number
+    status?: string
+    triggered_by?: string
+    verdict?: string
+    tags?: string
+    order_by?: string
+}
+
+export interface ObservationsSorting {
+    columnKey: string
+    order: 1 | -1
+}
+
+const STATIC_ORDER_KEYS: Record<string, string> = {
+    created_at: 'created_at',
+    version: 'scanner_version',
+}
+// Only monitor and scorer have a JSONB-backed Result sort key on the server.
+const RESULT_ORDER_KEY_BY_TYPE: Partial<Record<ScannerType, string>> = {
+    scorer: 'result_score',
+    monitor: 'result_verdict',
+}
+
+function resolveOrderByKey(columnKey: string, scannerType: ScannerType | undefined): string | null {
+    if (columnKey === 'result') {
+        return (scannerType && RESULT_ORDER_KEY_BY_TYPE[scannerType]) ?? null
+    }
+    return STATIC_ORDER_KEYS[columnKey] ?? null
+}
+
+/** Translate kea filter + sort state into the query params accepted by the list and stats endpoints. */
+export function buildObservationListParams(
+    values: {
+        observationStatusFilter: ObservationStatusValue[]
+        observationTriggeredByFilter: ObservationTriggeredByValue[]
+        observationVerdictFilter: ObservationVerdictValue[]
+        observationTagFilter: string[]
+        observationsSort: ObservationsSorting | null
+        scanner: ReplayScanner | null
+    },
+    limit?: number,
+    offset?: number
+): ObservationListParams {
+    const params: ObservationListParams = {}
+    if (limit !== undefined) {
+        params.limit = limit
+    }
+    if (offset !== undefined && offset > 0) {
+        params.offset = offset
+    }
+    if (values.observationStatusFilter.length > 0) {
+        params.status = values.observationStatusFilter.join(',')
+    }
+    if (values.observationTriggeredByFilter.length > 0) {
+        params.triggered_by = values.observationTriggeredByFilter.join(',')
+    }
+    if (values.observationVerdictFilter.length > 0) {
+        params.verdict = values.observationVerdictFilter.join(',')
+    }
+    if (values.observationTagFilter.length > 0) {
+        params.tags = values.observationTagFilter.join(',')
+    }
+    if (values.observationsSort) {
+        const orderKey = resolveOrderByKey(values.observationsSort.columnKey, values.scanner?.scanner_type)
+        if (orderKey) {
+            params.order_by = values.observationsSort.order === -1 ? `-${orderKey}` : orderKey
+        }
+    }
+    return params
+}
+
 export const replayScannerLogic = kea<replayScannerLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerLogic']),
     props({} as ReplayScannerLogicProps),
@@ -122,14 +188,27 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         loadObservations: true,
-        loadObservationsSuccess: (observations: ReplayObservationApi[]) => ({ observations }),
+        loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
+        setObservationsPage: (page: number) => ({ page }),
+        setObservationsSort: (sorting: ObservationsSorting | null) => ({ sorting }),
+        loadObservationStats: true,
+        loadObservationStatsSuccess: (stats: ObservationStatsApi) => ({ stats }),
+        loadObservationStatsFailure: true,
         deleteScanner: true,
         setObservationStatusFilter: (values: ObservationStatusValue[]) => ({ values }),
         setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => ({ values }),
         setObservationVerdictFilter: (values: ObservationVerdictValue[]) => ({ values }),
         setObservationTagFilter: (values: string[]) => ({ values }),
         clearObservationFilters: true,
+        restoreObservationsTableState: (state: {
+            page: number
+            sort: ObservationsSorting | null
+            status: ObservationStatusValue[]
+            triggeredBy: ObservationTriggeredByValue[]
+            verdict: ObservationVerdictValue[]
+            tags: string[]
+        }) => state,
         setChartDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         requestScannerEstimate: true,
         loadScannerEstimate: true,
@@ -205,12 +284,53 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadObservationsSuccess: (_, { observations }) => observations,
             },
         ],
+        observationsTotal: [
+            0,
+            {
+                loadObservationsSuccess: (_, { total }) => total,
+            },
+        ],
+        observationsPage: [
+            1,
+            {
+                setObservationsPage: (_, { page }) => Math.max(1, page),
+                // Filter / sort changes can shift rows around so the current page may no longer make sense; reset.
+                setObservationStatusFilter: () => 1,
+                setObservationTriggeredByFilter: () => 1,
+                setObservationVerdictFilter: () => 1,
+                setObservationTagFilter: () => 1,
+                setObservationsSort: () => 1,
+                clearObservationFilters: () => 1,
+                restoreObservationsTableState: (_, { page }) => Math.max(1, page),
+            },
+        ],
+        observationsSort: [
+            { columnKey: 'created_at', order: -1 } as ObservationsSorting | null,
+            {
+                setObservationsSort: (_, { sorting }) => sorting,
+                restoreObservationsTableState: (_, { sort }) => sort,
+            },
+        ],
         observationsLoading: [
             false,
             {
                 loadObservations: () => true,
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
+            },
+        ],
+        observationStatsApi: [
+            null as ObservationStatsApi | null,
+            {
+                loadObservationStatsSuccess: (_, { stats }) => stats,
+            },
+        ],
+        observationStatsApiLoading: [
+            false,
+            {
+                loadObservationStats: () => true,
+                loadObservationStatsSuccess: () => false,
+                loadObservationStatsFailure: () => false,
             },
         ],
         scannerEstimate: [
@@ -240,6 +360,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationStatusFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { status }) => status,
             },
         ],
         observationTriggeredByFilter: [
@@ -247,6 +368,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationTriggeredByFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { triggeredBy }) => triggeredBy,
             },
         ],
         observationVerdictFilter: [
@@ -254,6 +376,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationVerdictFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { verdict }) => verdict,
             },
         ],
         observationTagFilter: [
@@ -261,6 +384,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             {
                 setObservationTagFilter: (_, { values }) => values,
                 clearObservationFilters: () => [],
+                restoreObservationsTableState: (_, { tags }) => tags,
             },
         ],
         chartDateFrom: ['-14d' as string | null, { setChartDateRange: (_, { dateFrom }) => dateFrom }],
@@ -279,47 +403,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
         ],
         hasObservationsInFlight: [
-            (s) => [s.observations],
-            (observations: ReplayObservationApi[]): boolean =>
-                observations.some((o) => o.status === 'pending' || o.status === 'running'),
-        ],
-        filteredObservations: [
-            (s) => [
-                s.observations,
-                s.observationStatusFilter,
-                s.observationTriggeredByFilter,
-                s.observationVerdictFilter,
-                s.observationTagFilter,
-            ],
-            (
-                observations: ReplayObservationApi[],
-                statusFilter: ObservationStatusValue[],
-                triggeredByFilter: ObservationTriggeredByValue[],
-                verdictFilter: ObservationVerdictValue[],
-                tagFilter: string[]
-            ): ReplayObservationApi[] => {
-                return observations.filter((o) => {
-                    if (statusFilter.length > 0 && !statusFilter.includes(o.status)) {
-                        return false
-                    }
-                    if (triggeredByFilter.length > 0 && !triggeredByFilter.includes(o.triggered_by)) {
-                        return false
-                    }
-                    if (verdictFilter.length > 0) {
-                        const verdict = readVerdict(o)
-                        if (verdict === null || !verdictFilter.includes(verdict)) {
-                            return false
-                        }
-                    }
-                    if (tagFilter.length > 0) {
-                        const present = readTags(o)
-                        if (!tagFilter.some((t) => present.includes(t))) {
-                            return false
-                        }
-                    }
-                    return true
-                })
-            },
+            (s) => [s.observationStatsApi],
+            (stats: ObservationStatsApi | null): boolean => (stats?.status_counts.in_flight ?? 0) > 0,
         ],
         hasActiveObservationFilters: [
             (s) => [
@@ -340,21 +425,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 tagFilter.length > 0,
         ],
         availableTags: [
-            (s) => [s.observations],
-            (observations: ReplayObservationApi[]): string[] => {
-                const set = new Set<string>()
-                for (const obs of observations) {
-                    for (const tag of readTags(obs)) {
-                        set.add(tag)
-                    }
-                }
-                return Array.from(set).sort()
-            },
+            (s) => [s.observationStatsApi],
+            (stats: ObservationStatsApi | null): string[] => stats?.available_tags ?? [],
         ],
         observationStats: [
-            (s) => [s.observations],
+            (s) => [s.observationStatsApi],
             (
-                observations: ReplayObservationApi[]
+                stats: ObservationStatsApi | null
             ): {
                 total: number
                 succeeded: number
@@ -363,286 +440,301 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 inFlight: number
                 successRate: number | null
             } => {
-                let succeeded = 0
-                let failed = 0
-                let ineligible = 0
-                let inFlight = 0
-                for (const o of observations) {
-                    if (o.status === 'succeeded') {
-                        succeeded += 1
-                    } else if (o.status === 'failed') {
-                        failed += 1
-                    } else if (o.status === 'ineligible') {
-                        ineligible += 1
-                    } else {
-                        inFlight += 1
-                    }
+                if (!stats) {
+                    return { total: 0, succeeded: 0, failed: 0, ineligible: 0, inFlight: 0, successRate: null }
                 }
-                // Success rate excludes ineligible: those were skipped at the gate, not scanner failures.
-                const scored = succeeded + failed
+                const c = stats.status_counts
                 return {
-                    total: observations.length,
-                    succeeded,
-                    failed,
-                    ineligible,
-                    inFlight,
-                    successRate: scored > 0 ? Math.round((succeeded / scored) * 100) : null,
+                    total: c.total,
+                    succeeded: c.succeeded,
+                    failed: c.failed,
+                    ineligible: c.ineligible,
+                    inFlight: c.in_flight,
+                    successRate: c.success_rate,
                 }
             },
-        ],
-        succeededObservations: [
-            (s) => [s.observations],
-            (observations: ReplayObservationApi[]): ReplayObservationApi[] =>
-                observations.filter((o) => o.status === 'succeeded'),
         ],
         monitorStats: [
-            (s) => [s.succeededObservations],
-            (
-                observations: ReplayObservationApi[]
-            ): { yesTotal: number; noTotal: number; inconclusiveTotal: number } => {
-                let yesTotal = 0
-                let noTotal = 0
-                let inconclusiveTotal = 0
-                for (const obs of observations) {
-                    const v = readVerdict(obs)
-                    if (v === 'yes') {
-                        yesTotal += 1
-                    } else if (v === 'no') {
-                        noTotal += 1
-                    } else if (v === 'inconclusive') {
-                        inconclusiveTotal += 1
-                    }
-                }
-                return { yesTotal, noTotal, inconclusiveTotal }
-            },
+            (s) => [s.observationStatsApi],
+            (stats: ObservationStatsApi | null): { yesTotal: number; noTotal: number; inconclusiveTotal: number } => ({
+                yesTotal: stats?.monitor?.yes_total ?? 0,
+                noTotal: stats?.monitor?.no_total ?? 0,
+                inconclusiveTotal: stats?.monitor?.inconclusive_total ?? 0,
+            }),
         ],
         classifierTagStats: [
-            (s) => [s.succeededObservations],
+            (s) => [s.observationStatsApi],
             (
-                observations: ReplayObservationApi[]
+                stats: ObservationStatsApi | null
             ): {
                 fixedRanked: [string, number][]
                 freeformRanked: [string, number][]
                 totalWithTags: number
-            } => {
-                const fixedCounts = new Map<string, number>()
-                const freeformCounts = new Map<string, number>()
-                let totalWithTags = 0
-                for (const obs of observations) {
-                    const fixed = readFixedTags(obs)
-                    const freeform = readFreeformTags(obs)
-                    if (fixed.length === 0 && freeform.length === 0) {
-                        continue
-                    }
-                    totalWithTags += 1
-                    for (const tag of fixed) {
-                        fixedCounts.set(tag, (fixedCounts.get(tag) ?? 0) + 1)
-                    }
-                    for (const tag of freeform) {
-                        freeformCounts.set(tag, (freeformCounts.get(tag) ?? 0) + 1)
-                    }
-                }
-                const rank = (counts: Map<string, number>): [string, number][] =>
-                    Array.from(counts.entries())
-                        .sort((a, b) => b[1] - a[1])
-                        .slice(0, 10)
-                return { fixedRanked: rank(fixedCounts), freeformRanked: rank(freeformCounts), totalWithTags }
-            },
-        ],
-        scorerScores: [
-            (s) => [s.succeededObservations],
-            (observations: ReplayObservationApi[]): number[] => {
-                const items: number[] = []
-                for (const obs of observations) {
-                    const out = readModelOutput(obs)
-                    if (out && typeof out.score === 'number') {
-                        items.push(out.score)
-                    }
-                }
-                items.sort((a, b) => a - b)
-                return items
-            },
+            } => ({
+                fixedRanked: (stats?.classifier?.fixed_ranked ?? []).map((t) => [t.tag, t.count] as [string, number]),
+                freeformRanked: (stats?.classifier?.freeform_ranked ?? []).map(
+                    (t) => [t.tag, t.count] as [string, number]
+                ),
+                totalWithTags: stats?.classifier?.total_with_tags ?? 0,
+            }),
         ],
         scorerSummary: [
-            (s) => [s.scorerScores],
+            (s) => [s.observationStatsApi],
             (
-                scores: number[]
-            ): { min: number; p25: number; median: number; mean: number; p75: number; max: number } | null => {
-                if (scores.length === 0) {
-                    return null
-                }
-                return {
-                    min: scores[0],
-                    p25: quantile(scores, 0.25),
-                    median: quantile(scores, 0.5),
-                    mean: scores.reduce((a, b) => a + b, 0) / scores.length,
-                    p75: quantile(scores, 0.75),
-                    max: scores[scores.length - 1],
-                }
-            },
+                stats: ObservationStatsApi | null
+            ): {
+                min: number
+                p25: number
+                median: number
+                mean: number
+                p75: number
+                max: number
+                count: number
+            } | null => stats?.scorer?.summary ?? null,
         ],
-        // Score histogram: count of observations per score bucket across the configured scale.
         scorerHistogram: [
-            (s) => [s.scorerScores, s.scanner],
-            (scores: number[], scanner: ReplayScanner | null): { labels: string[]; counts: number[] } | null => {
-                if (scores.length === 0) {
-                    return null
-                }
-                // Span the configured scale (falling back to the observed range) so the axis shows the full
-                // possible range even when scores cluster. Widen the bucket for large scales to cap the bar count.
-                const scale = scanner?.scanner_type === 'scorer' ? scanner.scanner_config.scale : undefined
-                const lo = Math.floor(scale?.min ?? scores[0])
-                const hi = Math.ceil(scale?.max ?? scores[scores.length - 1])
-                const span = Math.max(0, hi - lo)
-                const bucketWidth = Math.max(1, Math.ceil((span + 1) / 21))
-                const bucketCount = Math.floor(span / bucketWidth) + 1
-                const counts = new Array(bucketCount).fill(0)
-                for (const score of scores) {
-                    const idx = Math.min(
-                        bucketCount - 1,
-                        Math.max(0, Math.floor((Math.round(score) - lo) / bucketWidth))
-                    )
-                    counts[idx] += 1
-                }
-                const labels = counts.map((_, i) => {
-                    const start = lo + i * bucketWidth
-                    return bucketWidth === 1 ? String(start) : `${start}–${Math.min(start + bucketWidth - 1, hi)}`
-                })
-                return { labels, counts }
-            },
+            (s) => [s.observationStatsApi],
+            (stats: ObservationStatsApi | null): { labels: string[]; counts: number[] } | null =>
+                stats?.scorer?.histogram ?? null,
         ],
-        // Distinct sessions scanned: last 14 days and total. Surfaces sweep-job coverage.
         coverageStats: [
-            (s) => [s.observations],
+            (s) => [s.observationStatsApi],
             (
-                observations: ReplayObservationApi[]
-            ): { recentSessions: number; totalSessions: number; recentDays: number } => {
-                const cutoff = dayjs().subtract(14, 'day')
-                const recent = new Set<string>()
-                const all = new Set<string>()
-                for (const obs of observations) {
-                    if (!obs.session_id) {
-                        continue
-                    }
-                    all.add(obs.session_id)
-                    if (dayjs(obs.created_at).isAfter(cutoff)) {
-                        recent.add(obs.session_id)
-                    }
-                }
-                return { recentSessions: recent.size, totalSessions: all.size, recentDays: 14 }
-            },
+                stats: ObservationStatsApi | null
+            ): { recentSessions: number; totalSessions: number; recentDays: number } => ({
+                recentSessions: stats?.coverage.recent_sessions ?? 0,
+                totalSessions: stats?.coverage.total_sessions ?? 0,
+                recentDays: stats?.coverage.recent_days ?? 14,
+            }),
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
-        loadScanner: async () => {
-            if (props.id === 'new') {
-                actions.loadScannerSuccess(newScanner(currentTemplateKey()))
-                return
-            }
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersRetrieve(String(teamId), props.id)
-                actions.loadScannerSuccess(scannerFromApi(response))
-            } catch (error) {
-                lemonToast.error(`Failed to load scanner: ${String(error)}`)
-                actions.loadScannerFailure()
-                router.actions.replace(urls.replayVision())
-            }
-        },
+    listeners(({ actions, props, values, cache }) => {
+        const reloadObservationsAndStats = (): void => {
+            actions.loadObservations()
+            actions.loadObservationStats()
+        }
+        return {
+            loadScanner: async () => {
+                if (props.id === 'new') {
+                    actions.loadScannerSuccess(newScanner(currentTemplateKey()))
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    const response = await visionScannersRetrieve(String(teamId), props.id)
+                    actions.loadScannerSuccess(scannerFromApi(response))
+                } catch (error) {
+                    lemonToast.error(`Failed to load scanner: ${String(error)}`)
+                    actions.loadScannerFailure()
+                    router.actions.replace(urls.replayVision())
+                }
+            },
 
-        loadScannerSuccess: ({ scanner }) => {
-            actions.setScannerValues(scanner)
-            actions.requestScannerEstimate()
-        },
+            loadScannerSuccess: ({ scanner }) => {
+                actions.setScannerValues(scanner)
+                actions.requestScannerEstimate()
+                // A deep-link to `?sort=result` can't resolve its order_by until the scanner type is known;
+                // refire once we have it so the initial paint reflects the URL.
+                if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
+                    actions.loadObservations()
+                    actions.loadObservationStats()
+                }
+            },
 
-        setScannerType: ({ scannerType }) => {
-            actions.setScannerValues({ scanner_type: scannerType, scanner_config: defaultConfigForType(scannerType) })
-        },
-
-        // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
-        // and rapid filter edits don't fire one request per tick.
-        setScannerValue: () => actions.requestScannerEstimate(),
-        setScannerValues: () => actions.requestScannerEstimate(),
-        submitScannerSuccess: () => actions.requestScannerEstimate(),
-
-        requestScannerEstimate: () => {
-            cache.disposables.add(() => {
-                const id = setTimeout(() => actions.loadScannerEstimate(), 300)
-                return () => clearTimeout(id)
-            }, 'scannerEstimateDebounce')
-        },
-
-        loadScannerEstimate: async (_, breakpoint) => {
-            const teamId = teamLogic.values.currentTeamId
-            const scanner = values.scanner
-            if (!teamId || !scanner) {
-                actions.loadScannerEstimateFailure()
-                return
-            }
-            const version = values.estimateRequestVersion
-            try {
-                const response = await visionScannersEstimateCreate(String(teamId), {
-                    query: scanner.query ?? undefined,
-                    sampling_rate: scanner.sampling_rate,
+            setScannerType: ({ scannerType }) => {
+                actions.setScannerValues({
+                    scanner_type: scannerType,
+                    scanner_config: defaultConfigForType(scannerType),
                 })
-                breakpoint()
-                if (values.estimateRequestVersion !== version) {
+            },
+
+            // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
+            // and rapid filter edits don't fire one request per tick.
+            setScannerValue: () => actions.requestScannerEstimate(),
+            setScannerValues: () => actions.requestScannerEstimate(),
+            submitScannerSuccess: () => actions.requestScannerEstimate(),
+
+            requestScannerEstimate: () => {
+                cache.disposables.add(() => {
+                    const id = setTimeout(() => actions.loadScannerEstimate(), 300)
+                    return () => clearTimeout(id)
+                }, 'scannerEstimateDebounce')
+            },
+
+            loadScannerEstimate: async (_, breakpoint) => {
+                const teamId = teamLogic.values.currentTeamId
+                const scanner = values.scanner
+                if (!teamId || !scanner) {
+                    actions.loadScannerEstimateFailure()
                     return
                 }
-                actions.loadScannerEstimateSuccess(response)
-            } catch (error) {
-                if (error instanceof Error && isBreakpoint(error)) {
-                    throw error
+                const version = values.estimateRequestVersion
+                try {
+                    const response = await visionScannersEstimateCreate(String(teamId), {
+                        query: scanner.query ?? undefined,
+                        sampling_rate: scanner.sampling_rate,
+                    })
+                    breakpoint()
+                    if (values.estimateRequestVersion !== version) {
+                        return
+                    }
+                    actions.loadScannerEstimateSuccess(response)
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
+                    // eslint-disable-next-line no-console
+                    console.warn('[replay-vision] scanner estimate failed', error)
+                    if (values.estimateRequestVersion !== version) {
+                        return
+                    }
+                    actions.loadScannerEstimateFailure()
                 }
-                // eslint-disable-next-line no-console
-                console.warn('[replay-vision] scanner estimate failed', error)
-                if (values.estimateRequestVersion !== version) {
+            },
+
+            deleteScanner: async () => {
+                if (props.id === 'new') {
                     return
                 }
-                actions.loadScannerEstimateFailure()
-            }
-        },
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    await visionScannersDestroy(String(teamId), props.id)
+                    lemonToast.success('Scanner deleted')
+                    router.actions.replace(urls.replayVision())
+                } catch (error) {
+                    lemonToast.error(`Failed to delete scanner: ${String(error)}`)
+                }
+            },
 
-        deleteScanner: async () => {
-            if (props.id === 'new') {
-                return
-            }
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                await visionScannersDestroy(String(teamId), props.id)
-                lemonToast.success('Scanner deleted')
-                router.actions.replace(urls.replayVision())
-            } catch (error) {
-                lemonToast.error(`Failed to delete scanner: ${String(error)}`)
-            }
-        },
+            loadObservations: async () => {
+                if (props.id === 'new') {
+                    actions.loadObservationsSuccess([], 0)
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    const offset = (values.observationsPage - 1) * OBSERVATIONS_PAGE_SIZE
+                    const params = buildObservationListParams(values, OBSERVATIONS_PAGE_SIZE, offset)
+                    const response = await visionScannersObservationsList(String(teamId), props.id, params)
+                    actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
+                } catch {
+                    actions.loadObservationsFailure()
+                }
+            },
 
-        loadObservations: async () => {
-            if (props.id === 'new') {
-                actions.loadObservationsSuccess([])
-                return
-            }
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersObservationsList(String(teamId), props.id)
-                actions.loadObservationsSuccess(response.results ?? [])
-            } catch {
-                actions.loadObservationsFailure()
-            }
-        },
+            setObservationsPage: () => actions.loadObservations(),
+            restoreObservationsTableState: () => reloadObservationsAndStats(),
+            setObservationsSort: () => actions.loadObservations(),
+            // Any change to the filter set has to refresh both the current page and the aggregate cards above it.
+            setObservationStatusFilter: () => reloadObservationsAndStats(),
+            setObservationTriggeredByFilter: () => reloadObservationsAndStats(),
+            setObservationVerdictFilter: () => reloadObservationsAndStats(),
+            setObservationTagFilter: () => reloadObservationsAndStats(),
+            clearObservationFilters: () => reloadObservationsAndStats(),
 
-        loadObservationsSuccess: () => {
-            scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, actions.loadObservations)
+            loadObservationStats: async () => {
+                if (props.id === 'new') {
+                    actions.loadObservationStatsFailure()
+                    return
+                }
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    return
+                }
+                try {
+                    // Stats endpoint accepts the same filters as the list, but `order_by` is meaningless on an aggregate.
+                    const { order_by: _ignored, ...params } = buildObservationListParams(values)
+                    const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, params)
+                    actions.loadObservationStatsSuccess(response)
+                } catch {
+                    actions.loadObservationStatsFailure()
+                }
+            },
+
+            loadObservationStatsSuccess: () => {
+                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+            },
+            // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
+            loadObservationStatsFailure: () => {
+                scheduleObservationPoll(cache.disposables, values.hasObservationsInFlight, reloadObservationsAndStats)
+            },
+        }
+    }),
+
+    actionToUrl(({ values }) => {
+        const buildSearchParams = (): Record<string, string | undefined> => {
+            const next = { ...router.values.searchParams } as Record<string, string | undefined>
+            for (const key of TABLE_URL_PARAM_KEYS) {
+                delete next[key]
+            }
+            if (values.observationsPage > 1) {
+                next.page = String(values.observationsPage)
+            }
+            const sort = values.observationsSort
+            if (sort && !(sort.columnKey === 'created_at' && sort.order === -1)) {
+                next.sort = `${sort.order === -1 ? '-' : ''}${sort.columnKey}`
+            }
+            if (values.observationStatusFilter.length > 0) {
+                next.status = values.observationStatusFilter.join(',')
+            }
+            if (values.observationTriggeredByFilter.length > 0) {
+                next.triggered_by = values.observationTriggeredByFilter.join(',')
+            }
+            if (values.observationVerdictFilter.length > 0) {
+                next.verdict = values.observationVerdictFilter.join(',')
+            }
+            if (values.observationTagFilter.length > 0) {
+                next.tags = values.observationTagFilter.join(',')
+            }
+            return next
+        }
+        const writeUrl = (): [string, Record<string, string | undefined>] => [
+            router.values.location.pathname,
+            buildSearchParams(),
+        ]
+        return {
+            setObservationsPage: writeUrl,
+            setObservationsSort: writeUrl,
+            setObservationStatusFilter: writeUrl,
+            setObservationTriggeredByFilter: writeUrl,
+            setObservationVerdictFilter: writeUrl,
+            setObservationTagFilter: writeUrl,
+            clearObservationFilters: writeUrl,
+        }
+    }),
+
+    urlToAction(({ actions, values, props }) => ({
+        // Restore as a single atomic action so the page reducer isn't reset by individual filter setters.
+        // Idempotent: we only dispatch when something actually differs from current state.
+        [urls.replayVision(props.id)]: (_, searchParams) => {
+            const pageRaw = Number(searchParams.page ?? 1)
+            const page = Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1
+            const sort = parseSortParam(searchParams.sort) ?? { columnKey: 'created_at', order: -1 }
+            const status = parseCsvParam<ObservationStatusValue>(searchParams.status)
+            const triggeredBy = parseCsvParam<ObservationTriggeredByValue>(searchParams.triggered_by)
+            const verdict = parseCsvParam<ObservationVerdictValue>(searchParams.verdict)
+            const tags = parseCsvParam<string>(searchParams.tags)
+            const sameAsCurrent =
+                page === values.observationsPage &&
+                sort.columnKey === values.observationsSort?.columnKey &&
+                sort.order === values.observationsSort?.order &&
+                equal(status, values.observationStatusFilter) &&
+                equal(triggeredBy, values.observationTriggeredByFilter) &&
+                equal(verdict, values.observationVerdictFilter) &&
+                equal(tags, values.observationTagFilter)
+            if (!sameAsCurrent) {
+                actions.restoreObservationsTableState({ page, sort, status, triggeredBy, verdict, tags })
+            }
         },
     })),
 
@@ -650,6 +742,31 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         actions.loadScanner()
         if (props.id !== 'new') {
             actions.loadObservations()
+            actions.loadObservationStats()
         }
     }),
 ])
+
+const TABLE_URL_PARAM_KEYS = ['page', 'sort', 'status', 'triggered_by', 'verdict', 'tags'] as const
+
+export function parseSortParam(value: string | undefined): ObservationsSorting | null {
+    if (typeof value !== 'string' || value.length === 0) {
+        return null
+    }
+    const descending = value.startsWith('-')
+    const columnKey = descending ? value.slice(1) : value
+    if (!columnKey) {
+        return null
+    }
+    return { columnKey, order: descending ? -1 : 1 }
+}
+
+export function parseCsvParam<T extends string>(value: string | undefined): T[] {
+    if (typeof value !== 'string' || value.length === 0) {
+        return []
+    }
+    return value
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0) as T[]
+}
