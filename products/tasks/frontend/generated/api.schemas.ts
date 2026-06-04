@@ -291,12 +291,11 @@ export const SignalReportTaskRelationshipEnumApi = {
 export type TaskApiLatestRun = { [key: string]: unknown } | null
 
 export interface TaskApi {
-    readonly id: string
     /**
-     * Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the task UUID and can be used in place of it on detail endpoints.
+     * Human-readable identifier with 'task_' prefix
      * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
      */
-    readonly display_id: string
+    readonly id: string
     /** @nullable */
     readonly task_number: number | null
     readonly slug: string
@@ -378,12 +377,11 @@ export interface PaginatedTaskListApi {
 export type PatchedTaskApiLatestRun = { [key: string]: unknown } | null
 
 export interface PatchedTaskApi {
-    readonly id?: string
     /**
-     * Stripe-style human-readable identifier (e.g. `task_2aUyqjCzEIiEcYMKj7TZtw`). Encodes the task UUID and can be used in place of it on detail endpoints.
+     * Human-readable identifier with 'task_' prefix
      * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
      */
-    readonly display_id?: string
+    readonly id?: string
     /** @nullable */
     readonly task_number?: number | null
     readonly slug?: string
@@ -936,6 +934,10 @@ export const TaskRunDetailProviderEnumApi = {
 
 export interface TaskRunDetailApi {
     readonly id: string
+    /**
+     * Human-readable identifier with type prefix
+     * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+     */
     readonly task: string
     /**
      * Current stage for this run (e.g., 'research', 'plan', 'build')
@@ -1712,6 +1714,10 @@ export interface TaskRunSummaryApi {
 }
 
 export interface TaskSummaryApi {
+    /**
+     * Human-readable identifier with 'task_' prefix
+     * @pattern ^[a-z]{1,16}_[0-9A-Za-z]{22}$
+     */
     readonly id: string
     readonly title: string
     /** @nullable */

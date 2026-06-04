@@ -72,8 +72,10 @@ export const TasksListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
+export const tasksRetrievePathIdRegExp = new RegExp('^[a-z]{1,16}_[0-9A-Za-z]{22}$')
+
 export const TasksRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this task.'),
+    id: zod.string().regex(tasksRetrievePathIdRegExp),
     project_id: zod
         .string()
         .describe(
@@ -85,13 +87,15 @@ export const TasksRetrieveParams = /* @__PURE__ */ zod.object({
  * Get a list of runs for a specific task.
  * @summary List task runs
  */
+export const tasksRunsListPathTaskIdRegExp = new RegExp('^[a-z]{1,16}_[0-9A-Za-z]{22}$')
+
 export const TasksRunsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    task_id: zod.string(),
+    task_id: zod.string().regex(tasksRunsListPathTaskIdRegExp),
 })
 
 export const tasksRunsListQueryLimitDefault = 50
@@ -117,6 +121,8 @@ export const TasksRunsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * API for managing task runs. Each run represents an execution of a task.
  */
+export const tasksRunsRetrievePathTaskIdRegExp = new RegExp('^[a-z]{1,16}_[0-9A-Za-z]{22}$')
+
 export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this task run.'),
     project_id: zod
@@ -124,13 +130,15 @@ export const TasksRunsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    task_id: zod.string(),
+    task_id: zod.string().regex(tasksRunsRetrievePathTaskIdRegExp),
 })
 
 /**
  * Fetch session log entries for a task run with optional filtering by timestamp, event type, and limit.
  * @summary Get filtered task run session logs
  */
+export const tasksRunsSessionLogsRetrievePathTaskIdRegExp = new RegExp('^[a-z]{1,16}_[0-9A-Za-z]{22}$')
+
 export const TasksRunsSessionLogsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this task run.'),
     project_id: zod
@@ -138,7 +146,7 @@ export const TasksRunsSessionLogsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-    task_id: zod.string(),
+    task_id: zod.string().regex(tasksRunsSessionLogsRetrievePathTaskIdRegExp),
 })
 
 export const tasksRunsSessionLogsRetrieveQueryLimitDefault = 1000
