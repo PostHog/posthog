@@ -524,12 +524,10 @@ class ClickHousePrinter(BasePrinter):
             return None
         field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-        for property_group_column in property_groups.get_property_group_columns(table_name, field_name, property_name):
-            return PrintableMaterializedPropertyGroupItem(
-                self.visit(field_type.table_type),
-                self._print_identifier(property_group_column),
-                self.context.add_value(property_name),
-            )
+        # Reuse the same property-group column construction that `_get_all_materialized_property_sources`
+        # emits, so the JSONHas existence path and the regular materialized-source path stay in lockstep.
+        for property_source in self._yield_property_group_columns(field_type, table_name, field_name, property_name):
+            return property_source
 
         return None
 
