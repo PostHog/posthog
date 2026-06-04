@@ -1,11 +1,10 @@
 from collections.abc import Sequence
 from uuid import uuid4
 
-from asgiref.sync import sync_to_async
-
 from django.conf import settings
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from langchain_core.messages import (
     AIMessage,
     HumanMessage as LangchainHumanMessage,
