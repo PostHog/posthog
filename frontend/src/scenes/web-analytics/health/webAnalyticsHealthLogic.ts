@@ -5,7 +5,12 @@ import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
-import { REFRESH_COOLDOWN_MS, REFRESH_POLL_COUNT, REFRESH_POLL_INTERVAL_MS, type HealthIssue } from 'scenes/health/types'
+import {
+    REFRESH_COOLDOWN_MS,
+    REFRESH_POLL_COUNT,
+    REFRESH_POLL_INTERVAL_MS,
+    type HealthIssue,
+} from 'scenes/health/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
