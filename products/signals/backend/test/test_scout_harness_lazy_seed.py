@@ -450,8 +450,8 @@ class TestSyncCanonicalSkills(BaseTest):
 
     def test_leaves_hand_authored_row_sharing_a_canonical_name_alone(self) -> None:
         # A team hand-authors a row whose name collides with a canonical, with no seeded_by
-        # tag and no canonical_hash. We must never backfill-then-overwrite it: first sync
-        # reports it diverged, and a later canonical change still leaves the content intact.
+        # tag. We must never overwrite it: first sync reports it diverged, and a later
+        # canonical change still leaves the content intact.
         LLMSkill.objects.create(
             team=self.team,
             name="signals-scout-alpha",
@@ -464,7 +464,6 @@ class TestSyncCanonicalSkills(BaseTest):
         with self._patch_canonicals((v1,)):
             first = sync_canonical_skills(self.team)
         assert first.diverged_skill_names == ("signals-scout-alpha",)
-        assert first.backfilled_skill_names == ()
 
         v2 = _make_canonical("signals-scout-alpha", body="canonical v2")
         with self._patch_canonicals((v2,)):
@@ -594,49 +593,26 @@ class TestSyncCanonicalSkills(BaseTest):
             team=self.team, name="signals-scout-beta", is_latest=True, deleted=False
         ).exists()
 
-    def test_backfills_canonical_hash_on_pre_hash_rows(self) -> None:
-        # Simulate a pre-existing row from the seed-only era: harness-seeded but missing
-        # `canonical_hash` in metadata. Sync should write a baseline equal to the row's
-        # current content hash and skip any update decision for this tick.
+    def test_leaves_pre_hash_harness_row_alone(self) -> None:
+        # A harness-seeded row missing `canonical_hash` (only reachable for rows seeded before
+        # hash tracking, e.g. an existing dogfood team). We can't tell whether the team edited
+        # it, so leave it alone rather than risk clobbering — diverged, never updated.
         row = LLMSkill.objects.create(
             team=self.team,
             name="signals-scout-alpha",
             description="legacy",
             body="legacy body",
             metadata={"seeded_by": "signals_scout_harness", "source": "products/signals/skills"},
+            is_latest=True,
         )
-        canonical = _make_canonical("signals-scout-alpha", description="legacy", body="legacy body")
-        with self._patch_canonicals((canonical,)):
-            result = sync_canonical_skills(self.team)
-
-        assert result.backfilled_skill_names == ("signals-scout-alpha",)
-        assert result.updated_skill_names == ()
-        row.refresh_from_db()
-        assert row.metadata.get("canonical_hash") == _compute_row_hash(row, list(row.files.all()))
-
-    def test_backfilled_row_picks_up_canonical_change_on_next_tick(self) -> None:
-        # Tick 1: backfill. Tick 2: canonical change → update path.
-        row = LLMSkill.objects.create(
-            team=self.team,
-            name="signals-scout-alpha",
-            description="d",
-            body="legacy body",
-            metadata={"seeded_by": "signals_scout_harness", "source": "products/signals/skills"},
-        )
-        v1 = _make_canonical("signals-scout-alpha", description="d", body="legacy body")
-        with self._patch_canonicals((v1,)):
-            sync_canonical_skills(self.team)
-        row.refresh_from_db()
-        assert row.metadata.get("canonical_hash")  # backfilled
-
-        v2 = _make_canonical("signals-scout-alpha", description="d", body="latest canonical body")
+        v2 = _make_canonical("signals-scout-alpha", description="legacy", body="new canonical body")
         with self._patch_canonicals((v2,)):
             result = sync_canonical_skills(self.team)
 
-        assert result.updated_skill_names == ("signals-scout-alpha",)
-        latest = LLMSkill.objects.get(team=self.team, name="signals-scout-alpha", is_latest=True)
-        assert latest.body == "latest canonical body"
-        assert latest.version == 2
+        assert result.diverged_skill_names == ("signals-scout-alpha",)
+        assert result.updated_skill_names == ()
+        row.refresh_from_db()
+        assert row.body == "legacy body"
 
     def test_bundle_only_change_triggers_update(self) -> None:
         # Editing only references/* should still propagate. Easy to miss if the hash
@@ -694,7 +670,6 @@ class TestSyncCanonicalSkills(BaseTest):
         assert hasattr(result, "updated_skill_names")
         assert hasattr(result, "diverged_skill_names")
         assert hasattr(result, "tombstoned_skill_names")
-        assert hasattr(result, "backfilled_skill_names")
 
 
 class TestSeedCanonicalSkillsAlias(BaseTest):

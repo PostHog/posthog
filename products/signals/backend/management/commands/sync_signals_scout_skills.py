@@ -76,7 +76,6 @@ class Command(BaseCommand):
             "updated": 0,
             "diverged": 0,
             "tombstoned": 0,
-            "backfilled": 0,
             "pruned": 0,
         }
         for team in teams:
@@ -86,7 +85,6 @@ class Command(BaseCommand):
             totals["updated"] += len(result.updated_skill_names)
             totals["diverged"] += len(result.diverged_skill_names)
             totals["tombstoned"] += len(result.tombstoned_skill_names)
-            totals["backfilled"] += len(result.backfilled_skill_names)
             totals["pruned"] += len(result.pruned_skill_names)
             self._print_team_result(team, result)
 
@@ -98,7 +96,6 @@ class Command(BaseCommand):
                 f"~{totals['updated']} updated, "
                 f"={totals['diverged']} diverged (left alone), "
                 f"#{totals['tombstoned']} tombstoned, "
-                f"·{totals['backfilled']} backfilled, "
                 f"-{totals['pruned']} pruned"
             )
         )
@@ -151,8 +148,6 @@ class Command(BaseCommand):
             parts.append(f"=diverged {list(result.diverged_skill_names)}")
         if result.tombstoned_skill_names:
             parts.append(f"#tombstoned {list(result.tombstoned_skill_names)}")
-        if result.backfilled_skill_names:
-            parts.append(f"·backfilled {list(result.backfilled_skill_names)}")
         if result.pruned_skill_names:
             parts.append(f"-pruned {list(result.pruned_skill_names)}")
         if not parts:

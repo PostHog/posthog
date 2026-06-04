@@ -83,13 +83,11 @@ class SyncResult:
     - `updated_skill_names`: live rows whose stored hash matched their content (so the team had
       not edited them) but whose content differed from the latest canonical — overwritten with
       the latest canonical, version bumped, hash refreshed.
-    - `diverged_skill_names`: live rows whose content hash no longer matches the stored
-      `canonical_hash` — the team edited their copy. Left untouched.
+    - `diverged_skill_names`: live rows we leave untouched — either a row we seeded whose
+      content hash no longer matches the stored `canonical_hash` (the team edited their copy),
+      or a row we never seeded (hand-authored, sharing a canonical name — no `seeded_by` tag).
     - `tombstoned_skill_names`: rows that exist only as soft-deleted tombstones — the team
       removed this skill from their rotation. Left untouched (no resurrection).
-    - `backfilled_skill_names`: harness-seeded rows that pre-dated the hash-tracking change
-      and had no `canonical_hash` in metadata. We backfilled the hash from the row's current
-      content as a one-time baseline so future syncs can compare.
     - `pruned_skill_names`: live `signals-scout-*` rows whose canonical skill was removed from
       disk (no longer in the discovered fleet). Soft-deleted (`deleted=True`, `is_latest=False`)
       so the coordinator stops dispatching a scout that's no longer part of the canonical fleet.
@@ -104,7 +102,6 @@ class SyncResult:
     updated_skill_names: tuple[str, ...] = ()
     diverged_skill_names: tuple[str, ...] = ()
     tombstoned_skill_names: tuple[str, ...] = ()
-    backfilled_skill_names: tuple[str, ...] = ()
     pruned_skill_names: tuple[str, ...] = ()
     skipped_reason: str | None = None
 
@@ -356,24 +353,12 @@ def _update_skill_from_canonical(
             )
 
 
-def _backfill_canonical_hash(skill: LLMSkill, row_hash: str) -> None:
-    """Stamp `canonical_hash` onto a harness-seeded row that pre-dates hash tracking.
-
-    We write the *row's current content hash* (not the canonical hash), establishing a
-    baseline that says "treat whatever the team has now as their snapshot of canonical."
-    Any future drift — either a canonical update or a team edit — becomes detectable
-    on subsequent ticks.
-    """
-    metadata = dict(skill.metadata or {})
-    metadata["canonical_hash"] = row_hash
-    LLMSkill.objects.filter(pk=skill.pk).update(metadata=metadata)
-
-
 def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     """Reconcile a team's `signals-scout-*` rows with the canonical fleet on disk.
 
     Walks each canonical skill in `products/signals/skills/` and decides per-skill whether
-    to create, update, leave-as-diverged, leave-as-tombstone, or backfill a baseline hash.
+    to create, update, leave-as-diverged, or leave-as-tombstone (plus prune, when enabled).
+    Only rows we seeded (`metadata.seeded_by="signals_scout_harness"`) are ever updated.
     See `SyncResult` for the outcome buckets and the section comments below for the full
     decision table.
 
@@ -394,7 +379,6 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     updated: list[str] = []
     diverged: list[str] = []
     tombstoned: list[str] = []
-    backfilled: list[str] = []
     pruned: list[str] = []
 
     for canonical in canonicals:
@@ -425,46 +409,32 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
             tombstoned.append(canonical.name)
             continue
 
+        # Only manage rows we seeded. A team can hand-author a signals-scout-* skill that
+        # shares a canonical name — no seeded_by tag — and we must never touch it.
+        if (live.metadata or {}).get("seeded_by") != "signals_scout_harness":
+            diverged.append(canonical.name)
+            continue
+
         live_files = list(live.files.all())
         live_hash = _compute_row_hash(live, live_files)
         stored_hash = (live.metadata or {}).get("canonical_hash")
-        # Same provenance rule as prune: only touch rows we seeded, never a hand-authored
-        # skill that happens to share a canonical name.
-        is_harness_seeded = (live.metadata or {}).get("seeded_by") == "signals_scout_harness"
 
         if stored_hash is None:
-            # Pre-hash-tracking row. Baseline only rows we seeded — backfilling a hand-authored
-            # row's own hash would let the next canonical revision overwrite the team's content.
-            if not is_harness_seeded:
-                diverged.append(canonical.name)
-                continue
-            _backfill_canonical_hash(live, live_hash)
-            backfilled.append(canonical.name)
+            # One of our rows with no baseline hash — only reachable for a row seeded before
+            # hash tracking (e.g. an existing dogfood team). Can't tell if the team edited it,
+            # so leave it alone rather than risk clobbering; a re-seed adopts it cleanly.
+            diverged.append(canonical.name)
             continue
 
         if live_hash == canonical_hash:
-            # Already at the latest canonical content. No-op — we deliberately do *not*
-            # refresh `metadata.canonical_hash` here. If an operator manually deleted
-            # `canonical_hash` to force a re-evaluate, the next tick hits the `stored_hash
-            # is None` branch and re-baselines via `_backfill_canonical_hash`; that's a
-            # one-tick delay even when content already matches canonical, but the
-            # alternative (writing every tick) churns metadata for no behavioral change.
-            continue
+            continue  # already at the latest canonical content
 
         if live_hash != stored_hash:
-            # The team's content drifted away from whatever canonical we last wrote — they
-            # edited their copy. Leave it alone. They can opt back in via the management
-            # command (`reset_signals_scout_skill`) if they want to.
+            # Team edited their copy since our last write → leave it alone.
             diverged.append(canonical.name)
             continue
 
-        # Stored hash matches the team's current content (= they haven't edited since our
-        # last write) but differs from current canonical (= we shipped a new revision).
-        # Safe to overwrite — but only rows we seeded (defensive; backfill above already
-        # gates this).
-        if not is_harness_seeded:
-            diverged.append(canonical.name)
-            continue
+        # Unedited since our last write but canonical changed → safe to overwrite.
         try:
             _update_skill_from_canonical(team, live, canonical, canonical_hash)
             updated.append(canonical.name)
@@ -506,14 +476,13 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
             ).update(deleted=True, is_latest=False)
             pruned.append(name)
 
-    if created or updated or backfilled or pruned:
+    if created or updated or pruned:
         logger.info(
             "signals_scout: synced canonical skills",
             extra={
                 "team_id": team.id,
                 "created_skills": created,
                 "updated_skills": updated,
-                "backfilled_skills": backfilled,
                 "diverged_skills": diverged,
                 "tombstoned_skills": tombstoned,
                 "pruned_skills": pruned,
@@ -525,7 +494,6 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
         updated_skill_names=tuple(updated),
         diverged_skill_names=tuple(diverged),
         tombstoned_skill_names=tuple(tombstoned),
-        backfilled_skill_names=tuple(backfilled),
         pruned_skill_names=tuple(pruned),
     )
 

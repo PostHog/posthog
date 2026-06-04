@@ -32,9 +32,11 @@ management command (see `../management/AGENTS.md`).
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
-  ones the team hasn't edited, leaves diverged rows alone, tombstones rows whose
-  canonical skill was deleted, backfills metadata. Called both lazily (coordinator tick,
-  runner cold-start) and explicitly via the `sync_signals_scout_skills` management command.
+  ones the team hasn't edited, leaves diverged / hand-authored rows alone, tombstones
+  rows whose canonical skill was deleted. Only rows tagged
+  `metadata.seeded_by="signals_scout_harness"` are ever updated. Called both lazily
+  (coordinator tick, runner cold-start) and explicitly via the `sync_signals_scout_skills`
+  management command.
 - `tools/`
   Implementations of the four harness-internal tools the agent calls during a run.
   The effective toolset for a run is the intersection of the skill's `allowed_tools`
@@ -65,7 +67,7 @@ management command (see `../management/AGENTS.md`).
 - `limits.py`
   Runtime ceilings as module constants: `DEFAULT_MAX_RUNTIME_S` (per-run budget),
   `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
-  ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
+ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   `start_to_close_timeout`).
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).

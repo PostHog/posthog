@@ -143,11 +143,11 @@ python manage.py sync_signals_scout_skills --team-id 1
 python manage.py sync_signals_scout_skills --all-enabled --dry-run
 ```
 
-Output buckets per team: `created`, `updated`, `diverged` (team-edited rows left alone),
-`tombstoned` (rows the team already soft-deleted — left alone, never resurrected),
-`backfilled` (metadata gaps closed), `pruned` (live rows whose canonical skill was removed
-from disk — soft-deleted so the coordinator stops dispatching them). Same function the
-coordinator and runner call lazily — this command is just the impatient path.
+Output buckets per team: `created`, `updated`, `diverged` (team-edited or hand-authored rows
+left alone), `tombstoned` (rows the team already soft-deleted — left alone, never resurrected),
+`pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the
+coordinator stops dispatching them). Same function the coordinator and runner call lazily —
+this command is just the impatient path.
 
 ## Tips
 
