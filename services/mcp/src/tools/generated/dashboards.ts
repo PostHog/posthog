@@ -452,7 +452,7 @@ const DashboardUpdateTextTileSchema = DashboardsUpdateTextTileCreateParams.omit(
 
 const dashboardUpdateTextTile = (): ToolBase<
     typeof DashboardUpdateTextTileSchema,
-    WithPostHogUrl<Schemas.DashboardTile>
+    WithPostHogUrl<Schemas.TilePresentation>
 > => ({
     name: 'dashboard-update-text-tile',
     schema: DashboardUpdateTextTileSchema,
@@ -471,7 +471,7 @@ const dashboardUpdateTextTile = (): ToolBase<
         if (params.color !== undefined) {
             body['color'] = params.color
         }
-        const result = await context.api.request<Schemas.DashboardTile>({
+        const result = await context.api.request<Schemas.TilePresentation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/update_text_tile/`,
             body,

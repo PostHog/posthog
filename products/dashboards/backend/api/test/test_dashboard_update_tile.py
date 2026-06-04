@@ -6,6 +6,7 @@ from rest_framework import status
 from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 
@@ -122,3 +123,49 @@ class TestDashboardUpdateTile(APIBaseTest):
             {"tile_id": 1, "show_description": False},
             expected_status=status.HTTP_404_NOT_FOUND,
         )
+
+    def _dashboard_activity(self, dashboard_id: int) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(scope="Dashboard", item_id=str(dashboard_id), activity="updated"))
+
+    @parameterized.expand(
+        [
+            ("show_description", {"show_description": True}, "show_description", True),
+            ("color", {"color": "blue"}, "color", "blue"),
+            (
+                "layouts",
+                {"layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}},
+                "layouts",
+                {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}},
+            ),
+        ]
+    )
+    def test_update_tile_logs_activity(self, _name: str, payload: dict, field: str, expected_after: object) -> None:
+        dashboard_id, tile_id = self._make_tile("insight")
+
+        self._update(dashboard_id, {"tile_id": tile_id, **payload})
+
+        logs = self._dashboard_activity(dashboard_id)
+        assert len(logs) == 1
+        log = logs[0]
+        assert log.activity == "updated"
+        assert log.item_id == str(dashboard_id)
+        changed_fields = {change["field"]: change["after"] for change in log.detail["changes"]}
+        assert field in changed_fields
+        assert changed_fields[field] == expected_after
+
+    def test_update_text_tile_logs_activity(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        text = Text.objects.create(body="hi", team=self.team)
+        tile = DashboardTile.objects.create(dashboard_id=dashboard_id, text=text)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/update_text_tile/",
+            {"tile_id": tile.id, "body": "updated body", "color": "purple"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        logs = self._dashboard_activity(dashboard_id)
+        assert len(logs) == 1
+        changed_fields = {change["field"]: change["after"] for change in logs[0].detail["changes"]}
+        assert changed_fields["body"] == "updated body"
+        assert changed_fields["color"] == "purple"

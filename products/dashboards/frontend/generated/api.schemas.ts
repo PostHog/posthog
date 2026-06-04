@@ -7757,6 +7757,19 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
+export interface TilePresentationApi {
+    readonly id: number
+    readonly dashboard_id: number
+    /** @nullable */
+    show_description?: boolean | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    layouts?: unknown
+}
+
 export interface UpdateTileRequestApi {
     /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
     tile_id: number
@@ -7770,19 +7783,6 @@ export interface UpdateTileRequestApi {
     color?: string | null
     /** New grid layout per breakpoint. Omit to leave the layout unchanged. */
     layouts?: TileLayoutsApi
-}
-
-export interface TilePresentationApi {
-    readonly id: number
-    readonly dashboard_id: number
-    /** @nullable */
-    show_description?: boolean | null
-    /**
-     * @maxLength 400
-     * @nullable
-     */
-    color?: string | null
-    layouts?: unknown
 }
 
 export interface AddDashboardWidgetRequestApi {

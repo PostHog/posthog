@@ -28,6 +28,7 @@ import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from pydantic import BaseModel
 from rest_framework import exceptions, serializers, status, viewsets
@@ -61,7 +62,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models.activity_logging.activity_log import ActivityScope, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import ActivityScope, Change, Detail, changes_between, log_activity
 from posthog.models.file_system.file_system import create_or_update_file, delete_file
 from posthog.models.quick_filter import QuickFilter
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -2429,36 +2430,61 @@ class DashboardsViewSet(
             status=status.HTTP_201_CREATED,
         )
 
-    @extend_schema(
-        request=UpdateTextTileRequestSerializer,
-        responses={200: DashboardTileSerializer},
-    )
-    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
-    def update_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Update the markdown body, layout, or color of an existing text tile on a dashboard."""
+    def _get_editable_tile(self, tile_id: int) -> tuple[Dashboard, DashboardTile]:
         dashboard = self.get_object()
         if dashboard.deleted:
             raise exceptions.NotFound()
         if not self.user_permissions.dashboard(dashboard).can_edit:
             raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
+        tile = get_object_or_404(
+            DashboardTile,
+            id=tile_id,
+            dashboard=dashboard,
+            dashboard__team__project_id=self.team.project_id,
+        )
+        return dashboard, tile
 
+    def _log_tile_activity(self, dashboard: Dashboard, changes: list[Change], request: Request) -> None:
+        if not changes:
+            return
+        log_activity(
+            organization_id=dashboard.team.organization_id,
+            team_id=dashboard.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=dashboard.id,
+            scope="Dashboard",
+            activity="updated",
+            detail=Detail(
+                changes=changes,
+                name=dashboard.name,
+                type="dashboard",
+            ),
+        )
+
+    @extend_schema(
+        request=UpdateTextTileRequestSerializer,
+        responses={200: TilePresentationSerializer},
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def update_text_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Update the markdown body, layout, or color of an existing text tile on a dashboard."""
         serializer = UpdateTextTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        tile = get_object_or_404(
-            DashboardTile,
-            id=validated["tile_id"],
-            dashboard=dashboard,
-            dashboard__team__project_id=self.team.project_id,
-        )
+        dashboard, tile = self._get_editable_tile(validated["tile_id"])
         if tile.text is None:
             raise exceptions.ValidationError("Tile is not a text tile.")
 
         user = cast(User, request.user)
+        changes: list[Change] = []
         with transaction.atomic():
             text = tile.text
             if "body" in validated:
+                changes.append(
+                    Change(type="Dashboard", action="changed", field="body", before=text.body, after=validated["body"])
+                )
                 text.body = validated["body"]
             text.last_modified_by = user
             text.last_modified_at = now()
@@ -2466,16 +2492,31 @@ class DashboardsViewSet(
 
             tile_updates: list[str] = []
             if "layouts" in validated:
+                changes.append(
+                    Change(
+                        type="Dashboard",
+                        action="changed",
+                        field="layouts",
+                        before=tile.layouts,
+                        after=validated["layouts"],
+                    )
+                )
                 tile.layouts = validated["layouts"]
                 tile_updates.append("layouts")
             if "color" in validated:
+                changes.append(
+                    Change(
+                        type="Dashboard", action="changed", field="color", before=tile.color, after=validated["color"]
+                    )
+                )
                 tile.color = validated["color"]
                 tile_updates.append("color")
             if tile_updates:
                 tile.save(update_fields=tile_updates)
 
+        self._log_tile_activity(dashboard, changes, request)
         tile.refresh_from_db()
-        return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
+        return Response(TilePresentationSerializer(tile).data)
 
     @extend_schema(
         request=UpdateTileRequestSerializer,
@@ -2484,40 +2525,48 @@ class DashboardsViewSet(
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
     def update_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the description visibility, color, or layout of an existing insight or widget tile on a dashboard."""
-        dashboard = self.get_object()
-        if dashboard.deleted:
-            raise exceptions.NotFound()
-        if not self.user_permissions.dashboard(dashboard).can_edit:
-            raise exceptions.PermissionDenied("You don't have edit permissions for this dashboard.")
-
         serializer = UpdateTileRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         validated = serializer.validated_data
 
-        tile = get_object_or_404(
-            DashboardTile,
-            id=validated["tile_id"],
-            dashboard=dashboard,
-            dashboard__team__project_id=self.team.project_id,
-        )
+        dashboard, tile = self._get_editable_tile(validated["tile_id"])
         if tile.insight_id is None and tile.widget_id is None:
             raise exceptions.ValidationError(
                 "Only insight and widget tiles can be updated here — use the update text tile endpoint for text tiles."
             )
 
         tile_updates: list[str] = []
+        changes: list[Change] = []
         if "show_description" in validated:
+            changes.append(
+                Change(
+                    type="Dashboard",
+                    action="changed",
+                    field="show_description",
+                    before=tile.show_description,
+                    after=validated["show_description"],
+                )
+            )
             tile.show_description = validated["show_description"]
             tile_updates.append("show_description")
         if "color" in validated:
+            changes.append(
+                Change(type="Dashboard", action="changed", field="color", before=tile.color, after=validated["color"])
+            )
             tile.color = validated["color"]
             tile_updates.append("color")
         if "layouts" in validated:
+            changes.append(
+                Change(
+                    type="Dashboard", action="changed", field="layouts", before=tile.layouts, after=validated["layouts"]
+                )
+            )
             tile.layouts = validated["layouts"]
             tile_updates.append("layouts")
         if tile_updates:
             tile.save(update_fields=tile_updates)
 
+        self._log_tile_activity(dashboard, changes, request)
         tile.refresh_from_db()
         return Response(TilePresentationSerializer(tile).data)
 

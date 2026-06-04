@@ -889,8 +889,8 @@ export const dashboardsUpdateTextTileCreate = async (
     updateTextTileRequestApi: UpdateTextTileRequestApi,
     params?: DashboardsUpdateTextTileCreateParams,
     options?: RequestInit
-): Promise<DashboardTileApi> => {
-    return apiMutator<DashboardTileApi>(getDashboardsUpdateTextTileCreateUrl(projectId, id, params), {
+): Promise<TilePresentationApi> => {
+    return apiMutator<TilePresentationApi>(getDashboardsUpdateTextTileCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
