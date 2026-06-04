@@ -22,10 +22,12 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.models.experiment import (
@@ -255,14 +257,15 @@ def _calculate_experiment_metric_for_recalculation_sync(
     recalc_fp = compute_recalc_fingerprint(config_fp, recalculation_id)
 
     try:
-        # Building the metric (modern ExperimentMetric only) and running the query are the work that can fail;
-        # both live inside the try so unexpected metric shapes surface as a calculation-step failure.
+        # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=experiment_id, metric=_build_metric(metric_dict)),
             team=experiment.team,
             workload=Workload.OFFLINE,
         )
-        result_dict = runner._calculate().model_dump()
+        tag_queries(trigger="warming/experiment_metrics_recalculation")
+        result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        result_dict = result.model_dump(mode="json")
 
         _store_result(
             experiment_id=experiment_id,

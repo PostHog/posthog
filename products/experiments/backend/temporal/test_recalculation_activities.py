@@ -270,7 +270,7 @@ class TestCalculateActivity(BaseTest):
         recalc = self._recalc(exp)
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
-            mock_runner.return_value._calculate.side_effect = RuntimeError("kaboom")
+            mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
             result = _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
 
         # Found the saved metric (did not fail at discovery) but failed during calculation.
@@ -298,7 +298,7 @@ class TestCalculateActivity(BaseTest):
             patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
         ):
-            mock_runner.return_value._calculate.side_effect = RuntimeError("x" * 5000)
+            mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         assert result.success is False
