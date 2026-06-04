@@ -4,6 +4,7 @@ from typing import Literal, cast
 from posthog.schema import MaterializationMode, PropertyGroupsMode
 
 from posthog.hogql import ast
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
@@ -85,8 +86,8 @@ def resolve_materialized_property_source(
     # 2) dmat (dynamic materialized) slot — events.properties only, resolved from the property swapper
     if context.property_swapper is not None and table_name == "events" and field_name == "properties":
         property_info = context.property_swapper.event_properties.get(property_name)
-        if property_info and property_info.get("dmat"):
-            return MaterializedPropertySource(kind="dmat", column=property_info["dmat"], is_nullable=True)
+        if property_info and (dmat_column := property_info.get("dmat")):
+            return MaterializedPropertySource(kind="dmat", column=dmat_column, is_nullable=True)
 
     # 3) first property-group Map column for the key
     if context.modifiers.propertyGroupsMode in (PropertyGroupsMode.ENABLED, PropertyGroupsMode.OPTIMIZED):
@@ -385,6 +386,6 @@ class LowerProperties(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
-def lower_properties(node: ast.Expr, context: HogQLContext) -> ast.Expr:
+def lower_properties(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Lower every materializable `properties.$x` access in a resolved ClickHouse AST to concrete column AST."""
-    return LowerProperties(context).visit(node)
+    return cast(_T_AST, LowerProperties(context).visit(node))
