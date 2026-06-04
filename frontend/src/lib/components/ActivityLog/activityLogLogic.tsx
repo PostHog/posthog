@@ -50,6 +50,7 @@ import { ActivityScope } from '~/types'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
+import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 import type { activityLogLogicType } from './activityLogLogicType'
@@ -186,6 +187,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return productTourActivityDescriber
         case ActivityScope.TICKET:
             return ticketActivityDescriber
+        case ActivityScope.SIGNAL_SCOUT_CONFIG:
+            return signalScoutConfigActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }
