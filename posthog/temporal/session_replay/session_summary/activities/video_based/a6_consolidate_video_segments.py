@@ -372,7 +372,7 @@ Each segment is a key moment in the session:
   - Good: "Filled out the project form and hit a 'Name is required' error."
   - Bad: "The user proceeded to fill out the project creation form, entering various fields including the name and description, and then clicked the submit button, which resulted in a validation error message appearing on screen."
 - **Success**: Did the user finish what they were doing?
-- **Flags**: exception="blocking" only if it visibly stopped the user. confusion/abandonment only when clearly observed.
+- **Flags**: exception="blocking" only if it visibly stopped the user. confusion/abandonment only when clearly observed. Do NOT set exception (blocking or non-blocking) for errors the user was merely viewing rather than experiencing — e.g. console errors, exceptions, or logs shown while inspecting another session in the replay player, error tracking, or a logs viewer. Those belong to the content being reviewed, not the user's own flow.
 
 Segmentation:
 - Each segment is a meaningful chunk of activity, not a single action. A chunk covers the full flow: navigating to a feature, using it, and the outcome. Example: "Went to Feature Flags, created a new flag, got blocked by unresponsive dropdown" is ONE segment, not three.

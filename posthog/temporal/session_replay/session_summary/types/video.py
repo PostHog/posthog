@@ -1,3 +1,5 @@
+import re
+from collections.abc import Sequence
 from typing import Any, Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -154,6 +156,40 @@ def classify_consolidated_segment_problem(segment: ConsolidatedVideoSegment) -> 
     if not segment.success:
         return "failure"
     return None
+
+
+# Problem types derived purely from an on-screen exception. These are the ones at risk of being
+# false positives when the recorded app is PostHog itself rendering another session's console output.
+EXCEPTION_PROBLEM_TYPES = frozenset({"blocking_exception", "non_blocking_exception"})
+
+# PostHog surfaces that render *other* sessions' logs/exceptions as content the user is reviewing
+# (replay inspector, error tracking, logs viewer). An exception "visible on screen" here belongs to
+# the recording being inspected, not to the user's own flow.
+_POSTHOG_VIEWER_SURFACE_RE = re.compile(
+    r"(?:sessionRecordingId=|/(?:replay|error_tracking|logs)(?:[/?#]|$))",
+    re.IGNORECASE,
+)
+
+
+def is_posthog_viewer_surface_url(url: str) -> bool:
+    """True if the URL is a PostHog surface that displays another session's logs/exceptions as content."""
+    if not url:
+        return False
+    return _POSTHOG_VIEWER_SURFACE_RE.search(url) is not None
+
+
+def is_viewed_content_exception(problem_type: str, urls_in_window: Sequence[str]) -> bool:
+    """True when an exception-type problem fired while the user was only on PostHog viewer surfaces.
+
+    Such exceptions are third-party errors rendered as content the user chose to review (e.g. a console
+    error from a recording opened in the replay inspector), not failures in the user's own flow.
+    """
+    if problem_type not in EXCEPTION_PROBLEM_TYPES:
+        return False
+    relevant = [url for url in urls_in_window if url]
+    if not relevant:
+        return False
+    return all(is_posthog_viewer_surface_url(url) for url in relevant)
 
 
 class SessionProblem(BaseModel):

@@ -239,6 +239,7 @@ Your task:
 - Describe what the user did and how it went. Group related actions together — not every click is a separate entry.
 - Cover what went smoothly and what didn't — don't only report problems.
 - Mention errors only when they visibly affected the user (error on screen, page failed to load, action didn't complete). Ignore background console errors with no visible impact.
+- Do NOT report errors that the user is merely viewing as content rather than experiencing. If the screen shows a session replay player/inspector, error tracking, or a logs viewer, any console errors, exceptions, or stack traces displayed there belong to the recording or app being inspected — they are content the user chose to review, not failures in the user's own flow. Never describe these as problems the user hit.
 - Note confusion (backtracking, repeated attempts, rage clicking) only when clearly present.
 - Red lines indicate mouse movements — ignore them.
 - If nothing is happening, return "Static" for the timestamp range.
@@ -265,7 +266,7 @@ and correlate them with what you see in the video:
 - elements_chain_texts: Text content the user interacted with
 - $event_type: The type of interaction (click, submit, etc.)
 - $current_url: The page URL where the action occurred
-- $exception_types and $exception_values: These indicate errors logged in the console. IMPORTANT: Only mention an exception if it visibly affected what the user was doing (e.g., an error message appeared on screen, a page failed to load, an action didn't complete). Many console errors are background noise — do not attribute them to the user's actions unless there is a clear visual connection.
+- $exception_types and $exception_values: These indicate errors logged in the console. IMPORTANT: Only mention an exception if it visibly affected what the user was doing (e.g., an error message appeared on screen, a page failed to load, an action didn't complete). Many console errors are background noise — do not attribute them to the user's actions unless there is a clear visual connection. If the $current_url is a PostHog viewer surface (it contains `sessionRecordingId=`, `/replay`, `/error_tracking`, or `/logs`), any exceptions belong to the recording or app being inspected on that page — they are content the user is reviewing, not errors in the user's own flow, so never report them as problems.
 
 Events data (in chronological order):
 {events_context}
