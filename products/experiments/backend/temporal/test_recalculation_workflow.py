@@ -5,6 +5,7 @@ import pytest
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -80,11 +81,14 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         assert result == {"total": 0, "succeeded": 0, "failed": 0}
         assert calculate_calls == []
-        # Single progress call that both starts and completes the (empty) run.
-        assert len(progress_updates) == 1
-        assert progress_updates[0].mark_started is True
-        assert progress_updates[0].mark_completed is True
-        assert progress_updates[0].status == "completed"
+        # Two progress calls: start (mark_started) then finish (mark_completed). The XOR contract on the
+        # progress activity forbids combining both into one call.
+        assert len(progress_updates) == 2
+        assert progress_updates[0].mark_started is True and progress_updates[0].mark_completed is False
+        assert progress_updates[0].status == "in_progress"
+        assert progress_updates[0].total_metrics == 0
+        assert progress_updates[1].mark_completed is True and progress_updates[1].mark_started is False
+        assert progress_updates[1].status == "completed"
 
     @parameterized.expand(
         [
@@ -112,3 +116,39 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert {c[3] for c in calculate_calls} == {_START_QUERY_TO}
         assert progress_updates[-1].status == expected_final_status
         assert progress_updates[-1].mark_completed is True
+
+    @parameterized.expand(
+        [
+            # name, metrics — exercise both the empty-metrics path and the fan-out path.
+            ("no_metrics", []),
+            ("one_metric", [_metric("m1")]),
+        ]
+    )
+    async def test_workflow_respects_progress_xor_contract(
+        self, name: str, metrics: list[ExperimentMetricToRecalculate]
+    ):
+        # The production progress activity raises non-retryable ApplicationError when mark_started == mark_completed.
+        # If the workflow ever combines both flags in one call (or sends neither), this test fails the run instead
+        # of silently passing as the stub-mock path would.
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return metrics
+
+        @activity.defn(name="update_recalculation_progress")
+        async def progress_with_xor_guard(update: RecalculationProgressUpdate) -> str | None:
+            if update.mark_started == update.mark_completed:
+                raise ApplicationError(
+                    "RecalculationProgressUpdate must set exactly one of mark_started or mark_completed",
+                    non_retryable=True,
+                )
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        # Workflow must complete without the validating activity raising — i.e., every progress call has exactly
+        # one of mark_started / mark_completed set.
+        await _run_workflow([mock_discover, progress_with_xor_guard, mock_calculate])

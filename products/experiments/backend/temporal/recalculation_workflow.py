@@ -46,16 +46,29 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
         )
 
         if not metrics:
+            # mark_started and mark_completed are mutually exclusive per the activity's XOR contract;
+            # for a zero-metric run, start and finish are two sequential calls.
+            await temporalio.workflow.execute_activity(
+                update_recalculation_progress,
+                RecalculationProgressUpdate(
+                    recalculation_id=recalculation_id,
+                    status="in_progress",
+                    total_metrics=0,
+                    metric_uuids=[],
+                    mark_started=True,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
             await temporalio.workflow.execute_activity(
                 update_recalculation_progress,
                 RecalculationProgressUpdate(
                     recalculation_id=recalculation_id,
                     status="completed",
-                    total_metrics=0,
-                    mark_started=True,
                     mark_completed=True,
                 ),
                 start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             return {"total": 0, "succeeded": 0, "failed": 0}
 
@@ -71,7 +84,11 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 mark_started=True,
             ),
             start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        # The activity returns Optional[str] in general, but with mark_started=True it always returns the ISO
+        # query_to string — narrow here so calc activities receive a typed str.
+        assert isinstance(query_to, str)
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
 
@@ -80,8 +97,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                 return await temporalio.workflow.execute_activity(
                     calculate_experiment_metric_for_recalculation,
                     args=[metric.experiment_id, metric.metric_uuid, recalculation_id, query_to],
+                    # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
+                    # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
                     start_to_close_timeout=timedelta(minutes=5),
-                    heartbeat_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(
                         maximum_attempts=2,
                         initial_interval=timedelta(seconds=5),
@@ -98,6 +116,7 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             update_recalculation_progress,
             RecalculationProgressUpdate(recalculation_id=recalculation_id, status=final_status, mark_completed=True),
             start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
         return {"total": len(metrics), "succeeded": succeeded, "failed": failed}
