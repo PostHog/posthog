@@ -382,7 +382,8 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GongSourceConfig(config.Config):
-    pass
+    access_key: str
+    access_key_secret: str
 
 
 @config.config
