@@ -12,6 +12,7 @@ const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const WAREHOUSE_VIEW_LINK_ENDPOINT = 'api/environments/:team_id/warehouse_view_link/'
+const INSIGHTS_ENDPOINT = 'api/environments/:team_id/insights/'
 
 type AccountNameCell = { name: string; external_id: string | null; id: string }
 type AccountRoleCell = [number, string] | null
@@ -91,6 +92,118 @@ const ACCOUNT_WITHOUT_LINKS = {
     updated_at: '2026-05-15T10:30:00Z',
 }
 
+const EMPTY_INSIGHTS = { count: 0, next: null, previous: null, results: [] }
+
+function insightsResponse(insight: Record<string, unknown>): Record<string, unknown> {
+    return { count: 1, next: null, previous: null, results: [insight] }
+}
+
+const BILLING_VARIABLES = {
+    'var-org': { variableId: 'var-org', code_name: 'billing_org_id', value: '' },
+    'var-start': { variableId: 'var-start', code_name: 'billing_start_date', value: '2026-04-21' },
+    'var-end': { variableId: 'var-end', code_name: 'billing_end_date', value: '2026-05-21' },
+}
+
+const USAGE_INSIGHT = {
+    id: 9050931,
+    short_id: 'fiJDsKLp',
+    name: 'Billing usage by type (warehouse)',
+    filters: {},
+    saved: true,
+    deleted: false,
+    query: {
+        kind: 'DataVisualizationNode',
+        display: 'ActionsLineGraph',
+        source: {
+            kind: 'HogQLQuery',
+            query: 'SELECT date, ... FROM postgres.prod.billing_usagereport',
+            variables: BILLING_VARIABLES,
+        },
+    },
+}
+
+const SPEND_INSIGHT = {
+    id: 9050996,
+    short_id: '9cZ54LsW',
+    name: 'Billing spend basis — daily billed units (warehouse)',
+    filters: {},
+    saved: true,
+    deleted: false,
+    query: {
+        kind: 'DataVisualizationNode',
+        display: 'ActionsLineGraph',
+        chartSettings: {
+            seriesBreakdownColumn: 'product',
+            xAxis: { column: 'date' },
+            yAxis: [{ column: 'daily_units' }],
+        },
+        source: {
+            kind: 'HogQLQuery',
+            query: 'SELECT date, product, daily_units FROM ...',
+            variables: BILLING_VARIABLES,
+        },
+    },
+}
+
+const USAGE_QUERY_RESPONSE = {
+    error: '',
+    hasMore: false,
+    is_cached: true,
+    query_status: null,
+    columns: ['date', 'Events', 'Recordings'],
+    types: [
+        ['date', 'Date'],
+        ['Events', 'Nullable(Float64)'],
+        ['Recordings', 'Nullable(Float64)'],
+    ],
+    results: [
+        ['2026-05-01', 1200, 30],
+        ['2026-05-08', 1800, 45],
+        ['2026-05-15', 1500, 38],
+        ['2026-05-21', 2100, 52],
+    ],
+}
+
+const SPEND_QUERY_RESPONSE = {
+    error: '',
+    hasMore: false,
+    is_cached: true,
+    query_status: null,
+    columns: ['date', 'product', 'daily_units'],
+    types: [
+        ['date', 'Date'],
+        ['product', 'String'],
+        ['daily_units', 'Nullable(Float64)'],
+    ],
+    results: [
+        ['2026-05-01', 'Events', 1200],
+        ['2026-05-01', 'Recordings', 30],
+        ['2026-05-08', 'Events', 1800],
+        ['2026-05-08', 'Recordings', 45],
+        ['2026-05-15', 'Events', 1500],
+        ['2026-05-15', 'Recordings', 38],
+        ['2026-05-21', 'Events', 2100],
+        ['2026-05-21', 'Recordings', 52],
+    ],
+}
+
+// Dispatches the shared query endpoint: account rows for the list, billing chart data for the embedded insight.
+function mockAccountsAndBillingQuery(
+    rows: AccountRow[],
+    billingResponse: Record<string, unknown>
+): (req: { body: unknown }) => [number, unknown] | undefined {
+    return (req) => {
+        const kind = (req.body as { query?: { kind?: string } })?.query?.kind
+        if (kind === 'AccountsQuery') {
+            return [200, buildAccountsQueryResponse(rows)]
+        }
+        if (kind === 'HogQLQuery') {
+            return [200, billingResponse]
+        }
+        return undefined
+    }
+}
+
 // Expanding a row mounts UsefulLinks (loads the account async) and the notes table
 // (loads notebooks async). Both start as skeletons and resolve later, which changes
 // the expansion's width and height. Awaiting the settled content here keeps the
@@ -102,6 +215,15 @@ async function expandFirstRow(canvasElement: HTMLElement, notesLoadedText: strin
     await canvas.findByText('Useful links')
     await canvas.findByText('Organization')
     await canvas.findByText(notesLoadedText)
+}
+
+// Expands the first row and switches to a billing tab. Awaits the settled sidebar first to avoid layout races.
+async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spend'): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByTitle('Show more'))
+    await canvas.findByText('Useful links')
+    await canvas.findByText('Organization')
+    await userEvent.click(await canvas.findByRole('tab', { name: tab }))
 }
 
 function mockAccountsQuery(rows: AccountRow[]): (req: { body: unknown }) => [number, unknown] | undefined {
@@ -252,5 +374,93 @@ export const RowExpandedLinksDisabled: Story = {
     ],
     play: async ({ canvasElement }) => {
         await expandFirstRow(canvasElement, 'No notes linked to this account yet.')
+    },
+}
+
+export const RowExpandedUsageNotFound: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandAndOpenTab(canvasElement, 'Usage')
+        await within(canvasElement).findByText('No billing usage insight here')
+    },
+}
+
+export const RowExpandedUsagePopulated: Story = {
+    render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [INSIGHTS_ENDPOINT]: insightsResponse(USAGE_INSIGHT),
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandAndOpenTab(canvasElement, 'Usage')
+    },
+}
+
+export const RowExpandedSpendNotFound: Story = {
+    render: () => <App />,
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandAndOpenTab(canvasElement, 'Spend')
+        await within(canvasElement).findByText('No billing spend insight here')
+    },
+}
+
+export const RowExpandedSpendPopulated: Story = {
+    render: () => <App />,
+    parameters: {
+        testOptions: {
+            waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
+        },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [INSIGHTS_ENDPOINT]: insightsResponse(SPEND_INSIGHT),
+            },
+            post: {
+                [QUERY_ENDPOINT]: mockAccountsAndBillingQuery(SINGLE_ROW, SPEND_QUERY_RESPONSE),
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        await expandAndOpenTab(canvasElement, 'Spend')
     },
 }
