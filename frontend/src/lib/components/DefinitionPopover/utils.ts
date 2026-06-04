@@ -21,16 +21,19 @@ export function genericOperatorToHumanName(property?: AnyPropertyFilter | null):
     return 'equals'
 }
 
+// Most operator labels carry a 2-char "<symbol> " prefix that slice(2) strips (e.g. "= equals"
+// -> "equals"). Cohort operators are stored without that prefix ("user in" / "user not in"), so
+// slicing would mangle them. Any future prefix-less label must be added here too.
+const prefixlessOperatorLabels: Partial<Record<PropertyOperator, string>> = {
+    [PropertyOperator.In]: 'in',
+    [PropertyOperator.NotIn]: 'not in',
+}
+
 export function allOperatorsToHumanName(operator?: PropertyOperator | null): string {
+    if (operator && prefixlessOperatorLabels[operator]) {
+        return prefixlessOperatorLabels[operator]
+    }
     if (operator && allOperatorsMapping[operator]) {
-        // Cohort operators ("user in" / "user not in") have no symbol prefix, so the
-        // generic slice(2) below would mangle them — return the bare phrasing instead.
-        if (operator === PropertyOperator.In) {
-            return 'in'
-        }
-        if (operator === PropertyOperator.NotIn) {
-            return 'not in'
-        }
         return allOperatorsMapping[operator].slice(2)
     }
     return 'equals'

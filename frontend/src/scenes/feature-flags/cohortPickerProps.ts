@@ -13,8 +13,9 @@ import { PropertyOperator } from '~/types'
  * - `frontend/src/scenes/heatmaps/components/FilterPanel.tsx`
  *
  * Feature flag release conditions deliberately do NOT use this preset: flag
- * matching supports `not_in` cohorts on every reachable evaluation path, so the
- * flag UI shows the full `user in` / `user not in` operator dropdown.
+ * matching supports `not_in` cohorts (see the Rust cohort-membership evaluation
+ * in `rust/feature-flags/src/cohorts/cohort_operations.rs`), so the flag UI
+ * shows the full `user in` / `user not in` operator dropdown.
  *
  * Spread into `PropertyFilters` / `TaxonomicPropertyFilter` rather than passing
  * each prop individually so the configuration travels as one named idea.
