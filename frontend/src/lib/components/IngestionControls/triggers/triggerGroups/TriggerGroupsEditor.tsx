@@ -433,9 +433,9 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                             <div className="border rounded p-3 bg-bg-3000 mb-2">
                                 <LemonBanner type="info" className="text-sm mb-2">
                                     We always wrap the URL regex with anchors to avoid unexpected behavior (if you do
-                                    not). Bare domains like <code className="inline">https://example.com</code> are saved
-                                    as <code className="inline">^https://example.com(/.*)?$</code> so they match the
-                                    domain and all of its sub-paths.
+                                    not). Bare domains like <code className="inline">https://example.com</code> are
+                                    saved as <code className="inline">^https://example.com(/.*)?$</code> so they match
+                                    the domain and all of its sub-paths.
                                 </LemonBanner>
                                 <LemonLabel>Matching regex:</LemonLabel>
                                 <div className="flex gap-2 mt-1">
