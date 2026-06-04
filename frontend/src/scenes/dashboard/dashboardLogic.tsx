@@ -44,6 +44,7 @@ import {
     findNewlyAddedWidgetTiles,
     WIDGET_CLIENT_TTL_MS,
 } from 'scenes/dashboard/widgetFetchUtils'
+import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -265,6 +266,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        /** Debounced run_widgets refresh for a single tile (tile filters, in-tile issue metadata). */
+        scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => ({ results }),
         setWidgetRefreshStatuses: (tileIds: number[], loading: boolean, error?: string | null) => ({
             tileIds,
@@ -735,7 +738,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardsModel.actions.updateDashboardSuccess(dashboard)
                         }
                         if (config !== undefined) {
-                            actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                            actions.scheduleRefreshDashboardWidgets(tile.id)
                         }
                         return null
                     } catch (e) {
@@ -1883,7 +1886,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
+        },
+        scheduleRefreshDashboardWidgets: ({ tileId }) => {
+            if (!cache.widgetTileRefreshScheduler) {
+                cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
+                    actions.refreshDashboardWidgets({ tileIds: [id], forceRefresh: true })
+                )
+            }
+            cache.widgetTileRefreshScheduler.schedule(tileId)
         },
     })),
     sharedListeners(({ values, props, actions }) => ({

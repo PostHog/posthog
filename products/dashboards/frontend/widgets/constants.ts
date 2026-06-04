@@ -6,6 +6,9 @@ export const WIDGET_LIST_ORDER_DIRECTION_OPTIONS = [
     { value: 'ASC', label: 'Ascending' },
 ] as const
 
+/** Debounce tile config PATCH → run_widgets refresh to avoid query storms while scrubbing filters. */
+export const WIDGET_TILE_REFRESH_DEBOUNCE_MS = 500
+
 /** Shown on widget tile filter controls when the viewer cannot edit the dashboard. */
 export const DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
