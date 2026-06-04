@@ -62,8 +62,8 @@ impl CredentialProvider for HomeDirProvider {
 }
 
 /// Reads credentials atomically from a single source. Tries the process env first; if the
-/// required variables aren't there and an explicit `--env-file` path was supplied, tries that
-/// file next. A missing `--env-file` is a warning, not a fatal error — we skip it and let the
+/// required variables aren't there and an explicit `--dotenv-file` path was supplied, tries that
+/// file next. A missing `--dotenv-file` is a warning, not a fatal error — we skip it and let the
 /// caller fall back to other credential sources. `host` is optional and is only read from the
 /// same source that supplied the rest.
 pub struct EnvVarProvider {
@@ -166,7 +166,7 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
     let env_err = match env.get_credentials() {
         Ok(token) => {
             info!(
-                "Using token from environment or --env-file, for environment {}",
+                "Using token from environment or --dotenv-file, for environment {}",
                 token.env_id
             );
             return Ok(token);
