@@ -134,6 +134,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
             status="completed",
             query_to=datetime(2026, 6, 1, tzinfo=UTC),
         )
+        # Narrow nullable fields populated above. _launched_experiment always sets metrics + start_date,
+        # and we just set query_to on the recalc above.
+        assert exp.metrics and exp.start_date is not None
+        assert recalc.query_to is not None
         config_fp = compute_metric_fingerprint(
             exp.metrics[0],
             exp.start_date,

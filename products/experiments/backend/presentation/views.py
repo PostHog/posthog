@@ -835,7 +835,8 @@ class EnterpriseExperimentsViewSet(
         request_serializer.is_valid(raise_exception=True)
         trigger = request_serializer.validated_data["trigger"]
 
-        result = request_recalculation(experiment, request.user, trigger)
+        # request.user is User | AnonymousUser at the DRF level; the viewset enforces auth so it's a User here.
+        result = request_recalculation(experiment, cast(User, request.user), trigger)
         is_existing = result.pop("is_existing", False)
 
         if not is_existing:
