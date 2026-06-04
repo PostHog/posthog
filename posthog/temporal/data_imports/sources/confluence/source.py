@@ -97,7 +97,7 @@ Only Confluence Cloud sites (`your-domain.atlassian.net`) are supported.""",
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)

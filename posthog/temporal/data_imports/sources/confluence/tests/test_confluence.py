@@ -118,25 +118,25 @@ class TestValidateCredentials:
 
 
 class TestConfluenceSource:
-    def test_source_response_shape_for_all_endpoints(self) -> None:
-        for endpoint in ENDPOINTS:
-            response = confluence_source(
-                subdomain="acme",
-                email="you@example.com",
-                api_token="token",
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                resumable_source_manager=mock.MagicMock(),
-            )
-            config = CONFLUENCE_ENDPOINTS[endpoint]
-            assert response.name == endpoint
-            assert response.primary_keys == [config.primary_key]
-            if config.partition_key:
-                assert response.partition_mode == "datetime"
-                assert response.partition_keys == [config.partition_key]
-            else:
-                assert response.partition_mode is None
-                assert response.partition_keys is None
+    @parameterized.expand([(endpoint,) for endpoint in ENDPOINTS])
+    def test_source_response_shape_for_endpoint(self, endpoint: str) -> None:
+        response = confluence_source(
+            subdomain="acme",
+            email="you@example.com",
+            api_token="token",
+            endpoint=endpoint,
+            logger=mock.MagicMock(),
+            resumable_source_manager=mock.MagicMock(),
+        )
+        config = CONFLUENCE_ENDPOINTS[endpoint]
+        assert response.name == endpoint
+        assert response.primary_keys == [config.primary_key]
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
 
     @parameterized.expand([("spaces", "createdAt"), ("pages", "createdAt"), ("labels", None)])
     def test_partition_key_matches_endpoint(self, endpoint: str, expected_partition: str | None) -> None:
