@@ -580,6 +580,43 @@ Item sizes: default, sm, xs
 
 Disable scroll shadows: `<ScrollArea scrollShadows={false}>`
 
+### Pagination
+
+Presentational, stateless parts — you own the page state. `getPaginationRange(pageCount, pageIndex)` returns 0-based page indices and `'ellipsis'` tokens (first/last + a sibling window) for large counts.
+
+```tsx
+const range = getPaginationRange(pageCount, pageIndex)
+;<Pagination>
+  <PaginationContent>
+    <PaginationItem>
+      <PaginationPrevious disabled={pageIndex === 0} onClick={() => setPage(pageIndex - 1)} />
+    </PaginationItem>
+    {range.map((item, i) =>
+      item === 'ellipsis' ? (
+        <PaginationItem key={`e-${i}`}>
+          <PaginationEllipsis />
+        </PaginationItem>
+      ) : (
+        <PaginationItem key={item}>
+          <PaginationButton isActive={item === pageIndex} onClick={() => setPage(item)}>
+            {item + 1}
+          </PaginationButton>
+        </PaginationItem>
+      )
+    )}
+    <PaginationItem>
+      <PaginationNext disabled={pageIndex === pageCount - 1} onClick={() => setPage(pageIndex + 1)} />
+    </PaginationItem>
+  </PaginationContent>
+</Pagination>
+```
+
+`DataTable` (quill-components) wires this onto TanStack pagination — pass `pageSize` to opt in.
+
+### Table
+
+Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches.
+
 ### Menubar
 
 ```tsx

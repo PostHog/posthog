@@ -73,8 +73,10 @@ class SlackSettings(UUIDModel):
       Written by the Slack `@PostHog project <id>` directive or the user-level
       settings UI.
     - ``slack_user_id IS NULL`` → workspace-wide fallback, applied when an
-      inbound event's Slack user has no personal row yet. Written only via the
-      PostHog project-level settings UI by a team admin (never via Slack).
+      inbound event's Slack user has no personal row yet. Written via the
+      PostHog project-level settings UI by a team admin, or via the Slack
+      `@PostHog project workspace <id>` directive by a Slack workspace
+      admin/owner.
 
     A user-specific row, if present, always wins over the workspace-wide row at
     resolution time.

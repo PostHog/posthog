@@ -245,6 +245,7 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     return useMemo(
         () => ({
             noIndent: true,
+            expandedRowClassName: '[&>td]:overflow-visible!',
             expandedRowRender: ({ result }) => {
                 const accountId = getNameCell(result, visibleColumnNames)?.id
                 return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
@@ -319,20 +320,22 @@ export function AccountsHogQLTable(): JSX.Element {
         return <AccountsHogQLSkeleton />
     }
     return (
-        <DataTable
-            uniqueKey="customer-analytics-accounts-hogql"
-            query={hogqlQuery}
-            setQuery={() => {
-                // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-            }}
-            context={{
-                columns: contextColumns,
-                expandable,
-                dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                emptyStateHeading: 'There are no matching accounts for this query',
-                emptyStateDetail: 'Try adjusting the filters or refreshing',
-            }}
-            readOnly
-        />
+        <div className="@container">
+            <DataTable
+                uniqueKey="customer-analytics-accounts-hogql"
+                query={hogqlQuery}
+                setQuery={() => {
+                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+                }}
+                context={{
+                    columns: contextColumns,
+                    expandable,
+                    dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                    emptyStateHeading: 'There are no matching accounts for this query',
+                    emptyStateDetail: 'Try adjusting the filters or refreshing',
+                }}
+                readOnly
+            />
+        </div>
     )
 }

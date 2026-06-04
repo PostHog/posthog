@@ -31,8 +31,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.pipeline import async_iter
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PipelineResult, ResumableData, SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
-    _evolve_pyarrow_schema,
     _handle_null_columns_with_definitions,
+    evolve_pyarrow_schema,
     normalize_table_column_names,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
@@ -276,10 +276,6 @@ class PipelineV3(Generic[ResumableData]):
         except Exception:
             status = "error"
             self._logger.exception("V3 Pipeline: Extraction failed")
-            try:
-                self._s3_batch_writer.cleanup()
-            except Exception:
-                self._logger.exception("V3 Pipeline: Failed to clean up S3 resources")
             raise
         finally:
             duration = time.perf_counter() - start_time
@@ -313,7 +309,7 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
-        pa_table = _evolve_pyarrow_schema(pa_table, None)
+        pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
 
         # Add missing columns from previous batches for schema consistency

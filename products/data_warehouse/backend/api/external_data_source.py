@@ -268,6 +268,12 @@ def strip_sensitive_from_dict(data: dict, nonsensitive: set[str], sensitive: set
 # (and therefore exfiltrate credentials via a poisoned SSH tunnel — VERIA-311).
 _SSH_TUNNEL_CONNECTION_FIELDS = ("enabled", "host", "port")
 
+# Top-level job_input fields that name the connection target. Changing any of them
+# repoints the source at a different server, so preserved credentials must not be
+# reused without re-entry (e.g. ServiceNow's `instance_url` could otherwise be swapped
+# to an attacker host that then receives the stored API key / password — VERIA-311).
+_CONNECTION_TARGET_FIELDS = ("host", "instance_url")
+
 
 def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     """True if the SSH tunnel's connection target (enabled/host/port) changed.
@@ -284,6 +290,42 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
         return "" if value is None else str(value)
 
     return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
+
+
+# Nested SourceFieldSelectConfig containers (Stripe `auth_method`, Snowflake `auth_type`,
+# ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
+
+
+def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any], sensitive_fields: set[str]) -> bool:
+    """True if any stored secret would be reused because the update didn't re-supply it.
+
+    Checks both top-level secret fields and the nested auth containers where sources like
+    ServiceNow, Stripe and Snowflake keep their credentials. Used to force credential
+    re-entry when the connection target changes, so a redirected host can't receive a
+    preserved secret. A secret only counts as preserved when it would survive the merge:
+    an absent container carries the whole existing block over, a same-selection container
+    preserves any field the update omits, and a selection switch replaces the block wholesale.
+    """
+    if any(existing.get(key) and not incoming.get(key) for key in sensitive_fields):
+        return True
+
+    for container_key in _NESTED_AUTH_CONTAINERS:
+        existing_container = existing.get(container_key)
+        if not isinstance(existing_container, dict):
+            continue
+        incoming_container = incoming.get(container_key)
+        if not isinstance(incoming_container, dict):
+            # Container not re-supplied — the existing secrets carry over wholesale.
+            if any(existing_container.get(key) for key in sensitive_fields):
+                return True
+            continue
+        if existing_container.get("selection") != incoming_container.get("selection"):
+            continue
+        if any(existing_container.get(key) and not incoming_container.get(key) for key in sensitive_fields):
+            return True
+
+    return False
 
 
 def get_direct_postgres_connection_metadata(
@@ -712,10 +754,21 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
-        # If the connection host changed, require credentials to be re-entered.
-        connection_host_changed = "host" in incoming_job_inputs and incoming_job_inputs[
-            "host"
-        ] != existing_job_inputs.get("host")
+        # If the connection target changed, require credentials to be re-entered. Covers
+        # both the generic `host` field and source-specific URL fields like ServiceNow's
+        # `instance_url`, so a stored credential can't be redirected to a new host.
+        connection_host_changed = any(
+            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            for field in _CONNECTION_TARGET_FIELDS
+        )
+
+        # Some sources keep their connection target in a differently named field (e.g. Okta's
+        # `okta_domain`, Freshdesk's `subdomain`). Changing one would send the preserved credential
+        # to a new host — the same exfiltration risk as a `host` change — so require re-entry too.
+        connection_host_changed = connection_host_changed or any(
+            field in incoming_job_inputs and incoming_job_inputs[field] != existing_job_inputs.get(field)
+            for field in source.connection_host_fields
+        )
 
         # If the SSH tunnel's connection target changed, also require credentials. Without this an
         # editor could swap in a tunnel that routes the backend's auth to an attacker-controlled
@@ -735,10 +788,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             manifest_host_added = bool(new_hosts - existing_hosts)
 
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
-            missing_credentials = [
-                key for key in sensitive_fields if existing_job_inputs.get(key) and not incoming_job_inputs.get(key)
-            ]
-            if missing_credentials:
+            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, sensitive_fields):
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
