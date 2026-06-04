@@ -597,7 +597,8 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         ]
     )
     def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
-        api_key = _create_provisioned_pat(self.user, self.team, label_prefix=label_prefix)
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        api_key = _create_provisioned_pat(self.user, self.team, app, label_prefix=label_prefix)
         assert api_key is not None
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
@@ -606,7 +607,8 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     def test_label_is_truncated_to_40_chars(self):
         self.team.name = "A" * 60
         self.team.save()
-        _create_provisioned_pat(self.user, self.team, label_prefix="LongPartnerName")
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        _create_provisioned_pat(self.user, self.team, app, label_prefix="LongPartnerName")
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
         assert len(pat.label) == 40
