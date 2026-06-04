@@ -16,8 +16,20 @@ pub fn find_repo_root() -> Result<PathBuf> {
 }
 
 pub fn get_changed_files(base_ref: &str) -> Result<Vec<String>> {
+    // Compute the actual merge base so we don't pick up unrelated master
+    // commits when the PR base SHA is behind the branch's rebase point.
+    let merge_base_out = Command::new("git")
+        .args(["merge-base", base_ref, "HEAD"])
+        .output()
+        .context("failed to run git merge-base")?;
+    let diff_base = if merge_base_out.status.success() {
+        String::from_utf8(merge_base_out.stdout)?.trim().to_string()
+    } else {
+        base_ref.to_string()
+    };
+
     let out = Command::new("git")
-        .args(["diff", "--name-only", &format!("{base_ref}...HEAD")])
+        .args(["diff", "--name-only", &format!("{diff_base}...HEAD")])
         .output()
         .context("failed to run git diff")?;
     anyhow::ensure!(
@@ -51,21 +63,31 @@ impl TempWorktree {
             .tempdir()
             .context("failed to create temp directory")?
             .keep();
+        let path_s = path.to_string_lossy();
+
+        // Disable sparse checkout before creating the worktree so it doesn't
+        // inherit the parent's sparse-checkout filter (CI uses sparse checkout
+        // for the main working tree).
+        let _ = Command::new("git")
+            .args(["config", "--local", "core.sparseCheckout", "false"])
+            .output();
+
         let out = Command::new("git")
-            .args([
-                "worktree",
-                "add",
-                "--detach",
-                &path.to_string_lossy(),
-                base_ref,
-            ])
+            .args(["worktree", "add", "--detach", path_s.as_ref(), base_ref])
             .output()
             .context("failed to create git worktree")?;
+
+        // Re-enable sparse checkout for the parent worktree
+        let _ = Command::new("git")
+            .args(["config", "--local", "core.sparseCheckout", "true"])
+            .output();
+
         anyhow::ensure!(
             out.status.success(),
             "git worktree add failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
+
         Ok(Self { path })
     }
 

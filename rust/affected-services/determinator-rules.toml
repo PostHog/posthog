@@ -33,6 +33,13 @@ mark-changed = "all"
 globs = ["../proto/**"]
 mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
 
+# Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
+# etc.) — these are not crate source and should not trigger rust rebuilds.
+# Must come AFTER the specific ../proto and ../.github/rust-images.yml rules.
+[[path-rule]]
+globs = ["../**"]
+mark-changed = []
+
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate
 # image trigger is handled in custom code outside the determinator.
