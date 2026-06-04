@@ -2,11 +2,15 @@ import re
 import datetime
 from typing import Literal
 
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql import ast
+
+# Upper bound on the number of search terms accepted in a single error tracking search query.
+# Beyond this we surface a user-facing 400 instead of building an unbounded query.
+MAX_SEARCH_TOKENS = 100
 
 
 def search_tokenizer(query: str) -> list[str]:
@@ -263,8 +267,10 @@ def build_event_where_exprs(
 
     if query.searchQuery:
         tokens = search_tokenizer(query.searchQuery)
-        if len(tokens) > 100:
-            raise ValidationError("Too many search tokens")
+        if len(tokens) > MAX_SEARCH_TOKENS:
+            raise ValidationError(
+                f"Search query has too many terms (limit is {MAX_SEARCH_TOKENS}). Please shorten your search."
+            )
 
         and_exprs: list[ast.Expr] = []
         for token in tokens:

@@ -16,6 +16,8 @@ from unittest import TestCase
 
 from django.utils.timezone import now
 
+from rest_framework.exceptions import ValidationError
+
 from dateutil.relativedelta import relativedelta
 
 from posthog.schema import (
@@ -341,6 +343,12 @@ class ErrorTrackingQueryRunnerTestsMixin:
     def test_empty_search_query(self):
         results = self._calculate(searchQuery="probs not found")["results"]
         self.assertEqual(len(results), 0)
+
+    @freeze_time("2022-01-10T12:11:00")
+    def test_search_query_with_too_many_tokens_raises_validation_error(self):
+        # An over-long search string should surface a user-facing 400, not an unhandled exception.
+        with self.assertRaises(ValidationError):
+            self._calculate(searchQuery=" ".join(str(i) for i in range(101)))
 
     @freeze_time("2022-01-10 12:11:00")
     @snapshot_clickhouse_queries

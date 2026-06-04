@@ -1,7 +1,7 @@
 import datetime
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ErrorTrackingIssueFilter,
@@ -18,6 +18,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
+    MAX_SEARCH_TOKENS,
     extract_aggregations,
     extract_event,
     innermost_frame_attribute,
@@ -747,8 +748,10 @@ class ErrorTrackingQueryV3Builder:
 
     def _search_expr(self) -> ast.Expr:
         tokens = search_tokenizer(self.query.searchQuery or "")
-        if len(tokens) > 100:
-            raise ValidationError("Too many search tokens")
+        if len(tokens) > MAX_SEARCH_TOKENS:
+            raise ValidationError(
+                f"Search query has too many terms (limit is {MAX_SEARCH_TOKENS}). Please shorten your search."
+            )
 
         and_exprs: list[ast.Expr] = []
         for token in tokens:
