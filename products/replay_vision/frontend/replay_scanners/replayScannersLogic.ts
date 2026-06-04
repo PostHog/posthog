@@ -240,6 +240,14 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 loadScannersFailure: () => false,
             },
         ],
+        scannerStatsLoading: [
+            false,
+            {
+                loadScannerStats: () => true,
+                loadScannerStatsSuccess: () => false,
+                loadScannerStatsFailure: () => false,
+            },
+        ],
         chartDateFrom: [
             '-30d' as string | null,
             {
@@ -344,7 +352,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        loadScannerStats: async () => {
+        loadScannerStats: async (_, breakpoint) => {
+            // Debounce so a burst of mutations (rapid toggles, bulk delete) coalesces into one refetch.
+            await breakpoint(50)
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
