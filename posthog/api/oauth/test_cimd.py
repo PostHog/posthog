@@ -49,7 +49,7 @@ def generate_rsa_key() -> str:
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
 
-def _make_metadata(url: str = VALID_CIMD_URL, **overrides: object) -> dict:
+def _make_metadata(url: str = VALID_CIMD_URL, com_posthog: dict | None = None, **overrides: object) -> dict:
     metadata: dict[str, object] = {
         "client_id": url,
         "client_name": "Test MCP Client",
@@ -58,6 +58,8 @@ def _make_metadata(url: str = VALID_CIMD_URL, **overrides: object) -> dict:
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }
+    if com_posthog is not None:
+        metadata["com.posthog"] = com_posthog
     metadata.update(overrides)
     return metadata
 
@@ -896,7 +898,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
             organization=self.organization, label="Dual-read partner", created_by=self.user
         )
         if token_placement == "nested":
-            metadata = _make_metadata(**{"com.posthog": {"verification_token": plaintext}})
+            metadata = _make_metadata(com_posthog={"verification_token": plaintext})
         else:
             metadata = _make_metadata(posthog_verification_token=plaintext)
 
@@ -914,7 +916,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         )
         metadata = _make_metadata(
             posthog_verification_token=plaintext,
-            **{"com.posthog": {"verification_token": "phvt_does_not_exist"}},
+            com_posthog={"verification_token": "phvt_does_not_exist"},
         )
         mock_get.return_value = _mock_response(metadata, headers={})
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
@@ -930,7 +932,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         )
         metadata = _make_metadata(
             posthog_verification_token="phvt_fake_top_level",
-            **{"com.posthog": {"verification_token": plaintext_nested}},
+            com_posthog={"verification_token": plaintext_nested},
         )
         mock_get.return_value = _mock_response(metadata, headers={})
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
@@ -947,7 +949,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     )
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_scopes_written_to_app_on_creation(self, _name, input_scopes, expected_scopes, mock_get, _url_mock):
-        metadata = _make_metadata(**{"com.posthog": {"scopes": input_scopes}})
+        metadata = _make_metadata(com_posthog={"scopes": input_scopes})
         mock_get.return_value = _mock_response(metadata, headers={})
 
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
@@ -967,7 +969,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         if hidden_scope:
             input_scopes.append(hidden_scope)
 
-        metadata = _make_metadata(**{"com.posthog": {"scopes": input_scopes}})
+        metadata = _make_metadata(com_posthog={"scopes": input_scopes})
         mock_get.return_value = _mock_response(metadata, headers={})
 
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
@@ -983,7 +985,7 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     # (b) absent com.posthog.scopes on refresh leaves existing scopes untouched.
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_absent_scopes_on_refresh_leaves_existing_untouched(self, mock_get, _url_mock):
-        metadata_create = _make_metadata(**{"com.posthog": {"scopes": ["insight:read"]}})
+        metadata_create = _make_metadata(com_posthog={"scopes": ["insight:read"]})
         mock_get.return_value = _mock_response(metadata_create, headers={})
         fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
@@ -998,12 +1000,12 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     # (a) present scopes on refresh override the existing application.scopes.
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_present_scopes_on_refresh_override_existing(self, mock_get, _url_mock):
-        metadata_create = _make_metadata(**{"com.posthog": {"scopes": ["insight:read", "dashboard:write"]}})
+        metadata_create = _make_metadata(com_posthog={"scopes": ["insight:read", "dashboard:write"]})
         mock_get.return_value = _mock_response(metadata_create, headers={})
         fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
         real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
-        metadata_refresh = _make_metadata(**{"com.posthog": {"scopes": ["survey:read"]}})
+        metadata_refresh = _make_metadata(com_posthog={"scopes": ["survey:read"]})
         mock_get.return_value = _mock_response(metadata_refresh, headers={})
         refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
