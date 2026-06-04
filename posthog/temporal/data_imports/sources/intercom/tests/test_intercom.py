@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -33,6 +33,11 @@ def _make_response(json_body: Any, status_code: int = 200, text: str = "") -> Re
     resp._content = json.dumps(json_body).encode() if json_body is not None else text.encode()
     resp.headers["Content-Type"] = "application/json"
     return resp
+
+
+def _endpoint(resource: Any) -> dict[str, Any]:
+    # `EndpointResource["endpoint"]` is typed `str | Endpoint | None`; tests build dict endpoints.
+    return cast(dict[str, Any], resource["endpoint"])
 
 
 class TestValidateCredentials:
@@ -154,28 +159,53 @@ class TestBuildPaginator:
         assert isinstance(_build_paginator(cfg), expected_type)
 
 
+NON_SUBSTREAM_ENDPOINTS = [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.paginator_kind != "substream"]
+
+
 class TestGetResource:
-    def test_search_incremental_upserts(self):
+    @pytest.mark.parametrize(
+        "should_use_incremental,last_value,expected_disposition,expected_query_value",
+        [
+            (True, "1700000000", {"disposition": "merge", "strategy": "upsert"}, 1700000000),
+            # Full refresh still needs a query body; value 0 matches everything.
+            (False, None, "replace", 0),
+        ],
+    )
+    def test_search_endpoint_body_and_disposition(
+        self, should_use_incremental: bool, last_value: str | None, expected_disposition: Any, expected_query_value: int
+    ):
         resource = get_resource(
             "contacts",
-            should_use_incremental_field=True,
-            incremental_field="updated_at",
-            db_incremental_field_last_value="1700000000",
+            should_use_incremental_field=should_use_incremental,
+            incremental_field="updated_at" if should_use_incremental else None,
+            db_incremental_field_last_value=last_value,
         )
 
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-        endpoint = resource["endpoint"]
+        assert resource["write_disposition"] == expected_disposition
+        endpoint = _endpoint(resource)
         assert endpoint["method"] == "POST"
-        assert endpoint["json"]["query"]["value"] == 1700000000
+        assert endpoint["json"]["query"]["value"] == expected_query_value
 
-    def test_search_full_refresh_replaces_but_keeps_body(self):
+    @pytest.mark.parametrize(
+        "should_use_incremental,last_value,expected_disposition,expected_cursor",
+        [
+            (True, "1700000000", {"disposition": "merge", "strategy": "upsert"}, 1700000000),
+            # Full refresh sets the cursor to the Unix epoch start (matches everything).
+            (False, None, "replace", 0),
+        ],
+    )
+    def test_query_param_endpoint_cursor_and_disposition(
+        self, should_use_incremental: bool, last_value: str | None, expected_disposition: Any, expected_cursor: int
+    ):
         resource = get_resource(
-            "contacts", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
+            "activity_logs",
+            should_use_incremental_field=should_use_incremental,
+            incremental_field="created_at" if should_use_incremental else None,
+            db_incremental_field_last_value=last_value,
         )
 
-        assert resource["write_disposition"] == "replace"
-        # Search endpoints always need a query body; value 0 matches everything.
-        assert resource["endpoint"]["json"]["query"]["value"] == 0
+        assert _endpoint(resource)["params"]["created_at_after"] == expected_cursor
+        assert resource["write_disposition"] == expected_disposition
 
     def test_post_list_endpoint_sets_per_page_body(self):
         resource = get_resource(
@@ -185,54 +215,34 @@ class TestGetResource:
             db_incremental_field_last_value=None,
         )
 
-        assert resource["endpoint"]["method"] == "POST"
-        assert resource["endpoint"]["json"] == {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
+        endpoint = _endpoint(resource)
+        assert endpoint["method"] == "POST"
+        assert endpoint["json"] == {"per_page": INTERCOM_ENDPOINTS["companies"].page_size}
         assert resource["write_disposition"] == "replace"
 
-    def test_query_param_incremental_sets_cursor(self):
+    @pytest.mark.parametrize(
+        "endpoint_name,expected_model",
+        [("company_attributes", "company"), ("contact_attributes", "contact")],
+    )
+    def test_single_endpoint_with_extra_params(self, endpoint_name: str, expected_model: str):
         resource = get_resource(
-            "activity_logs",
-            should_use_incremental_field=True,
-            incremental_field="created_at",
-            db_incremental_field_last_value="1700000000",
-        )
-
-        assert resource["endpoint"]["params"]["created_at_after"] == 1700000000
-        assert resource["write_disposition"] == {"disposition": "merge", "strategy": "upsert"}
-
-    def test_query_param_full_refresh_uses_epoch(self):
-        resource = get_resource(
-            "activity_logs",
+            endpoint_name,
             should_use_incremental_field=False,
             incremental_field=None,
             db_incremental_field_last_value=None,
         )
 
-        assert resource["endpoint"]["params"]["created_at_after"] == 0
-        assert resource["write_disposition"] == "replace"
-
-    def test_single_endpoint_with_extra_params(self):
-        resource = get_resource(
-            "company_attributes",
-            should_use_incremental_field=False,
-            incremental_field=None,
-            db_incremental_field_last_value=None,
-        )
-
-        assert resource["endpoint"]["params"] == {"model": "company"}
+        assert _endpoint(resource)["params"] == {"model": expected_model}
 
     def test_single_endpoint_without_params(self):
         resource = get_resource(
             "admins", should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
         )
 
-        assert "params" not in resource["endpoint"]
+        assert "params" not in _endpoint(resource)
 
-    @pytest.mark.parametrize("name", list(INTERCOM_ENDPOINTS.keys()))
+    @pytest.mark.parametrize("name", NON_SUBSTREAM_ENDPOINTS)
     def test_table_format_and_name(self, name: str):
-        # Substream endpoints are not routed through get_resource.
-        if INTERCOM_ENDPOINTS[name].paginator_kind == "substream":
-            return
         resource = get_resource(
             name, should_use_incremental_field=False, incremental_field=None, db_incremental_field_last_value=None
         )
