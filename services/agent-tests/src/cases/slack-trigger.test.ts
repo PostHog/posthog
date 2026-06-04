@@ -29,11 +29,14 @@ function slackEvent(opts: {
     ts?: string
     thread_ts?: string
     bot_id?: string
+    /** Slack delivers `app_mention` for @-mentions; defaults to `message` for
+     *  legacy "any channel message" subscribers. The ingress accepts both. */
+    eventType?: 'message' | 'app_mention'
 }): Record<string, unknown> {
     return {
         type: 'event_callback',
         event: {
-            type: 'message',
+            type: opts.eventType ?? 'message',
             channel: opts.channel ?? 'C01',
             user: opts.user ?? 'U01',
             text: opts.text ?? 'hi',
@@ -73,6 +76,27 @@ describe('slack trigger: real e2e', () => {
             .send({ type: 'url_verification', challenge: 'xyz' })
         expect(res.status).toBe(200)
         expect(res.body.challenge).toBe('xyz')
+    })
+
+    it('app_mention event enqueues a session (the primary mention flow)', async () => {
+        // The ingress previously only accepted `event.type === 'message'` and
+        // silently 200'd app_mention events with no-op. Regression: an
+        // app_mention event must enqueue exactly like a channel message.
+        c.setScript([fauxText('hello back')])
+        await c.deployAgent({ slug: 'mentioner', spec: {} })
+        const res = await request(c.ingress)
+            .post('/agents/mentioner/slack/events')
+            .send(slackEvent({ eventType: 'app_mention', text: '<@U0BOT> ping' }))
+        expect(res.status).toBe(200)
+        expect(res.body.session_id).toBeTruthy()
+
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+        const userMsg = session!.conversation.find((m) => m.role === 'user') as
+            | { role: 'user'; content: string }
+            | undefined
+        expect(userMsg?.content).toBe('<@U0BOT> ping')
     })
 
     it('thread_ts dedupe: second mention in same thread resumes existing session', async () => {

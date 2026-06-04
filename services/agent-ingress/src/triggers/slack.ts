@@ -58,7 +58,13 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 return
             }
             const event = body.event
-            if (!event || event.type !== 'message' || event.bot_id) {
+            // Accept both `message` (channel messages the bot is a member of)
+            // and `app_mention` (someone @-mentioned the bot). Slack delivers
+            // the latter even when a workspace only subscribed to mentions,
+            // and the spec's `slack.config.mention_only` flag implies the
+            // ingress was always meant to handle it — drop the original
+            // message-only gate that silently 200'd every mention with no-op.
+            if (!event || (event.type !== 'message' && event.type !== 'app_mention') || event.bot_id) {
                 res.json({ ok: true })
                 return
             }
