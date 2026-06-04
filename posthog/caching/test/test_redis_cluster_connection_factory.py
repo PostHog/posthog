@@ -1,9 +1,13 @@
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 from unittest.mock import MagicMock, patch
 
+from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase
+
+from parameterized import parameterized
 
 from posthog.caching.redis_cluster_connection_factory import (
     QUERY_CACHE_ALIAS,
@@ -17,9 +21,11 @@ class TestRedisClusterConnectionFactory(TestCase):
     def setUp(self) -> None:
         super().setUp()
         RedisClusterConnectionFactory._cluster_clients.clear()
+        RedisClusterConnectionFactory._owner_pid = None
 
     def tearDown(self) -> None:
         RedisClusterConnectionFactory._cluster_clients.clear()
+        RedisClusterConnectionFactory._owner_pid = None
         super().tearDown()
 
     def _factory(self) -> RedisClusterConnectionFactory:
@@ -118,6 +124,32 @@ class TestRedisClusterConnectionFactory(TestCase):
 
         assert enters_after_warmup == 1
         assert counting_lock.enter_count == 1
+
+    @patch("posthog.caching.redis_cluster_connection_factory.os.getpid")
+    @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
+    def test_connect_rediscovers_after_a_fork(self, from_url: MagicMock, getpid: MagicMock) -> None:
+        # A client discovered pre-fork holds the parent's sockets; once getpid()
+        # changes (the worker is a forked child) connect() must drop the inherited
+        # cache and rediscover so workers never share file descriptors.
+        from_url.side_effect = lambda url, **kwargs: MagicMock(name=url)
+        getpid.return_value = 1000
+        parent_client = self._factory().connect("redis://node-a:6379")
+
+        getpid.return_value = 2000  # forked worker
+        child_client = self._factory().connect("redis://node-a:6379")
+
+        assert child_client is not parent_client
+        assert from_url.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("alias_option", {"CLOSE_CONNECTION": True}, {}),
+            ("global_setting", {}, {"DJANGO_REDIS_CLOSE_CONNECTION": True}),
+        ]
+    )
+    def test_init_rejects_close_connection(self, _name: str, options: dict, settings_overrides: dict) -> None:
+        with self.settings(**settings_overrides), pytest.raises(ImproperlyConfigured):
+            RedisClusterConnectionFactory(options=options)
 
 
 class TestPrewarmQueryCacheCluster(TestCase):
