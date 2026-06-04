@@ -195,9 +195,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
                 }
 
-                // If a subscriptionsLogic for this insight/dashboard is mounted already, let's make sure
-                // this change is propagated to `subscriptions` there
-                subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
+                // If a subscriptionsLogic for this insight/dashboard is mounted already, refresh both
+                // its resource-scoped list and the AI subscriptions section so new entries show up
+                const mountedSubscriptionsLogic = subscriptionsLogic.findMounted(props)
+                mountedSubscriptionsLogic?.actions.loadSubscriptions()
+                mountedSubscriptionsLogic?.actions.loadAiSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)
