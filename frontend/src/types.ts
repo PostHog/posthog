@@ -503,6 +503,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_cta_shown?: boolean
     is_hipaa?: boolean
     members_can_invite?: boolean
+    members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata

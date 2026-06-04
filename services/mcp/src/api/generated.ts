@@ -22625,6 +22625,11 @@ export namespace Schemas {
       enforce_2fa?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
+      /**
+         * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+         * @nullable
+         */
+      members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count: number;
@@ -29604,6 +29609,11 @@ export namespace Schemas {
       enforce_2fa?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
+      /**
+         * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+         * @nullable
+         */
+      members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count?: number;
@@ -49828,6 +49838,10 @@ export namespace Schemas {
      * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.
      */
     ordering?: string;
+    /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string;
     /**
      * Case-insensitive substring match against report title and summary.
      */

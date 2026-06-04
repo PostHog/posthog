@@ -62,10 +62,10 @@ from posthog.permissions import (
     CREATE_ACTIONS,
     AccessControlPermission,
     APIScopePermission,
-    OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
+    UserCanCreateProjectPermission,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1607,7 +1607,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         if self.action:
             if self.action == "create":
                 if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    permissions.append(OrganizationAdminWritePermissions)
+                    permissions.append(UserCanCreateProjectPermission)
                 else:
                     permissions.append(OrganizationMemberPermissions)
             elif self.action != "list":
@@ -2162,6 +2162,22 @@ def validate_team_attrs(
             if level is None or level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(
                     "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
+                )
+    else:
+        # On create there's no team yet, so check the creator's org-level membership. Without this a
+        # non-admin member (allowed to create projects via members_can_create_projects) could set
+        # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
+        # project creation is intentionally open to members and gated separately.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        if admin_fields_touched:
+            membership = OrganizationMembership.objects.filter(
+                user=cast(User, view.request.user), organization_id=view.organization_id
+            ).first()
+            member_level = membership.level if membership else None
+            if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Only organization admins can set these settings on project creation: "
+                    + ", ".join(sorted(admin_fields_touched))
                 )
 
     if "primary_dashboard" in attrs:
