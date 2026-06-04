@@ -3,6 +3,7 @@ from datetime import timedelta
 
 import temporalio.workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -87,8 +88,13 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         # The activity returns Optional[str] in general, but with mark_started=True it always returns the ISO
-        # query_to string — narrow here so calc activities receive a typed str.
-        assert isinstance(query_to, str)
+        # query_to string. Narrow with a real check (not assert, which is stripped under python -O) so calc
+        # activities receive a typed str.
+        if not isinstance(query_to, str):
+            raise ApplicationError(
+                f"start activity for recalc {recalculation_id} returned {type(query_to).__name__}, expected str",
+                non_retryable=True,
+            )
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_METRICS)
 

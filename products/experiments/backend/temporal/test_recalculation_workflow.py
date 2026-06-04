@@ -5,6 +5,7 @@ import pytest
 import temporalio.worker
 from parameterized import parameterized
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
@@ -152,3 +153,29 @@ class TestExperimentMetricsRecalculationWorkflow:
         # Workflow must complete without the validating activity raising — i.e., every progress call has exactly
         # one of mark_started / mark_completed set.
         await _run_workflow([mock_discover, progress_with_xor_guard, mock_calculate])
+
+    async def test_workflow_fails_non_retryable_if_start_activity_returns_none(self):
+        # The workflow narrows the start activity's Optional[str] return into a real str via an if/raise
+        # (not assert, which python -O strips). If the activity ever violates its contract and returns None,
+        # the workflow must fail non-retryably rather than silently pass None into calc activities.
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return [_metric("m1")]
+
+        @activity.defn(name="update_recalculation_progress")
+        async def progress_returning_none(update: RecalculationProgressUpdate) -> str | None:
+            return None  # contract violation on the start step
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+        ) -> MetricRecalculationResult:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await _run_workflow([mock_discover, progress_returning_none, mock_calculate])
+
+        cause = exc_info.value.cause
+        assert isinstance(cause, ApplicationError)
+        assert cause.non_retryable is True
+        assert "expected str" in str(cause)
