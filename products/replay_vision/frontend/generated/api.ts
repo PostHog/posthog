@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EstimateRequestApi,
     EstimateResponseApi,
+    ObservationStatsApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
@@ -18,10 +19,12 @@ import type {
     PatchedReplayScannerApi,
     ReplayObservationApi,
     ReplayScannerApi,
+    ScannerCreatorsResponseApi,
     VisionObservationsListParams,
     VisionQuotaApi,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
+    VisionScannersObservationsStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -53,8 +56,8 @@ export const getVisionObservationsListUrl = (projectId: string, params: VisionOb
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/observations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/observations/`
+        ? `/api/projects/${projectId}/vision/observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/`
 }
 
 /**
@@ -72,7 +75,7 @@ export const visionObservationsList = async (
 }
 
 export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/observations/${id}/`
+    return `/api/projects/${projectId}/vision/observations/${id}/`
 }
 
 /**
@@ -90,7 +93,7 @@ export const visionObservationsRetrieve = async (
 }
 
 export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/vision/quota/`
+    return `/api/projects/${projectId}/vision/quota/`
 }
 
 export const environmentVisionQuotaRetrieve = async (
@@ -115,8 +118,8 @@ export const getVisionScannersListUrl = (projectId: string, params?: VisionScann
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/scanners/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/scanners/`
+        ? `/api/projects/${projectId}/vision/scanners/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/`
 }
 
 /**
@@ -134,7 +137,7 @@ export const visionScannersList = async (
 }
 
 export const getVisionScannersCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/vision/scanners/`
+    return `/api/projects/${projectId}/vision/scanners/`
 }
 
 /**
@@ -154,7 +157,7 @@ export const visionScannersCreate = async (
 }
 
 export const getVisionScannersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -172,7 +175,7 @@ export const visionScannersRetrieve = async (
 }
 
 export const getVisionScannersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -193,7 +196,7 @@ export const visionScannersPartialUpdate = async (
 }
 
 export const getVisionScannersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -207,7 +210,7 @@ export const visionScannersDestroy = async (projectId: string, id: string, optio
 }
 
 export const getVisionScannersObserveCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/observe/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/observe/`
 }
 
 /**
@@ -243,8 +246,8 @@ export const getVisionScannersObservationsListUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/`
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/`
 }
 
 /**
@@ -266,7 +269,7 @@ export const visionScannersObservationsList = async (
 }
 
 export const getVisionScannersObservationsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
 }
 
 /**
@@ -284,8 +287,63 @@ export const visionScannersObservationsRetrieve = async (
     })
 }
 
+export const getVisionScannersObservationsStatsRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/`
+}
+
+/**
+ * Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.
+ */
+export const visionScannersObservationsStatsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams,
+    options?: RequestInit
+): Promise<ObservationStatsApi> => {
+    return apiMutator<ObservationStatsApi>(
+        getVisionScannersObservationsStatsRetrieveUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/creators/`
+}
+
+/**
+ * Distinct creators across the team's scanners — feeds the `Created by` filter dropdown.
+ */
+export const visionScannersCreatorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerCreatorsResponseApi> => {
+    return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/vision/scanners/estimate/`
+    return `/api/projects/${projectId}/vision/scanners/estimate/`
 }
 
 /**

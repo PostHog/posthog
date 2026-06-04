@@ -11,6 +11,7 @@ from posthog.temporal.data_imports.sources.custom.source import (
     CustomSource,
     ManifestValidationError,
     is_custom_source_available_for_team,
+    manifest_request_hosts,
     validate_manifest,
     validate_manifest_urls,
 )
@@ -151,6 +152,20 @@ class TestValidateManifestUrls(SimpleTestCase):
     def test_rejects_absolute_resource_path_when_internal(self, _mock):
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["path"] = "http://127.0.0.1/leak"
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "users" in (err or "")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (host != "127.0.0.1", None if host != "127.0.0.1" else "blocked"),
+    )
+    def test_rejects_whitespace_prefixed_internal_path(self, _mock):
+        # A leading space makes the raw `startswith` check miss the absolute URL, but urljoin
+        # strips it and the sync reaches 127.0.0.1 — the validator must resolve it the same way.
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = " https://127.0.0.1/leak"
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert not ok
         assert "users" in (err or "")
@@ -444,6 +459,22 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
             assert getattr(probe_auth, attr) == expected, f"{attr} mismatch"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_registers_credential_for_redaction(self, mock_session):
+        # The secret must be handed to the tracked session as a redact value so
+        # it's masked from logs/samples even when injected into a query param
+        # whose name the denylist scrubber can't anticipate.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "api_key", "name": "subscription-key", "location": "query"}
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_api_key="sk_live_leaky")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("sk_live_leaky",)
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_returns_false_on_network_error(self, mock_session):
         # A connection-level failure (DNS, TLS, timeout) must surface as a
         # credential validation error pointing at the offending resource.
@@ -462,6 +493,127 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert not ok
         assert err is not None
+
+
+class TestManifestRequestHosts(SimpleTestCase):
+    def _manifest(self, base_url: str, resource_paths: list[str]) -> str:
+        return json.dumps(
+            {
+                "client": {"base_url": base_url},
+                "resources": [{"name": f"r{i}", "endpoint": {"path": p}} for i, p in enumerate(resource_paths)],
+            }
+        )
+
+    def test_base_url_host(self):
+        assert manifest_request_hosts(self._manifest("https://api.example.com/v1", ["/users"])) == frozenset(
+            {"api.example.com"}
+        )
+
+    def test_absolute_resource_paths_add_hosts(self):
+        # Relative paths inherit base_url's host; only absolute URLs introduce a new host.
+        manifest = self._manifest("https://api.example.com", ["/users", "https://cdn.other.net/data"])
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "cdn.other.net"})
+
+    def test_path_param_absolute_url_is_collected(self):
+        # A scalar param bound into a "{placeholder}" becomes the request URL at sync time
+        # (_bind_path_params), so its host must be tracked even though the literal path is relative.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {
+                        "name": "r",
+                        "endpoint": {"path": "{target}", "params": {"target": "https://attacker.example.net/"}},
+                    }
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_path_param_split_scheme_is_resolved(self):
+        # The absolute URL is split across the template and a param ("{scheme}://host" +
+        # {"scheme": "https"}); neither piece is a URL on its own, but the bound path is.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {
+                        "name": "r",
+                        "endpoint": {"path": "{scheme}://attacker.example.net/data", "params": {"scheme": "https"}},
+                    }
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_uppercase_scheme_absolute_path_adds_host(self):
+        # urljoin treats `HTTPS://host` as absolute (schemes are case-insensitive), so a
+        # mixed-case scheme must still register the new host — otherwise an editor who can't
+        # read the stored secret could retarget the preserved credential past the re-entry gate.
+        manifest = self._manifest("https://api.example.com", ["HTTPS://attacker.example.net/data"])
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_uppercase_scheme_split_across_param_adds_host(self):
+        # Same retarget bypass via a split scheme: "{scheme}://host" + {"scheme": "HTTPS"}.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {
+                        "name": "r",
+                        "endpoint": {"path": "{scheme}://attacker.example.net/data", "params": {"scheme": "HTTPS"}},
+                    }
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    @parameterized.expand(
+        [
+            ("leading_space", " https://attacker.example.net/data"),
+            ("leading_tab", "\thttps://attacker.example.net/data"),
+            ("leading_newline", "\nhttps://attacker.example.net/data"),
+            ("leading_nul", "\x00https://attacker.example.net/data"),
+            ("leading_space_uppercase", " HTTPS://attacker.example.net/data"),
+        ]
+    )
+    def test_whitespace_prefixed_absolute_path_adds_host(self, _name, path):
+        # urljoin strips leading whitespace/control chars before parsing the scheme, so the
+        # sync requests attacker.example.net while a raw `startswith` check sees no new host —
+        # the retarget guard must resolve the path the same way the engine does.
+        manifest = self._manifest("https://api.example.com", [path])
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "attacker.example.net"})
+
+    def test_url_param_not_referenced_in_path_is_ignored(self):
+        # A URL-valued query param that isn't a path placeholder is a normal query value, not a
+        # request destination — it must not be counted (avoids false re-entry prompts).
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://api.example.com"},
+                "resources": [
+                    {"name": "r", "endpoint": {"path": "/users", "params": {"callback": "https://other.net/"}}}
+                ],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
+
+    def test_backslash_authority_resolves_to_real_host(self):
+        # `https://evil\@trusted/` connects to `evil` (urllib3/WHATWG) even though urlparse
+        # alone reads `trusted` — the guard must see the real destination, not be fooled.
+        manifest = json.dumps(
+            {
+                "client": {"base_url": "https://attacker.example.net\\@api.example.com/"},
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"attacker.example.net"})
+
+    def test_host_is_lowercased(self):
+        assert manifest_request_hosts(self._manifest("https://API.Example.COM", [])) == frozenset({"api.example.com"})
+
+    @parameterized.expand([("not json", "{nope}"), ("non_string", 123), ("none", None), ("json_array", "[1, 2]")])
+    def test_unparseable_returns_empty(self, _name, raw):
+        assert manifest_request_hosts(raw) == frozenset()
 
 
 class TestIsCustomSourceAvailableForTeam(SimpleTestCase):

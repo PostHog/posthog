@@ -19,6 +19,8 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
 
     actions({
         setObservationId: (observationId: string) => ({ observationId }),
+        // Pushed by replayObservationLogic once the observation loads, so the breadcrumb can link to its scanner.
+        setScannerContext: (scannerId: string | null, scannerName: string | null) => ({ scannerId, scannerName }),
     }),
 
     reducers({
@@ -28,24 +30,45 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
                 setObservationId: (_, { observationId }) => observationId,
             },
         ],
+        scannerContext: [
+            { scannerId: null, scannerName: null } as { scannerId: string | null; scannerName: string | null },
+            {
+                setScannerContext: (_, { scannerId, scannerName }) => ({ scannerId, scannerName }),
+                // Clear when navigating to a different observation so we don't briefly show the previous scanner.
+                setObservationId: () => ({ scannerId: null, scannerName: null }),
+            },
+        ],
     }),
 
     selectors({
         breadcrumbs: [
-            (s) => [s.observationId],
-            (observationId: string): Breadcrumb[] => [
-                {
-                    key: 'replay-vision',
-                    name: 'Replay vision',
-                    path: urls.replayVision(),
-                    iconType: 'replay_vision',
-                },
-                {
+            (s) => [s.observationId, s.scannerContext],
+            (
+                observationId: string,
+                scannerContext: { scannerId: string | null; scannerName: string | null }
+            ): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = [
+                    {
+                        key: 'replay-vision',
+                        name: 'Replay vision',
+                        path: urls.replayVision(),
+                        iconType: 'replay_vision',
+                    },
+                ]
+                if (scannerContext.scannerId) {
+                    breadcrumbs.push({
+                        key: `scanner-${scannerContext.scannerId}`,
+                        name: scannerContext.scannerName || 'Scanner',
+                        path: urls.replayVision(scannerContext.scannerId),
+                    })
+                }
+                breadcrumbs.push({
                     key: observationId ? `observation-${observationId}` : 'observation',
                     name: 'Observation',
                     path: urls.replayVisionObservation(observationId),
-                },
-            ],
+                })
+                return breadcrumbs
+            },
         ],
     }),
 
