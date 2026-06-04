@@ -1,6 +1,12 @@
+from functools import lru_cache
 from typing import Literal
 
 from posthog.test.base import BaseTest
+
+from django.apps import apps
+from django.db.models import ForeignKey, Model
+from django.test import SimpleTestCase
+from django.urls import get_resolver
 
 from parameterized import parameterized
 
@@ -20,6 +26,49 @@ from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
+
+from ee.api.rbac.access_control import AccessControlViewSetMixin
+
+
+@lru_cache(maxsize=1)
+def _object_grant_registry() -> dict[type[Model], str]:
+    """Map every model that is object-restrictable to the resource (`scope_object`) its
+    per-object grants are stored under. Derived from `AccessControlViewSetMixin` viewsets —
+    the authoritative source of which resources can hold object-level grants. Loading the
+    full URLconf forces all viewsets (including product ones) to be imported first."""
+    _ = get_resolver().url_patterns
+
+    def all_subclasses(cls: type) -> set[type]:
+        subs: set[type] = set()
+        for sub in cls.__subclasses__():
+            subs.add(sub)
+            subs |= all_subclasses(sub)
+        return subs
+
+    registry: dict[type[Model], str] = {}
+    for viewset in all_subclasses(AccessControlViewSetMixin):
+        scope = getattr(viewset, "scope_object", None)
+        if not isinstance(scope, str) or scope == "INTERNAL":
+            continue
+        queryset = getattr(viewset, "queryset", None)
+        model = queryset.model if queryset is not None else None
+        if model is None:
+            meta = getattr(getattr(viewset, "serializer_class", None), "Meta", None)
+            model = getattr(meta, "model", None)
+        if model is not None:
+            registry[model] = scope
+    return registry
+
+
+@lru_cache(maxsize=1)
+def _model_by_pg_table() -> dict[str, type[Model]]:
+    # Skip proxy models — they share their base's db_table and would shadow the concrete model.
+    mapping: dict[str, type[Model]] = {}
+    for model in apps.get_models():
+        if model._meta.proxy:
+            continue
+        mapping.setdefault(model._meta.db_table, model)
+    return mapping
 
 
 class TestPostgresTable(BaseTest):
@@ -343,4 +392,69 @@ class TestPostgresTablePrimaryKey(BaseTest):
             f"system.{table_name} has access_scope='{table.access_scope}' "
             f"but no single-column primary key (composite PK). "
             f"Object-level access control requires a single-column PK."
+        )
+
+
+class TestObjectAccessControlIdField(SimpleTestCase):
+    """Every scoped system table must filter object-level denials against the correct column.
+
+    A table whose rows ARE the access-controlled object filters its primary key (the default).
+    A child table that only exposes a parent object's data must set `access_control_id_field`
+    to the foreign key pointing at that parent — otherwise a member denied the parent could
+    still read the child rows through HogQL. The set of object-restrictable resources is
+    derived from `AccessControlViewSetMixin` viewsets, so new restrictable models or child
+    tables fail this test until their `access_control_id_field` is declared correctly."""
+
+    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    def test_access_control_id_field_targets_the_restricted_object(self, table_name, table) -> None:
+        if table.access_scope is None:
+            self.assertIsNone(
+                table.access_control_id_field,
+                f"system.{table_name} has no access_scope, so access_control_id_field is meaningless — remove it.",
+            )
+            return
+
+        model = _model_by_pg_table().get(table.postgres_table_name)
+        self.assertIsNotNone(model, f"could not resolve a Django model for system.{table_name}")
+
+        scope = table.access_scope
+        registry = _object_grant_registry()
+        # Models whose per-object grants are stored under this table's scope.
+        target_models = {m for m, s in registry.items() if s == scope}
+
+        # This table's rows ARE the access-controlled object → filter the primary key (default).
+        if model in target_models:
+            self.assertIsNone(
+                table.access_control_id_field,
+                f"system.{table_name} is itself access-controlled under '{scope}'; it must filter its "
+                f"primary key — leave access_control_id_field unset.",
+            )
+            return
+
+        # The scope has no object-restrictable models → no per-object grants ever exist → the
+        # guard short-circuits on an empty deny set. No id override is meaningful.
+        if not target_models:
+            self.assertIsNone(
+                table.access_control_id_field,
+                f"system.{table_name} scope '{scope}' has no object-level grants; remove access_control_id_field.",
+            )
+            return
+
+        # Child table: it must filter the FK pointing at one of the restricted parent models.
+        fk_columns = sorted(
+            field.attname
+            for field in model._meta.get_fields()  # type: ignore[union-attr]
+            if isinstance(field, ForeignKey) and field.related_model in target_models
+        )
+        self.assertTrue(
+            fk_columns,
+            f"system.{table_name} is scoped to the object-restrictable resource '{scope}' but is neither "
+            f"one of its objects ({sorted(m.__name__ for m in target_models)}) nor has a foreign key to one. "
+            f"It may leak access-controlled rows — add the right FK or reconsider its access_scope.",
+        )
+        self.assertIn(
+            table.access_control_id_field,
+            fk_columns,
+            f"system.{table_name} is a child of '{scope}'; set access_control_id_field to the FK pointing at "
+            f"its parent (one of {fk_columns}), got {table.access_control_id_field!r}.",
         )

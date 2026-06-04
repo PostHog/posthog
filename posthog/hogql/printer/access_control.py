@@ -21,8 +21,8 @@ def build_access_control_guard(
     if not resource:
         return None
 
-    pk = table.primary_key
-    if pk is None:
+    id_field = table.access_control_id
+    if id_field is None:
         return None
 
     if not context.database or not context.database.user_access_control:
@@ -36,7 +36,7 @@ def build_access_control_guard(
         op=ast.CompareOperationOp.NotIn,
         left=ast.Call(
             name="toString",
-            args=[ast.Field(chain=[pk], type=ast.FieldType(name=pk, table_type=table_type))],
+            args=[ast.Field(chain=[id_field], type=ast.FieldType(name=id_field, table_type=table_type))],
         ),
         right=ast.Constant(value=sorted(blocked_ids), is_sensitive=True),
         type=ast.BooleanType(),

@@ -76,6 +76,12 @@ class PostgresTable(FunctionCallTable):
     requires_args: bool = False
     postgres_table_name: str
     access_scope: Optional[APIScopeObject] = None
+    # Column that object-level access control filters ids against.
+    # Defaults to the primary key, which is correct when the table's rows ARE the access-controlled object
+    # (e.g. system.dashboards). Child tables that only expose a parent object's data set this
+    # to the foreign key pointing at that parent (e.g. system.dashboard_tiles -> "dashboard_id"),
+    # so denying the parent also hides its child rows.
+    access_control_id_field: Optional[str] = None
     predicates: list[Expr] = []
 
     def get_predicates(self) -> list[Expr]:
@@ -84,6 +90,10 @@ class PostgresTable(FunctionCallTable):
     @property
     def primary_key(self) -> Optional[str]:
         return _pk_column_for_pg_table(self.postgres_table_name)
+
+    @property
+    def access_control_id(self) -> Optional[str]:
+        return self.access_control_id_field or self.primary_key
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
