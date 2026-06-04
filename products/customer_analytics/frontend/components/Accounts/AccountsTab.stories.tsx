@@ -122,29 +122,6 @@ const USAGE_INSIGHT = {
     },
 }
 
-const SPEND_INSIGHT = {
-    id: 9050996,
-    short_id: '9cZ54LsW',
-    name: 'Billing spend basis — daily billed units (warehouse)',
-    filters: {},
-    saved: true,
-    deleted: false,
-    query: {
-        kind: 'DataVisualizationNode',
-        display: 'ActionsLineGraph',
-        chartSettings: {
-            seriesBreakdownColumn: 'product',
-            xAxis: { column: 'date' },
-            yAxis: [{ column: 'daily_units' }],
-        },
-        source: {
-            kind: 'HogQLQuery',
-            query: 'SELECT date, product, daily_units FROM ...',
-            variables: BILLING_VARIABLES,
-        },
-    },
-}
-
 const USAGE_QUERY_RESPONSE = {
     error: '',
     hasMore: false,
@@ -161,29 +138,6 @@ const USAGE_QUERY_RESPONSE = {
         ['2026-05-08', 1800, 45],
         ['2026-05-15', 1500, 38],
         ['2026-05-21', 2100, 52],
-    ],
-}
-
-const SPEND_QUERY_RESPONSE = {
-    error: '',
-    hasMore: false,
-    is_cached: true,
-    query_status: null,
-    columns: ['date', 'product', 'daily_units'],
-    types: [
-        ['date', 'Date'],
-        ['product', 'String'],
-        ['daily_units', 'Nullable(Float64)'],
-    ],
-    results: [
-        ['2026-05-01', 'Events', 1200],
-        ['2026-05-01', 'Recordings', 30],
-        ['2026-05-08', 'Events', 1800],
-        ['2026-05-08', 'Recordings', 45],
-        ['2026-05-15', 'Events', 1500],
-        ['2026-05-15', 'Recordings', 38],
-        ['2026-05-21', 'Events', 2100],
-        ['2026-05-21', 'Recordings', 52],
     ],
 }
 
@@ -418,30 +372,5 @@ export const RowExpandedUsagePopulated: Story = {
     ),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
-    },
-}
-
-export const RowExpandedSpendNotFound: Story = {
-    render: () => <App />,
-    decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
-    play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Spend')
-        await within(canvasElement).findByText('No billing spend insight here')
-    },
-}
-
-export const RowExpandedSpendPopulated: Story = {
-    render: () => <App />,
-    parameters: {
-        testOptions: {
-            waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
-        },
-    },
-    decorators: billingTabDecorators(
-        insightsResponse(SPEND_INSIGHT),
-        mockAccountsAndBillingQuery(SINGLE_ROW, SPEND_QUERY_RESPONSE)
-    ),
-    play: async ({ canvasElement }) => {
-        await expandAndOpenTab(canvasElement, 'Spend')
     },
 }

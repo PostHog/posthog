@@ -87,7 +87,7 @@ export function AccountNotebooksExpansion({
 }): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksLoading } = useValues(logic)
-    const [activeTab, setActiveTab] = useState<'notes' | 'users' | 'usage' | 'spend'>('notes')
+    const [activeTab, setActiveTab] = useState<'notes' | 'users' | 'usage'>('notes')
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -182,17 +182,6 @@ export function AccountNotebooksExpansion({
                                         accountId={accountId}
                                         externalId={externalId}
                                         kind="usage"
-                                    />
-                                ),
-                            },
-                            {
-                                key: 'spend',
-                                label: 'Spend',
-                                content: (
-                                    <AccountBillingExpansion
-                                        accountId={accountId}
-                                        externalId={externalId}
-                                        kind="spend"
                                     />
                                 ),
                             },
