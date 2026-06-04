@@ -828,37 +828,37 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.activeTab?.description).toEqual('')
         })
 
-        it('syncs the active tab when the insight is renamed from another surface', async () => {
+        it.each([
+            {
+                name: 'syncs the active tab when the insight is renamed from another surface',
+                payload: { ...MOCK_INSIGHT, name: 'Renamed elsewhere', description: 'Updated elsewhere' },
+                shouldSync: true,
+                expectedName: 'Renamed elsewhere',
+                expectedDescription: 'Updated elsewhere',
+            },
+            {
+                name: 'ignores rename broadcasts for a different insight',
+                payload: { ...MOCK_INSIGHT, short_id: 'zzz999' as InsightShortId, name: 'Some other insight' },
+                shouldSync: false,
+                expectedName: MOCK_INSIGHT.name,
+                expectedDescription: MOCK_INSIGHT.description,
+            },
+        ])('$name', async ({ payload, shouldSync, expectedName, expectedDescription }) => {
             await loadInsight()
             insightsModel.mount()
 
-            insightsModel.actions.renameInsightSuccess({
-                ...MOCK_INSIGHT,
-                name: 'Renamed elsewhere',
-                description: 'Updated elsewhere',
-            } as QueryBasedInsightModel)
+            insightsModel.actions.renameInsightSuccess(payload as QueryBasedInsightModel)
 
-            await expectLogic(logic).toDispatchActions(['updateTab'])
+            if (shouldSync) {
+                await expectLogic(logic).toDispatchActions(['updateTab'])
+            } else {
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            }
 
-            expect(logic.values.activeTab?.name).toEqual('Renamed elsewhere')
-            expect(logic.values.activeTab?.description).toEqual('Updated elsewhere')
-            expect(logic.values.editingInsight?.name).toEqual('Renamed elsewhere')
-            expect(logic.values.editingInsight?.description).toEqual('Updated elsewhere')
-        })
-
-        it('ignores rename broadcasts for a different insight', async () => {
-            await loadInsight()
-            insightsModel.mount()
-
-            insightsModel.actions.renameInsightSuccess({
-                ...MOCK_INSIGHT,
-                short_id: 'zzz999' as InsightShortId,
-                name: 'Some other insight',
-            } as QueryBasedInsightModel)
-
-            await new Promise((resolve) => setTimeout(resolve, 0))
-
-            expect(logic.values.activeTab?.name).toEqual(MOCK_INSIGHT.name)
+            expect(logic.values.activeTab?.name).toEqual(expectedName)
+            expect(logic.values.activeTab?.description).toEqual(expectedDescription)
+            expect(logic.values.editingInsight?.name).toEqual(expectedName)
+            expect(logic.values.editingInsight?.description).toEqual(expectedDescription)
         })
 
         it('saving after a remote rename sends the fresh name, not the stale tab state', async () => {
