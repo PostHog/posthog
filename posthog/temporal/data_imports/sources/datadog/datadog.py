@@ -73,7 +73,8 @@ def validate_credentials(site: Optional[str], api_key: str, app_key: str) -> tup
     """
     url = f"{base_url(site)}/api/v1/validate"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key, app_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key, app_key))
+        response = session.get(url, headers=_get_headers(api_key, app_key), timeout=10)
         if response.status_code == 200:
             return True, None
         if response.status_code in (401, 403):
@@ -202,7 +203,8 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> Any:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        session = make_tracked_session(redact_values=(api_key, app_key))
+        response = session.get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise DatadogRetryableError(f"Datadog API error (retryable): status={response.status_code}, url={page_url}")

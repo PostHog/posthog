@@ -102,56 +102,77 @@ class TestFlattenItem:
 
 
 class TestBuildInitialParams:
-    def test_cursor_endpoint_sets_limit_and_sort(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        params = _build_initial_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert params["page[limit]"] == 1000
-        assert params["sort"] == "timestamp"
-        # First sync / full-refresh seeds the lookback window so Datadog doesn't fall back to now-15m.
-        assert "filter[from]" in params
+    @pytest.mark.parametrize(
+        ("endpoint", "should_use_incremental_field", "last_value", "expected_present", "expected_absent"),
+        [
+            # Cursor endpoint, first sync / full refresh: page size + sort set, lookback seeds filter[from].
+            (
+                "logs",
+                False,
+                None,
+                {"page[limit]": 1000, "sort": "timestamp"},
+                [],
+            ),
+            # Cursor endpoint, incremental continuation: filter[from] is the stored watermark.
+            (
+                "logs",
+                True,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                {"sort": "timestamp", "filter[from]": "2026-01-01T00:00:00.000Z"},
+                [],
+            ),
+            # Full-refresh endpoint never sends a server-side time filter, even when incremental is on.
+            (
+                "monitors",
+                True,
+                datetime(2026, 1, 1, tzinfo=UTC),
+                {"page": 0, "page_size": 100},
+                ["filter[from]"],
+            ),
+            # Offset-paginated endpoint seeds offset + size at zero.
+            (
+                "incidents",
+                False,
+                None,
+                {"page[offset]": 0, "page[size]": 100},
+                ["filter[from]"],
+            ),
+            # Single-shot endpoint has no pagination or filter params.
+            (
+                "synthetic_tests",
+                False,
+                None,
+                {},
+                ["filter[from]", "sort"],
+            ),
+        ],
+    )
+    def test_build_initial_params(
+        self,
+        endpoint: str,
+        should_use_incremental_field: bool,
+        last_value: Any,
+        expected_present: dict[str, Any],
+        expected_absent: list[str],
+    ) -> None:
+        config = DATADOG_ENDPOINTS[endpoint]
+        params = _build_initial_params(
+            config,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
 
-    def test_cursor_endpoint_first_sync_uses_lookback_window(self) -> None:
+        for key, value in expected_present.items():
+            assert params[key] == value
+        for key in expected_absent:
+            assert key not in params
+
+    def test_cursor_endpoint_first_sync_seeds_lookback_window(self) -> None:
+        # No stored watermark, but the cursor endpoints must still send filter[from] so Datadog
+        # doesn't fall back to its now-15m default.
         config = DATADOG_ENDPOINTS["logs"]
         params = _build_initial_params(config, should_use_incremental_field=True, db_incremental_field_last_value=None)
-        assert "filter[from]" in params
         assert params["filter[from]"].endswith("Z")
-
-    def test_cursor_endpoint_incremental_filter(self) -> None:
-        config = DATADOG_ENDPOINTS["logs"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-        assert params["filter[from]"] == "2026-01-01T00:00:00.000Z"
-        assert params["sort"] == "timestamp"
-
-    def test_full_refresh_endpoint_has_no_filter(self) -> None:
-        config = DATADOG_ENDPOINTS["monitors"]
-        params = _build_initial_params(
-            config,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 1, 1, tzinfo=UTC),
-        )
-        # Full-refresh endpoints never send a server-side time filter.
-        assert "filter[from]" not in params
-
-    def test_page_pagination_sets_page_number_zero(self) -> None:
-        config = DATADOG_ENDPOINTS["monitors"]
-        params = _build_initial_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert params["page"] == 0
-        assert params["page_size"] == 100
-
-    def test_offset_pagination_sets_offset_zero(self) -> None:
-        config = DATADOG_ENDPOINTS["incidents"]
-        params = _build_initial_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert params["page[offset]"] == 0
-        assert params["page[size]"] == 100
-
-    def test_no_pagination_endpoint_has_no_page_params(self) -> None:
-        config = DATADOG_ENDPOINTS["synthetic_tests"]
-        params = _build_initial_params(config, should_use_incremental_field=False, db_incremental_field_last_value=None)
-        assert params == {}
 
 
 class TestBuildInitialUrl:
