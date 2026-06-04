@@ -217,6 +217,17 @@ class TestRemovedClassification:
 
         assert run.snapshots.filter(identifier="Gone").count() == 1
 
+    def test_partial_run_does_not_fabricate_removed_for_unrendered_baseline(self, repo):
+        _make_artifact(repo, "old_hash")
+        run = _make_run(repo, [{"identifier": "Kept", "current_hash": "h1"}], is_partial=True)
+
+        result = _classify(run, {"Kept": "h1", "Deleted": "old_hash"})
+
+        # Partial runs only render a subset of the suite, so a baseline identifier
+        # absent from the run was simply not exercised — not deleted.
+        assert "Deleted" not in result
+        assert run.snapshots.filter(identifier="Deleted").count() == 0
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestToleratedHashClassification:
