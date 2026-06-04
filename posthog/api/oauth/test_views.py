@@ -1241,14 +1241,117 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "invalid_grant")
 
-    def test_refresh_leaves_wildcard_token_untouched(self):
+    @parameterized.expand(
+        [
+            ("tightened_ceiling", ["experiment:read"], "*", {"*"}),
+            ("empty_ceiling", [], "*", {"*"}),
+            ("wildcard_with_oidc", ["experiment:read"], "* openid", {"*", "openid"}),
+        ]
+    )
+    def test_refresh_leaves_wildcard_token_untouched(self, _name, ceiling, token_scope, expected):
+        # Wildcard narrowing is deferred to #60342: a `*` token must refresh into the
+        # exact same scope set, never narrowed down (an empty scope is rejected by
+        # APIScopePermission and would break the long-lived `*` CLI/MCP sessions).
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    @parameterized.expand(
+        [
+            ("oidc_only_survives_nonoverlapping_ceiling", "openid", ["experiment:read"], {"openid"}),
+            ("oidc_survives_while_resource_scope_drops", "openid insight:read", ["experiment:read"], {"openid"}),
+        ]
+    )
+    def test_refresh_always_allowed_scopes_bypass_ceiling(self, _name, token_scope, ceiling, expected):
+        # OIDC/introspection scopes are identity/token-management, not resource
+        # permissions: they survive refresh even against a ceiling they don't overlap,
+        # and they keep a token alive when every resource scope is narrowed away.
+        self.confidential_application.scopes = ceiling
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair(token_scope)
+
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), expected)
+
+    def test_get_original_scopes_resolves_ceiling_from_token_when_client_missing(self):
+        # oauthlib doesn't always populate `request.client` during the refresh grant,
+        # so the override falls back to resolving the application (and its ceiling)
+        # from the refresh-token row. Exercise that branch directly.
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+        refresh_token = self._create_refreshable_token_pair("openid experiment:read insight:read")
+
+        validator = OAuthValidator()
+        request = SimpleNamespace(client=None)
+        with patch(
+            "oauth2_provider.oauth2_validators.OAuth2Validator.get_original_scopes",
+            return_value="openid experiment:read insight:read",
+        ):
+            result = validator.get_original_scopes(refresh_token.token, request)
+
+        self.assertEqual(set(result), {"openid", "experiment:read"})
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_narrowed_scopes_persist_across_multiple_refreshes(self):
+        # After a narrowed refresh, the rotated token already carries the narrowed
+        # set, so a second refresh must hold steady rather than re-broaden.
         self.confidential_application.scopes = ["experiment:read"]
         self.confidential_application.save()
 
-        refresh_token = self._create_refreshable_token_pair("*")
+        refresh_token = self._create_refreshable_token_pair("openid experiment:read insight:read")
 
-        # Wildcard narrowing is deferred to #60342; the token must keep working.
-        self.assertIn("*", self._refresh_and_get_scopes(refresh_token))
+        def refresh(token: str) -> dict:
+            response = self.post(
+                "/oauth/token/",
+                {
+                    "grant_type": "refresh_token",
+                    "refresh_token": token,
+                    "client_id": self.confidential_application.client_id,
+                    "client_secret": "test_confidential_client_secret",
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return response.json()
+
+        first = refresh(refresh_token.token)
+        first_scopes = set(OAuthAccessToken.objects.get(token=first["access_token"]).scope.split())
+        self.assertEqual(first_scopes, {"openid", "experiment:read"})
+
+        second = refresh(first["refresh_token"])
+        second_scopes = set(OAuthAccessToken.objects.get(token=second["access_token"]).scope.split())
+        self.assertEqual(second_scopes, {"openid", "experiment:read"})
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_refresh_rejected_outside_ceiling_does_not_revoke_token(self):
+        # The zero-overlap rejection bounces the single request without revoking the
+        # token: re-widening the ceiling lets the very same refresh token work again.
+        self.confidential_application.scopes = ["experiment:read"]
+        self.confidential_application.save()
+
+        refresh_token = self._create_refreshable_token_pair("insight:read")
+        refresh_data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token.token,
+            "client_id": self.confidential_application.client_id,
+            "client_secret": "test_confidential_client_secret",
+        }
+
+        rejected = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(rejected.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(rejected.json()["error"], "invalid_grant")
+
+        refresh_token.refresh_from_db()
+        self.assertIsNone(refresh_token.revoked)
+
+        self.confidential_application.scopes = ["experiment:read", "insight:read"]
+        self.confidential_application.save()
+        retry = self.post("/oauth/token/", refresh_data)
+        self.assertEqual(retry.status_code, status.HTTP_200_OK)
+        retry_scopes = set(OAuthAccessToken.objects.get(token=retry.json()["access_token"]).scope.split())
+        self.assertEqual(retry_scopes, {"insight:read"})
 
     def test_refresh_with_injected_code_does_not_escalate_scopes(self):
         """A refresh request that includes a `code` parameter from a broader-scope
