@@ -204,9 +204,8 @@ class QueryContext:
         if is_feature_flag is None:
             return self
         elif is_feature_flag:
-            # Feature flags are global (not per-event), so skip the eventproperty
-            # join — it would INNER JOIN away all results once $feature/* rows are
-            # no longer written to posthog_eventproperty.
+            # Paired with property-defs-rs skip of $feature/* writes to eventproperty.
+            # Do not revert without restoring those writes, or the flag picker empties.
             return dataclasses.replace(
                 self,
                 should_join_event_property=False,

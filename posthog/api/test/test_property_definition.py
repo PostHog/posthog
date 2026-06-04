@@ -593,6 +593,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         names = [r["name"] for r in response.json()["results"]]
         assert "$feature/my-flag" in names
         assert "$feature/other-flag" in names
+        assert all(r["is_seen_on_filtered_events"] is None for r in response.json()["results"])
 
     @patch("posthoganalytics.capture")
     def test_delete_property_definition(self, mock_capture):
