@@ -203,11 +203,11 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 
 Each returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:
 
-| Field            | What it is                                                       | Use it for                                                             |
-| ---------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `severity_text`  | Canonical severity string. **Prefer this.**                      | Filtering (`severityLevels`), grouping, and anything you show a user. |
+| Field             | What it is                                                      | Use it for                                                            |
+| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |
 | `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |
-| `level`          | ClickHouse alias for `severity_text`. Redundant.                 | Ignore — prefer `severity_text`.                                      |
+| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |
 
 `severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:
 
