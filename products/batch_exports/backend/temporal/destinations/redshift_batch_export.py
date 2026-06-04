@@ -1227,8 +1227,6 @@ async def check_and_raise_redshift_copy_error(
             raise InsufficientS3PermissionsError(bucket) from err
         return
 
-    # Redshift reports a missing read permission as the misleading "requires full path of an S3
-    # object" rather than a clean access-denied, so match those markers as well.
     markers = (
         "requires full path of an S3 object",
         "Access Denied",
