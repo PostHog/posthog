@@ -1567,6 +1567,35 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response.results[1]["labels"],
         )
 
+    def test_trends_resolved_compare_range_absent_without_compare(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-09", "2020-01-20", IntervalType.DAY, [EventsNode(event="$pageview")], TrendsFilter()
+        )
+
+        self.assertIsNone(response.resolved_compare_date_range)
+
+    def test_trends_resolved_compare_range_present_for_fixed_window_previous_period(self):
+        # "Last 7 days" + previous period still gets a resolved compare range — the field is
+        # populated whenever comparing, independent of whether the date preset is aligned.
+        self._create_test_events()
+        utc = zoneinfo.ZoneInfo("UTC")
+
+        with freeze_time("2020-01-15T12:00:00Z"):
+            response = self._run_trends_query(
+                "-7d",
+                None,
+                IntervalType.DAY,
+                [EventsNode(event="$pageview")],
+                TrendsFilter(),
+                compare_filters=CompareFilter(compare=True),
+            )
+
+        assert response.resolved_compare_date_range is not None
+        # -7d → current window 2020-01-08..2020-01-15; previous shifts back by the full span.
+        self.assertEqual(response.resolved_compare_date_range.date_from, datetime(2020, 1, 1, 0, 0, 0, tzinfo=utc))
+
     def test_trends_compare_weeks(self):
         self._create_test_events()
 
