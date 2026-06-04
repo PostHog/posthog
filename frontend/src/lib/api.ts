@@ -5910,14 +5910,18 @@ const api = {
         async list({
             insightId,
             dashboardId,
+            resourceType,
         }: {
             insightId?: number
             dashboardId?: number
+            resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
-            return await new ApiRequest()
-                .subscriptions()
-                .withQueryString(insightId ? `insight=${insightId}` : dashboardId ? `dashboard=${dashboardId}` : '')
-                .get()
+            const params = [
+                insightId ? `insight=${insightId}` : null,
+                dashboardId ? `dashboard=${dashboardId}` : null,
+                resourceType ? `resource_type=${resourceType}` : null,
+            ].filter(Boolean)
+            return await new ApiRequest().subscriptions().withQueryString(params.join('&')).get()
         },
         determineDeleteEndpoint(): string {
             return new ApiRequest().subscriptions().assembleEndpointUrl()

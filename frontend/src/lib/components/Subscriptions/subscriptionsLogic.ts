@@ -1,7 +1,9 @@
-import { BreakPointFunction, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { BreakPointFunction, actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightId } from 'scenes/insights/utils'
 
@@ -18,6 +20,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
     key(({ insightShortId, dashboardId }) =>
         insightShortId ? `insight-${insightShortId}` : dashboardId ? `dashboard-${dashboardId}` : 'subscriptions'
     ),
+    connect({ values: [featureFlagLogic, ['featureFlags']] }),
     actions({
         deleteSubscription: (id: number) => ({ id }),
         deliverSubscription: (id: number) => ({ id }),
@@ -28,7 +31,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         setSubscriptionEnabledFailure: true,
     }),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         subscriptions: {
             __default: [] as SubscriptionType[],
             loadSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
@@ -47,10 +50,28 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 return response.results
             },
         },
+        // AI subscriptions are project-scoped (not tied to a specific insight/dashboard), so they're
+        // fetched separately and rendered in their own section. Gated behind the AI prompt flag.
+        aiSubscriptions: {
+            __default: [] as SubscriptionType[],
+            loadAiSubscriptions: async (_?: any, breakpoint?: BreakPointFunction) => {
+                const inResourceContext = !!props.dashboardId || !!props.insightShortId
+                if (!inResourceContext || !values.featureFlags[FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]) {
+                    return []
+                }
+                breakpoint?.()
+                const response = await api.subscriptions.list({ resourceType: 'ai_prompt' })
+                breakpoint?.()
+                return response.results
+            },
+        },
     })),
 
     reducers({
         subscriptions: {
+            deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
+        },
+        aiSubscriptions: {
             deleteSubscription: (state, { id }) => state.filter((a) => a.id !== id),
         },
         deliveringSubscriptionId: [
@@ -76,7 +97,10 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             await deleteWithUndo({
                 endpoint: api.subscriptions.determineDeleteEndpoint(),
                 object: { name: 'Subscription', id },
-                callback: () => actions.loadSubscriptions(),
+                callback: () => {
+                    actions.loadSubscriptions()
+                    actions.loadAiSubscriptions()
+                },
             })
         },
         deliverSubscription: async ({ id }) => {
@@ -95,8 +119,14 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 actions.setSubscriptionEnabledFailure()
             }
         },
-        setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
+        setSubscriptionEnabledSuccess: () => {
+            actions.loadSubscriptions()
+            actions.loadAiSubscriptions()
+        },
     })),
 
-    afterMount(({ actions }) => actions.loadSubscriptions()),
+    afterMount(({ actions }) => {
+        actions.loadSubscriptions()
+        actions.loadAiSubscriptions()
+    }),
 ])

@@ -146,10 +146,33 @@ export function ManageSubscriptions({
         dashboardId,
     })
 
-    const { subscriptions, subscriptionsLoading, deliveringSubscriptionId, togglingEnabledId } = useValues(logic)
+    const {
+        subscriptions,
+        subscriptionsLoading,
+        aiSubscriptions,
+        aiSubscriptionsLoading,
+        deliveringSubscriptionId,
+        togglingEnabledId,
+    } = useValues(logic)
     const { deleteSubscription, deliverSubscription, setSubscriptionEnabled } = useActions(logic)
 
     const subscriptionResourceNoun = !insightShortId && dashboardId ? 'dashboard' : 'insight'
+    const hasResourceSubs = subscriptions.length > 0
+    const hasAiSubs = aiSubscriptions.length > 0
+    const loading = (subscriptionsLoading || aiSubscriptionsLoading) && !hasResourceSubs && !hasAiSubs
+
+    const renderItem = (sub: SubscriptionType): JSX.Element => (
+        <SubscriptionListItem
+            key={sub.id}
+            subscription={sub}
+            onClick={() => onSelect(sub.id)}
+            onDelete={() => deleteSubscription(sub.id)}
+            onDeliver={() => deliverSubscription(sub.id)}
+            onToggleEnabled={(enabled) => setSubscriptionEnabled(sub.id, enabled)}
+            isDelivering={deliveringSubscriptionId === sub.id}
+            isToggling={togglingEnabledId === sub.id}
+        />
+    )
 
     return (
         <>
@@ -157,34 +180,12 @@ export function ManageSubscriptions({
                 <h3> Manage Subscriptions</h3>
             </LemonModal.Header>
             <LemonModal.Content>
-                {subscriptionsLoading && !subscriptions.length ? (
+                {loading ? (
                     <div className="deprecated-space-y-2">
                         <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
-                ) : subscriptions.length ? (
-                    <div className="deprecated-space-y-2">
-                        <div>
-                            <strong>{subscriptions?.length}</strong>{' '}
-                            {pluralize(subscriptions.length || 0, 'subscription', 'subscriptions', false)}
-                        </div>
-
-                        <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
-                            {subscriptions.map((sub) => (
-                                <SubscriptionListItem
-                                    key={sub.id}
-                                    subscription={sub}
-                                    onClick={() => onSelect(sub.id)}
-                                    onDelete={() => deleteSubscription(sub.id)}
-                                    onDeliver={() => deliverSubscription(sub.id)}
-                                    onToggleEnabled={(enabled) => setSubscriptionEnabled(sub.id, enabled)}
-                                    isDelivering={deliveringSubscriptionId === sub.id}
-                                    isToggling={togglingEnabledId === sub.id}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                ) : (
+                ) : !hasResourceSubs && !hasAiSubs ? (
                     <div className="flex flex-col p-4 items-center text-center">
                         <h3>There are no subscriptions for this {subscriptionResourceNoun}</h3>
 
@@ -194,12 +195,47 @@ export function ManageSubscriptions({
                             Add subscription
                         </LemonButton>
                     </div>
+                ) : (
+                    <div className="deprecated-space-y-4">
+                        <div className="deprecated-space-y-2">
+                            {hasResourceSubs ? (
+                                <>
+                                    <div>
+                                        <strong>{subscriptions.length}</strong>{' '}
+                                        {pluralize(subscriptions.length, 'subscription', 'subscriptions', false)}
+                                    </div>
+                                    <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
+                                        {subscriptions.map(renderItem)}
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="text-muted">
+                                    No subscriptions for this {subscriptionResourceNoun} yet.
+                                </div>
+                            )}
+                        </div>
+
+                        {hasAiSubs ? (
+                            <div className="deprecated-space-y-2">
+                                <div>
+                                    <strong>{aiSubscriptions.length}</strong>{' '}
+                                    {pluralize(aiSubscriptions.length, 'AI report', 'AI reports', false)}
+                                    <div className="text-xs text-muted">
+                                        Not tied to this {subscriptionResourceNoun} — shared across your project.
+                                    </div>
+                                </div>
+                                <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-2">
+                                    {aiSubscriptions.map(renderItem)}
+                                </div>
+                            </div>
+                        ) : null}
+                    </div>
                 )}
             </LemonModal.Content>
 
             <LemonModal.Footer>
                 <div className="flex-1">
-                    {subscriptions.length ? (
+                    {hasResourceSubs || hasAiSubs ? (
                         <LemonButton type="secondary" onClick={() => onSelect('new')}>
                             Add subscription
                         </LemonButton>
