@@ -3760,6 +3760,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:*
         version: link:../../packages/quill/packages/quill
+      '@posthog/quill-charts':
+        specifier: workspace:*
+        version: link:../../packages/quill/packages/charts
       '@toon-format/toon':
         specifier: ^2.1.0
         version: 2.1.0
