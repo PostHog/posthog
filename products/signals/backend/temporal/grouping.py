@@ -717,6 +717,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 if input.updated_title:
                     report.title = input.updated_title
                     update_fields.append("title")
+                # Keep provenance live as signals accrete; summary re-derives the full set each run.
+                if input.source_product not in report.source_products:
+                    report.source_products = sorted([*report.source_products, input.source_product])
+                    update_fields.append("source_products")
                 report.save(update_fields=update_fields)
             else:
                 report = SignalReport.objects.create(
@@ -726,6 +730,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     signal_count=1,
                     title=match_result.title,
                     summary=match_result.summary,
+                    source_products=[input.source_product],
                 )
 
             # - SUPPRESSED reports gather signals indefinitely but are never promoted.

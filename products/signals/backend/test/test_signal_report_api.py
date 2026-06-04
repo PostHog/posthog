@@ -86,7 +86,7 @@ class TestSignalReportScoutInboxGate(APIBaseTest):
         base = f"/api/projects/{self.team.id}/signals/reports/"
         return f"{base}{report_id}/" if report_id else base
 
-    def _create_report(self) -> SignalReport:
+    def _create_report(self, source_products: list[str] | None = None) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -94,63 +94,45 @@ class TestSignalReportScoutInboxGate(APIBaseTest):
             summary="Test summary",
             signal_count=1,
             total_weight=1.0,
-        )
-
-    def _enable_scout_source(self) -> None:
-        SignalSourceConfig.objects.create(
-            team=self.team,
-            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
-            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
-            enabled=True,
+            source_products=source_products or [],
         )
 
     @parameterized.expand([("flag_on", True, True), ("flag_off", False, False)])
-    @patch("products.signals.backend.views.fetch_report_ids_for_source_products")
     @patch("products.signals.backend.views.user_can_see_signals_scout_reports")
-    def test_scout_report_visibility_in_list_follows_flag(
-        self, _name, flag_enabled, expected_visible, mock_flag, mock_fetch
-    ):
-        report = self._create_report()
-        self._enable_scout_source()
+    def test_scout_report_visibility_in_list_follows_flag(self, _name, flag_enabled, expected_visible, mock_flag):
+        report = self._create_report(source_products=[SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value])
         mock_flag.return_value = flag_enabled
-        mock_fetch.return_value = {str(report.id)}
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         listed_ids = [r["id"] for r in response.json()["results"]]
         assert (str(report.id) in listed_ids) is expected_visible
 
     @parameterized.expand([("flag_on", True, status.HTTP_200_OK), ("flag_off", False, status.HTTP_404_NOT_FOUND)])
-    @patch("products.signals.backend.views.fetch_report_ids_for_source_products")
     @patch("products.signals.backend.views.user_can_see_signals_scout_reports")
-    def test_scout_report_detail_follows_flag(self, _name, flag_enabled, expected_status, mock_flag, mock_fetch):
-        report = self._create_report()
-        self._enable_scout_source()
+    def test_scout_report_detail_follows_flag(self, _name, flag_enabled, expected_status, mock_flag):
+        report = self._create_report(source_products=[SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value])
         mock_flag.return_value = flag_enabled
-        mock_fetch.return_value = {str(report.id)}
         response = self.client.get(self._url(str(report.id)))
         assert response.status_code == expected_status
 
-    @patch("products.signals.backend.views.fetch_report_ids_for_source_products")
     @patch("products.signals.backend.views.user_can_see_signals_scout_reports")
-    def test_non_scout_report_visible_when_flagged_off(self, mock_flag, mock_fetch):
-        report = self._create_report()
-        self._enable_scout_source()
+    def test_non_scout_report_visible_when_flagged_off(self, mock_flag):
+        report = self._create_report(source_products=["error_tracking"])
         mock_flag.return_value = False
-        mock_fetch.return_value = set()  # report has no scout-sourced signals
         response = self.client.get(self._url())
         listed_ids = [r["id"] for r in response.json()["results"]]
         assert str(report.id) in listed_ids
 
-    @patch("products.signals.backend.views.fetch_report_ids_for_source_products")
     @patch("products.signals.backend.views.user_can_see_signals_scout_reports")
-    def test_no_scout_source_skips_clickhouse_lookup(self, mock_flag, mock_fetch):
-        report = self._create_report()  # no scout SignalSourceConfig for this team
+    def test_cross_source_report_visible_when_flagged_off(self, mock_flag):
+        # A report with a scout signal AND a non-scout signal keeps its already-rolled-out source.
+        report = self._create_report(
+            source_products=["error_tracking", SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]
+        )
         mock_flag.return_value = False
         response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_200_OK
         listed_ids = [r["id"] for r in response.json()["results"]]
         assert str(report.id) in listed_ids
-        mock_fetch.assert_not_called()
 
 
 class TestSignalReportListAPI(APIBaseTest):
