@@ -35,6 +35,11 @@ Fired after the CORS reachability check to the PostHog app.
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
 
+A non-ok HTTP response (`error_type: 'http_error'`) means `uiHost` resolved to a non-PostHog
+origin lacking the `/toolbar_oauth/check` route — an expected misconfiguration. This event still
+fires, but it is _not_ also reported as an exception. Other failures (`timeout`, `network_or_cors`)
+are reported via `captureToolbarException`.
+
 **File:** `toolbarConfigLogic.ts`
 
 ## Authentication

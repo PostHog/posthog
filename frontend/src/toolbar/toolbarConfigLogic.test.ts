@@ -8,6 +8,7 @@ import {
     toolbarFetch,
     toolbarUploadMedia,
 } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>
@@ -342,6 +343,41 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+
+        it('does not report an exception when the HEAD check returns a non-ok HTTP status', async () => {
+            // A 404 means uiHost resolved to a non-PostHog origin lacking the check route.
+            // Expected misconfiguration: surface the analytics event, but not a generic exception.
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 404 }))
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'http_error' })
+            )
+            captureExceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('reports an exception when the HEAD check fails with a non-http error', async () => {
+            const captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException')
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(TypeError),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'network_or_cors' })
+            )
+            captureExceptionSpy.mockRestore()
         })
     })
 

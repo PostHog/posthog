@@ -659,13 +659,20 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // An http_error (e.g. HTTP 404) means uiHost resolved to a non-PostHog origin that
+            // lacks the /toolbar_oauth/check route — an expected misconfiguration, not a bug. We
+            // surface the config modal and the structured event below; reporting it as a generic
+            // exception is just noise. Other failures (timeout, CORS/network) still get captured.
+            if (errorType !== 'http_error') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 
