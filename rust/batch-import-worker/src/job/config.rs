@@ -917,4 +917,98 @@ mod tests {
             }
         }
     }
+
+    // ---- ENCRYPTION_KEYS multi-key / two-step rotation ----
+    // The batch-import-worker shares the key material that Django/Node expose as ENCRYPTION_SALT_KEYS
+    // (here it's the ENCRYPTION_KEYS env var). It only decrypts BatchImport.secrets. These tests mirror
+    // the Python/Node coverage so all three implementations are verified against the same contract:
+    // the first key encrypts, every key is tried for decryption.
+
+    fn old_key() -> String {
+        "o".repeat(32)
+    }
+
+    fn new_key() -> String {
+        "n".repeat(32)
+    }
+
+    fn sample_secrets() -> JobSecrets {
+        let mut secrets = HashMap::new();
+        secrets.insert(
+            "api_key".to_string(),
+            Value::String("super-secret-value".to_string()),
+        );
+        JobSecrets { secrets }
+    }
+
+    // Simulate a writer app (Django/Node) running with the given key list: the first key encrypts, and
+    // each raw 32-byte key is base64-urlsafe-encoded before Fernet — matching JobSecrets::decrypt.
+    fn encrypt_with(key_list: &[String], secrets: &JobSecrets) -> String {
+        let fernets: Vec<_> = key_list
+            .iter()
+            .map(|k| BASE64_URL_SAFE.encode(k.as_bytes()))
+            .filter_map(|k| fernet::Fernet::new(&k))
+            .collect();
+        let serialized = serde_json::to_vec(&secrets.secrets).unwrap();
+        MultiFernet::new(fernets).encrypt(&serialized)
+    }
+
+    #[test]
+    fn test_decrypt_tries_every_key_in_the_list() {
+        let secrets = sample_secrets();
+        let token = encrypt_with(&[new_key()], &secrets);
+
+        for reader in [vec![new_key(), old_key()], vec![old_key(), new_key()]] {
+            let decrypted = JobSecrets::decrypt(&token, &reader).unwrap();
+            assert_eq!(decrypted.secrets, secrets.secrets);
+        }
+    }
+
+    #[test]
+    fn test_two_step_rotation_coexisting_apps_decrypt_each_others_writes() {
+        // step 1: [old] -> [old, new]      new added for decryption; old still encrypts
+        // step 2: [old, new] -> [new, old] new now encrypts; old kept for decryption
+        let secrets = sample_secrets();
+        let steps = [
+            ("step 1", vec![vec![old_key()], vec![old_key(), new_key()]]),
+            (
+                "step 2",
+                vec![vec![old_key(), new_key()], vec![new_key(), old_key()]],
+            ),
+        ];
+
+        for (name, coexisting) in steps {
+            for writer in &coexisting {
+                let token = encrypt_with(writer, &secrets);
+                for reader in &coexisting {
+                    let decrypted = JobSecrets::decrypt(&token, reader).unwrap_or_else(|e| {
+                        panic!("{name}: reader {reader:?} could not decrypt writer {writer:?}: {e}")
+                    });
+                    assert_eq!(decrypted.secrets, secrets.secrets);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_step_1_apps_always_encrypt_with_the_old_key() {
+        // While [old] and [old, new] apps coexist, old is always first, so no app emits new-encrypted
+        // data that an un-upgraded [old]-only app could not read.
+        let secrets = sample_secrets();
+
+        for writer in [vec![old_key()], vec![old_key(), new_key()]] {
+            let token = encrypt_with(&writer, &secrets);
+            assert!(JobSecrets::decrypt(&token, &[old_key()]).is_ok());
+            assert!(JobSecrets::decrypt(&token, &[new_key()]).is_err());
+        }
+    }
+
+    #[test]
+    fn test_skipping_step_1_breaks_un_upgraded_worker() {
+        // A writer that jumped straight to [new, old] encrypts with new; a worker still on [old] cannot read it.
+        let secrets = sample_secrets();
+        let token = encrypt_with(&[new_key(), old_key()], &secrets);
+
+        assert!(JobSecrets::decrypt(&token, &[old_key()]).is_err());
+    }
 }

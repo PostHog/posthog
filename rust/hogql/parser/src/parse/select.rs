@@ -463,11 +463,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 .set_field(&mut obj, "ctes", self.emit.list_value(ctes));
         }
 
-        // Catch typo'd SELECT keyword (e.g. `SELEC`) with a message close
-        // enough to the ANTLR-style "mismatched input" that the existing
-        // `test_malformed_sql` substring-match passes. End position spans
-        // through the rest of the source (matching C++ which highlights
-        // the whole malformed region, not just the first token).
+        // Catch typo'd SELECT keyword (e.g. `SELEC`) with the exact ANTLR-style
+        // "mismatched input" message cpp emits, so cross-backend assertions match
+        // on equality, not just substring. End position spans through the rest of
+        // the source (matching C++ which highlights the whole malformed region,
+        // not just the first token).
         if !matches!(self.peek(), TokenKind::Keyword(Kw::Select)) {
             let raw = if self.peek0.kind == TokenKind::Eof {
                 "<eof>"
@@ -475,8 +475,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 self.text(self.peek0)
             };
             return Err(ParseError::syntax(
-                format!("mismatched input '{raw}' expecting {{SELECT, WITH, '{{', '(', '<'}} (reserved keyword expected)"),
-                self.peek0.start, self.src.len(),
+                format!("mismatched input '{raw}' expecting {{SELECT, WITH, '{{', '(', '<'}}"),
+                self.peek0.start,
+                self.src.len(),
             ));
         }
         self.bump()?;

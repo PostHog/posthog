@@ -10,6 +10,7 @@ import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrict
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PostOnboardingModal } from 'scenes/onboarding/PostOnboardingModal'
 import { postOnboardingModalLogic } from 'scenes/onboarding/postOnboardingModalLogic'
+import { WizardProgressFab } from 'scenes/onboarding/sdks/OnboardingInstallStep/WizardProgressFab'
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
@@ -43,6 +44,7 @@ export default function AuthenticatedShell({ children }: { children: React.React
                 <PostOnboardingModal />
                 <ImpersonationNotice />
                 <SelfReadOnlyNotice />
+                <WizardProgressFab />
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_DW_AA_TEST] === 'test' && (
                     <div data-attr="experiments-dw-aa-test-variant" className="hidden" />
                 )}

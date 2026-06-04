@@ -25,6 +25,7 @@ PostHog is the primary store for team-shared skills — always use the PostHog M
 | `posthog:llma-skill-file-delete` | Remove one bundled file from a skill                       |
 | `posthog:llma-skill-file-rename` | Rename one bundled file (move without rewriting content)   |
 | `posthog:llma-skill-duplicate`   | Duplicate an existing skill under a new name               |
+| `posthog:llma-skill-archive`     | Archive all versions of a skill by name (cannot be undone) |
 
 Skills use progressive disclosure: discover by description, fetch the body only when relevant, and pull individual files on demand. Do not fetch every file eagerly.
 
@@ -165,6 +166,16 @@ posthog:llma-skill-update
 
 Non-targeted files carry forward unchanged. `file_edits` cannot add, remove, or rename files — use the per-file tools below for that.
 
+### File-path parameter naming
+
+The file-path parameter has two names depending on where it sits in the request, so don't guess:
+
+- **`file_path`** — `llma-skill-file-get` and `llma-skill-file-delete` (the path is part of the URL).
+- **`path`** — `llma-skill-file-create`, plus the `files=[{path, …}]` array and `file_edits=[{path, …}]` (body fields on a file object).
+- **`old_path` / `new_path`** — `llma-skill-file-rename`.
+
+Passing `path` to file-get produces a `/files/undefined/` 404. When in doubt, check the tool's input schema.
+
 ### Adding, removing, or renaming a file
 
 Atomic per-file tools — each publishes a new version and returns the updated skill (read its `version` to chain further edits via `base_version`):
@@ -187,6 +198,15 @@ posthog:llma-skill-file-rename
 ### Replacing the whole bundle (rare)
 
 Passing `files` to `llma-skill-update` replaces ALL bundled files — anything not in the array is dropped. Only use this when you intentionally want to wipe and reseed the bundle. For everything else, prefer `file_edits` or the per-file CRUD tools above.
+
+## Archiving a skill
+
+`llma-skill-archive` hides every active version of a skill by name. It cannot be undone — the skill disappears from `llma-skill-list` and `llma-skill-get` for the whole team. Use it to retire a skill entirely; to remove a single file use `llma-skill-file-delete`, and to roll back content publish a new version instead.
+
+```json
+posthog:llma-skill-archive
+{ "skill_name": "make-fractals" }
+```
 
 ## Porting a local skill
 

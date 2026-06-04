@@ -33,12 +33,23 @@
                 "csm": {
                     "$ref": "#/definitions/AccountsRoleAssignmentFilter"
                 },
+                "filterExpression": {
+                    "$ref": "#/definitions/HogQLExpression",
+                    "description": "Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance."
+                },
                 "kind": {
                     "const": "AccountsQuery",
                     "type": "string"
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metrics": {
+                    "description": "Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -106,6 +117,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -793,9 +811,6 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
-                    "$ref": "#/definitions/WebTrendsQuery"
-                },
-                {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
@@ -1296,9 +1311,49 @@
         "AssistantDataVisualizationAxisDisplaySettings": {
             "additionalProperties": false,
             "properties": {
+                "color": {
+                    "description": "Custom color for this series as a hex string (e.g. `#1d4aff`).",
+                    "type": "string"
+                },
+                "displayType": {
+                    "description": "Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.",
+                    "enum": ["auto", "line", "bar", "area"],
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                    "type": "string"
+                },
+                "trendLine": {
+                    "description": "Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.",
+                    "type": "boolean"
+                },
                 "yAxisPosition": {
                     "description": "Which Y axis this numeric series should use. Use `right` for a secondary Y axis.",
                     "enum": ["left", "right"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "AssistantDataVisualizationAxisFormatting": {
+            "additionalProperties": false,
+            "properties": {
+                "decimalPlaces": {
+                    "description": "Number of decimal places to display.",
+                    "type": "number"
+                },
+                "prefix": {
+                    "description": "Text prepended to each value (e.g. `$`).",
+                    "type": "string"
+                },
+                "style": {
+                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
+                    "enum": ["none", "number", "short", "percent"],
+                    "type": "string"
+                },
+                "suffix": {
+                    "description": "Text appended to each value (e.g. `%` or ` ms`).",
                     "type": "string"
                 }
             },
@@ -1310,6 +1365,10 @@
                 "display": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisDisplaySettings",
                     "description": "Display settings for a plotted Y series."
+                },
+                "formatting": {
+                    "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
+                    "description": "Number-formatting settings for the values on this axis or series."
                 }
             },
             "type": "object"
@@ -1342,6 +1401,10 @@
                 },
                 "showNullsAsZero": {
                     "description": "Replace null aggregation results with zero.",
+                    "type": "boolean"
+                },
+                "showValuesOnSeries": {
+                    "description": "Render each data point's value as a label directly on the series.",
                     "type": "boolean"
                 },
                 "stackBars100": {
@@ -2851,6 +2914,27 @@
             "required": ["alias", "regex"],
             "type": "object"
         },
+        "AssistantPathsActorsQuery": {
+            "additionalProperties": false,
+            "description": "Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nThere are no per-cell selectors like `day` or `series` — everything is configured on the `source` paths query. Two modes:\n- Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,   property filters) to return every actor on that path.\n- Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's   `target` / `source`.",
+            "properties": {
+                "includeRecordings": {
+                    "default": true,
+                    "description": "Whether to include matched session recordings for each actor.",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "InsightActorsQuery",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantPathsQuery",
+                    "description": "The source paths insight query whose actors we are listing."
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
         "AssistantPathsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -2894,6 +2978,14 @@
                     "$ref": "#/definitions/integer",
                     "description": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise."
                 },
+                "pathDropoffKey": {
+                    "description": "Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.",
+                    "type": "string"
+                },
+                "pathEndKey": {
+                    "description": "Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"3_https://example.com/checkout\"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.",
+                    "type": "string"
+                },
                 "pathGroupings": {
                     "default": [],
                     "description": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
@@ -2901,6 +2993,10 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "pathStartKey": {
+                    "description": "Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"2_https://example.com/pricing\"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.",
+                    "type": "string"
                 },
                 "pathsHogQLExpression": {
                     "description": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
@@ -3746,7 +3842,8 @@
                 "marketing_list_data_sources",
                 "marketing_audit_utm",
                 "marketing_suggest_conversion_goals",
-                "marketing_suggest_utm_mappings"
+                "marketing_suggest_utm_mappings",
+                "summarize_replay_vision_summaries"
             ],
             "type": "string"
         },
@@ -4838,6 +4935,13 @@
                 },
                 "limit": {
                     "$ref": "#/definitions/integer"
+                },
+                "metricsResults": {
+                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                    "items": {
+                        "type": ["number", "null"]
+                    },
+                    "type": "array"
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
@@ -10748,132 +10852,6 @@
             ],
             "type": "object"
         },
-        "CachedWebTrendsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "clickhouse": {
-                    "description": "Executed ClickHouse query",
-                    "type": "string"
-                },
-                "columns": {
-                    "description": "Returned columns",
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "explain": {
-                    "description": "Query explanation output",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "metadata": {
-                    "$ref": "#/definitions/HogQLMetadataResponse",
-                    "description": "Query metadata output"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query": {
-                    "description": "Input query string",
-                    "type": "string"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebTrendsItem"
-                    },
-                    "type": "array"
-                },
-                "samplingRate": {
-                    "$ref": "#/definitions/SamplingRate"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "description": "Types of returned columns",
-                    "items": {},
-                    "type": "array"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
         "CachedWebVitalsPathBreakdownQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -14075,6 +14053,13 @@
                                 "limit": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "metricsResults": {
+                                    "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                                    "items": {
+                                        "type": ["number", "null"]
+                                    },
+                                    "type": "array"
+                                },
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
@@ -14545,6 +14530,10 @@
                 "schema_name": {
                     "description": "Name of the ExternalDataSchema responsible for syncing the table",
                     "type": "string"
+                },
+                "source_id": {
+                    "description": "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables.",
+                    "type": ["string", "null"]
                 },
                 "source_type": {
                     "description": "Source type, e.g. \"Stripe\", \"Hubspot\"",
@@ -18661,7 +18650,7 @@
                     "type": "array"
                 },
                 "id": {
-                    "type": ["number", "null"]
+                    "type": "integer"
                 },
                 "name": {
                     "type": "string"
@@ -19041,6 +19030,13 @@
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
+                "excluded_variants": {
+                    "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "feature_flag_variants": {
                     "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
@@ -19873,6 +19869,7 @@
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
+                "GoogleSearchConsole",
                 "MetaAds",
                 "Klaviyo",
                 "Mailchimp",
@@ -19998,7 +19995,9 @@
                 "ClickHouse",
                 "Plain",
                 "Resend",
-                "PgAnalyze"
+                "PgAnalyze",
+                "WorkOS",
+                "Custom"
             ],
             "type": "string"
         },
@@ -20280,8 +20279,7 @@
                 "llm_playground",
                 "llm_prompts",
                 "llm_clusters",
-                "exports",
-                "deployments"
+                "exports"
             ],
             "type": "string"
         },
@@ -21144,6 +21142,11 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showAnnotations": {
+                    "default": true,
+                    "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
+                    "type": "boolean"
                 },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
@@ -22282,7 +22285,7 @@
                     "type": "boolean"
                 },
                 "parserMode": {
-                    "description": "HogQL parser backend; absent → `cpp_with_rust_py_shadow` (cpp is primary, rust-py runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "description": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
                     "enum": [
                         "cpp_only",
                         "cpp_with_rust_shadow",
@@ -23428,13 +23431,13 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
                 "snapchat",
@@ -24623,6 +24626,84 @@
                     "type": "array"
                 }
             },
+            "type": "object"
+        },
+        "LogsAlertStateChangeSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "action": {
+                    "enum": ["firing", "broken"],
+                    "type": "string"
+                },
+                "alert_id": {
+                    "type": "string"
+                },
+                "alert_name": {
+                    "type": "string"
+                },
+                "consecutive_failures": {
+                    "type": "number"
+                },
+                "filters": {
+                    "additionalProperties": {},
+                    "type": "object"
+                },
+                "result_count": {
+                    "type": ["number", "null"]
+                },
+                "threshold_count": {
+                    "type": "number"
+                },
+                "threshold_operator": {
+                    "enum": ["above", "below"],
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "window_minutes": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "alert_id",
+                "alert_name",
+                "action",
+                "threshold_count",
+                "threshold_operator",
+                "window_minutes",
+                "result_count",
+                "consecutive_failures",
+                "filters",
+                "url"
+            ],
+            "type": "object"
+        },
+        "LogsAlertStateChangeSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "logs",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "alert_state_change",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
             "type": "object"
         },
         "LogsOrderBy": {
@@ -27724,7 +27805,6 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
-                "WebTrendsQuery",
                 "WebAnalyticsExternalSummaryQuery",
                 "WebNotableChangesQuery",
                 "RevenueAnalyticsGrossRevenueQuery",
@@ -28798,9 +28878,11 @@
                 "task_created",
                 "toolbar_launched",
                 "vercel_integration",
+                "endpoints_viewed",
                 "endpoint_created",
                 "endpoint_created_from_insight",
-                "endpoint_created_from_sql_editor"
+                "endpoint_created_from_sql_editor",
+                "tracing_docs_viewed"
             ],
             "type": "string"
         },
@@ -28864,7 +28946,6 @@
                 "customer_analytics",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
-                "deployments",
                 "early_access_features",
                 "endpoints",
                 "error_tracking",
@@ -33276,6 +33357,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -34521,6 +34609,13 @@
                         "limit": {
                             "$ref": "#/definitions/integer"
                         },
+                        "metricsResults": {
+                            "description": "When `metrics` is set on the query, the aggregated values in the same order.",
+                            "items": {
+                                "type": ["number", "null"]
+                            },
+                            "type": "array"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
@@ -35303,6 +35398,11 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "hide_viewed_recordings": {
+                    "description": "Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set.",
+                    "enum": ["current-user", "any-user", null],
+                    "type": ["string", "null"]
                 },
                 "kind": {
                     "const": "RecordingsQuery",
@@ -38261,6 +38361,12 @@
                 },
                 {
                     "$ref": "#/definitions/PgAnalyzeIssueSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/SignalsScoutSignalInput"
+                },
+                {
+                    "$ref": "#/definitions/LogsAlertStateChangeSignalInput"
                 }
             ]
         },
@@ -38296,7 +38402,9 @@
                 "conversations",
                 "error_tracking",
                 "endpoints",
-                "pganalyze"
+                "pganalyze",
+                "signals_scout",
+                "logs"
             ],
             "type": "string"
         },
@@ -38311,9 +38419,118 @@
                 "issue_created",
                 "issue_reopened",
                 "issue_spiking",
-                "endpoint_execution_failed"
+                "endpoint_execution_failed",
+                "cross_source_issue",
+                "alert_state_change"
             ],
             "type": "string"
+        },
+        "SignalsScoutEvidenceEntry": {
+            "additionalProperties": false,
+            "properties": {
+                "entity_id": {
+                    "description": "Optional entity id within that product, e.g. an issue id or session id.",
+                    "type": "string"
+                },
+                "source_product": {
+                    "description": "The product the evidence came from, e.g. 'error_tracking', 'logs', 'session_replay'.",
+                    "type": "string"
+                },
+                "summary": {
+                    "description": "One-line summary of the evidence the scout used.",
+                    "type": "string"
+                }
+            },
+            "required": ["source_product", "summary"],
+            "type": "object"
+        },
+        "SignalsScoutSignalExtra": {
+            "additionalProperties": false,
+            "properties": {
+                "confidence": {
+                    "description": "Scout's self-reported confidence in [0, 1]. Independent of the top-level `weight`.",
+                    "type": "number"
+                },
+                "dedupe_keys": {
+                    "description": "Free-form short keys the harness can use for cross-run dedupe.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "evidence": {
+                    "items": {
+                        "$ref": "#/definitions/SignalsScoutEvidenceEntry"
+                    },
+                    "type": "array"
+                },
+                "finding_id": {
+                    "type": "string"
+                },
+                "hypothesis": {
+                    "type": "string"
+                },
+                "mcp_trace_id": {
+                    "description": "Trace id from the LLM analytics span for the scout run, when available.",
+                    "type": "string"
+                },
+                "scout_run_id": {
+                    "type": "string"
+                },
+                "severity": {
+                    "enum": ["P0", "P1", "P2", "P3", "P4"],
+                    "type": "string"
+                },
+                "skill_name": {
+                    "type": "string"
+                },
+                "skill_version": {
+                    "type": "number"
+                },
+                "time_range": {
+                    "additionalProperties": false,
+                    "description": "Optional time window the finding refers to.",
+                    "properties": {
+                        "date_from": {
+                            "type": "string"
+                        },
+                        "date_to": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["date_from", "date_to"],
+                    "type": "object"
+                }
+            },
+            "required": ["scout_run_id", "finding_id", "skill_name", "skill_version", "confidence", "evidence"],
+            "type": "object"
+        },
+        "SignalsScoutSignalInput": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "extra": {
+                    "$ref": "#/definitions/SignalsScoutSignalExtra"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "source_product": {
+                    "const": "signals_scout",
+                    "type": "string"
+                },
+                "source_type": {
+                    "const": "cross_source_issue",
+                    "type": "string"
+                },
+                "weight": {
+                    "type": "number"
+                }
+            },
+            "required": ["source_type", "source_product", "source_id", "description", "weight", "extra"],
+            "type": "object"
         },
         "SimilarIssue": {
             "additionalProperties": false,
@@ -40831,6 +41048,10 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showAnnotations": {
+                    "default": true,
+                    "type": "boolean"
+                },
                 "showConfidenceIntervals": {
                     "type": "boolean"
                 },
@@ -40862,6 +41083,11 @@
                 "smoothingIntervals": {
                     "$ref": "#/definitions/integer",
                     "default": 1
+                },
+                "stackBreakdownValues": {
+                    "default": false,
+                    "description": "On the horizontal bar-value chart, stack a series' breakdown values into a single bar instead of rendering one bar per breakdown value.",
+                    "type": "boolean"
                 },
                 "xAxisLabel": {
                     "description": "Custom label rendered under the X axis.",
@@ -41509,6 +41735,15 @@
                         },
                         {
                             "$ref": "#/definitions/RetentionQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/StickinessQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PathsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/LifecycleQuery"
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
@@ -42958,235 +43193,6 @@
                 },
                 "usedLazyPrecompute": {
                     "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "WebTrendsItem": {
-            "additionalProperties": false,
-            "properties": {
-                "bucket": {
-                    "type": "string"
-                },
-                "metrics": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "Bounces": {
-                            "type": "number"
-                        },
-                        "PageViews": {
-                            "type": "number"
-                        },
-                        "SessionDuration": {
-                            "type": "number"
-                        },
-                        "Sessions": {
-                            "type": "number"
-                        },
-                        "TotalSessions": {
-                            "type": "number"
-                        },
-                        "UniqueUsers": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                }
-            },
-            "required": ["bucket", "metrics"],
-            "type": "object"
-        },
-        "WebTrendsMetric": {
-            "enum": ["UniqueUsers", "PageViews", "Sessions", "Bounces", "SessionDuration", "TotalSessions"],
-            "type": "string"
-        },
-        "WebTrendsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
-                },
-                "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter"
-                },
-                "conversionGoal": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "dataColorTheme": {
-                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
-                    "type": ["number", "null"]
-                },
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "doPathCleaning": {
-                    "type": "boolean"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
-                    "type": "boolean"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType",
-                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
-                },
-                "kind": {
-                    "const": "WebTrendsQuery",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "metrics": {
-                    "items": {
-                        "$ref": "#/definitions/WebTrendsMetric"
-                    },
-                    "type": "array"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "orderBy": {
-                    "$ref": "#/definitions/WebAnalyticsOrderBy"
-                },
-                "properties": {
-                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/WebTrendsQueryResponse"
-                },
-                "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling",
-                    "deprecated": "Use samplingFactor instead"
-                },
-                "samplingFactor": {
-                    "description": "Sampling rate",
-                    "type": ["number", "null"]
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "useSessionsTable": {
-                    "deprecated": "ignored, always treated as enabled *",
-                    "type": "boolean"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["interval", "kind", "metrics", "properties"],
-            "type": "object"
-        },
-        "WebTrendsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "clickhouse": {
-                    "description": "Executed ClickHouse query",
-                    "type": "string"
-                },
-                "columns": {
-                    "description": "Returned columns",
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "explain": {
-                    "description": "Query explanation output",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "metadata": {
-                    "$ref": "#/definitions/HogQLMetadataResponse",
-                    "description": "Query metadata output"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query": {
-                    "description": "Input query string",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebTrendsItem"
-                    },
-                    "type": "array"
-                },
-                "samplingRate": {
-                    "$ref": "#/definitions/SamplingRate"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "description": "Types of returned columns",
-                    "items": {},
-                    "type": "array"
                 },
                 "usedPreAggregatedTables": {
                     "type": "boolean"

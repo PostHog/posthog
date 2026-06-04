@@ -232,6 +232,12 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
+    members_can_create_projects = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
+    )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(
@@ -394,7 +400,9 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
+            QuotaResource,
             add_limited_team_tokens,
+            dispatch_recordings_remote_config_sync,
             update_organization_usage_fields,
         )
 
@@ -404,9 +412,10 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
             _start, end = billing_period
             billing_period_end_timestamp = int(end.timestamp())
 
-            team_tokens: dict[str, int] = {
-                t: billing_period_end_timestamp for t in self.teams.values_list("api_token", flat=True) if t
-            }
+            team_rows = [
+                (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+            ]
+            team_tokens: dict[str, int] = {api_token: billing_period_end_timestamp for _, api_token in team_rows}
             add_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
             update_organization_usage_fields(
@@ -414,6 +423,9 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
                 resource,
                 {"quota_limited_until": billing_period_end_timestamp, "quota_limiting_suspended_until": None},
             )
+
+            if resource == QuotaResource.RECORDINGS:
+                dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
         else:
             raise RuntimeError("Cannot limit without having a billing period")
 
@@ -424,17 +436,26 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
         """
         from ee.billing.quota_limiting import (
             QuotaLimitingCaches,
+            QuotaResource,
+            dispatch_recordings_remote_config_sync,
             remove_limited_team_tokens,
             update_organization_usage_fields,
         )
 
-        team_tokens: list[str] = [t for t in self.teams.values_list("api_token", flat=True) if t]
-        remove_limited_team_tokens(resource, team_tokens, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        team_rows = [
+            (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
+        ]
+        remove_limited_team_tokens(
+            resource, [api_token for _, api_token in team_rows], QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
 
         if self.usage and resource.value in self.usage:
             update_organization_usage_fields(
                 self, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
             )
+
+        if resource == QuotaResource.RECORDINGS:
+            dispatch_recordings_remote_config_sync(team_id for team_id, _ in team_rows)
 
     def get_limited_products(self) -> dict[str, dict[str, Any]]:
         """

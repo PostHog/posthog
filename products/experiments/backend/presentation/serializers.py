@@ -20,10 +20,10 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
-from posthog.models.llm_prompt import LLMPrompt
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.facade.contracts import CreateExperimentInput
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
@@ -148,11 +148,12 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         required=False,
         allow_null=True,
         help_text=(
-            "Variant definitions and rollout configuration. "
-            "Set feature_flag_variants to customize the split (default: 50/50 control/test). "
-            "Each variant needs a key and split_percent (the variant's share of traffic); percentages must sum to 100. "
-            "Set rollout_percentage (0-100, default 100) to limit what fraction of users enter the experiment. "
-            "Set minimum_detectable_effect (percentage, suggest 20-30) to control statistical power."
+            "Experiment parameters JSON. Supported keys include "
+            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
+            "`recommended_running_time`, `recommended_sample_size`, "
+            "`custom_exposure_filter`, and `excluded_variants` "
+            "(list of variant keys to drop from statistical analysis; "
+            "the baseline variant and holdout pseudo-variants cannot be excluded)."
         ),
     )
     metrics = ExperimentMetricsField(
@@ -335,6 +336,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     get_experiment_stats_method(instance),
                     instance.exposure_criteria,
                     only_count_matured_users=instance.only_count_matured_users,
+                    excluded_variants=(instance.parameters or {}).get("excluded_variants"),
                 )
 
         return data
