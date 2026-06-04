@@ -94,15 +94,13 @@ def validate_credentials(company_domain: str, api_token: str) -> Optional[int]:
 
     ``/api/v1/users/me`` resolves the token's own user and is reachable by any valid token.
     """
+    # Built outside the `try` so an invalid-domain `ValueError` from `_build_url` propagates to
+    # the caller rather than being swallowed into `None` by the broad transport-error handler.
+    url = _build_url(company_domain, "/api/v1/users/me", {})
     try:
-        url = _build_url(company_domain, "/api/v1/users/me", {})
         session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
         response = session.get(url, timeout=10)
         return response.status_code
-    except ValueError:
-        # Re-raise invalid-domain errors from `_build_url` so the caller surfaces them,
-        # instead of letting the broad `except Exception` swallow them into `None`.
-        raise
     except Exception:
         return None
 
