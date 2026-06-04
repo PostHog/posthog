@@ -204,6 +204,25 @@ function mockAccountsAndBillingQuery(
     }
 }
 
+// Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
+function billingTabDecorators(
+    insightsGet: Record<string, unknown>,
+    queryPost: (req: { body: unknown }) => [number, unknown] | undefined
+): ReturnType<typeof mswDecorator>[] {
+    return [
+        mswDecorator({
+            get: {
+                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
+                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
+                [INSIGHTS_ENDPOINT]: insightsGet,
+            },
+            post: {
+                [QUERY_ENDPOINT]: queryPost,
+            },
+        }),
+    ]
+}
+
 // Expanding a row mounts UsefulLinks (loads the account async) and the notes table
 // (loads notebooks async). Both start as skeletons and resolve later, which changes
 // the expansion's width and height. Awaiting the settled content here keeps the
@@ -379,18 +398,7 @@ export const RowExpandedLinksDisabled: Story = {
 
 export const RowExpandedUsageNotFound: Story = {
     render: () => <App />,
-    decorators: [
-        mswDecorator({
-            get: {
-                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
-                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-                [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
-            },
-        }),
-    ],
+    decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
         await within(canvasElement).findByText('No billing usage insight here')
@@ -404,18 +412,10 @@ export const RowExpandedUsagePopulated: Story = {
             waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
         },
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
-                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-                [INSIGHTS_ENDPOINT]: insightsResponse(USAGE_INSIGHT),
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE),
-            },
-        }),
-    ],
+    decorators: billingTabDecorators(
+        insightsResponse(USAGE_INSIGHT),
+        mockAccountsAndBillingQuery(SINGLE_ROW, USAGE_QUERY_RESPONSE)
+    ),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
     },
@@ -423,18 +423,7 @@ export const RowExpandedUsagePopulated: Story = {
 
 export const RowExpandedSpendNotFound: Story = {
     render: () => <App />,
-    decorators: [
-        mswDecorator({
-            get: {
-                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
-                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-                [INSIGHTS_ENDPOINT]: EMPTY_INSIGHTS,
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsQuery(SINGLE_ROW),
-            },
-        }),
-    ],
+    decorators: billingTabDecorators(EMPTY_INSIGHTS, mockAccountsQuery(SINGLE_ROW)),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Spend')
         await within(canvasElement).findByText('No billing spend insight here')
@@ -448,18 +437,10 @@ export const RowExpandedSpendPopulated: Story = {
             waitForSelector: ['[data-attr="accounts-refresh"]', '.DataVisualization canvas'],
         },
     },
-    decorators: [
-        mswDecorator({
-            get: {
-                [ACCOUNT_RETRIEVE_ENDPOINT]: ACCOUNT_WITH_LINKS,
-                [ACCOUNT_NOTEBOOKS_ENDPOINT]: { count: 0, next: null, previous: null, results: [] },
-                [INSIGHTS_ENDPOINT]: insightsResponse(SPEND_INSIGHT),
-            },
-            post: {
-                [QUERY_ENDPOINT]: mockAccountsAndBillingQuery(SINGLE_ROW, SPEND_QUERY_RESPONSE),
-            },
-        }),
-    ],
+    decorators: billingTabDecorators(
+        insightsResponse(SPEND_INSIGHT),
+        mockAccountsAndBillingQuery(SINGLE_ROW, SPEND_QUERY_RESPONSE)
+    ),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Spend')
     },
