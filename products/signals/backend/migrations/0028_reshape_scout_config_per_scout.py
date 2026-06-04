@@ -22,9 +22,18 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(_wipe_scout_configs, migrations.RunPython.noop),
-        migrations.RemoveField(
-            model_name="signalscoutconfig",
-            name="enabled_skill_names",
+        # State-only removal: drop `enabled_skill_names` from Django's model state to match
+        # the reshaped model, but leave the (nullable) Postgres column in place. Avoids the
+        # backwards-incompatible, non-rollback-able `DROP COLUMN` during a rolling deploy —
+        # the orphaned column is harmless (new rows leave it NULL) and can be dropped in a
+        # later migration once this has shipped.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name="signalscoutconfig",
+                    name="enabled_skill_names",
+                ),
+            ],
         ),
         migrations.AddField(
             model_name="signalscoutconfig",
