@@ -188,6 +188,7 @@ test.describe('Quick create survey from feature flag', () => {
         await launchSurvey(page, name)
 
         await page.goto(urls.featureFlags())
+        await page.waitForLoadState('networkidle')
         await expect(page.locator('h1')).toContainText('Feature flags')
         await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
