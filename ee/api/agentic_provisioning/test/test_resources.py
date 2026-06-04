@@ -4,11 +4,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
 from ee.api.agentic_provisioning.views import _create_provisioned_pat
 
 
@@ -152,8 +152,13 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert pat is not None
         assert pat.label == self.team.name[:40]
 
-    def test_create_resource_pat_is_scoped_to_authorized_team(self):
+    def test_create_resource_pat_inherits_app_scope_ceiling(self):
         token = self._get_bearer_token()
+        # Seed the grandfathered app's ceiling after minting the bearer so the PAT is
+        # capped at the app's scopes rather than the old hardcoded ["*"].
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["insight:read", "query:read"]
+        app.save(update_fields=["scopes"])
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
             data={"service_id": "analytics"},
@@ -161,9 +166,47 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.scopes == ["*"]
+        assert pat.scopes == ["insight:read", "query:read"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
+
+    def test_create_resource_omits_pat_when_app_gate_off(self):
+        token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.provisioning_issues_personal_api_key = False
+        app.save(update_fields=["provisioning_issues_personal_api_key"])
+        before = PersonalAPIKey.objects.filter(user=self.user).count()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+        assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == before
+
+    @parameterized.expand([("gate_off", False), ("gate_on", True)])
+    def test_create_provisioned_pat_gate(self, _name, gate_on):
+        app = OAuthApplication.objects.create(
+            name="Gate test app",
+            client_id=f"gate_test_{gate_on}",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            scopes=["insight:read"],
+            provisioning_issues_personal_api_key=gate_on,
+        )
+        result = _create_provisioned_pat(self.user, self.team, app)
+        if gate_on:
+            assert result is not None
+            pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+            assert pat is not None
+            assert pat.scopes == ["insight:read"]
+        else:
+            assert result is None
+            assert not PersonalAPIKey.objects.filter(user=self.user).exists()
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
