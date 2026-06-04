@@ -123,11 +123,6 @@ class DCRRequestSerializer(serializers.Serializer):
         default="none",
         help_text="How the client authenticates at the token endpoint: 'none' for public clients, 'client_secret_post' for confidential clients",
     )
-    # RFC 7591 standard `scope`: a flat, space-delimited string (NOT the CIMD
-    # `com.posthog` namespace). Sets the app's scope ceiling. Privileged scopes
-    # are stripped on registration; a non-empty set that strips to nothing is
-    # rejected. If omitted (or blank), the ceiling is left empty and /authorize
-    # resolves it to the broad UNPRIVILEGED_SCOPES default.
     scope = serializers.CharField(
         required=False,
         allow_blank=True,
