@@ -69,6 +69,19 @@ class BrowserlessUnavailable(Exception):
     pass
 
 
+class BrowserlessRateLimited(BrowserlessUnavailable):
+    """Raised when browserless.io rate-limits us (HTTP 429 Too Many Requests).
+
+    Distinct from BrowserlessUnavailable because it must NOT be retried: retrying a 429 back
+    into an already-overloaded endpoint is a self-reinforcing loop that worsens the
+    rate-limiting instead of recovering. It is still classified as a SYSTEM failure (it is an
+    infra condition, not the user's fault), but is deliberately kept out of EXCEPTIONS_TO_RETRY
+    so the export retry policy fails it fast.
+    """
+
+    pass
+
+
 class ExcelColumnLimitExceeded(Exception):
     """Raised when export data exceeds openpyxl's 18,278 column limit (ZZZ)."""
 
@@ -123,9 +136,18 @@ TIMEOUT_ERRORS = (
     ExportCancelled,
 )
 
+# System errors that are genuine infra failures but must NOT be retried — e.g. a browserless
+# 429, where retrying compounds the overload. These stay classified as SYSTEM for reporting,
+# but are kept out of EXCEPTIONS_TO_RETRY so the retry policy fails them fast.
+NON_RETRYABLE_SYSTEM_ERRORS = (BrowserlessRateLimited,)
+
 # Exception class names for string-based classification (used in backfill)
 USER_QUERY_ERROR_NAMES = frozenset(cls.__name__ for cls in USER_QUERY_ERRORS)
-SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
+# Names of system errors that are safe to retry (transient capacity/network failures).
+RETRYABLE_ERROR_NAMES = frozenset(cls.__name__ for cls in EXCEPTIONS_TO_RETRY)
+NON_RETRYABLE_SYSTEM_ERROR_NAMES = frozenset(cls.__name__ for cls in NON_RETRYABLE_SYSTEM_ERRORS)
+# All system errors (retryable + non-retryable) — drives failure_type classification only.
+SYSTEM_ERROR_NAMES = RETRYABLE_ERROR_NAMES | NON_RETRYABLE_SYSTEM_ERROR_NAMES
 TIMEOUT_ERROR_NAMES = frozenset(cls.__name__ for cls in TIMEOUT_ERRORS)
 
 

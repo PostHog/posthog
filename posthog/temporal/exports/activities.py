@@ -12,7 +12,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import SYSTEM_ERROR_NAMES
+from products.exports.backend.tasks.failure_handler import RETRYABLE_ERROR_NAMES
 
 logger = structlog.get_logger(__name__)
 
@@ -51,15 +51,16 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
                 error=str(e),
             )
             # Wrap in ApplicationError to propagate failure metadata as details while
-            # preserving the exception class for retry-policy matching (transient CH/network
-            # errors retry; programming errors and Chrome crashes fail fast). See
+            # preserving the exception class for retry-policy matching. Only transient CH/network
+            # errors retry; programming errors, Chrome crashes, and non-retryable system errors
+            # (e.g. a browserless 429, where retrying compounds the overload) fail fast. See
             # posthog.temporal.exports.types.extract_error_details. Strings are truncated so
             # an upstream exception can't blow out the 2 MiB payload envelope.
             raise ApplicationError(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),
                 type=exception_class,
-                non_retryable=exception_class not in SYSTEM_ERROR_NAMES,
+                non_retryable=exception_class not in RETRYABLE_ERROR_NAMES,
             ) from e
 
         await database_sync_to_async(asset.refresh_from_db, thread_sensitive=False)()

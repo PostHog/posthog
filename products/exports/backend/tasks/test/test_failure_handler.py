@@ -7,6 +7,9 @@ from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_TIMEOUT_GENERATION,
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
+    NON_RETRYABLE_SYSTEM_ERROR_NAMES,
+    RETRYABLE_ERROR_NAMES,
+    SYSTEM_ERROR_NAMES,
     classify_failure_type,
     is_user_query_error_type,
 )
@@ -66,6 +69,9 @@ class TestClassifyFailureType(TestCase):
             ("OperationalError", FAILURE_TYPE_SYSTEM),
             ("ClickHouseAtCapacity", FAILURE_TYPE_SYSTEM),
             ("ReadTimeoutError", FAILURE_TYPE_SYSTEM),
+            ("BrowserlessUnavailable", FAILURE_TYPE_SYSTEM),
+            # Non-retryable system errors still classify as SYSTEM (infra, not user's fault)
+            ("BrowserlessRateLimited", FAILURE_TYPE_SYSTEM),
             # Unknown errors
             ("ValueError", FAILURE_TYPE_UNKNOWN),
             ("RuntimeError", FAILURE_TYPE_UNKNOWN),
@@ -74,3 +80,21 @@ class TestClassifyFailureType(TestCase):
     )
     def test_classify_failure_type(self, exception_type: str, expected: str) -> None:
         assert classify_failure_type(exception_type) == expected
+
+
+class TestRetryableErrorNames(TestCase):
+    def test_browserless_unavailable_is_retryable(self) -> None:
+        # Genuine connection drops / unreachable backend are worth retrying.
+        assert "BrowserlessUnavailable" in RETRYABLE_ERROR_NAMES
+
+    def test_browserless_rate_limited_is_not_retryable(self) -> None:
+        # Retrying a 429 back into an overloaded endpoint compounds the rate-limiting.
+        assert "BrowserlessRateLimited" not in RETRYABLE_ERROR_NAMES
+        assert "BrowserlessRateLimited" in NON_RETRYABLE_SYSTEM_ERROR_NAMES
+
+    def test_non_retryable_system_errors_are_classified_as_system(self) -> None:
+        # SYSTEM_ERROR_NAMES (classification) is the union of retryable and non-retryable.
+        assert NON_RETRYABLE_SYSTEM_ERROR_NAMES <= SYSTEM_ERROR_NAMES
+        assert RETRYABLE_ERROR_NAMES <= SYSTEM_ERROR_NAMES
+        # Non-retryable names are deliberately absent from the retryable set.
+        assert RETRYABLE_ERROR_NAMES.isdisjoint(NON_RETRYABLE_SYSTEM_ERROR_NAMES)

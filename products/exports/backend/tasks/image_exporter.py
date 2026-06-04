@@ -41,7 +41,11 @@ from posthog.utils import absolute_uri
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, classify_failure_type
+from products.exports.backend.tasks.failure_handler import (
+    BrowserlessRateLimited,
+    BrowserlessUnavailable,
+    classify_failure_type,
+)
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -552,6 +556,17 @@ def _is_browserless_connection_error(error: Exception) -> bool:
     return any(indicator in message for indicator in _BROWSERLESS_CONNECTION_ERROR_INDICATORS)
 
 
+_BROWSERLESS_RATE_LIMIT_INDICATORS = (
+    "429",
+    "too many requests",
+)
+
+
+def _is_browserless_rate_limit_error(error: Exception) -> bool:
+    message = str(error).lower()
+    return any(indicator in message for indicator in _BROWSERLESS_RATE_LIMIT_INDICATORS)
+
+
 def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path: str) -> None:
     try:
         take_screenshot(image_path)
@@ -577,9 +592,12 @@ def _screenshot_asset_browserless(
         try:
             browser = p.chromium.connect_over_cdp(endpoint, timeout=settings.BROWSERLESS_CONNECT_TIMEOUT_MS)
         except (PlaywrightError, PlaywrightTimeoutError) as e:
-            raise BrowserlessUnavailable(
-                f"Failed to connect to browserless: {_redact_browserless_token(str(e))}"
-            ) from None
+            redacted = _redact_browserless_token(str(e))
+            # A 429 means browserless is rate-limiting us. Surface it as the non-retryable
+            # variant so the export retry policy doesn't hammer an already-overloaded endpoint.
+            if _is_browserless_rate_limit_error(e):
+                raise BrowserlessRateLimited(f"browserless rate-limited the connection (429): {redacted}") from None
+            raise BrowserlessUnavailable(f"Failed to connect to browserless: {redacted}") from None
 
         disconnected = [False]
         browser.on("disconnected", lambda *_: disconnected.__setitem__(0, True))

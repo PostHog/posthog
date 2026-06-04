@@ -36,7 +36,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable
+from products.exports.backend.tasks.failure_handler import BrowserlessRateLimited, BrowserlessUnavailable
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -776,6 +776,25 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
                 with self.assertRaises(BrowserlessUnavailable):
                     image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
 
+    def test_connect_429_is_wrapped_as_browserless_rate_limited(self) -> None:
+        # A 429 must surface as the non-retryable variant so the retry policy doesn't
+        # hammer an already-overloaded endpoint. BrowserlessRateLimited subclasses
+        # BrowserlessUnavailable, so callers catching the base type still see it.
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.side_effect = PlaywrightError(
+            "connect_over_cdp: wss://production-sfo.browserless.io/chromium 429 Too Many Requests"
+        )
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        with patch(
+            "products.exports.backend.tasks.image_exporter.sync_playwright",
+            return_value=sync_playwright_cm,
+        ):
+            with patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"):
+                with self.assertRaises(BrowserlessRateLimited):
+                    image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+
     def test_connect_error_redacts_token_and_breaks_chain(self) -> None:
         token = "super-secret-token"
         leaked = (
@@ -891,6 +910,23 @@ class TestIsBrowserlessConnectionError(SimpleTestCase):
     )
     def test_is_browserless_connection_error(self, _name: str, message: str, expected: bool) -> None:
         assert image_exporter._is_browserless_connection_error(Exception(message)) is expected
+
+
+class TestIsBrowserlessRateLimitError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("http_429", "wss://production-sfo.browserless.io/chromium 429 Too Many Requests", True),
+            ("bare_429", "Rejected with 429", True),
+            ("too_many_requests", "Too Many Requests", True),
+            ("too_many_requests_mixed_case", "Server returned: Too Many Requests", True),
+            ("connection_closed", "Connection closed while reading", False),
+            ("econnrefused", "connect ECONNREFUSED 1.2.3.4:443", False),
+            ("http_503", "Server returned 503 Service Unavailable", False),
+            ("empty", "", False),
+        ]
+    )
+    def test_is_browserless_rate_limit_error(self, _name: str, message: str, expected: bool) -> None:
+        assert image_exporter._is_browserless_rate_limit_error(Exception(message)) is expected
 
 
 class TestImageExportRenderMetrics(APIBaseTest):

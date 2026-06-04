@@ -18,6 +18,7 @@ from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.failure_handler import BrowserlessRateLimited
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -166,8 +167,22 @@ async def test_transient_error_retries_and_succeeds(
             10,
             SloOutcome.FAILURE,
         ),
+        # A browserless 429 is an infra failure but must fail fast — retrying compounds
+        # the rate-limiting. Asserts a single attempt, not the 10 a retryable error gets.
+        (
+            lambda: BrowserlessRateLimited("browserless rate-limited the connection (429)"),
+            "BrowserlessRateLimited",
+            "BrowserlessRateLimited: browserless rate-limited the connection (429)",
+            1,
+            SloOutcome.FAILURE,
+        ),
     ],
-    ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
+    ids=[
+        "non_retryable_user_error",
+        "generic_runtime_error",
+        "retryable_system_error",
+        "non_retryable_rate_limit",
+    ],
 )
 @patch("posthog.slo.events.posthoganalytics")
 @patch("posthog.temporal.exports.activities.exporter")
