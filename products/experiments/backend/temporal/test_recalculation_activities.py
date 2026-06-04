@@ -351,11 +351,12 @@ class TestCalculateActivity(BaseTest):
             recalc.refresh_from_db()
             assert "s1" in recalc.metric_errors
 
-    def test_concurrent_failures_do_not_lose_error_entries(self):
-        # Two metrics discovered, neither resolvable in the experiment by the time calc runs — exercises the
-        # discovery-step failure path under concurrent activities to confirm the metric_errors merge is race-safe.
+    def test_multiple_failures_accumulate_in_metric_errors(self):
+        # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the
+        # merge-into-dict behavior: each failure writes its own entry keyed by metric_uuid, no overwriting.
+        # The select_for_update guard against concurrent writers is exercised by the production code, not here.
         with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-concurrent", metrics=[])
+            exp = self._experiment(flag_key="calc-accumulate", metrics=[])
             recalc = self._recalc(exp, metric_uuids=["missing-a", "missing-b"])
 
             _calculate(exp.id, "missing-a", str(recalc.id), _QUERY_TO)
