@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import csv
 import json
 import errno
@@ -3538,6 +3539,20 @@ class TestKeepaliveShim:
         before = ssh.stat().st_mtime_ns
         devbox_mutagen.ensure_ssh_shim()
         assert ssh.stat().st_mtime_ns == before
+
+    def test_write_owner_only_creates_0700_regardless_of_umask(self, tmp_path: Path) -> None:
+        # The shim must be owner-only from creation, not via a post-write chmod
+        # (which leaves a brief world-readable window). A permissive umask that
+        # would make a plain write 0o666 must still yield 0o700.
+        target = tmp_path / "ssh"
+        old_umask = os.umask(0)
+        try:
+            devbox_mutagen._write_owner_only(target, "#!/bin/sh\n")
+        finally:
+            os.umask(old_umask)
+        assert target.read_text() == "#!/bin/sh\n"
+        assert target.stat().st_mode & 0o777 == 0o700
+        assert not list(tmp_path.glob(".*.tmp"))  # temp renamed away, no leftover
 
     def test_resolve_real_ssh_never_returns_the_shim_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         # A shim-dir ssh on PATH must never be picked, or the shim re-invokes

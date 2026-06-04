@@ -242,6 +242,20 @@ def _resolve_real_ssh(name: str) -> str:
     return shutil.which(name, path=os.pathsep.join(entries)) or name
 
 
+def _write_owner_only(target: Path, content: str) -> None:
+    """Atomically write ``content`` as an owner-only (0o700) executable.
+
+    Writes to a fresh temp opened with a restrictive mode (umask only clears
+    bits, and 0o700 has none in group/other, so it lands at 0o700) and renames
+    it into place, so the script is never briefly world-readable or half-written.
+    """
+    tmp = target.with_name(f".{target.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+    with os.fdopen(fd, "w") as f:
+        f.write(content)
+    os.replace(tmp, target)
+
+
 def ensure_ssh_shim() -> Path:
     """Write the ssh/scp keepalive-rewriting shims, returning their directory.
 
@@ -253,14 +267,15 @@ def ensure_ssh_shim() -> Path:
     _SSH_SHIM_DIR.mkdir(parents=True, exist_ok=True)
     # The daemon execs these scripts, so keep the dir and scripts owner-only: no
     # other local account can tamper with what runs as us, and they need no wider
-    # access. chmod runs every time so an older world-readable install self-heals.
+    # access. The dir chmod also self-heals an older world-readable install.
     _SSH_SHIM_DIR.chmod(0o700)
     for name in ("ssh", "scp"):
         target = _SSH_SHIM_DIR / name
         content = _SHIM_TEMPLATE.format(count=_KEEPALIVE_COUNT, real=_resolve_real_ssh(name))
         if not target.exists() or target.read_text() != content:
-            target.write_text(content)
-        target.chmod(0o700)
+            _write_owner_only(target, content)
+        else:
+            target.chmod(0o700)  # content already current; just heal perms
     return _SSH_SHIM_DIR
 
 
