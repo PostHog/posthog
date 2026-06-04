@@ -12,8 +12,9 @@ describe('CLI AGENTS.md installer', () => {
         const content = await fs.readFile(target, 'utf-8')
 
         expect(target).toBe(path.join(dir, 'AGENTS.md'))
-        expect(content).toContain('Follow progressive disclosure for every PostHog task')
+        expect(content).toContain('required progressive disclosure workflow')
         expect(content).toContain('posthog-cli api search <term>')
+        expect(content).toContain('This `info` step is required before every `call`')
         expect(content).toContain('Inspect the expected input schema')
         expect(content).toContain('Prefer `posthog-cli api` over direct MCP tool calls')
         expect(content).toContain('posthog-cli api skill list')
