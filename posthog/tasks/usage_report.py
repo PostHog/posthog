@@ -32,8 +32,8 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import GroupTypeMapping, OrganizationMembership, User
-from posthog.models.group_type_mapping import get_group_types_for_team
+from posthog.models import OrganizationMembership, User
+from posthog.models.group_type_mapping import count_group_type_mappings_per_team, get_group_types_for_team
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
@@ -2089,11 +2089,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
-        "teams_with_group_types_total": list(
-            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
-            .annotate(total=Count("id"))
-            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
-        ),
+        "teams_with_group_types_total": count_group_type_mappings_per_team(),
         "teams_with_dashboard_count": list(
             Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
