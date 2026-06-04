@@ -19,8 +19,8 @@ interface UseRadialInteractionOptions<Meta> {
     wrapperRef: React.RefObject<HTMLDivElement>
     showTooltip: boolean
     onSliceClick?: (payload: RadialSlicePayload<Meta>) => void
-    /** Allowance beyond `outerRadius` for hit-testing so the popped-out slice still hovers.
-     *  Typically equal to `hoverOffset`. */
+    /** Allowance beyond `outerRadius` for hit-testing so the grown slice still hovers.
+     *  Typically equal to `hoverGrowth`. */
     hitOuterSlack?: number
 }
 
@@ -41,8 +41,8 @@ function buildPieTooltipCtx<Meta>(
     cursor: { x: number; y: number } | null,
     canvasBounds: DOMRect
 ): TooltipContext<Meta> {
-    // Anchor at the centroid of the slice (mid-radius along bisector) so the tooltip points
-    // at the slice it describes, not at the cursor.
+    // Centroid of the slice (mid-radius along bisector). The tooltip follows the cursor via
+    // `hoverPosition`; this is the fallback anchor for rebuilds with no cursor (e.g. a pin).
     const midR = (layout.innerRadius + layout.outerRadius) / 2
     const ax = layout.cx + Math.sin(slice.centroidAngle) * midR
     const ay = layout.cy - Math.cos(slice.centroidAngle) * midR

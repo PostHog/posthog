@@ -28,7 +28,7 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
             group_properties: Record<string, any>
         }[]
     > {
-        return withRetry('PersonHogGroupReadRepository', () =>
+        return withRetry('PersonHogGroupReadRepository.fetchGroupsByKeys', () =>
             timedGrpc(this.clientLabel, 'fetchGroupsByKeys', () =>
                 this.grpcClient.groups.fetchGroupsByKeys(teamIds, groupTypeIndexes, groupKeys, callerTag)
             )
@@ -39,7 +39,7 @@ export class PersonHogGroupReadRepository implements GroupReadRepository {
         teamIds: TeamId[],
         callerTag?: string
     ): Promise<Record<string, { group_type: string; group_type_index: GroupTypeIndex }[]>> {
-        return withRetry('PersonHogGroupReadRepository', () =>
+        return withRetry('PersonHogGroupReadRepository.fetchGroupTypesByTeamIds', () =>
             timedGrpc(this.clientLabel, 'fetchGroupTypesByTeamIds', () =>
                 this.grpcClient.groups.fetchGroupTypesByTeamIds(teamIds, callerTag)
             )

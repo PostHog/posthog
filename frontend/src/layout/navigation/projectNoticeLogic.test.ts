@@ -2,7 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'

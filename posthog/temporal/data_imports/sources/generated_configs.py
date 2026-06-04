@@ -93,7 +93,8 @@ class VitallyRegionConfig(config.Config):
 
 @config.config
 class ActiveCampaignSourceConfig(config.Config):
-    pass
+    api_url: str
+    api_key: str
 
 
 @config.config
@@ -217,7 +218,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CampaignMonitorSourceConfig(config.Config):
-    pass
+    api_key: str
+    client_id: str
 
 
 @config.config
@@ -261,7 +263,7 @@ class ClickUpSourceConfig(config.Config):
 
 @config.config
 class CloseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -287,7 +289,8 @@ class ConvexSourceConfig(config.Config):
 
 @config.config
 class CopperSourceConfig(config.Config):
-    pass
+    api_key: str
+    user_email: str
 
 
 @config.config
@@ -347,7 +350,8 @@ class FirebaseSourceConfig(config.Config):
 
 @config.config
 class FreshdeskSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -412,7 +416,7 @@ class GorgiasSourceConfig(config.Config):
 
 @config.config
 class GranolaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -501,7 +505,7 @@ class MailchimpSourceConfig(config.Config):
 
 @config.config
 class MailerLiteSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -567,7 +571,8 @@ class NotionSourceConfig(config.Config):
 
 @config.config
 class OktaSourceConfig(config.Config):
-    pass
+    okta_domain: str
+    api_key: str
 
 
 @config.config
@@ -662,7 +667,7 @@ class PostgresSourceConfig(config.Config):
 
 @config.config
 class PostmarkSourceConfig(config.Config):
-    pass
+    server_token: str
 
 
 @config.config
@@ -682,7 +687,8 @@ class RechargeSourceConfig(config.Config):
 
 @config.config
 class RecurlySourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -800,7 +806,8 @@ class SnowflakeSourceConfig(config.Config):
 
 @config.config
 class SquareSourceConfig(config.Config):
-    pass
+    access_token: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
@@ -875,7 +882,8 @@ class VitallySourceConfig(config.Config):
 
 @config.config
 class WebflowSourceConfig(config.Config):
-    pass
+    api_token: str
+    site_id: str
 
 
 @config.config
