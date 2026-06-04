@@ -76,6 +76,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
@@ -605,6 +606,7 @@ schedules = [
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
     create_conversations_signals_coordinator_schedule,
+    create_business_knowledge_refresh_coordinator_schedule,
     create_wa_weekly_digest_schedule,
     create_logs_alert_check_schedule,
     create_schedule_due_alert_checks_schedule,
