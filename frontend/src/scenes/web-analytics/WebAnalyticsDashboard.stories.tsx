@@ -175,7 +175,10 @@ HealthViewports.parameters = {
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     testOptions: {
         includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
+        // The health checks stay in their loading state without a live backend, so don't wait on
+        // their loaders — capture the (deterministic) loading layout instead of timing out.
+        waitForLoadersToDisappear: false,
+        skipIframeWait: true,
         viewportWidths: ALL_VIEWPORT_WIDTHS,
     },
 }
@@ -188,8 +191,10 @@ LiveViewports.parameters = {
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS],
     testOptions: {
         includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        // The live tab polls the user count every second, so the page never reaches network idle.
+        // The live tab polls the user count every second (so it never reaches network idle) and
+        // waits on a live stream that doesn't connect in storybook — capture its loading layout
+        // rather than waiting on loaders that never settle.
+        waitForLoadersToDisappear: false,
         skipIframeWait: true,
         viewportWidths: ALL_VIEWPORT_WIDTHS,
     },
