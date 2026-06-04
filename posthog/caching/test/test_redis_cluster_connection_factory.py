@@ -127,11 +127,11 @@ class TestRedisClusterConnectionFactory(TestCase):
         assert counting_lock.enter_count == 1
 
     @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
-    def test_owner_pid_is_recorded_on_the_class_not_the_instance(self, from_url: MagicMock) -> None:
-        # The fork guard only works if _owner_pid is process-global. If it were
-        # ever written through `self` it would shadow onto the instance, every
-        # fresh per-request factory would look unforked, and discovery would run
-        # per request again. Pin it to the class.
+    def test_shared_state_lives_on_the_class_not_the_instance(self, from_url: MagicMock) -> None:
+        # The fork guard only works if _owner_pid and the client cache are
+        # process-global. If either were ever written through `self` it would
+        # shadow onto the instance, every fresh per-request factory would look
+        # unforked, and discovery would run per request again. Pin them to the class.
         from_url.return_value = MagicMock()
         factory = self._factory()
 
@@ -139,6 +139,7 @@ class TestRedisClusterConnectionFactory(TestCase):
 
         assert RedisClusterConnectionFactory._owner_pid == os.getpid()
         assert "_owner_pid" not in factory.__dict__
+        assert "_cluster_clients" not in factory.__dict__
 
     @patch("posthog.caching.redis_cluster_connection_factory.os.getpid")
     @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")

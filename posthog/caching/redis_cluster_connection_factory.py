@@ -78,10 +78,9 @@ class RedisClusterConnectionFactory(ConnectionFactory):
 
     @classmethod
     def _reset_if_forked(cls, pid: int) -> None:
-        # A client discovered before a fork holds the parent's sockets, so a
-        # forked worker drops the inherited cache and rediscovers its own. A
-        # classmethod so the writes land on the class (process-global) with no
-        # `self` in scope to shadow them onto an instance. Caller must hold _lock.
+        # A classmethod so the cache/owner-pid writes land on the class
+        # (process-global) with no `self` in scope to shadow them onto an
+        # instance. Caller must hold _lock.
         if cls._owner_pid == pid:
             return
         if cls._owner_pid is not None:
