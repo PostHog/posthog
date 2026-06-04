@@ -503,6 +503,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_cta_shown?: boolean
     is_hipaa?: boolean
     members_can_invite?: boolean
+    members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
@@ -690,6 +691,9 @@ export interface ConversationsSettings {
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
+    slack_notify_on_join?: boolean
+    slack_notify_on_leave?: boolean
+    slack_alert_channel_id?: string | null
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
