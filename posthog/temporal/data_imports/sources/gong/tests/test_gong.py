@@ -7,6 +7,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.gong.gong import (
     GONG_BASE_URL,
     GongResumeConfig,
@@ -51,7 +52,9 @@ class _FakeSession:
         return self._responses.pop(0)
 
 
-class _FakeResumableManager:
+class _FakeResumableManager(ResumableSourceManager[GongResumeConfig]):
+    """In-memory stand-in for the Redis-backed manager (no `super().__init__`)."""
+
     def __init__(self, resume_state: GongResumeConfig | None = None):
         self._resume_state = resume_state
         self.saved_states: list[GongResumeConfig] = []
@@ -186,7 +189,6 @@ class TestWindowedCalls:
                     manager,
                     should_use_incremental_field=True,
                     db_incremental_field_last_value=last_value,
-                    incremental_field="started",
                 )
             )
 

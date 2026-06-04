@@ -20,7 +20,7 @@ from posthog.temporal.data_imports.sources.gong.gong import (
     gong_source,
     validate_credentials as validate_gong_credentials,
 )
-from posthog.temporal.data_imports.sources.gong.settings import ENDPOINTS, GONG_ENDPOINTS
+from posthog.temporal.data_imports.sources.gong.settings import GONG_ENDPOINTS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -92,7 +92,6 @@ Grant the following read scopes so the connected endpoints can sync:
                 else None,
             )
             for endpoint, endpoint_config in GONG_ENDPOINTS.items()
-            if endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)
@@ -129,5 +128,4 @@ Grant the following read scopes so the connected endpoints can sync:
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
-            incremental_field=inputs.incremental_field,
         )

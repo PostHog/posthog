@@ -127,7 +127,6 @@ class TestGongSource:
         inputs.schema_name = "calls"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = "started"
         manager = mock.MagicMock()
 
         with mock.patch("posthog.temporal.data_imports.sources.gong.source.gong_source") as mock_gong_source:
@@ -141,14 +140,12 @@ class TestGongSource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-        assert kwargs["incremental_field"] == "started"
 
     def test_source_for_pipeline_omits_last_value_on_full_refresh(self):
         inputs = mock.MagicMock()
         inputs.schema_name = "users"
         inputs.should_use_incremental_field = False
         inputs.db_incremental_field_last_value = "2026-01-01T00:00:00Z"
-        inputs.incremental_field = None
 
         with mock.patch("posthog.temporal.data_imports.sources.gong.source.gong_source") as mock_gong_source:
             self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
