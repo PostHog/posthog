@@ -198,7 +198,8 @@ class BraintreeSourceConfig(config.Config):
 
 @config.config
 class BrazeSourceConfig(config.Config):
-    pass
+    api_key: str
+    url: str
 
 
 @config.config

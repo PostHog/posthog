@@ -49,6 +49,7 @@ the row lists both.
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
 | buildbetter      | HTTP                        | requests                                                        | ✅                          |
 | calendly         | HTTP                        | requests                                                        | ✅                          |
@@ -164,7 +165,6 @@ doesn't conflict with concurrent PRs.
 - bigcommerce
 - box
 - braintree
-- braze
 - circleci
 - clickup
 - cockroachdb
