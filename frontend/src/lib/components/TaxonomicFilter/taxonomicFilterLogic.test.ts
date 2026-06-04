@@ -1079,6 +1079,50 @@ describe('taxonomicFilterLogic', () => {
             expect(personsGroup?.getValue?.(person as any)).toBe(expected)
         })
     })
+
+    describe('SQL expression (HogQLExpression) group commits its value', () => {
+        let hogqlLogic: ReturnType<typeof taxonomicFilterLogic.build>
+        const onChange = jest.fn()
+
+        beforeEach(() => {
+            onChange.mockClear()
+            hogqlLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'hogqlExpressionTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.HogQLExpression],
+                onChange,
+            })
+            hogqlLogic.mount()
+        })
+
+        afterEach(() => {
+            hogqlLogic.unmount()
+        })
+
+        it('getValue returns the expression so the headless menu can commit it', () => {
+            const group = hogqlLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
+            )
+            expect(group?.getValue).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            // The headless menu synthesizes an item carrying the expression in `value`.
+            const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
+            expect(group?.getValue?.(item as any)).toBe('properties.$current_url')
+        })
+
+        it('selectItem with the derived value fires onChange with the expression, not null', async () => {
+            const group = hogqlLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
+            )!
+            const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
+            // Mirror TaxonomicFilterMenu's handleCommit: the value is derived via group.getValue.
+            const value = group.getValue?.(item as any) ?? null
+
+            await expectLogic(hogqlLogic, () => {
+                hogqlLogic.actions.selectItem(group, value, item as any)
+            }).toDispatchActions(['selectItem'])
+
+            expect(onChange).toHaveBeenCalledWith(group, 'properties.$current_url', item)
+        })
+    })
 })
 
 describe('redistributeTopMatches', () => {

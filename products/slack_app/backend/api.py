@@ -59,9 +59,8 @@ logger = structlog.get_logger(__name__)
 
 HANDLED_EVENT_TYPES = ["app_mention", "link_shared"]
 
-# Slack integration kind used by the PostHog Code coding-agent flow. Historically this used
-# a dedicated `slack-posthog-code` install, but the notifications Slack app (`slack`) carries
-# every scope the coding agent needs, so both surfaces share one kind.
+# The notifications Slack app (`slack`) install carries every scope the coding-agent flow
+# needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
 
 # Scopes the coding-agent flow exercises end-to-end. Slack stores the granted scope set
@@ -166,6 +165,7 @@ class RulesCommand:
         "deprecated_default_repo",
         "project_show",
         "project_set",
+        "project_set_workspace",
     ]
     rule_text: str | None = None
     repository: str | None = None
@@ -264,6 +264,13 @@ def _get_slack_user_info(slack: SlackIntegration, integration: Integration, slac
         cache.set(cache_key, user_info, timeout=SLACK_USER_INFO_CACHE_TTL_SECONDS)
         return user_info
     return {}
+
+
+def is_slack_workspace_admin(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
+    """Whether the Slack user is a workspace admin or owner."""
+    user_info = _get_slack_user_info(slack, integration, slack_user_id)
+    slack_user = user_info.get("user", {}) if isinstance(user_info, dict) else {}
+    return bool(slack_user.get("is_admin") or slack_user.get("is_owner"))
 
 
 def _get_slack_user_id_by_email_from_db(integration: Integration, normalized_email: str) -> str | None:
@@ -765,6 +772,14 @@ def _parse_rules_command(text: str) -> RulesCommand | None:
         numbers = [int(n.strip()) for n in remove_match.group(1).split(",") if n.strip().isdigit()]
         if numbers:
             return RulesCommand(action="remove", rule_numbers=numbers)
+
+    # `project workspace <id>` sets the workspace-wide default and must be tested
+    # before the generic `project` branch. Trailing text after the id is ignored.
+    project_workspace_match = re.fullmatch(
+        r"project\s+workspace\s+(\d+)(?:\s+.*)?", cleaned, flags=re.IGNORECASE | re.DOTALL
+    )
+    if project_workspace_match is not None:
+        return RulesCommand(action="project_set_workspace", project_team_id=int(project_workspace_match.group(1)))
 
     # Trailing text after the id is tolerated but ignored — we only act on the id.
     project_match = re.fullmatch(r"project(?:\s+(\d+)(?:\s+.*)?)?", cleaned, flags=re.IGNORECASE | re.DOTALL)

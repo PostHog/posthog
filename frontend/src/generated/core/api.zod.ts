@@ -3182,7 +3182,6 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod.obj
     password_required: zod.boolean().optional(),
 })
 
-export const subscriptionsCreateBodyIntervalMin = -2147483648
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -3230,10 +3229,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsCreateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsCreateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod
@@ -3288,7 +3288,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
-export const subscriptionsUpdateBodyIntervalMin = -2147483648
 export const subscriptionsUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsUpdateBodyBysetposMin = -2147483648
@@ -3336,10 +3335,11 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsUpdateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsUpdateBodyIntervalMax)
-            .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod
@@ -3394,7 +3394,6 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
-export const subscriptionsPartialUpdateBodyIntervalMin = -2147483648
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -3445,10 +3444,12 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
         interval: zod
             .number()
-            .min(subscriptionsPartialUpdateBodyIntervalMin)
+            .min(1)
             .max(subscriptionsPartialUpdateBodyIntervalMax)
             .optional()
-            .describe('Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.'),
+            .describe(
+                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
+            ),
         byweekday: zod
             .array(
                 zod

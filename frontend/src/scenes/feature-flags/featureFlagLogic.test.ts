@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -8,7 +8,14 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
+    ScheduledChangeModels,
+    ScheduledChangeOperationType,
+    ScheduledChangeType,
+} from '~/types'
 import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
@@ -819,6 +826,141 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
             testLogic.unmount()
+        })
+    })
+
+    describe('schedule ordering', () => {
+        const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
+            id: 1,
+            team_id: MOCK_DEFAULT_PROJECT.id,
+            record_id: MOCK_FEATURE_FLAG.id,
+            model_name: ScheduledChangeModels.FeatureFlag,
+            payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
+            scheduled_at: '2026-01-01T00:00:00Z',
+            executed_at: null,
+            failure_reason: null,
+            created_at: '2026-01-01T00:00:00Z',
+            created_by: MOCK_DEFAULT_BASIC_USER,
+            is_recurring: false,
+            recurrence_interval: null,
+            cron_expression: null,
+            last_executed_at: null,
+            end_date: null,
+            ...overrides,
+        })
+
+        const schedulesUrl = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`
+
+        it.each([
+            {
+                // Mirrors the issue: a recurring change created first must not float above sooner one-time changes.
+                desc: 'interleaves recurring and one-time changes by next firing time, soonest first',
+                results: [
+                    makeScheduledChange({ id: 1, scheduled_at: '2026-05-02T15:00:00Z', is_recurring: true }),
+                    makeScheduledChange({ id: 2, scheduled_at: '2026-05-01T14:00:00Z' }),
+                    makeScheduledChange({ id: 3, scheduled_at: '2026-07-04T14:58:00Z' }),
+                    makeScheduledChange({ id: 4, scheduled_at: '2026-06-13T18:59:00Z' }),
+                ],
+                expectedIds: [2, 1, 4, 3],
+            },
+            {
+                desc: 'breaks ties by id when scheduled_at is equal',
+                results: [
+                    makeScheduledChange({ id: 7, scheduled_at: '2026-05-01T00:00:00Z' }),
+                    makeScheduledChange({ id: 3, scheduled_at: '2026-05-01T00:00:00Z' }),
+                    makeScheduledChange({ id: 5, scheduled_at: '2026-05-01T00:00:00Z' }),
+                ],
+                expectedIds: [3, 5, 7],
+            },
+            {
+                desc: 'excludes executed changes',
+                results: [
+                    makeScheduledChange({ id: 1, scheduled_at: '2026-05-01T00:00:00Z' }),
+                    makeScheduledChange({
+                        id: 2,
+                        scheduled_at: '2026-04-01T00:00:00Z',
+                        executed_at: '2026-04-01T00:00:00Z',
+                    }),
+                ],
+                expectedIds: [1],
+            },
+        ])('$desc', async ({ results, expectedIds }) => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results }] } })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                activeSchedules: expectedIds.map((id) => partial({ id })),
+            })
+        })
+
+        it('orders completed changes most-recent first', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                makeScheduledChange({
+                                    id: 1,
+                                    scheduled_at: '2026-05-01T00:00:00Z',
+                                    executed_at: '2026-05-01T00:00:00Z',
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    scheduled_at: '2026-07-01T00:00:00Z',
+                                    executed_at: '2026-07-01T00:00:00Z',
+                                }),
+                                makeScheduledChange({
+                                    id: 3,
+                                    scheduled_at: '2026-06-01T00:00:00Z',
+                                    executed_at: '2026-06-01T00:00:00Z',
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                completedSchedules: [partial({ id: 2 }), partial({ id: 3 }), partial({ id: 1 })],
+            })
+        })
+
+        it('orders completed changes by execution time, not scheduled time', async () => {
+            useMocks({
+                get: {
+                    [schedulesUrl]: () => [
+                        200,
+                        {
+                            results: [
+                                // Scheduled first but, after a delay, executed last.
+                                makeScheduledChange({
+                                    id: 1,
+                                    scheduled_at: '2026-05-01T00:00:00Z',
+                                    executed_at: '2026-05-03T00:00:00Z',
+                                }),
+                                makeScheduledChange({
+                                    id: 2,
+                                    scheduled_at: '2026-05-02T00:00:00Z',
+                                    executed_at: '2026-05-02T00:00:00Z',
+                                }),
+                            ],
+                        },
+                    ],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadScheduledChanges()
+            }).toDispatchActions(['loadScheduledChangesSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                completedSchedules: [partial({ id: 1 }), partial({ id: 2 })],
+            })
         })
     })
 })
