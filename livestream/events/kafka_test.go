@@ -247,3 +247,43 @@ func TestParse_InnerTimestampOverridesWrapper(t *testing.T) {
 	assert.Equal(t, "2026-01-09T02:00:00.000Z", got.Timestamp)
 	assert.Equal(t, "$pageview", got.Event)
 }
+
+func TestSplitTopics(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "single topic",
+			input:    "events_topic",
+			expected: []string{"events_topic"},
+		},
+		{
+			name:     "two topics",
+			input:    "ingestion-analytics-main-1024,ingestion-analytics-team2-256",
+			expected: []string{"ingestion-analytics-main-1024", "ingestion-analytics-team2-256"},
+		},
+		{
+			name:     "surrounding whitespace",
+			input:    " a , b ",
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "empty and trailing segments",
+			input:    "a,,b,",
+			expected: []string{"a", "b"},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, splitTopics(tt.input))
+		})
+	}
+}
