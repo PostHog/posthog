@@ -46,14 +46,17 @@ def _write_deltalake(
 
 
 def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
-    """Re-materialize any Decimal128/256 column whose buffers aren't 16-byte aligned.
+    """Re-materialize any Decimal128/256 column whose values buffer isn't 16-byte aligned.
 
     delta-rs (arrow-rs) aborts the entire worker — not a catchable Python exception,
-    an `abort()` at the `extern "C"` boundary that can't unwind — when pyarrow or polars
-    hands it a decimal buffer aligned to 8 bytes instead of the 16 that Rust's i128
-    requires. The misalignment arrives across the Arrow C Data Interface, which only
-    recommends 8-byte alignment. We funnel every Delta write/merge through here so a
-    single guard covers both pipeline versions. See delta-io/delta-rs#3884.
+    an `abort()` at the `extern "C"` boundary that can't unwind — when it's handed a
+    decimal values buffer aligned to 8 bytes instead of the 16 that Rust's i128 requires.
+    The misalignment arrives across the Arrow C Data Interface, which only recommends
+    8-byte alignment. We funnel every Delta write/merge through here so a single guard
+    covers both pipeline versions. See delta-io/delta-rs#3884.
+
+    Only the values buffer (`buffers()[1]`) holds the i128 payload that must be aligned;
+    the validity bitmap has no such requirement, so we don't bother checking it.
 
     `pa.concat_arrays` forces a fresh allocation through pyarrow's allocator (64-byte
     aligned), which satisfies the requirement. `combine_chunks()` is zero-copy and would
@@ -66,7 +69,7 @@ def _realign_decimal_buffers(table: pa.Table) -> pa.Table:
         field = table.field(i)
         column = table.column(i)
         if pa.types.is_decimal(field.type) and any(
-            buffer is not None and buffer.address % 16 for chunk in column.chunks for buffer in chunk.buffers()
+            (values := chunk.buffers()[1]) is not None and values.address % 16 for chunk in column.chunks
         ):
             new_columns[field.name] = pa.chunked_array([pa.concat_arrays(column.chunks)], type=field.type)
             realigned = True

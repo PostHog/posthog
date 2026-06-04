@@ -1,6 +1,8 @@
 import json
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -32,17 +34,20 @@ def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misalig
 
     data_buffer = aligned.buffers()[1]
     assert data_buffer is not None
-    padded = pa.allocate_buffer(data_buffer.size + 16, resizable=False)
+    padded = pa.allocate_buffer(data_buffer.size + 16)
     memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
     misaligned_buffer = padded.slice(8, data_buffer.size)
     assert misaligned_buffer.address % 16 == 8
-    return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), [None, misaligned_buffer])
+    # The validity buffer is legitimately None here; pyarrow accepts it but the stub types
+    # the list as list[Buffer], so cast rather than fight the (over-strict) annotation.
+    buffers = cast("list[pa.Buffer]", [None, misaligned_buffer])
+    return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), buffers)
 
 
 def _table_is_misaligned(table: pa.Table) -> bool:
     return any(
         pa.types.is_decimal(table.field(i).type)
-        and any(b is not None and b.address % 16 for chunk in table.column(i).chunks for b in chunk.buffers())
+        and any((b := chunk.buffers()[1]) is not None and b.address % 16 for chunk in table.column(i).chunks)
         for i in range(table.num_columns)
     )
 
@@ -383,20 +388,20 @@ class TestRealignDecimalBuffers:
         assert result.column("id").to_pylist() == [1, 2, 3, 4]
         assert result.schema == table.schema
 
-    def test_already_aligned_table_is_returned_unchanged(self) -> None:
-        table = pa.table({"amount": _decimal_array([1, 2, 3], misaligned=False), "id": pa.array([1, 2, 3])})
+    @pytest.mark.parametrize(
+        "table",
+        [
+            pa.table({"amount": _decimal_array([1, 2, 3], misaligned=False), "id": pa.array([1, 2, 3])}),
+            pa.table({"id": pa.array([1, 2, 3]), "name": pa.array(["a", "b", "c"])}),
+        ],
+        ids=["already_aligned_decimal", "no_decimal_columns"],
+    )
+    def test_unmisaligned_table_is_returned_unchanged(self, table: pa.Table) -> None:
         assert _table_is_misaligned(table) is False
 
         result = _realign_decimal_buffers(table)
 
         # No misalignment found → identity return (no needless copy)
-        assert result is table
-
-    def test_table_without_decimal_columns_is_untouched(self) -> None:
-        table = pa.table({"id": pa.array([1, 2, 3]), "name": pa.array(["a", "b", "c"])})
-
-        result = _realign_decimal_buffers(table)
-
         assert result is table
 
     def test_only_misaligned_columns_are_rebuilt(self) -> None:
@@ -410,10 +415,16 @@ class TestRealignDecimalBuffers:
         assert result.column("good").to_pylist() == [10, 20]
         assert result.column("bad").to_pylist() == [30, 40]
         # The already-aligned column keeps its original buffer (rebuilt only what was broken)
-        assert result.column("good").chunk(0).buffers()[1].address == aligned_dec.buffers()[1].address
+        good_buffer = result.column("good").chunks[0].buffers()[1]
+        orig_buffer = aligned_dec.buffers()[1]
+        assert good_buffer is not None and orig_buffer is not None
+        assert good_buffer.address == orig_buffer.address
 
     def test_multi_chunk_misaligned_column(self) -> None:
-        chunked = pa.chunked_array([_decimal_array([1, 2], misaligned=True), _decimal_array([3, 4], misaligned=True)])
+        chunked = pa.chunked_array(
+            [_decimal_array([1, 2], misaligned=True), _decimal_array([3, 4], misaligned=True)],
+            type=pa.decimal128(10, 2),
+        )
         table = pa.table({"amount": chunked, "id": pa.array([1, 2, 3, 4])})
         assert _table_is_misaligned(table) is True
 
@@ -468,3 +479,44 @@ class TestWriteMisalignedDecimalEndToEnd:
         else:
             assert {3, 4}.issubset(set(final.column("id").to_pylist()))
             assert {7, 8}.issubset(amounts)
+
+    @pytest.mark.asyncio
+    async def test_write_scd2_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:
+        # write_scd2_to_deltalake carries its own realignment guard; without it the
+        # close-existing merge would hand delta-rs a misaligned decimal and abort the worker.
+        delta_path = str(tmp_path / "scd2_table")
+        ts1 = datetime(2026, 1, 1, tzinfo=UTC)
+        ts2 = datetime(2026, 2, 1, tzinfo=UTC)
+        ts_type = pa.timestamp("us", tz="UTC")
+        # Seed a current (valid_to IS NULL) row for id=1 so the new batch closes it.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table(
+                {
+                    "id": pa.array([1]),
+                    "amount": _decimal_array([5], misaligned=False),
+                    "valid_from": pa.array([ts1], type=ts_type),
+                    "valid_to": pa.array([None], type=ts_type),
+                }
+            ),
+        )
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table(
+            {
+                "id": pa.array([1]),
+                "amount": _decimal_array([7], misaligned=True),
+                "valid_from": pa.array([ts2], type=ts_type),
+                "valid_to": pa.array([None], type=ts_type),
+            }
+        )
+        assert _table_is_misaligned(batch) is True
+
+        result = await helper.write_scd2_to_deltalake(data=batch, primary_keys=["id"])
+
+        final = result.to_pyarrow_table()
+        # The seeded row is closed (valid_to set) and the new misaligned row is appended.
+        assert final.num_rows == 2
+        assert set(final.column("amount").to_pylist()) == {5, 7}
+        closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
+        assert closed.column("valid_to").to_pylist() == [ts2]
