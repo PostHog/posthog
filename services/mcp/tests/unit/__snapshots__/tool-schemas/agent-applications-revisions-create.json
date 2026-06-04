@@ -169,6 +169,15 @@
                                 },
                                 "type": "object"
                             },
+                            "headers": {
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
                             "id": {
                                 "minLength": 1,
                                 "type": "string"
