@@ -1783,6 +1783,9 @@ importers:
       '@posthog/quill':
         specifier: workspace:^
         version: link:../../packages/quill
+      '@posthog/quill-charts':
+        specifier: workspace:^
+        version: link:../../packages/charts
       '@posthog/quill-tokens':
         specifier: workspace:^
         version: link:../../packages/tokens
