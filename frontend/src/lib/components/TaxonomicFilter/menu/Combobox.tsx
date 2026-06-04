@@ -537,7 +537,14 @@ export function MenuFilterCombobox({
                                             >
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent align="end" alignItemWithTrigger={false}>
+                                            {/* Fit the list to its items: at least as wide as the
+                                                trigger, grow to the longest option, capped at the
+                                                available viewport width so it never overflows. */}
+                                            <SelectContent
+                                                align="end"
+                                                alignItemWithTrigger={false}
+                                                className="w-max min-w-(--anchor-width) max-w-(--available-width)"
+                                            >
                                                 <SelectGroup>
                                                     {categoryOptions.map((o) => (
                                                         <SelectItem key={o.value} value={o.value}>
@@ -664,12 +671,12 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 // `data-selected` mirrors base-ui's `highlighted` state via
                 // the render fn below — keyboard / pointer cursor on this
                 // row gets a soft hover tint.
-                'data-[selected]:bg-[var(--fill-hover)]',
+                'data-selected:bg-(--fill-hover)',
                 // Persistent tint for the committed selection. Plain
                 // conditional class — base-ui's `render` override only
                 // forwards its own computed props, so `data-*` extras
                 // passed to `Autocomplete.Item` would be dropped.
-                isSelected && 'bg-[var(--fill-hover)]'
+                isSelected && 'bg-(--fill-hover)'
             )}
             // `id` lives on the rendered `<div>` (not on the Autocomplete.Item
             // props) — base-ui omits `id` from its prop typing because it

@@ -14,7 +14,7 @@ git checkout -b "cli/release-v0.1.0-pre1"
 ```bash
 git add .
 git commit -m "Bump version number"
-git tag "posthog-cli-v0.1.0-prerelease.1"
+git tag "posthog-cli/v0.1.0-prerelease.1"
 git push
 git push --tags
 # Optional - also publish to crates.io
