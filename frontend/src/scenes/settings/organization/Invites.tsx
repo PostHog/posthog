@@ -20,11 +20,29 @@ import { OrganizationInviteType } from '~/types'
 import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableForInvitesBanner } from './InviteModal'
 
-function InviteLinkComponent(id: string, invite: OrganizationInviteType): JSX.Element {
-    const url = new URL(`/signup/${id}`, document.baseURI).href
-    return invite.is_expired ? (
-        <b>Expired – please recreate</b>
-    ) : (
+function InviteLinkComponent({
+    invite,
+    canRecreate,
+    onRecreate,
+}: {
+    invite: OrganizationInviteType
+    canRecreate: boolean
+    onRecreate: () => void
+}): JSX.Element {
+    if (invite.is_expired) {
+        return (
+            <div className="flex items-center gap-2">
+                <LemonTag type="danger">Expired</LemonTag>
+                {canRecreate && (
+                    <LemonButton size="small" type="secondary" data-attr="invite-recreate" onClick={onRecreate}>
+                        Recreate invite
+                    </LemonButton>
+                )}
+            </div>
+        )
+    }
+    const url = new URL(`/signup/${invite.id}`, document.baseURI).href
+    return (
         <CopyToClipboardInline data-attr="invite-link" description="invite link" iconPosition="start">
             {url}
         </CopyToClipboardInline>
@@ -64,7 +82,7 @@ function makeActionsComponent(
 
 export function InvitesTable(): JSX.Element {
     const { invites, invitesLoading } = useValues(inviteLogic)
-    const { deleteInvite } = useActions(inviteLogic)
+    const { deleteInvite, recreateInvite } = useActions(inviteLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -110,7 +128,13 @@ export function InvitesTable(): JSX.Element {
             title: 'Invite Link',
             dataIndex: 'id',
             key: 'link',
-            render: (_, invite) => InviteLinkComponent(invite.id, invite),
+            render: (_, invite) => (
+                <InviteLinkComponent
+                    invite={invite}
+                    canRecreate={!restrictionReason}
+                    onRecreate={() => recreateInvite(invite)}
+                />
+            ),
         },
         {
             title: '',

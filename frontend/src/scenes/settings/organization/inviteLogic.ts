@@ -39,6 +39,7 @@ export const inviteLogic = kea<inviteLogicType>([
     actions({
         showInviteModal: true,
         hideInviteModal: true,
+        recreateInvite: (invite: OrganizationInviteType) => ({ invite }),
         updateInviteAtIndex: (payload, index: number) => ({ payload, index }),
         deleteInviteAtIndex: (index: number) => ({ index }),
         updateMessage: (message: string) => ({ message }),
@@ -146,6 +147,15 @@ export const inviteLogic = kea<inviteLogicType>([
                 },
                 appendInviteRow: (state) => [...state, EMPTY_INVITE],
                 resetInviteRows: () => [EMPTY_INVITE],
+                recreateInvite: (_, { invite }) => [
+                    {
+                        ...EMPTY_INVITE,
+                        target_email: invite.target_email,
+                        first_name: invite.first_name || '',
+                        level: invite.level,
+                        private_project_access: invite.private_project_access ?? [],
+                    },
+                ],
                 inviteTeamMembersSuccess: () => [EMPTY_INVITE],
                 addProjectAccess: (state, { inviteIndex, projectId, level }) => {
                     const newState = [...state]
@@ -236,6 +246,9 @@ export const inviteLogic = kea<inviteLogicType>([
         addProjectAccess: ({ projectId }) => {
             // Load access control for the project when it's added
             actions.loadProjectAccessControl(projectId)
+        },
+        recreateInvite: () => {
+            actions.showInviteModal()
         },
     })),
     bindModalToUrl({
