@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
@@ -168,20 +168,22 @@ class TestTicketCommand(BaseTest):
         )
         self.assertFalse(self.command._is_first_message(state))
 
-    def test_is_organization_new_returns_true_for_recent_org(self):
+    @pytest.mark.asyncio
+    async def test_is_organization_new_returns_true_for_recent_org(self):
         """Test that _is_organization_new returns True for org created less than 3 months ago."""
         self.team.organization.created_at = timezone.now() - timedelta(days=30)
         self.team.organization.save()
-        self.assertTrue(self.command._is_organization_new())
+        self.assertTrue(await self.command._is_organization_new())
 
-    def test_is_organization_new_returns_false_for_old_org(self):
+    @pytest.mark.asyncio
+    async def test_is_organization_new_returns_false_for_old_org(self):
         """Test that _is_organization_new returns False for org created more than 3 months ago."""
         self.team.organization.created_at = timezone.now() - timedelta(days=100)
         self.team.organization.save()
-        self.assertFalse(self.command._is_organization_new())
+        self.assertFalse(await self.command._is_organization_new())
 
     @pytest.mark.asyncio
-    @patch.object(TicketCommand, "_is_organization_new", return_value=True)
+    @patch.object(TicketCommand, "_is_organization_new", new_callable=AsyncMock, return_value=True)
     async def test_execute_new_org_free_user_allowed(self, mock_is_new):
         """Test that /ticket works for free users in new organizations."""
         state = AssistantState(messages=[HumanMessage(content="/ticket")])
@@ -197,7 +199,7 @@ class TestTicketCommand(BaseTest):
         self.assertIn("describe your issue", message.content.lower())
 
     @pytest.mark.asyncio
-    @patch.object(TicketCommand, "_is_organization_new", return_value=False)
+    @patch.object(TicketCommand, "_is_organization_new", new_callable=AsyncMock, return_value=False)
     async def test_execute_old_org_free_user_blocked(self, mock_is_new):
         """Test that /ticket returns upgrade message for free users in old organizations."""
         state = AssistantState(messages=[HumanMessage(content="/ticket")])

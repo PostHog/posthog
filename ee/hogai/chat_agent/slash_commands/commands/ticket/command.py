@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from uuid import uuid4
 
+from asgiref.sync import sync_to_async
+
 from django.conf import settings
 from django.utils import timezone
 
@@ -29,21 +31,23 @@ class TicketCommand(SlashCommand):
 
     _window_manager = AnthropicConversationCompactionManager()
 
-    def _is_organization_new(self) -> bool:
+    async def _is_organization_new(self) -> bool:
         """Check if the organization was created less than 3 months ago."""
-        org_created_at = self._team.organization.created_at
+        # `self._team.organization` is a FK access that hits the DB when not prefetched,
+        # so it must be wrapped to be safe inside this async context.
+        org_created_at = await sync_to_async(lambda: self._team.organization.created_at)()
         if not org_created_at:
             return False
         months_since_creation = (timezone.now() - org_created_at).days / 30
         return months_since_creation < 3
 
-    def _can_create_ticket(self, config: RunnableConfig) -> bool:
+    async def _can_create_ticket(self, config: RunnableConfig) -> bool:
         """Check if user's subscription allows ticket creation."""
         # Enable ticket creation in local dev
         if settings.DEBUG:
             return True
 
-        if self._is_organization_new():
+        if await self._is_organization_new():
             return True
 
         billing_context_data = config.get("configurable", {}).get("billing_context")
@@ -61,7 +65,7 @@ class TicketCommand(SlashCommand):
         return has_paid_subscription or has_active_trial
 
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
-        if not self._can_create_ticket(config):
+        if not await self._can_create_ticket(config):
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
