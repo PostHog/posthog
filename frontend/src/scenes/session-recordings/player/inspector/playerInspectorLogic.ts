@@ -39,6 +39,7 @@ import {
     CommentType,
     MatchedRecordingEvent,
     PerformanceEvent,
+    PropertyFilterType,
     RRWebRecordingConsoleLogPayload,
     RecordingConsoleLogV2,
     RecordingEventType,
@@ -472,6 +473,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(filters),
                         session_ids: [props.sessionRecordingId],
+                    }
+
+                    // Mirror the backend validation (session_recording_api.py matching_events): the endpoint
+                    // rejects queries with no event/action/event-property filter. Skip the guaranteed-400 request
+                    // when only recording-type filters (e.g. visited_page) are present.
+                    const hasEventProperties = (params.properties ?? []).some(
+                        (p) => p.type === PropertyFilterType.Event
+                    )
+                    if (!params.events?.length && !params.actions?.length && !hasEventProperties) {
+                        return null
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))

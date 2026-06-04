@@ -1,12 +1,33 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import {
+    DEFAULT_RECORDING_FILTERS,
+    MatchingEventsMatchType,
+} from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    RecordingUniversalFilters,
+} from '~/types'
 
 import { setupSessionRecordingTest } from '../__mocks__/test-setup'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
+
+const filtersWithSingleProperty = (property: AnyPropertyFilter): RecordingUniversalFilters => ({
+    ...DEFAULT_RECORDING_FILTERS,
+    filter_group: {
+        type: FilterLogicalOperator.And,
+        values: [{ type: FilterLogicalOperator.And, values: [property] }],
+    },
+})
 
 describe('playerInspectorLogic', () => {
     let logic: ReturnType<typeof playerInspectorLogic.build>
@@ -177,6 +198,79 @@ describe('playerInspectorLogic', () => {
                     },
                 ],
             })
+        })
+    })
+
+    describe('loadMatchingEvents', () => {
+        const matchedEvents = [{ uuid: 'event-1', timestamp: '2025-07-23T19:37:25.284Z' }]
+        let getMatchingEventsSpy: jest.SpyInstance
+
+        const buildLogic = (
+            matchingEventsMatchType: MatchingEventsMatchType,
+            playerKey: string
+        ): ReturnType<typeof playerInspectorLogic.build> => {
+            const props = { sessionRecordingId: '1', playerKey, matchingEventsMatchType }
+            const builtLogic = playerInspectorLogic(props)
+            builtLogic.mount()
+            return builtLogic
+        }
+
+        beforeEach(() => {
+            getMatchingEventsSpy = jest
+                .spyOn(api.recordings, 'getMatchingEvents')
+                .mockResolvedValue({ results: matchedEvents })
+        })
+
+        afterEach(() => {
+            getMatchingEventsSpy.mockRestore()
+        })
+
+        it('skips the request for recording-only filters (e.g. visited_page)', async () => {
+            // Backend matching_events rejects these with a 400 — guard mirrors that validation
+            const recordingOnlyLogic = buildLogic(
+                {
+                    matchType: 'backend',
+                    filters: filtersWithSingleProperty({
+                        type: PropertyFilterType.Recording,
+                        key: 'visited_page',
+                        value: ['/nakup'],
+                        operator: PropertyOperator.IContains,
+                    }),
+                },
+                'recording-only'
+            )
+
+            await expectLogic(recordingOnlyLogic, () => {
+                recordingOnlyLogic.actions.loadMatchingEvents()
+            })
+                .toDispatchActions(['loadMatchingEventsSuccess'])
+                .toNotHaveDispatchedActions(['loadMatchingEventsFailure'])
+                .toMatchValues({ matchingEvents: null })
+
+            expect(getMatchingEventsSpy).not.toHaveBeenCalled()
+        })
+
+        it('loads matching events when an event-property filter is present', async () => {
+            const eventPropertyLogic = buildLogic(
+                {
+                    matchType: 'backend',
+                    filters: filtersWithSingleProperty({
+                        type: PropertyFilterType.Event,
+                        key: '$current_url',
+                        value: ['/nakup'],
+                        operator: PropertyOperator.IContains,
+                    }),
+                },
+                'event-property'
+            )
+
+            await expectLogic(eventPropertyLogic, () => {
+                eventPropertyLogic.actions.loadMatchingEvents()
+            })
+                .toDispatchActions(['loadMatchingEventsSuccess'])
+                .toMatchValues({ matchingEvents: matchedEvents })
+
+            expect(getMatchingEventsSpy).toHaveBeenCalled()
         })
     })
 
