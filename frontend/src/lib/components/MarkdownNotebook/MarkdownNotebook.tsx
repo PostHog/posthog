@@ -89,6 +89,15 @@ type FloatingToolbarState = {
     left: number
 }
 
+type ComponentPanel = 'view' | 'edit'
+
+type ComponentPanelVisibility = Record<ComponentPanel, boolean>
+
+const DEFAULT_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
+    view: true,
+    edit: false,
+}
+
 export function MarkdownNotebook({
     value,
     onChange,
@@ -109,7 +118,7 @@ export function MarkdownNotebook({
     const [document, setDocument] = useState<NotebookDocument>(() => parseMarkdownNotebook(value))
     const [floatingToolbar, setFloatingToolbar] = useState<FloatingToolbarState | null>(null)
     const [insertMenu, setInsertMenu] = useState<{ nodeId: string; query: string } | null>(null)
-    const [componentModes, setComponentModes] = useState<Record<string, NotebookMode>>({})
+    const [componentPanels, setComponentPanels] = useState<Record<string, ComponentPanelVisibility>>({})
     const documentRef = useRef(document)
     const blockRefs = useRef<Record<string, HTMLElement | null>>({})
     const restoreSelectionRef = useRef<RestoreSelectionRequest | null>(null)
@@ -396,9 +405,18 @@ export function MarkdownNotebook({
                             mode,
                             placeholder,
                             registry: mergedRegistry,
-                            componentMode: componentModes[node.id] ?? 'view',
-                            setComponentMode: (nextMode) =>
-                                setComponentModes((current) => ({ ...current, [node.id]: nextMode })),
+                            componentPanels: componentPanels[node.id] ?? DEFAULT_COMPONENT_PANEL_VISIBILITY,
+                            toggleComponentPanel: (panel) =>
+                                setComponentPanels((current) => {
+                                    const currentPanels = current[node.id] ?? DEFAULT_COMPONENT_PANEL_VISIBILITY
+                                    return {
+                                        ...current,
+                                        [node.id]: {
+                                            ...currentPanels,
+                                            [panel]: !currentPanels[panel],
+                                        },
+                                    }
+                                }),
                             setBlockRef: (element) => {
                                 blockRefs.current[node.id] = element
                             },
@@ -439,8 +457,8 @@ function renderNode({
     mode,
     placeholder,
     registry,
-    componentMode,
-    setComponentMode,
+    componentPanels,
+    toggleComponentPanel,
     setBlockRef,
     updateNode,
     replaceNodeWithNodes,
@@ -454,8 +472,8 @@ function renderNode({
     mode: NotebookMode
     placeholder: string
     registry: NotebookComponentRegistry
-    componentMode: NotebookMode
-    setComponentMode: (mode: NotebookMode) => void
+    componentPanels: ComponentPanelVisibility
+    toggleComponentPanel: (panel: ComponentPanel) => void
     setBlockRef: (element: HTMLElement | null) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
@@ -470,9 +488,9 @@ function renderNode({
             <NotebookComponentShell
                 node={node}
                 mode={mode}
-                componentMode={componentMode}
+                componentPanels={componentPanels}
                 registry={registry}
-                setComponentMode={setComponentMode}
+                toggleComponentPanel={toggleComponentPanel}
                 updateNode={updateNode}
                 deleteNode={deleteNode}
             />
@@ -727,24 +745,26 @@ function FormattingToolbar({
 function NotebookComponentShell({
     node,
     mode,
-    componentMode,
+    componentPanels,
     registry,
-    setComponentMode,
+    toggleComponentPanel,
     updateNode,
     deleteNode,
 }: {
     node: NotebookComponentBlockNode
     mode: NotebookMode
-    componentMode: NotebookMode
+    componentPanels: ComponentPanelVisibility
     registry: NotebookComponentRegistry
-    setComponentMode: (mode: NotebookMode) => void
+    toggleComponentPanel: (panel: ComponentPanel) => void
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     deleteNode: () => void
 }): JSX.Element {
     const definition = getMarkdownNotebookComponentDefinition(registry, node.tagName)
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
-    const Component =
-        componentMode === 'edit' ? (definition?.EditComponent ?? definition?.ViewComponent) : definition?.ViewComponent
+    const ViewComponent = definition?.ViewComponent
+    const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
+    const showViewPanel = mode === 'view' || componentPanels.view
+    const showEditPanel = mode === 'edit' && componentPanels.edit
     const updateProps = (props: Partial<NotebookComponentProps>): void => {
         const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
             if (value !== undefined) {
@@ -784,16 +804,16 @@ function NotebookComponentShell({
                         <LemonButton
                             size="xsmall"
                             icon={<IconEye />}
-                            active={componentMode === 'view'}
+                            active={componentPanels.view}
                             tooltip="View mode"
-                            onClick={() => setComponentMode('view')}
+                            onClick={() => toggleComponentPanel('view')}
                         />
                         <LemonButton
                             size="xsmall"
                             icon={<IconPencil />}
-                            active={componentMode === 'edit'}
+                            active={componentPanels.edit}
                             tooltip="Edit mode"
-                            onClick={() => setComponentMode('edit')}
+                            onClick={() => toggleComponentPanel('edit')}
                         />
                         <LemonButton
                             size="xsmall"
@@ -812,11 +832,20 @@ function NotebookComponentShell({
                     ))}
                 </div>
             ) : null}
-            {Component ? (
-                <Component node={node} mode={componentMode} updateProps={updateProps} />
-            ) : (
-                <pre>{JSON.stringify(node.props, null, 2)}</pre>
-            )}
+            {showEditPanel && EditComponent ? (
+                <div className="MarkdownNotebook__component-panel">
+                    <EditComponent node={node} mode="edit" updateProps={updateProps} />
+                </div>
+            ) : null}
+            {showViewPanel ? (
+                <div className="MarkdownNotebook__component-panel">
+                    {ViewComponent ? (
+                        <ViewComponent node={node} mode="view" updateProps={updateProps} />
+                    ) : (
+                        <pre>{JSON.stringify(node.props, null, 2)}</pre>
+                    )}
+                </div>
+            ) : null}
         </div>
     )
 }

@@ -165,4 +165,30 @@ Activation improved today.`
 
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
     })
+
+    it('toggles component view and edit panels independently with edit above view', () => {
+        const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
+        const shell = container.querySelector('.MarkdownNotebook__component-shell')
+        const actionButtons = Array.from(
+            container.querySelectorAll('.MarkdownNotebook__component-actions button')
+        ) as HTMLButtonElement[]
+
+        expect(shell).toBeInstanceOf(HTMLElement)
+        expect(actionButtons).toHaveLength(3)
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()
+
+        fireEvent.click(actionButtons[1])
+
+        const stackedPanels = Array.from(shell?.querySelectorAll('.MarkdownNotebook__component-panel') ?? [])
+        expect(stackedPanels).toHaveLength(2)
+        expect(stackedPanels[0].querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+        expect(stackedPanels[1].querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
+
+        fireEvent.click(actionButtons[0])
+
+        expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeInstanceOf(HTMLElement)
+    })
 })
