@@ -3,10 +3,14 @@ from typing import Literal
 
 from django.db.models import Q
 
+import structlog
+
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
+
+logger = structlog.get_logger(__name__)
 
 ResolutionSource = Literal[
     "thread",
@@ -133,4 +137,119 @@ def load_integrations(
         user=user,
         channel=channel,
         thread_ts=thread_ts,
+    )
+
+
+@dataclass
+class UserAndIntegrationsResolution:
+    """Outcome of the combined workspace + user identification + access-filter step.
+
+    ``workspace_result`` is always set. Its ``.candidates`` empty means no local
+    workspace integration exists; the caller proxies / drops at the
+    region-routing layer.
+
+    ``user`` is ``None`` when no PostHog user resolved or none had access — both
+    cases are silently logged inside ``resolve_user_and_integrations`` under
+    ``posthog_code_no_integration_found``. ``integration`` and ``candidates``
+    are only populated on the happy path; ``source`` mirrors
+    ``ResolutionResult.source`` (or ``needs_picker`` if the resolved target was
+    inaccessible and got dropped).
+    """
+
+    workspace_result: ResolutionResult
+    user: User | None = None
+    integration: Integration | None = None
+    candidates: list[Integration] = field(default_factory=list)
+    source: ResolutionSource = "needs_picker"
+
+
+def resolve_user_and_integrations(
+    *,
+    slack_team_id: str,
+    kinds: list[str],
+    slack_user_id: str,
+    channel: str | None = None,
+    thread_ts: str | None = None,
+    event_id: str | None = None,
+) -> UserAndIntegrationsResolution:
+    """One-shot routing: workspace candidates + user identification + access filter.
+
+    On the happy path, ``user`` / ``integration`` / ``candidates`` / ``source``
+    are populated. The user gate fails silently with ``user=None`` (logged here
+    as ``posthog_code_no_integration_found``); the empty
+    ``workspace_result.candidates`` case is left for the caller to handle at the
+    region-routing layer (proxy or drop).
+
+    Region routing happens around this call: the user-resolution work runs even
+    on cross-region yielded events, but the ``SlackUserProfileCache`` typically
+    absorbs the Slack API hit.
+    """
+    # The user resolver lives in api.py alongside the Slack-API helpers it
+    # depends on (``_get_slack_user_info`` etc). Inline-imported to break the
+    # cycle until those helpers are factored out into a shared module.
+    from products.slack_app.backend.api import _resolve_posthog_user_from_event
+
+    workspace_result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=kinds,
+        slack_user_id=slack_user_id,
+        user=None,
+        channel=channel,
+        thread_ts=thread_ts,
+    )
+    if not workspace_result.candidates:
+        return UserAndIntegrationsResolution(workspace_result=workspace_result)
+
+    if not slack_user_id:
+        logger.warning(
+            "posthog_code_no_integration_found",
+            reason="user_not_found",
+            slack_team_id=slack_team_id,
+            slack_user_id=None,
+            event_id=event_id,
+        )
+        return UserAndIntegrationsResolution(workspace_result=workspace_result)
+
+    posthog_user = _resolve_posthog_user_from_event(
+        slack_user_id=slack_user_id,
+        probe_integration=workspace_result.candidates[0],
+        candidate_integrations=workspace_result.candidates,
+    )
+    if posthog_user is None:
+        logger.warning(
+            "posthog_code_no_integration_found",
+            reason="user_not_found",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+            event_id=event_id,
+        )
+        return UserAndIntegrationsResolution(workspace_result=workspace_result)
+
+    # Filter to integrations the user can access. A resolved target the user can't
+    # reach is dropped so the caller falls through to the picker / sole-candidate
+    # path rather than auto-redirecting to a default the thread didn't imply.
+    accessible_team_ids = set(posthog_user.teams.values_list("id", flat=True))
+    accessible_candidates = [c for c in workspace_result.candidates if c.team_id in accessible_team_ids]
+    if not accessible_candidates:
+        logger.warning(
+            "posthog_code_no_integration_found",
+            reason="no_team_access",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+            user_id=posthog_user.id,
+            event_id=event_id,
+        )
+        return UserAndIntegrationsResolution(workspace_result=workspace_result)
+
+    target = (
+        workspace_result.integration
+        if workspace_result.integration is not None and workspace_result.integration.team_id in accessible_team_ids
+        else None
+    )
+    return UserAndIntegrationsResolution(
+        workspace_result=workspace_result,
+        user=posthog_user,
+        integration=target,
+        candidates=accessible_candidates,
+        source=workspace_result.source if target is not None else "needs_picker",
     )

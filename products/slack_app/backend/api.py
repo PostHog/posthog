@@ -54,14 +54,11 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.models import SlackChannel, SlackUserProfileCache
-from products.slack_app.backend.services.integration import (
-    ResolutionResult,
-    UserNarrowedResolution,
-    apply_user_access,
+from products.slack_app.backend.services.integration_resolver import (
     format_project_candidate_list,
-    resolve_workspace_routing,
+    load_integrations,
+    resolve_user_and_integrations,
 )
-from products.slack_app.backend.services.integration_resolver import load_integrations
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
 
 logger = structlog.get_logger(__name__)
@@ -1444,62 +1441,6 @@ def _resolve_posthog_user_from_event(
     return None
 
 
-def resolve_user_and_narrow_candidates(
-    *,
-    slack_user_id: str,
-    workspace_result: ResolutionResult,
-    slack_team_id: str,
-    event_id: str | None,
-) -> UserNarrowedResolution | None:
-    """Identify the Slack user as a PostHog ``User`` and narrow the workspace
-    routing result to integrations they can access.
-
-    Returns ``None`` and logs ``posthog_code_no_integration_found`` with the
-    precise reason (``user_not_found`` vs ``no_team_access``) when either gate
-    fails. The caller treats both as silent drops.
-    """
-    if not slack_user_id:
-        logger.warning(
-            "posthog_code_no_integration_found",
-            reason="user_not_found",
-            slack_team_id=slack_team_id,
-            slack_user_id=None,
-            event_id=event_id,
-        )
-        return None
-    posthog_user = _resolve_posthog_user_from_event(
-        slack_user_id=slack_user_id,
-        probe_integration=workspace_result.candidates[0],
-        candidate_integrations=workspace_result.candidates,
-    )
-    if posthog_user is None:
-        logger.warning(
-            "posthog_code_no_integration_found",
-            reason="user_not_found",
-            slack_team_id=slack_team_id,
-            slack_user_id=slack_user_id,
-            event_id=event_id,
-        )
-        return None
-    narrowed = apply_user_access(workspace_result, posthog_user)
-    if not narrowed.candidates:
-        logger.warning(
-            "posthog_code_no_integration_found",
-            reason="no_team_access",
-            slack_team_id=slack_team_id,
-            slack_user_id=slack_user_id,
-            user_id=posthog_user.id,
-            event_id=event_id,
-        )
-        return None
-    return UserNarrowedResolution(
-        user=posthog_user,
-        integration=narrowed.integration,
-        candidates=narrowed.candidates,
-        source=narrowed.source,
-    )
-
-
 def _post_pick_a_project_hint(
     probe: SlackIntegration,
     candidates: list[Integration],
@@ -1591,40 +1532,35 @@ def route_posthog_code_event_to_relevant_region(
             )
             return ROUTE_HANDLED_LOCALLY
 
-        # Step 1: resolve workspace candidates with thread + SlackSettings defaults applied
-        # (user-agnostic). Anything past this point routes against the narrowed result.
         slack_user_id_str = str(event.get("user") or "")
         channel_str = event.get("channel") if isinstance(event.get("channel"), str) else None
         thread_ts_value = event.get("thread_ts") or event.get("ts")
         thread_ts_str = thread_ts_value if isinstance(thread_ts_value, str) else None
-        workspace_result = resolve_workspace_routing(
+
+        # One-shot: workspace routing + user identification + access filter. The helper
+        # owns ``posthog_code_no_integration_found`` logging for the user-gate failures;
+        # the "no local workspace" case is signalled by an empty ``workspace_result``
+        # and handled by the region-routing branches below.
+        resolution = resolve_user_and_integrations(
             slack_team_id=slack_team_id,
             kinds=[SLACK_INTEGRATION_KIND],
             slack_user_id=slack_user_id_str,
             channel=channel_str,
             thread_ts=thread_ts_str,
+            event_id=event_id,
         )
-        if not workspace_result.candidates:
+        if not resolution.workspace_result.candidates:
             return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
 
         if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
             return _proxy_event_and_return_route(request, other_domain)
 
-        # Step 2: identify the Slack user as a PostHog ``User`` and narrow to integrations
-        # they can access. Logging of both failure modes (``user_not_found`` /
-        # ``no_team_access``) is owned by the helper.
-        narrowed = resolve_user_and_narrow_candidates(
-            slack_user_id=slack_user_id_str,
-            workspace_result=workspace_result,
-            slack_team_id=slack_team_id,
-            event_id=event_id,
-        )
-        if narrowed is None:
+        if resolution.user is None:
             return ROUTE_HANDLED_LOCALLY
 
-        posthog_user = narrowed.user
-        candidates = narrowed.candidates
-        target = narrowed.integration
+        posthog_user = resolution.user
+        candidates = resolution.candidates
+        target = resolution.integration
 
         if _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
