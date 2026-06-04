@@ -408,7 +408,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(body["by_type"]["summarizer"], {"enabled": 0, "total": 0})
 
     def test_stats_endpoint_respects_per_scanner_access_control(self) -> None:
-        visible = self._create_scanner(name="visible")
+        self._create_scanner(name="visible")
         hidden = self._create_scanner(name="hidden")
         with patch(
             "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
@@ -417,7 +417,6 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             resp = self.client.get(f"{self.scanners_url}stats/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["total"], 1)
-        self.assertEqual(visible.id, ReplayScanner.objects.filter(name="visible").first().id)
 
     def test_creators_endpoint_respects_per_scanner_access_control(self) -> None:
         other = User.objects.create_and_join(self.team.organization, "hidden@example.com", "pw")
