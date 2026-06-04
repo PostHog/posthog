@@ -21,7 +21,17 @@ import {
     useState,
 } from 'react'
 
-import { IconCode, IconDatabase, IconEye, IconGraph, IconList, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import {
+    IconCode,
+    IconDatabase,
+    IconEye,
+    IconGraph,
+    IconList,
+    IconMinus,
+    IconPencil,
+    IconPlus,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
@@ -59,7 +69,13 @@ import {
     NotebookTextBlockNode,
     NotebookTextSelectionRange,
 } from './types'
-import { cloneNotebookNode, getInlineText, getNodeFingerprint, normalizeInlineNodes } from './utils'
+import {
+    cloneNotebookDocument,
+    cloneNotebookNode,
+    getInlineText,
+    getNodeFingerprint,
+    normalizeInlineNodes,
+} from './utils'
 
 export type MarkdownNotebookProps = {
     value: string
@@ -90,6 +106,7 @@ type InsertCommand = {
     label: string
     category: string
     description?: string
+    aliases?: string[]
     icon?: JSX.Element
     run: (targetNodeId: string) => void
 }
@@ -123,6 +140,15 @@ type CrossBlockSelectionDragState = {
     originX: number
     originY: number
     isDragging: boolean
+}
+
+type CommitDocumentOptions = {
+    addToHistory?: boolean
+}
+
+type NotebookHistoryState = {
+    undo: NotebookDocument[]
+    redo: NotebookDocument[]
 }
 
 type ComponentPanel = 'view' | 'edit'
@@ -160,6 +186,7 @@ type NotebookComponentShellProps = {
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     deleteNode: () => void
     insertParagraphAfterNode: () => void
+    moveFocusToAdjacentNode: (nodeId: string, direction: InsertMenuSelectionDirection, offset: number) => boolean
 }
 
 const DEFAULT_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
@@ -177,9 +204,10 @@ const CROSS_BLOCK_SELECTION_DRAG_THRESHOLD = 4
 const INSERT_MENU_GAP = 12
 const INSERT_MENU_MAX_HEIGHT = 448
 const INSERT_MENU_MIN_HEIGHT = 120
-const INSERT_MENU_PLACEHOLDER = 'Search for tool'
+const INSERT_MENU_PLACEHOLDER = 'Search for a tool'
 const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
+const MAX_UNDO_HISTORY_ENTRIES = 100
 const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR =
     '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block'
 
@@ -220,6 +248,7 @@ export function MarkdownNotebook({
     const crossBlockSelectionRef = useRef<CrossBlockSelectionDragState | null>(null)
     const focusNodeRef = useRef<string | null>(null)
     const restoreSelectionRef = useRef<RestoreSelectionRequest | null>(null)
+    const historyRef = useRef<NotebookHistoryState>({ undo: [], redo: [] })
     const lastSerializedValueRef = useRef(value)
     const lastBaseValueRef = useRef(value)
     const lastRemoteValueRef = useRef(remoteValue)
@@ -246,6 +275,7 @@ export function MarkdownNotebook({
             return reconciledDocument
         })
         setDebugMarkdown(value)
+        historyRef.current = { undo: [], redo: [] }
         lastSerializedValueRef.current = value
         lastBaseValueRef.current = value
     }, [value])
@@ -262,7 +292,8 @@ export function MarkdownNotebook({
         })
         lastRemoteValueRef.current = remoteValue
         lastBaseValueRef.current = mergeResult.mergedMarkdown
-        commitDocument(mergeResult.document)
+        historyRef.current = { undo: [], redo: [] }
+        commitDocument(mergeResult.document, { addToHistory: false })
 
         if (mergeResult.conflicts.length) {
             onConflict?.(mergeResult.conflicts)
@@ -320,8 +351,19 @@ export function MarkdownNotebook({
     }, [initialInsertMenu, mode])
 
     const commitDocument = useCallback(
-        (nextDocument: NotebookDocument): void => {
+        (nextDocument: NotebookDocument, options: CommitDocumentOptions = {}): void => {
             const editableDocument = ensureEditableTrailingParagraph(nextDocument)
+            const previousDocument = documentRef.current
+            if ((options.addToHistory ?? true) && !areNotebookDocumentsEqual(previousDocument, editableDocument)) {
+                historyRef.current = {
+                    undo: [
+                        ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
+                        cloneNotebookDocument(previousDocument),
+                    ],
+                    redo: [],
+                }
+            }
+
             const serialized = serializeMarkdownNotebook(editableDocument)
             documentRef.current = editableDocument
             lastSerializedValueRef.current = serialized
@@ -331,6 +373,49 @@ export function MarkdownNotebook({
         },
         [onChange]
     )
+
+    const restoreHistoryDocument = useCallback(
+        (targetDocument: NotebookDocument): void => {
+            const editableDocument = ensureEditableTrailingParagraph(cloneNotebookDocument(targetDocument))
+            restoreSelectionRef.current = getHistoryRestoreSelection(editableDocument)
+            commitDocument(editableDocument, { addToHistory: false })
+        },
+        [commitDocument]
+    )
+
+    const undoHistory = useCallback((): boolean => {
+        const previousDocument = historyRef.current.undo[historyRef.current.undo.length - 1]
+        if (!previousDocument) {
+            return false
+        }
+
+        historyRef.current = {
+            undo: historyRef.current.undo.slice(0, -1),
+            redo: [
+                ...historyRef.current.redo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
+                cloneNotebookDocument(documentRef.current),
+            ],
+        }
+        restoreHistoryDocument(previousDocument)
+        return true
+    }, [restoreHistoryDocument])
+
+    const redoHistory = useCallback((): boolean => {
+        const nextDocument = historyRef.current.redo[historyRef.current.redo.length - 1]
+        if (!nextDocument) {
+            return false
+        }
+
+        historyRef.current = {
+            undo: [
+                ...historyRef.current.undo.slice(-(MAX_UNDO_HISTORY_ENTRIES - 1)),
+                cloneNotebookDocument(documentRef.current),
+            ],
+            redo: historyRef.current.redo.slice(0, -1),
+        }
+        restoreHistoryDocument(nextDocument)
+        return true
+    }, [restoreHistoryDocument])
 
     const updateNode = useCallback(
         (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null): void => {
@@ -900,12 +985,40 @@ export function MarkdownNotebook({
         [moveFocusToAdjacentNode]
     )
 
+    const handleNotebookKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (mode !== 'edit' || event.altKey || !(event.metaKey || event.ctrlKey)) {
+            return
+        }
+
+        if (event.target instanceof HTMLElement && event.target.closest('.MarkdownNotebook__debug-drawer')) {
+            return
+        }
+
+        const key = event.key.toLowerCase()
+        const handled =
+            key === 'z'
+                ? event.shiftKey
+                    ? redoHistory()
+                    : undoHistory()
+                : key === 'y' && !event.shiftKey
+                  ? redoHistory()
+                  : false
+
+        if (!handled) {
+            return
+        }
+
+        event.preventDefault()
+        event.stopPropagation()
+    }
+
     return (
         <div
             className={clsx('MarkdownNotebook', isDebugOpen && 'MarkdownNotebook--debug-open', className)}
             data-attr={dataAttr}
             ref={notebookRef}
             onCopy={handleCopy}
+            onKeyDownCapture={handleNotebookKeyDown}
         >
             <div className="MarkdownNotebook__debug-layout">
                 <div className="MarkdownNotebook__main">
@@ -1242,6 +1355,7 @@ function renderNode({
                 updateNode={updateNode}
                 deleteNode={deleteNode}
                 insertParagraphAfterNode={insertParagraphAfterNode}
+                moveFocusToAdjacentNode={moveFocusToAdjacentNode}
             />
         )
     }
@@ -1682,6 +1796,60 @@ function EditableListItemContent({
     )
 }
 
+type TableStructureControlLayout = {
+    tableLeft: number
+    tableTop: number
+    tableWidth: number
+    tableHeight: number
+    rowInsertTops: number[]
+    rowRemoveRects: { top: number; height: number }[]
+    columnInsertLefts: number[]
+    columnRemoveRects: { left: number; width: number }[]
+}
+
+function areNumberArraysEqual(left: number[], right: number[]): boolean {
+    return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
+function areControlRectsEqual(
+    left: { top?: number; left?: number; width?: number; height?: number }[],
+    right: { top?: number; left?: number; width?: number; height?: number }[]
+): boolean {
+    return (
+        left.length === right.length &&
+        left.every((value, index) => {
+            const rightValue = right[index]
+            return (
+                value.top === rightValue.top &&
+                value.left === rightValue.left &&
+                value.width === rightValue.width &&
+                value.height === rightValue.height
+            )
+        })
+    )
+}
+
+function areTableStructureControlLayoutsEqual(
+    left: TableStructureControlLayout | null,
+    right: TableStructureControlLayout
+): boolean {
+    return Boolean(
+        left &&
+        left.tableLeft === right.tableLeft &&
+        left.tableTop === right.tableTop &&
+        left.tableWidth === right.tableWidth &&
+        left.tableHeight === right.tableHeight &&
+        areNumberArraysEqual(left.rowInsertTops, right.rowInsertTops) &&
+        areControlRectsEqual(left.rowRemoveRects, right.rowRemoveRects) &&
+        areNumberArraysEqual(left.columnInsertLefts, right.columnInsertLefts) &&
+        areControlRectsEqual(left.columnRemoveRects, right.columnRemoveRects)
+    )
+}
+
+function tableControlStyle(variables: Record<string, string>): CSSProperties {
+    return variables as CSSProperties
+}
+
 function EditableTableBlock({
     node,
     mode,
@@ -1713,6 +1881,96 @@ function EditableTableBlock({
     const columnCount = getTableColumnCount(node)
     const headers = normalizeTableRow(node.headers, columnCount)
     const rows = node.rows.map((row) => normalizeTableRow(row, columnCount))
+    const tableGridRef = useRef<HTMLDivElement | null>(null)
+    const tableRef = useRef<HTMLTableElement | null>(null)
+    const [controlLayout, setControlLayout] = useState<TableStructureControlLayout | null>(null)
+
+    const updateTableControlLayout = useCallback((): void => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const tableGrid = tableGridRef.current
+        const table = tableRef.current
+        if (!tableGrid || !table) {
+            return
+        }
+
+        const gridRect = tableGrid.getBoundingClientRect()
+        const tableRect = table.getBoundingClientRect()
+        const headerRow = table.tHead?.rows[0]
+        const bodyRows = Array.from(table.tBodies[0]?.rows ?? [])
+        const headerCells = headerRow ? Array.from(headerRow.cells) : []
+
+        const rowInsertTops = headerRow
+            ? [
+                  headerRow.getBoundingClientRect().bottom - gridRect.top,
+                  ...bodyRows.map((row) => row.getBoundingClientRect().bottom - gridRect.top),
+              ]
+            : []
+        const rowRemoveRects = bodyRows.map((row) => {
+            const rowRect = row.getBoundingClientRect()
+            return {
+                top: rowRect.top - gridRect.top,
+                height: rowRect.height,
+            }
+        })
+        const columnInsertLefts = headerCells.length
+            ? [
+                  headerCells[0].getBoundingClientRect().left - gridRect.left,
+                  ...headerCells.map((cell) => cell.getBoundingClientRect().right - gridRect.left),
+              ]
+            : []
+        const columnRemoveRects = headerCells.map((cell) => {
+            const cellRect = cell.getBoundingClientRect()
+            return {
+                left: cellRect.left - gridRect.left,
+                width: cellRect.width,
+            }
+        })
+
+        const nextLayout: TableStructureControlLayout = {
+            tableLeft: tableRect.left - gridRect.left,
+            tableTop: tableRect.top - gridRect.top,
+            tableWidth: tableRect.width,
+            tableHeight: tableRect.height,
+            rowInsertTops,
+            rowRemoveRects,
+            columnInsertLefts,
+            columnRemoveRects,
+        }
+
+        setControlLayout((previousLayout) =>
+            areTableStructureControlLayoutsEqual(previousLayout, nextLayout) ? previousLayout : nextLayout
+        )
+    }, [mode])
+
+    useLayoutEffect(() => {
+        updateTableControlLayout()
+    }, [columnCount, rows.length, updateTableControlLayout])
+
+    useEffect(() => {
+        if (mode !== 'edit') {
+            return
+        }
+
+        const table = tableRef.current
+        const ownerWindow = table?.ownerDocument.defaultView
+        if (!table || !ownerWindow) {
+            return
+        }
+
+        updateTableControlLayout()
+
+        if (ownerWindow.ResizeObserver) {
+            const resizeObserver = new ownerWindow.ResizeObserver(updateTableControlLayout)
+            resizeObserver.observe(table)
+            return () => resizeObserver.disconnect()
+        }
+
+        ownerWindow.addEventListener('resize', updateTableControlLayout)
+        return () => ownerWindow.removeEventListener('resize', updateTableControlLayout)
+    }, [mode, updateTableControlLayout])
 
     const updateTableCell = (position: TableCellPosition, children: NotebookInlineNode[]): void => {
         updateNode(node.id, (currentNode) => {
@@ -1735,19 +1993,130 @@ function EditableTableBlock({
     }
 
     const addTableRowAfter = (rowIndex: number, columnIndex: number): void => {
+        const insertIndex = Math.max(0, Math.min(rowIndex + 1, rows.length))
         updateNode(node.id, (currentNode) => {
             if (currentNode.type !== 'table') {
                 return currentNode
             }
 
             const nextRows = currentNode.rows.map((row) => normalizeTableRow(row, columnCount))
-            const insertIndex = Math.max(0, Math.min(rowIndex + 1, nextRows.length))
             nextRows.splice(insertIndex, 0, makeEmptyTableRow(columnCount))
             return { ...currentNode, rows: nextRows }
         })
         restoreSelectionRef.current = {
             nodeId: node.id,
-            tableCell: { section: 'body', rowIndex: rowIndex + 1, columnIndex },
+            tableCell: { section: 'body', rowIndex: insertIndex, columnIndex },
+            start: 0,
+            end: 0,
+        }
+    }
+
+    const removeTableRow = (rowIndex: number): void => {
+        if (!rows.length) {
+            return
+        }
+
+        const removeIndex = Math.max(0, Math.min(rowIndex, rows.length - 1))
+        const nextRowCount = rows.length - 1
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'table') {
+                return currentNode
+            }
+
+            const nextRows = currentNode.rows
+                .map((row) => normalizeTableRow(row, columnCount))
+                .filter((_, currentRowIndex) => currentRowIndex !== removeIndex)
+            return { ...currentNode, rows: nextRows }
+        })
+        restoreSelectionRef.current = nextRowCount
+            ? {
+                  nodeId: node.id,
+                  tableCell: {
+                      section: 'body',
+                      rowIndex: Math.max(0, Math.min(removeIndex, nextRowCount - 1)),
+                      columnIndex: 0,
+                  },
+                  start: 0,
+                  end: 0,
+              }
+            : {
+                  nodeId: node.id,
+                  tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
+                  start: 0,
+                  end: 0,
+              }
+    }
+
+    const addTableColumnAfter = (columnIndex: number): void => {
+        const insertIndex = Math.max(0, Math.min(columnIndex + 1, columnCount))
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'table') {
+                return currentNode
+            }
+
+            const nextHeaders = normalizeTableRow(currentNode.headers, columnCount)
+            nextHeaders.splice(insertIndex, 0, { children: [] })
+            const nextRows = currentNode.rows.map((row) => {
+                const nextRow = normalizeTableRow(row, columnCount)
+                nextRow.splice(insertIndex, 0, { children: [] })
+                return nextRow
+            })
+            const nextAlignments = currentNode.alignments
+                ? Array.from({ length: columnCount }, (_, index) => currentNode.alignments?.[index])
+                : undefined
+            nextAlignments?.splice(insertIndex, 0, undefined)
+
+            return {
+                ...currentNode,
+                headers: nextHeaders,
+                rows: nextRows,
+                alignments: nextAlignments,
+            }
+        })
+        restoreSelectionRef.current = {
+            nodeId: node.id,
+            tableCell: { section: 'header', rowIndex: 0, columnIndex: insertIndex },
+            start: 0,
+            end: 0,
+        }
+    }
+
+    const removeTableColumn = (columnIndex: number): void => {
+        if (columnCount <= 1) {
+            return
+        }
+
+        const removeIndex = Math.max(0, Math.min(columnIndex, columnCount - 1))
+        const nextColumnIndex = Math.max(0, Math.min(removeIndex, columnCount - 2))
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'table') {
+                return currentNode
+            }
+
+            const nextHeaders = normalizeTableRow(currentNode.headers, columnCount).filter(
+                (_, currentColumnIndex) => currentColumnIndex !== removeIndex
+            )
+            const nextRows = currentNode.rows.map((row) =>
+                normalizeTableRow(row, columnCount).filter(
+                    (_, currentColumnIndex) => currentColumnIndex !== removeIndex
+                )
+            )
+            const nextAlignments = currentNode.alignments
+                ? Array.from({ length: columnCount }, (_, index) => currentNode.alignments?.[index]).filter(
+                      (_, currentColumnIndex) => currentColumnIndex !== removeIndex
+                  )
+                : undefined
+
+            return {
+                ...currentNode,
+                headers: nextHeaders,
+                rows: nextRows,
+                alignments: nextAlignments,
+            }
+        })
+        restoreSelectionRef.current = {
+            nodeId: node.id,
+            tableCell: { section: 'header', rowIndex: 0, columnIndex: nextColumnIndex },
             start: 0,
             end: 0,
         }
@@ -1776,55 +2145,218 @@ function EditableTableBlock({
         addTableRowAfter(position.rowIndex, position.columnIndex)
     }
 
+    const tableLeft = controlLayout?.tableLeft ?? 0
+    const tableTop = controlLayout?.tableTop ?? 0
+    const tableWidth = controlLayout?.tableWidth ?? 0
+    const tableHeight = controlLayout?.tableHeight ?? 0
+    const rowInsertControls = [
+        {
+            key: 'row-start',
+            rowIndex: -1,
+            top: controlLayout?.rowInsertTops[0] ?? tableTop,
+            label: rows.length ? 'Add row before row 1' : 'Add row',
+            tooltip: rows.length ? 'Add row above' : 'Add row',
+        },
+        ...rows.map((_, rowIndex) => ({
+            key: `row-after-${rowIndex}`,
+            rowIndex,
+            top: controlLayout?.rowInsertTops[rowIndex + 1] ?? tableTop,
+            label: `Add row after row ${rowIndex + 1}`,
+            tooltip: 'Add row below',
+        })),
+    ]
+    const columnInsertControls = [
+        {
+            key: 'column-start',
+            columnIndex: -1,
+            left: controlLayout?.columnInsertLefts[0] ?? tableLeft,
+            label: 'Add column before column 1',
+            tooltip: 'Add column before',
+        },
+        ...headers.map((_, columnIndex) => ({
+            key: `column-after-${columnIndex}`,
+            columnIndex,
+            left: controlLayout?.columnInsertLefts[columnIndex + 1] ?? tableLeft,
+            label: `Add column after column ${columnIndex + 1}`,
+            tooltip: 'Add column after',
+        })),
+    ]
+
     return (
-        <div className="MarkdownNotebook__table-block" ref={setBlockRef}>
-            <table>
-                <thead>
-                    <tr>
-                        {headers.map((cell, columnIndex) => (
-                            <th key={columnIndex}>
-                                <EditableTableCellContent
-                                    node={node}
-                                    cell={cell}
-                                    position={{ section: 'header', rowIndex: 0, columnIndex }}
-                                    mode={mode}
-                                    setTableCellRef={setTableCellRef}
-                                    updateTableCell={updateTableCell}
-                                    moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
-                                    handleTableCellEnter={handleTableCellEnter}
-                                    handleSelectionChange={handleSelectionChange}
-                                    startCrossBlockSelection={startCrossBlockSelection}
-                                    restoreSelectionRef={restoreSelectionRef}
-                                />
-                            </th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {rows.map((row, rowIndex) => (
-                        <tr key={rowIndex}>
-                            {row.map((cell, columnIndex) => (
-                                <td key={columnIndex}>
-                                    <EditableTableCellContent
-                                        node={node}
-                                        cell={cell}
-                                        position={{ section: 'body', rowIndex, columnIndex }}
-                                        mode={mode}
-                                        setTableCellRef={setTableCellRef}
-                                        updateTableCell={updateTableCell}
-                                        moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
-                                        handleTableCellEnter={handleTableCellEnter}
-                                        handleSelectionChange={handleSelectionChange}
-                                        startCrossBlockSelection={startCrossBlockSelection}
-                                        restoreSelectionRef={restoreSelectionRef}
-                                    />
-                                </td>
+        <div
+            className={clsx(
+                'MarkdownNotebook__table-block',
+                mode === 'edit' && 'MarkdownNotebook__table-block--editable'
+            )}
+            ref={setBlockRef}
+        >
+            <div className="MarkdownNotebook__table-scroll">
+                <div className="MarkdownNotebook__table-grid" ref={tableGridRef}>
+                    <table ref={tableRef}>
+                        <thead>
+                            <tr>
+                                {headers.map((cell, columnIndex) => (
+                                    <th key={columnIndex}>
+                                        <EditableTableCellContent
+                                            node={node}
+                                            cell={cell}
+                                            position={{ section: 'header', rowIndex: 0, columnIndex }}
+                                            mode={mode}
+                                            setTableCellRef={setTableCellRef}
+                                            updateTableCell={updateTableCell}
+                                            moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
+                                            handleTableCellEnter={handleTableCellEnter}
+                                            handleSelectionChange={handleSelectionChange}
+                                            startCrossBlockSelection={startCrossBlockSelection}
+                                            restoreSelectionRef={restoreSelectionRef}
+                                        />
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows.map((row, rowIndex) => (
+                                <tr key={rowIndex}>
+                                    {row.map((cell, columnIndex) => (
+                                        <td key={columnIndex}>
+                                            <EditableTableCellContent
+                                                node={node}
+                                                cell={cell}
+                                                position={{ section: 'body', rowIndex, columnIndex }}
+                                                mode={mode}
+                                                setTableCellRef={setTableCellRef}
+                                                updateTableCell={updateTableCell}
+                                                moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
+                                                handleTableCellEnter={handleTableCellEnter}
+                                                handleSelectionChange={handleSelectionChange}
+                                                startCrossBlockSelection={startCrossBlockSelection}
+                                                restoreSelectionRef={restoreSelectionRef}
+                                            />
+                                        </td>
+                                    ))}
+                                </tr>
                             ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+                        </tbody>
+                    </table>
+                    {mode === 'edit' ? (
+                        <div className="MarkdownNotebook__table-structure-overlay">
+                            {rowInsertControls.map((control) => (
+                                <div
+                                    className="MarkdownNotebook__table-add-zone MarkdownNotebook__table-row-add-zone"
+                                    key={control.key}
+                                    style={tableControlStyle({
+                                        '--table-control-left': `${tableLeft}px`,
+                                        '--table-control-top': `${control.top}px`,
+                                        '--table-control-width': `${tableWidth}px`,
+                                    })}
+                                >
+                                    <TableStructureControlButton
+                                        label={control.label}
+                                        tooltip={control.tooltip}
+                                        icon={<IconPlus />}
+                                        onClick={() => addTableRowAfter(control.rowIndex, 0)}
+                                    />
+                                </div>
+                            ))}
+                            {columnInsertControls.map((control) => (
+                                <div
+                                    className="MarkdownNotebook__table-add-zone MarkdownNotebook__table-column-add-zone"
+                                    key={control.key}
+                                    style={tableControlStyle({
+                                        '--table-control-left': `${control.left}px`,
+                                        '--table-control-top': `${tableTop}px`,
+                                        '--table-control-height': `${tableHeight}px`,
+                                    })}
+                                >
+                                    <TableStructureControlButton
+                                        label={control.label}
+                                        tooltip={control.tooltip}
+                                        icon={<IconPlus />}
+                                        onClick={() => addTableColumnAfter(control.columnIndex)}
+                                    />
+                                </div>
+                            ))}
+                            {rows.map((_, rowIndex) => {
+                                const rowRect = controlLayout?.rowRemoveRects[rowIndex]
+                                return (
+                                    <div
+                                        className="MarkdownNotebook__table-remove-zone MarkdownNotebook__table-row-remove-zone"
+                                        key={`remove-row-${rowIndex}`}
+                                        style={tableControlStyle({
+                                            '--table-control-left': `${tableLeft}px`,
+                                            '--table-control-top': `${rowRect?.top ?? tableTop}px`,
+                                            '--table-control-height': `${rowRect?.height ?? 0}px`,
+                                        })}
+                                    >
+                                        <TableStructureControlButton
+                                            label={`Remove row ${rowIndex + 1}`}
+                                            tooltip="Remove row"
+                                            icon={<IconMinus />}
+                                            onClick={() => removeTableRow(rowIndex)}
+                                        />
+                                    </div>
+                                )
+                            })}
+                            {headers.map((_, columnIndex) => {
+                                const columnRect = controlLayout?.columnRemoveRects[columnIndex]
+                                return (
+                                    <div
+                                        className="MarkdownNotebook__table-remove-zone MarkdownNotebook__table-column-remove-zone"
+                                        key={`remove-column-${columnIndex}`}
+                                        style={tableControlStyle({
+                                            '--table-control-left': `${columnRect?.left ?? tableLeft}px`,
+                                            '--table-control-top': `${tableTop}px`,
+                                            '--table-control-width': `${columnRect?.width ?? 0}px`,
+                                        })}
+                                    >
+                                        <TableStructureControlButton
+                                            label={`Remove column ${columnIndex + 1}`}
+                                            tooltip="Remove column"
+                                            icon={<IconMinus />}
+                                            disabledReason={
+                                                columnCount <= 1 ? 'Tables need at least one column' : undefined
+                                            }
+                                            onClick={() => removeTableColumn(columnIndex)}
+                                        />
+                                    </div>
+                                )
+                            })}
+                        </div>
+                    ) : null}
+                </div>
+            </div>
         </div>
+    )
+}
+
+function TableStructureControlButton({
+    label,
+    tooltip,
+    icon,
+    disabledReason,
+    onClick,
+}: {
+    label: string
+    tooltip: string
+    icon: JSX.Element
+    disabledReason?: string
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <LemonButton
+            aria-label={label}
+            className="MarkdownNotebook__table-structure-control"
+            disabledReason={disabledReason}
+            icon={icon}
+            noPadding
+            size="xsmall"
+            tooltip={tooltip}
+            onClick={onClick}
+            onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+            }}
+        />
     )
 }
 
@@ -2149,6 +2681,40 @@ function EditableTextBlock({
         const element = event.currentTarget
         const elementChildren = htmlElementToInlineNodes(element)
         const elementText = getInlineText(elementChildren)
+        if (node.type === 'paragraph' && getBlockquoteShortcut(elementText)) {
+            closeInsertMenu()
+            replaceNodeWithNodes(node.id, [
+                {
+                    id: node.id,
+                    type: 'blockquote',
+                    children: [],
+                },
+            ])
+            restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+            return
+        }
+
+        const listShortcut = getListShortcut(elementText)
+        if (node.type === 'paragraph' && listShortcut) {
+            closeInsertMenu()
+            replaceNodeWithNodes(node.id, [
+                {
+                    id: node.id,
+                    type: 'list',
+                    ordered: listShortcut.ordered,
+                    items: [
+                        {
+                            children: [],
+                            depth: 0,
+                            ordered: listShortcut.ordered,
+                        },
+                    ],
+                },
+            ])
+            restoreSelectionRef.current = { nodeId: node.id, listItemIndex: 0, start: 0, end: 0 }
+            return
+        }
+
         const slashQuery = getSlashCommandQuery(elementText)
         if (slashQuery !== null) {
             if (isInsertMenuOpen) {
@@ -2298,6 +2864,7 @@ function EditableTextBlock({
                 className={clsx(
                     'MarkdownNotebook__text-block',
                     `MarkdownNotebook__text-block--${node.type}`,
+                    isInsertMenuOpen && 'MarkdownNotebook__text-block--insert-placeholder',
                     hasInvalidInsertMenuQuery && 'MarkdownNotebook__text-block--invalid-insert-filter'
                 )}
                 contentEditable={mode === 'edit'}
@@ -2413,13 +2980,15 @@ function NotebookComponentShell({
     updateNode,
     deleteNode,
     insertParagraphAfterNode,
+    moveFocusToAdjacentNode,
 }: NotebookComponentShellProps): JSX.Element {
     const definition = getMarkdownNotebookComponentDefinition(registry, node.tagName)
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
-    const showViewPanel = mode === 'view' || componentPanels.view
     const showEditPanel = mode === 'edit' && componentPanels.edit
+    const showViewPanel =
+        (mode === 'view' || componentPanels.view) && !(showEditPanel && definition?.exclusiveEditPanel)
     const titleDisplay = getComponentTitleDisplay(node, definition)
     const updateProps = (props: Partial<NotebookComponentProps>): void => {
         const nextProps = Object.entries(props).reduce<NotebookComponentProps>((accumulator, [key, value]) => {
@@ -2453,6 +3022,13 @@ function NotebookComponentShell({
             return
         }
 
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            if (moveFocusToAdjacentNode(node.id, event.key === 'ArrowDown' ? 'next' : 'previous', 0)) {
+                event.preventDefault()
+                return
+            }
+        }
+
         if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()
             insertParagraphAfterNode()
@@ -2470,34 +3046,43 @@ function NotebookComponentShell({
             onKeyDown={handleKeyDown}
         >
             <div className="MarkdownNotebook__component-toolbar">
-                <div
-                    className={clsx(
-                        'MarkdownNotebook__component-title',
-                        `MarkdownNotebook__component-title--${titleDisplay.tone}`
-                    )}
-                >
-                    {titleDisplay.icon ? (
-                        <span className="MarkdownNotebook__component-title-icon">{titleDisplay.icon}</span>
+                <div className="MarkdownNotebook__component-toolbar-left">
+                    {mode === 'edit' ? (
+                        <div className="MarkdownNotebook__component-mode-actions">
+                            <LemonButton
+                                aria-label="Edit mode"
+                                size="xsmall"
+                                icon={<IconPencil />}
+                                active={componentPanels.edit}
+                                tooltip="Edit mode"
+                                onClick={() => toggleComponentPanel('edit')}
+                            />
+                            <LemonButton
+                                aria-label="View mode"
+                                size="xsmall"
+                                icon={<IconEye />}
+                                active={componentPanels.view}
+                                tooltip="View mode"
+                                onClick={() => toggleComponentPanel('view')}
+                            />
+                        </div>
                     ) : null}
-                    <span>{titleDisplay.label}</span>
+                    <div
+                        className={clsx(
+                            'MarkdownNotebook__component-title',
+                            `MarkdownNotebook__component-title--${titleDisplay.tone}`
+                        )}
+                    >
+                        {titleDisplay.icon ? (
+                            <span className="MarkdownNotebook__component-title-icon">{titleDisplay.icon}</span>
+                        ) : null}
+                        <span>{titleDisplay.label}</span>
+                    </div>
                 </div>
                 {mode === 'edit' ? (
                     <div className="MarkdownNotebook__component-actions">
                         <LemonButton
-                            size="xsmall"
-                            icon={<IconPencil />}
-                            active={componentPanels.edit}
-                            tooltip="Edit mode"
-                            onClick={() => toggleComponentPanel('edit')}
-                        />
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconEye />}
-                            active={componentPanels.view}
-                            tooltip="View mode"
-                            onClick={() => toggleComponentPanel('view')}
-                        />
-                        <LemonButton
+                            aria-label="Delete component"
                             size="xsmall"
                             icon={<IconTrash />}
                             tooltip="Delete"
@@ -2547,6 +3132,7 @@ function areNotebookComponentShellPropsEqual(
     return (
         previousProps.mode === nextProps.mode &&
         previousProps.updateNode === nextProps.updateNode &&
+        previousProps.moveFocusToAdjacentNode === nextProps.moveFocusToAdjacentNode &&
         previousDefinition === nextDefinition &&
         previousProps.node.id === nextProps.node.id &&
         previousProps.componentPanels.view === nextProps.componentPanels.view &&
@@ -2714,7 +3300,7 @@ function InsertMenu({
                                 {command.icon ? (
                                     <span className="MarkdownNotebook__insert-item-icon">{command.icon}</span>
                                 ) : null}
-                                <span>{command.label}</span>
+                                <span>{renderHighlightedInsertCommandLabel(command.label, query)}</span>
                             </button>
                         ))}
                     </div>
@@ -2725,15 +3311,36 @@ function InsertMenu({
     )
 }
 
+function renderHighlightedInsertCommandLabel(label: string, query: string): ReactNode {
+    const normalizedQuery = query.trim().toLowerCase()
+    const matchIndex = normalizedQuery ? label.toLowerCase().indexOf(normalizedQuery) : -1
+    if (matchIndex === -1) {
+        return label
+    }
+
+    const matchEndIndex = matchIndex + normalizedQuery.length
+    return (
+        <>
+            {label.slice(0, matchIndex)}
+            <mark className="MarkdownNotebook__insert-item-highlight">{label.slice(matchIndex, matchEndIndex)}</mark>
+            {label.slice(matchEndIndex)}
+        </>
+    )
+}
+
 function getFilteredInsertCommands(commands: InsertCommand[], query: string): InsertCommand[] {
     const normalizedQuery = query.trim().toLowerCase()
     if (!normalizedQuery) {
         return commands
     }
 
-    return commands.filter((command) =>
-        `${command.label} ${command.category} ${command.description ?? ''}`.toLowerCase().includes(normalizedQuery)
-    )
+    return commands.filter((command) => getInsertCommandSearchText(command).includes(normalizedQuery))
+}
+
+function getInsertCommandSearchText(command: InsertCommand): string {
+    return `${command.label} ${command.category} ${command.description ?? ''} ${(command.aliases ?? []).join(' ')}`
+        .trim()
+        .toLowerCase()
 }
 
 function groupInsertCommandsByCategory(commands: InsertCommand[]): Record<string, InsertCommand[]> {
@@ -2942,7 +3549,52 @@ function buildInsertCommands(
         },
     ]
 
-    return [...queryCommands, ...dataCommands, ...experimentCommands, ...mediaCommands]
+    const textCommands: InsertCommand[] = [
+        {
+            key: 'text-heading-1',
+            label: 'Heading 1',
+            category: 'Text',
+            aliases: ['h1'],
+            icon: <IconPencil />,
+            run: (targetNodeId) =>
+                replaceNode(targetNodeId, {
+                    id: targetNodeId,
+                    type: 'heading',
+                    level: 1,
+                    children: [],
+                }),
+        },
+        {
+            key: 'text-heading-2',
+            label: 'Heading 2',
+            category: 'Text',
+            aliases: ['h2'],
+            icon: <IconPencil />,
+            run: (targetNodeId) =>
+                replaceNode(targetNodeId, {
+                    id: targetNodeId,
+                    type: 'heading',
+                    level: 2,
+                    children: [],
+                }),
+        },
+        {
+            key: 'text-heading-3',
+            label: 'Heading 3',
+            category: 'Text',
+            aliases: ['h3'],
+            icon: <IconPencil />,
+            run: (targetNodeId) =>
+                replaceNode(targetNodeId, {
+                    id: targetNodeId,
+                    type: 'heading',
+                    level: 3,
+                    children: [],
+                }),
+        },
+    ]
+
+    return [...queryCommands, ...dataCommands, ...experimentCommands, ...mediaCommands, ...textCommands]
 }
 
 function isTextBlockNode(node: NotebookBlockNode): node is NotebookTextBlockNode {
@@ -3083,6 +3735,22 @@ function getSlashCommandQuery(text: string): string | null {
     return trimmedText.startsWith('/') ? trimmedText.slice(1) : null
 }
 
+function getListShortcut(text: string): { ordered: boolean } | null {
+    if (/^\d+[.)]\s?$/.test(text)) {
+        return { ordered: true }
+    }
+
+    if (/^[-*+•]\s$/.test(text)) {
+        return { ordered: false }
+    }
+
+    return null
+}
+
+function getBlockquoteShortcut(text: string): boolean {
+    return /^>\s?$/.test(text)
+}
+
 function isInsertBoundaryAvailable(
     nodes: NotebookBlockNode[],
     boundaryIndex: number,
@@ -3130,6 +3798,39 @@ function ensureEditableTrailingParagraph(document: NotebookDocument): NotebookDo
         ...document,
         nodes: [...document.nodes, makeEmptyParagraph(`after-${lastNode.id}`)],
     }
+}
+
+function areNotebookDocumentsEqual(left: NotebookDocument, right: NotebookDocument): boolean {
+    return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function getHistoryRestoreSelection(document: NotebookDocument): RestoreSelectionRequest | null {
+    for (const node of document.nodes) {
+        if (isTextBlockNode(node)) {
+            const offset = getInlineText(node.children).length
+            return { nodeId: node.id, start: offset, end: offset }
+        }
+
+        if (node.type === 'list' && node.items[0]) {
+            const offset = getInlineText(node.items[0].children).length
+            return { nodeId: node.id, listItemIndex: 0, start: offset, end: offset }
+        }
+
+        if (node.type === 'table') {
+            const firstPosition = getTableEdgeCellPosition(node, 'next')
+            const cell = firstPosition ? getTableCellAtPosition(node, firstPosition) : undefined
+            if (firstPosition) {
+                const offset = getInlineText(cell?.children ?? []).length
+                return { nodeId: node.id, tableCell: firstPosition, start: offset, end: offset }
+            }
+        }
+
+        if (node.type === 'component') {
+            return { nodeId: node.id, start: 0, end: 0 }
+        }
+    }
+
+    return null
 }
 
 function hasNotebookContent(nodes: NotebookBlockNode[]): boolean {

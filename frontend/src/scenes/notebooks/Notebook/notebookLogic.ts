@@ -70,6 +70,13 @@ import {
     TableOfContentData,
 } from '../types'
 import { updateContentHeading } from '../utils'
+import {
+    appendMarkdownNotebookBlock,
+    getMarkdownNotebookTextContent,
+    getMarkdownNotebookTitle,
+    isMarkdownNotebookContent,
+    serializeMarkdownNotebookComponent,
+} from './markdownNotebookV2'
 import { NOTEBOOKS_VERSION, migrate } from './migrations/migrate'
 import { shouldWarnBeforeLeavingNotebook } from './notebookBeforeUnload'
 import { notebookCollabLogic } from './notebookCollabLogic'
@@ -79,6 +86,10 @@ import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export const SYNC_DELAY = 1000
 const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ? 5000 : 30000
+
+function getNotebookTextContent(content: JSONContent | null | undefined, editorText: string): string {
+    return getMarkdownNotebookTextContent(content) ?? editorText
+}
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
 
@@ -445,7 +456,10 @@ export const notebookLogic = kea<notebookLogicType>([
                                     version: sendable.version,
                                     steps: stepsJson,
                                     content: values.editor?.getJSON(),
-                                    text_content: values.editor?.getText() || '',
+                                    text_content: getNotebookTextContent(
+                                        values.editor?.getJSON() ?? notebook.content,
+                                        values.editor?.getText() || ''
+                                    ),
                                     title: notebook.title,
                                     cursor_head: values.ttEditor.state.selection.head,
                                 }
@@ -497,7 +511,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         const response = await api.notebooks.update(values.notebook.short_id, {
                             version: values.notebook.version,
                             content: notebook.content,
-                            text_content: values.editor?.getText() || '',
+                            text_content: getNotebookTextContent(notebook.content, values.editor?.getText() || ''),
                             title: notebook.title,
                         })
 
@@ -565,7 +579,7 @@ export const notebookLogic = kea<notebookLogicType>([
                         ? updateContentHeading(values.content, title)
                         : values.content
 
-                    let textContent = values.editor?.getText() || ''
+                    let textContent = getNotebookTextContent(content, values.editor?.getText() || '')
                     if (isRegularNotebookDuplication && textContent.startsWith(values.title)) {
                         textContent = title + textContent.slice(values.title.length)
                     }
@@ -628,7 +642,12 @@ export const notebookLogic = kea<notebookLogicType>([
         title: [
             (s) => [s.notebook, s.content],
             (notebook, content): string => {
-                const contentTitle = content?.content?.[0].content?.[0].text || 'Untitled'
+                const firstTextNode = content?.content?.[0]?.content?.[0]
+                const contentTitle = isMarkdownNotebookContent(content)
+                    ? getMarkdownNotebookTitle(content)
+                    : typeof firstTextNode?.text === 'string'
+                      ? firstTextNode.text
+                      : null
                 return contentTitle || notebook?.title || 'Untitled'
             },
         ],
@@ -898,6 +917,22 @@ export const notebookLogic = kea<notebookLogicType>([
                 },
             }
 
+            if (isMarkdownNotebookContent(values.content)) {
+                actions.setLocalContent(
+                    appendMarkdownNotebookBlock(
+                        values.content,
+                        serializeMarkdownNotebookComponent('Query', {
+                            query: {
+                                kind: NodeKind.SavedInsightNode,
+                                shortId: insightShortId,
+                            },
+                        })
+                    )
+                )
+                lemonToast.success('Insight added to notebook')
+                return
+            }
+
             let inserted = false
 
             if (insertionPosition !== null && values.editor) {
@@ -938,6 +973,17 @@ export const notebookLogic = kea<notebookLogicType>([
                 attrs: {
                     id: experimentId,
                 },
+            }
+
+            if (isMarkdownNotebookContent(values.content)) {
+                actions.setLocalContent(
+                    appendMarkdownNotebookBlock(
+                        values.content,
+                        serializeMarkdownNotebookComponent('Experiment', { id: experimentId })
+                    )
+                )
+                lemonToast.success('Experiment added to notebook')
+                return
             }
 
             let inserted = false

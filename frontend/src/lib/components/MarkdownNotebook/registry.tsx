@@ -12,7 +12,7 @@ import {
     IconRewindPlay,
     IconUpload,
 } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { NotebookComponentDefinition, NotebookComponentRegistry, NotebookComponentRenderProps } from './types'
 import { isNotebookComponentProps } from './utils'
@@ -56,6 +56,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             icon: <IconUpload />,
             defaultProps: { src: '', alt: '' },
             ViewComponent: ImageView,
+            EditComponent: ImageEdit,
         }),
         makeDefinition({
             tagName: 'Embed',
@@ -65,6 +66,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             icon: <IconCode />,
             defaultProps: { src: '', title: 'Embedded content' },
             ViewComponent: EmbedView,
+            EditComponent: EmbedEdit,
         }),
         makeDefinition({
             tagName: 'Latex',
@@ -74,6 +76,7 @@ export function getMarkdownNotebookDefaultRegistry(): NotebookComponentRegistry 
             icon: <IconCode />,
             defaultProps: { content: 'E=mc^2' },
             ViewComponent: LatexView,
+            EditComponent: LatexEdit,
         }),
         makeDefinition({
             tagName: 'Python',
@@ -259,6 +262,23 @@ function ImageView({ node }: NotebookComponentRenderProps): JSX.Element {
     )
 }
 
+function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    const src = typeof node.props.src === 'string' ? node.props.src : ''
+    const alt = typeof node.props.alt === 'string' ? node.props.alt : ''
+
+    return (
+        <div className="MarkdownNotebook__component-form">
+            <LemonInput
+                value={src}
+                onChange={(value) => updateProps({ src: value })}
+                placeholder="Image URL"
+                autoFocus
+            />
+            <LemonInput value={alt} onChange={(value) => updateProps({ alt: value })} placeholder="Alt text" />
+        </div>
+    )
+}
+
 function EmbedView({ node }: NotebookComponentRenderProps): JSX.Element {
     const src = typeof node.props.src === 'string' ? node.props.src : ''
     const title = typeof node.props.title === 'string' ? node.props.title : 'Embedded content'
@@ -270,9 +290,42 @@ function EmbedView({ node }: NotebookComponentRenderProps): JSX.Element {
     )
 }
 
+function EmbedEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    const src = typeof node.props.src === 'string' ? node.props.src : ''
+    const title = typeof node.props.title === 'string' ? node.props.title : ''
+
+    return (
+        <div className="MarkdownNotebook__component-form">
+            <LemonInput
+                value={src}
+                onChange={(value) => updateProps({ src: value })}
+                placeholder="https://example.com/embed"
+                autoFocus
+            />
+            <LemonInput value={title} onChange={(value) => updateProps({ title: value })} placeholder="Title" />
+        </div>
+    )
+}
+
 function LatexView({ node }: NotebookComponentRenderProps): JSX.Element {
     const content = typeof node.props.content === 'string' ? node.props.content : ''
     return <div className="MarkdownNotebook__latex">{content}</div>
+}
+
+function LatexEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
+    const content = typeof node.props.content === 'string' ? node.props.content : ''
+
+    return (
+        <div className="MarkdownNotebook__component-form">
+            <LemonTextArea
+                value={content}
+                onChange={(value) => updateProps({ content: value })}
+                placeholder="E = mc^2"
+                minRows={3}
+                autoFocus
+            />
+        </div>
+    )
 }
 
 function CodeView({ node }: NotebookComponentRenderProps): JSX.Element {

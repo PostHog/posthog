@@ -1,5 +1,11 @@
 .MarkdownNotebook {
+    --markdown-notebook-component-background: var(--color-bg-surface-primary);
+
     width: 100%;
+}
+
+[theme='dark'] .MarkdownNotebook {
+    --markdown-notebook-component-background: var(--color-bg-surface-tertiary);
 }
 
 .MarkdownNotebook__debug-layout {
@@ -176,20 +182,27 @@
     content: attr(data-placeholder);
 }
 
+.MarkdownNotebook__text-block--insert-placeholder:empty::before {
+    color: var(--color-text-tertiary);
+}
+
 .MarkdownNotebook__text-block--heading {
     font-weight: 700;
     line-height: 1.2;
 }
 
 h1.MarkdownNotebook__text-block--heading {
+    margin: 1rem 0 0.5rem;
     font-size: 2rem;
 }
 
 h2.MarkdownNotebook__text-block--heading {
+    margin: 0.875rem 0 0.4375rem;
     font-size: 1.5rem;
 }
 
 h3.MarkdownNotebook__text-block--heading {
+    margin: 0.75rem 0 0.375rem;
     font-size: 1.25rem;
 }
 
@@ -305,6 +318,13 @@ h3.MarkdownNotebook__text-block--heading {
     height: 1rem;
 }
 
+.MarkdownNotebook__insert-item-highlight {
+    padding: 0 0.0625rem;
+    color: inherit;
+    background: var(--mark);
+    border-radius: 0.1875rem;
+}
+
 .MarkdownNotebook__insert-item:hover,
 .MarkdownNotebook__insert-item:focus-visible,
 .MarkdownNotebook__insert-item--selected {
@@ -381,7 +401,18 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__table-block {
     max-width: 100%;
+}
+
+.MarkdownNotebook__table-scroll {
+    max-width: 100%;
+    padding: 0.875rem;
     overflow-x: auto;
+}
+
+.MarkdownNotebook__table-grid {
+    position: relative;
+    display: inline-block;
+    min-width: 100%;
 }
 
 .MarkdownNotebook__table-block table {
@@ -390,6 +421,10 @@ h3.MarkdownNotebook__text-block--heading {
     table-layout: fixed;
     border-collapse: collapse;
     background: var(--color-bg-surface-primary);
+}
+
+.MarkdownNotebook__table-block--editable table {
+    min-width: 24rem;
 }
 
 .MarkdownNotebook__table-block th,
@@ -416,6 +451,93 @@ h3.MarkdownNotebook__text-block--heading {
     box-shadow: inset 0 0 0 1px var(--primary);
 }
 
+.MarkdownNotebook__table-structure-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-raised);
+    pointer-events: none;
+}
+
+.MarkdownNotebook__table-add-zone,
+.MarkdownNotebook__table-remove-zone {
+    position: absolute;
+    z-index: var(--z-raised);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+}
+
+.MarkdownNotebook__table-row-add-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: var(--table-control-width);
+    height: 1.25rem;
+    transform: translateY(-50%);
+}
+
+.MarkdownNotebook__table-column-add-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: 1.25rem;
+    height: var(--table-control-height);
+    transform: translateX(-50%);
+}
+
+.MarkdownNotebook__table-row-remove-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: 1.5rem;
+    height: var(--table-control-height);
+    transform: translateX(-50%);
+}
+
+.MarkdownNotebook__table-column-remove-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: var(--table-control-width);
+    height: 1.5rem;
+    transform: translateY(-50%);
+}
+
+.MarkdownNotebook__table-structure-control {
+    --lemon-button-height: 1.25rem;
+    --lemon-button-icon-size: 0.875rem;
+
+    width: 1.25rem;
+    height: 1.25rem;
+    color: var(--color-text-secondary);
+    opacity: 0;
+    transform: scale(0.92);
+
+    .LemonButton__chrome {
+        justify-content: center;
+        width: 1.25rem;
+        min-height: 1.25rem;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: 999px;
+        box-shadow: 0 0.125rem 0.375rem rgb(0 0 0 / 12%);
+    }
+}
+
+.MarkdownNotebook__table-add-zone:hover .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-add-zone:focus-within .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-remove-zone:hover .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-remove-zone:focus-within .MarkdownNotebook__table-structure-control,
+.MarkdownNotebook__table-structure-control:focus-visible {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.MarkdownNotebook__table-add-zone .MarkdownNotebook__table-structure-control {
+    color: var(--primary);
+}
+
+.MarkdownNotebook__table-remove-zone .MarkdownNotebook__table-structure-control {
+    color: var(--color-text-secondary);
+}
+
 .MarkdownNotebook__code-block,
 .MarkdownNotebook__code-component pre,
 .MarkdownNotebook__component-preview pre {
@@ -428,13 +550,25 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__component-shell {
+    position: relative;
     margin: 0.5rem 0 0.5rem 2.25rem;
     overflow: hidden;
-    background: var(--color-bg-surface-primary);
+    background: var(--markdown-notebook-component-background);
     border: 0;
-    border-left: 3px solid color-mix(in oklab, var(--color-text-success) 45%, var(--color-bg-surface-primary));
+    border-left: 3px solid
+        color-mix(in oklab, var(--color-text-success) 45%, var(--markdown-notebook-component-background));
     border-radius: 0.5rem;
     outline: none;
+}
+
+.MarkdownNotebook__component-shell:focus::after {
+    position: absolute;
+    inset: 0;
+    z-index: var(--z-raised);
+    pointer-events: none;
+    content: '';
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--color-blue-500) 70%, var(--color-bg-surface-primary));
 }
 
 .MarkdownNotebook__component-shell:focus-visible {
@@ -442,7 +576,7 @@ h3.MarkdownNotebook__text-block--heading {
 }
 
 .MarkdownNotebook__component-shell--error {
-    background: var(--color-bg-surface-primary);
+    background: var(--markdown-notebook-component-background);
 }
 
 .MarkdownNotebook__component-toolbar {
@@ -452,13 +586,21 @@ h3.MarkdownNotebook__text-block--heading {
     justify-content: space-between;
     min-height: 2.5rem;
     padding: 0.375rem 0.5rem;
-    background: var(--color-bg-surface-primary);
+    background: var(--markdown-notebook-component-background);
+}
+
+.MarkdownNotebook__component-toolbar-left {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    min-width: 0;
 }
 
 .MarkdownNotebook__component-panel + .MarkdownNotebook__component-panel {
     border-top: 0;
 }
 
+.MarkdownNotebook__component-mode-actions,
 .MarkdownNotebook__component-actions,
 .MarkdownNotebook__component-edit-footer {
     display: flex;
@@ -532,12 +674,13 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__component-preview,
 .MarkdownNotebook__code-component,
-.MarkdownNotebook__component-edit {
+.MarkdownNotebook__component-edit,
+.MarkdownNotebook__component-form {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.75rem;
-    background: var(--color-bg-surface-primary);
+    background: var(--markdown-notebook-component-background);
 }
 
 .MarkdownNotebook__component-edit textarea {
@@ -546,7 +689,7 @@ h3.MarkdownNotebook__text-block--heading {
     font: var(--font-mono);
     color: var(--primary);
     resize: vertical;
-    background: var(--bg-surface-primary);
+    background: var(--markdown-notebook-component-background);
     border: 1px solid var(--border);
     border-radius: 0.375rem;
 }
@@ -572,4 +715,22 @@ h3.MarkdownNotebook__text-block--heading {
     font-family: serif;
     font-size: 1.25rem;
     text-align: center;
+}
+
+.MarkdownNotebook__real-node {
+    display: flex;
+    flex-direction: column;
+    min-height: 8rem;
+    background: var(--markdown-notebook-component-background);
+}
+
+.MarkdownNotebook__real-node-settings {
+    border-bottom: 1px solid var(--color-border-primary);
+}
+
+.MarkdownNotebook__real-node-content {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 8rem;
 }

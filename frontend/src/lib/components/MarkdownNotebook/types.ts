@@ -123,6 +123,7 @@ export type NotebookComponentDefinition = {
     validateProps?: (props: NotebookComponentProps) => string[]
     ViewComponent: (props: NotebookComponentRenderProps) => JSX.Element
     EditComponent?: (props: NotebookComponentRenderProps) => JSX.Element
+    exclusiveEditPanel?: boolean
 }
 
 export type NotebookComponentRegistry = {

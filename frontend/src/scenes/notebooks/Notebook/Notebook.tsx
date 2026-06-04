@@ -10,6 +10,7 @@ import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEdit
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -18,6 +19,12 @@ import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { AddExperimentsToNotebookModal } from '../AddExperimentsToNotebookModal/AddExperimentsToNotebookModal'
 import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
+import {
+    buildMarkdownNotebookContent,
+    convertNotebookContentToMarkdown,
+    isMarkdownNotebookContent,
+} from './markdownNotebookV2'
+import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookCollabConflictModal } from './NotebookCollabConflictModal'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
 import { NotebookColumnRight } from './NotebookColumnRight'
@@ -52,8 +59,16 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, editor, conflictWarningVisible, isEditable, isTemplate, notebookMissing } =
-        useValues(logic)
+    const {
+        notebook,
+        notebookLoading,
+        editor,
+        conflictWarningVisible,
+        isEditable,
+        isTemplate,
+        notebookMissing,
+        content,
+    } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { isCommandOpen } = useValues(commandLogic)
@@ -94,6 +109,11 @@ export function Notebook({
         setContainerSize(size as 'small' | 'medium')
     }, [size]) // oxlint-disable-line exhaustive-deps
 
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const upgradeToMarkdownNotebook = (): void => {
+        setLocalContent(buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content)))
+    }
+
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
             {conflictWarningVisible ? (
@@ -110,6 +130,7 @@ export function Notebook({
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
+                        isMarkdownNotebook && 'Notebook--markdown-v2',
                         className
                     )}
                     ref={ref}
@@ -142,11 +163,17 @@ export function Notebook({
                         </LemonBanner>
                     ) : null}
 
+                    {isEditable && !isMarkdownNotebook ? (
+                        <div className="Notebook__top-actions">
+                            <LemonButton type="secondary" onClick={upgradeToMarkdownNotebook}>
+                                Upgrade to v2
+                            </LemonButton>
+                        </div>
+                    ) : null}
+
                     <div className="Notebook_content">
                         <NotebookColumnLeft />
-                        <ErrorBoundary>
-                            <Editor />
-                        </ErrorBoundary>
+                        <ErrorBoundary>{isMarkdownNotebook ? <MarkdownNotebookV2 /> : <Editor />}</ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>

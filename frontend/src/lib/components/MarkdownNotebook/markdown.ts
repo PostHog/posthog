@@ -27,9 +27,9 @@ type PropParseResult = {
 }
 
 const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
-const ORDERED_LIST_REGEX = /^\s*\d+\.\s+/
-const BULLET_LIST_REGEX = /^\s*[-*+]\s+/
-const LIST_ITEM_REGEX = /^(\s*)(\d+\.|[-*+])\s+(.*)$/
+const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
+const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
+const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 
@@ -335,9 +335,9 @@ function parseListItemLine(line: string): NotebookListBlockNode['items'][number]
     }
 
     return {
-        children: parseInlineMarkdown(match[3]),
+        children: parseInlineMarkdown(match[3] ?? ''),
         depth: getListItemDepth(match[1]),
-        ordered: /^\d+\.$/.test(match[2]),
+        ordered: /^\d+[.)]$/.test(match[2]),
     }
 }
 
@@ -350,7 +350,7 @@ function isTableStart(lines: string[], lineIndex: number): boolean {
     const headerCells = splitMarkdownTableRow(lines[lineIndex] ?? '')
     const separatorCells = splitMarkdownTableRow(lines[lineIndex + 1] ?? '')
 
-    return headerCells.length > 1 && separatorCells.length > 1 && separatorCells.every(isTableSeparatorCell)
+    return headerCells.length >= 1 && separatorCells.length >= 1 && separatorCells.every(isTableSeparatorCell)
 }
 
 function parseTableBlock(lines: string[], lineIndex: number): BlockParseResult {
@@ -361,7 +361,7 @@ function parseTableBlock(lines: string[], lineIndex: number): BlockParseResult {
 
     while (nextLineIndex < lines.length) {
         const cells = splitMarkdownTableRow(lines[nextLineIndex])
-        if (cells.length <= 1) {
+        if (cells.length < 1) {
             break
         }
         rows.push(cells.map(parseTableCell))
