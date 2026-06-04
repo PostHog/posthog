@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from enum import Enum
+from typing import Any
 
 from posthog.models import Team, User
 
@@ -18,6 +19,45 @@ class ArtifactStatus(Enum):
     CREATED = "created"
     UPDATED = "updated"
     FAILED_TO_UPDATE = "failed_to_update"
+
+
+MARKDOWN_NOTEBOOK_NODE_ID = "markdown-notebook-v2"
+MARKDOWN_NOTEBOOK_NODE_TYPE = "ph-markdown-notebook"
+
+
+def _get_markdown_notebook_node(content: Any) -> dict[str, Any] | None:
+    if not isinstance(content, dict):
+        return None
+
+    nodes = content.get("content")
+    if not isinstance(nodes, list) or len(nodes) != 1:
+        return None
+
+    node = nodes[0]
+    if not isinstance(node, dict) or node.get("type") != MARKDOWN_NOTEBOOK_NODE_TYPE:
+        return None
+
+    return node
+
+
+def _build_markdown_notebook_doc(markdown: str, existing_content: Any) -> dict[str, Any]:
+    existing_node = _get_markdown_notebook_node(existing_content)
+    existing_attrs = existing_node.get("attrs") if existing_node else None
+    attrs: dict[str, Any] = existing_attrs.copy() if isinstance(existing_attrs, dict) else {}
+    node_id = attrs.get("nodeId")
+    if not isinstance(node_id, str) or not node_id:
+        attrs["nodeId"] = MARKDOWN_NOTEBOOK_NODE_ID
+    attrs["markdown"] = markdown
+
+    return {
+        "type": "doc",
+        "content": [
+            {
+                "type": MARKDOWN_NOTEBOOK_NODE_TYPE,
+                "attrs": attrs,
+            }
+        ],
+    }
 
 
 async def create_or_update_notebook_artifact(
@@ -60,6 +100,7 @@ async def save_notebook_to_db(
     blocks: Sequence[StoredBlock],
     title: str,
     state_messages: Sequence[AssistantMessageUnion],
+    markdown_content: str | None = None,
 ) -> Notebook:
     """
     Save or update a real Notebook record with the same short_id as the artifact.
@@ -67,6 +108,14 @@ async def save_notebook_to_db(
     If a Notebook with the artifact's short_id already exists, update its content.
     Otherwise, create a new Notebook.
     """
+    existing_notebook = await Notebook.objects.filter(team=team, short_id=artifact.short_id).afirst()
+    if existing_notebook and markdown_content is not None and _get_markdown_notebook_node(existing_notebook.content):
+        existing_notebook.content = _build_markdown_notebook_doc(markdown_content, existing_notebook.content)
+        existing_notebook.title = title
+        existing_notebook.last_modified_by = user
+        await existing_notebook.asave(update_fields=["content", "title", "last_modified_by", "last_modified_at"])
+        return existing_notebook
+
     # Resolve viz refs through the unified handler (state → AgentArtifact → Insight),
     # matching the chat preview. A direct AgentArtifact query misses state-only charts.
     ref_ids = [block.artifact_id for block in blocks if isinstance(block, VisualizationRefBlock)]

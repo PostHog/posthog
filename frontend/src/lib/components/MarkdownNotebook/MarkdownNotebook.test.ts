@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement, useEffect } from 'react'
 
 import { mergeNotebookMarkdownChanges } from './collaboration'
@@ -11,6 +11,61 @@ import {
 import { MarkdownNotebook } from './MarkdownNotebook'
 import { reconcileNotebookDocuments } from './reconcile'
 import { createMarkdownNotebookRegistry } from './registry'
+
+function getFirstTextNode(element: HTMLElement): Text {
+    const textNode = document.createTreeWalker(element, NodeFilter.SHOW_TEXT).nextNode()
+
+    expect(textNode).toBeInstanceOf(Text)
+
+    return textNode as Text
+}
+
+function selectTextInElement(element: HTMLElement, start: number, end: number): void {
+    selectTextNode(getFirstTextNode(element), start, end)
+}
+
+function selectTextNode(textNode: Text, start: number, end: number, showToolbar = false): void {
+    act(() => {
+        const range = document.createRange()
+        range.setStart(textNode, start)
+        range.setEnd(textNode, end)
+        if (showToolbar) {
+            const selectionRect = {
+                bottom: 120,
+                height: 20,
+                left: 100,
+                right: 180,
+                top: 100,
+                width: 80,
+                x: 100,
+                y: 100,
+                toJSON: () => ({}),
+            }
+            Object.defineProperty(range, 'getBoundingClientRect', { value: () => selectionRect })
+            Object.defineProperty(range, 'getClientRects', { value: () => [selectionRect] })
+        }
+        const selection = window.getSelection()
+        selection?.removeAllRanges()
+        selection?.addRange(range)
+        if (showToolbar) {
+            document.dispatchEvent(new Event('selectionchange'))
+        }
+    })
+}
+
+function pastePlainText(element: HTMLElement, text: string): void {
+    fireEvent.paste(element, {
+        clipboardData: {
+            getData: jest.fn((type: string) => (type === 'text/plain' ? text : '')),
+        },
+    })
+}
+
+function fireHistoryBeforeInput(element: HTMLElement, inputType: 'historyUndo' | 'historyRedo'): void {
+    const event = new Event('beforeinput', { bubbles: true, cancelable: true }) as InputEvent
+    Object.defineProperty(event, 'inputType', { value: inputType })
+    fireEvent(element, event)
+}
 
 describe('MarkdownNotebook', () => {
     it('round-trips supported markdown blocks and inline formatting', () => {
@@ -39,6 +94,31 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
             },
         })
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it('round-trips markdown image blocks as image components', () => {
+        const markdown = '![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)'
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'Image',
+            props: {
+                alt: 'PostHog engineering',
+                src: 'https://res.cloudinary.com/demo/image/upload/posthog.png',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it('serializes legacy Image component tags as markdown image blocks', () => {
+        expect(
+            serializeMarkdownNotebook(
+                parseMarkdownNotebook(
+                    '<Image src="https://res.cloudinary.com/demo/image/upload/posthog.png" alt="PostHog engineering" />'
+                )
+            )
+        ).toEqual('![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)')
     })
 
     it('round-trips nested markdown lists', () => {
@@ -224,6 +304,54 @@ Activation improved today.`
         expect(renderComponent).toHaveBeenCalledTimes(1)
         expect(mountComponent).toHaveBeenCalledTimes(1)
         expect(unmountComponent).not.toHaveBeenCalled()
+    })
+
+    it('defers remote markdown updates while requested', () => {
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: 'Local text',
+                deferRemoteValue: true,
+            })
+        )
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: 'Remote text',
+                deferRemoteValue: true,
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('Local text')
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: 'Remote text',
+                deferRemoteValue: false,
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('Remote text')
+    })
+
+    it('marks interaction active before clearing slash command text', () => {
+        const onChange = jest.fn()
+        const onInteractionStateChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange, onInteractionStateChange }))
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        editableTextBlock.textContent = '/'
+        fireEvent.input(editableTextBlock)
+
+        const firstActiveInteractionCall = onInteractionStateChange.mock.calls.findIndex(([isActive]) => isActive)
+
+        expect(firstActiveInteractionCall).toBeGreaterThanOrEqual(0)
+        expect(onChange).toHaveBeenCalledWith('')
+        expect(onInteractionStateChange.mock.invocationCallOrder[firstActiveInteractionCall]).toBeLessThan(
+            onChange.mock.invocationCallOrder[0]
+        )
     })
 
     it('only shows the writing placeholder for an empty notebook', () => {
@@ -554,6 +682,87 @@ Third paragraph`,
         expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('FunnelsQuery'))
     })
 
+    it('shows Ask PostHog AI first when AI is enabled and submits from the inline prompt', () => {
+        const onAskAI = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI }))
+        const row = container.querySelector('.MarkdownNotebook__row')
+
+        expect(row).toBeInstanceOf(HTMLElement)
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+
+        const insertCategories = Array.from(container.querySelectorAll('.MarkdownNotebook__insert-category'))
+        const firstInsertItem = container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement
+
+        expect(insertCategories[0].querySelector('h5')?.textContent).toEqual('AI')
+        expect(firstInsertItem.textContent).toEqual('Ask PostHog AI')
+        expect(firstInsertItem.getAttribute('aria-selected')).toEqual('true')
+
+        fireEvent.click(firstInsertItem)
+
+        expect(container.querySelector('.MarkdownNotebook__insert-menu')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Ask AI')
+
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        editableTextBlock.textContent = 'Add a summary here'
+        fireEvent.input(editableTextBlock)
+        fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
+
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Thinking ...')
+        expect(container.querySelector('.MarkdownNotebook__line-insert-menu-button')).toBeNull()
+        expect(onAskAI).toHaveBeenCalledWith({
+            query: 'Add a summary here',
+            placeholderNodeId: expect.any(String),
+            markdown: '',
+            markdownWithPlaceholder: '<!-- Ask PostHog AI insertion placeholder -->',
+        })
+    })
+
+    it('removes a stuck AI thinking placeholder when selected and deleted', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI, onChange }))
+        const row = container.querySelector('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
+
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        editableTextBlock.textContent = 'Add a summary here'
+        fireEvent.input(editableTextBlock)
+        fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
+
+        const thinkingTag = container.querySelector('.MarkdownNotebook__ai-prompt-tag') as HTMLButtonElement
+
+        expect(thinkingTag.textContent).toEqual('Thinking ...')
+
+        fireEvent.click(thinkingTag)
+        fireEvent.keyDown(thinkingTag, { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
+        expect(onChange).toHaveBeenLastCalledWith('')
+    })
+
+    it('turns an Ask AI prompt back into regular text when backspacing at the start', () => {
+        const onAskAI = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI }))
+        const row = container.querySelector('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
+
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        editableTextBlock.textContent = 'Add a summary here'
+        fireEvent.input(editableTextBlock)
+        selectTextInElement(editableTextBlock, 0, 0)
+        fireEvent.keyDown(editableTextBlock, { key: 'Backspace' })
+
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull()
+        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Add a summary here')
+    })
+
     it('adds heading blocks from slash menu h aliases', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
@@ -726,6 +935,66 @@ Third paragraph`,
         expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeNull()
     })
 
+    it('adds a link from the formatting toolbar', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        selectTextNode(getFirstTextNode(textBlock), 0, 7, true)
+        fireEvent.click(container.querySelector('button[aria-label="Link"]') as HTMLButtonElement)
+
+        const linkInput = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement
+
+        expect(linkInput).toBeInstanceOf(HTMLInputElement)
+        fireEvent.change(linkInput, { target: { value: 'https://posthog.com/docs' } })
+        fireEvent.keyDown(linkInput, { key: 'Enter' })
+
+        expect(textBlock.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
+        expect(onChange).toHaveBeenLastCalledWith('[PostHog](https://posthog.com/docs) docs')
+    })
+
+    it('edits an existing link from the formatting toolbar', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: '[PostHog](https://posthog.com) docs', onChange })
+        )
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const linkedTextNode = textBlock.querySelector('a')?.firstChild
+
+        expect(linkedTextNode).toBeInstanceOf(Text)
+
+        selectTextNode(linkedTextNode as Text, 0, 7, true)
+        fireEvent.click(container.querySelector('button[aria-label="Link"]') as HTMLButtonElement)
+
+        const linkInput = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement
+
+        expect(linkInput.value).toEqual('https://posthog.com')
+        fireEvent.change(linkInput, { target: { value: 'https://posthog.com/docs' } })
+        fireEvent.click(
+            Array.from(container.querySelectorAll('.MarkdownNotebook__format-link-editor button')).find(
+                (button) => button.textContent === 'Update'
+            ) as HTMLButtonElement
+        )
+
+        expect(textBlock.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
+        expect(onChange).toHaveBeenLastCalledWith('[PostHog](https://posthog.com/docs) docs')
+    })
+
+    it('opens the link editor when clicking into an existing link', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: '[PostHog](https://posthog.com) docs' }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const linkedTextNode = textBlock.querySelector('a')?.firstChild
+
+        expect(linkedTextNode).toBeInstanceOf(Text)
+
+        selectTextNode(linkedTextNode as Text, 3, 3, true)
+
+        const linkInput = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement
+
+        expect(linkInput).toBeInstanceOf(HTMLInputElement)
+        expect(linkInput.value).toEqual('https://posthog.com')
+    })
+
     it('supports drag selection across text blocks', () => {
         const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
         const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
@@ -827,6 +1096,54 @@ Closing`
         )
     })
 
+    it('copies and pastes a focused component as a cloned notebook block', async () => {
+        const onChange = jest.fn()
+        const markdown = `<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />`
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown, onChange }))
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+        const originalClipboard = navigator.clipboard
+        let clipboardText = ''
+        const clipboard = {
+            writeText: jest.fn((value: string) => {
+                clipboardText = value
+                return Promise.resolve()
+            }),
+            readText: jest.fn(() => Promise.resolve(clipboardText)),
+        }
+
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: clipboard,
+        })
+
+        try {
+            component.focus()
+
+            expect(document.activeElement).toEqual(component)
+
+            fireEvent.keyDown(component, { key: 'c', metaKey: true })
+
+            expect(clipboard.writeText).toHaveBeenCalledWith(markdown)
+
+            fireEvent.keyDown(component, { key: 'v', metaKey: true })
+
+            await waitFor(() => {
+                expect(container.querySelectorAll('.MarkdownNotebook__component-shell')).toHaveLength(2)
+            })
+
+            const components = Array.from(container.querySelectorAll('.MarkdownNotebook__component-shell'))
+
+            expect(clipboard.readText).toHaveBeenCalled()
+            expect(onChange).toHaveBeenLastCalledWith(`${markdown}\n\n${markdown}`)
+            expect(document.activeElement).toEqual(components[1])
+        } finally {
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: originalClipboard,
+            })
+        }
+    })
+
     it('pastes markdown as notebook blocks', () => {
         const onChange = jest.fn()
         const pastedMarkdown = `# Pasted heading
@@ -874,6 +1191,113 @@ Tail with **bold** text`
 
         expect(textBlock.textContent).toEqual('Hello bold')
         expect(onChange).toHaveBeenLastCalledWith('Hello **bold**')
+    })
+
+    it('undoes pasted markdown blocks as one notebook history step', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'Intro paragraph', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textNode = textBlock.firstChild
+
+        expect(textNode).toBeInstanceOf(Text)
+
+        act(() => {
+            const range = document.createRange()
+            range.setStart(textNode as Text, 15)
+            range.setEnd(textNode as Text, 15)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        pastePlainText(
+            textBlock,
+            `# Pasted heading
+
+Tail with **bold** text`
+        )
+
+        expect(onChange).toHaveBeenLastCalledWith(`Intro paragraph
+
+# Pasted heading
+
+Tail with **bold** text`)
+
+        fireEvent.keyDown(textBlock, { key: 'z', metaKey: true })
+
+        expect(onChange).toHaveBeenLastCalledWith('Intro paragraph')
+        expect(container.querySelector('.MarkdownNotebook__component-shell')).toBeNull()
+        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Intro paragraph')
+    })
+
+    it('routes native contenteditable undo and redo through notebook history after paste', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'Hello there', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        selectTextInElement(textBlock, 6, 6)
+        pastePlainText(textBlock, '**bold** ')
+
+        expect(onChange).toHaveBeenLastCalledWith('Hello **bold** there')
+        expect(textBlock.textContent).toEqual('Hello bold there')
+
+        fireHistoryBeforeInput(textBlock, 'historyUndo')
+
+        expect(onChange).toHaveBeenLastCalledWith('Hello there')
+        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Hello there')
+
+        fireHistoryBeforeInput(container.querySelector('[contenteditable="true"]') as HTMLElement, 'historyRedo')
+
+        expect(onChange).toHaveBeenLastCalledWith('Hello **bold** there')
+        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('Hello bold there')
+    })
+
+    it('pastes a URL over selected text as a link', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        selectTextInElement(textBlock, 0, 7)
+        pastePlainText(textBlock, 'https://posthog.com/docs')
+
+        expect(textBlock.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
+        expect(textBlock.textContent).toEqual('PostHog docs')
+        expect(onChange).toHaveBeenLastCalledWith('[PostHog](https://posthog.com/docs) docs')
+    })
+
+    it('pastes a URL over selected list item text as a link', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '- PostHog docs', onChange }))
+        const listItem = container.querySelector('.MarkdownNotebook__list-item-content') as HTMLElement
+
+        selectTextInElement(listItem, 0, 7)
+        pastePlainText(listItem, 'https://posthog.com/docs')
+
+        expect(listItem.querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
+        expect(listItem.textContent).toEqual('PostHog docs')
+        expect(onChange).toHaveBeenLastCalledWith('- [PostHog](https://posthog.com/docs) docs')
+    })
+
+    it('pastes a URL over selected table cell text as a link', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `| Name | Count |
+| --- | --- |
+| PostHog | 12 |`,
+                onChange,
+            })
+        )
+        const cells = Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+
+        selectTextInElement(cells[2], 0, 7)
+        pastePlainText(cells[2], 'https://posthog.com/docs')
+
+        expect(cells[2].querySelector('a')?.getAttribute('href')).toEqual('https://posthog.com/docs')
+        expect(cells[2].textContent).toEqual('PostHog')
+        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+| --- | --- |
+| [PostHog](https://posthog.com/docs) | 12 |`)
     })
 
     it('renders nested lists as editable list items', () => {
@@ -941,6 +1365,64 @@ Tail with **bold** text`
             expect(onChange).toHaveBeenLastCalledWith('-')
         }
     )
+
+    it('converts repeated heading shortcuts into heading levels up to h3', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
+
+        let textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        textBlock.textContent = '#'
+        fireEvent.input(textBlock)
+
+        expect(container.querySelector('h1.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith('#')
+
+        textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        textBlock.textContent = '#'
+        fireEvent.input(textBlock)
+
+        expect(container.querySelector('h2.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith('##')
+
+        textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        textBlock.textContent = '#'
+        fireEvent.input(textBlock)
+
+        expect(container.querySelector('h3.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith('###')
+
+        fireEvent.keyDown(container.querySelector('[contenteditable="true"]') as HTMLElement, { key: 'Backspace' })
+
+        expect(container.querySelector('p.MarkdownNotebook__text-block')).toBeInstanceOf(HTMLElement)
+        expect(onChange).toHaveBeenLastCalledWith('')
+    })
+
+    it('splits headings while preserving heading style except at the start', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '# HelloWorld', onChange }))
+        let heading = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+
+        selectTextInElement(heading, 5, 5)
+        fireEvent.keyDown(heading, { key: 'Enter' })
+
+        expect(
+            Array.from(container.querySelectorAll('h1.MarkdownNotebook__text-block')).map((node) => node.textContent)
+        ).toEqual(['Hello', 'World'])
+        expect(onChange).toHaveBeenLastCalledWith(`# Hello
+
+# World`)
+
+        heading = container.querySelector('h1.MarkdownNotebook__text-block') as HTMLElement
+        selectTextInElement(heading, 0, 0)
+        fireEvent.keyDown(heading, { key: 'Enter' })
+
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        expect(textBlocks[0].tagName).toEqual('P')
+        expect(textBlocks[0].textContent).toEqual('')
+        expect(textBlocks[1].tagName).toEqual('H1')
+        expect(textBlocks[1].textContent).toEqual('Hello')
+    })
 
     it('converts a blockquote shortcut at the start of a text row into a quote block', () => {
         const onChange = jest.fn()
@@ -1248,6 +1730,41 @@ Tail with **bold** text`
         fireEvent.input(editableTrailingBlock)
 
         expect(onChange).toHaveBeenLastCalledWith(expect.stringContaining('/>\n\nFollow-up note'))
+    })
+
+    it('focuses the lowest row when clicking blank space below the notebook', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const main = container.querySelector('.MarkdownNotebook__main')
+        const canvas = container.querySelector('.MarkdownNotebook__canvas')
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        expect(main).toBeInstanceOf(HTMLElement)
+        expect(canvas).toBeInstanceOf(HTMLElement)
+
+        Object.defineProperty(canvas, 'getBoundingClientRect', {
+            value: () => ({
+                bottom: 200,
+                height: 100,
+                left: 0,
+                right: 500,
+                top: 100,
+                width: 500,
+                x: 0,
+                y: 100,
+                toJSON: () => ({}),
+            }),
+        })
+
+        fireEvent.mouseDown(main as HTMLElement, { button: 0, clientY: 260 })
+
+        expect(document.activeElement).toEqual(textBlocks[1])
+        expect(window.getSelection()?.focusOffset).toEqual('Second paragraph'.length)
     })
 
     it('deletes the block above when pressing backspace at the start of a text block', () => {

@@ -140,6 +140,7 @@ class CreateNotebookTool(MaxTool):
                 blocks=blocks,
                 title=title,
                 state_messages=self._state.messages,
+                markdown_content=notebook_content,
             )
 
         # Build response message

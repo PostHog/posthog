@@ -31,6 +31,7 @@ const ORDERED_LIST_REGEX = /^\s*\d+[.)](?:\s+|$)/
 const BULLET_LIST_REGEX = /^\s*[-*+•](?:\s+|$)/
 const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
+const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
@@ -109,6 +110,9 @@ export function serializeNode(node: NotebookBlockNode): string {
     }
     if (node.type === 'code') {
         return `\`\`\`${node.language ?? ''}\n${node.text}\n\`\`\``
+    }
+    if (node.type === 'component' && node.tagName === 'Image') {
+        return serializeImageNode(node)
     }
     if (node.type === 'component') {
         return `<${node.tagName}${serializeComponentProps(node.props)} />`
@@ -224,6 +228,10 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         return parseCodeBlock(lines, lineIndex)
     }
 
+    if (IMAGE_BLOCK_REGEX.test(trimmed)) {
+        return parseImageBlock(lines, lineIndex)
+    }
+
     if (COMPONENT_START_REGEX.test(trimmed)) {
         return parseComponentBlock(lines, lineIndex)
     }
@@ -279,6 +287,7 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
         if (
             !trimmed ||
             trimmed.startsWith('```') ||
+            IMAGE_BLOCK_REGEX.test(trimmed) ||
             COMPONENT_START_REGEX.test(trimmed) ||
             HEADING_REGEX.test(line) ||
             isTableStart(lines, nextLineIndex) ||
@@ -498,6 +507,23 @@ function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
                       line: lineIndex + 1,
                   }
                 : undefined,
+    }
+}
+
+function parseImageBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const match = lines[lineIndex].trim().match(IMAGE_BLOCK_REGEX)
+
+    return {
+        node: {
+            id: '',
+            type: 'component',
+            tagName: 'Image',
+            props: {
+                alt: unescapeMarkdownImageValue(match?.[1] ?? ''),
+                src: unescapeMarkdownImageValue(match?.[2] ?? ''),
+            },
+        },
+        nextLineIndex: lineIndex + 1,
     }
 }
 
@@ -729,6 +755,13 @@ function serializePropValue(value: NotebookPropValue): string {
     return `{${JSON.stringify(value)}}`
 }
 
+function serializeImageNode(node: NotebookComponentBlockNode): string {
+    const src = typeof node.props.src === 'string' ? node.props.src : ''
+    const alt = typeof node.props.alt === 'string' ? node.props.alt : ''
+
+    return `![${escapeMarkdownImageAlt(alt)}](${escapeMarkdownImageSrc(src)})`
+}
+
 function serializeInlineNode(node: NotebookInlineNode): string {
     if (node.type === 'hardBreak') {
         return '\n'
@@ -837,6 +870,18 @@ function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
 
 function escapeMarkdownText(text: string): string {
     return text.replace(/\\/g, '\\\\')
+}
+
+function escapeMarkdownImageAlt(text: string): string {
+    return text.replace(/\\/g, '\\\\').replace(/\]/g, '\\]')
+}
+
+function escapeMarkdownImageSrc(text: string): string {
+    return text.replace(/\\/g, '\\\\').replace(/\)/g, '\\)')
+}
+
+function unescapeMarkdownImageValue(text: string): string {
+    return text.replace(/\\([\\\])])/g, '$1')
 }
 
 function escapeHtml(text: string): string {

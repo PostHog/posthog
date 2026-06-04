@@ -67,6 +67,13 @@ describe('markdownNotebookV2', () => {
                         },
                     },
                 },
+                {
+                    type: NotebookNodeType.Image,
+                    attrs: {
+                        src: 'https://res.cloudinary.com/demo/image/upload/posthog.png',
+                        alt: 'PostHog engineering',
+                    },
+                },
             ],
         }
 
@@ -74,6 +81,8 @@ describe('markdownNotebookV2', () => {
 
 A **bold** paragraph.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />`)
+<Query query={{"kind":"InsightVizNode","source":{"kind":"FunnelsQuery","series":[]}}} />
+
+![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
     })
 })

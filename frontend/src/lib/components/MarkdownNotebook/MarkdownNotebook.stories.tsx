@@ -44,7 +44,7 @@ const componentCatalogNotebook = `# Component catalog
 
 const embedsNotebook = `# Embeds
 
-<Image src="https://res.cloudinary.com/dmukukwp6/image/upload/data_warehouse_2c3928e9ad" alt="PostHog engineering" />
+![PostHog engineering](https://res.cloudinary.com/dmukukwp6/image/upload/data_warehouse_2c3928e9ad)
 
 <Embed src="https://posthog.com" title="PostHog" />
 
@@ -76,7 +76,7 @@ type Story = StoryObj<StoryArgs>
 
 function ControlledNotebook(props: MarkdownNotebookProps): JSX.Element {
     const [value, setValue] = useState(props.value)
-    return <MarkdownNotebook {...props} value={value} onChange={setValue} />
+    return <MarkdownNotebook {...props} value={value} onChange={setValue} onAskAI={props.onAskAI ?? (() => {})} />
 }
 
 function CollaborationNotebook(props: MarkdownNotebookProps): JSX.Element {
@@ -115,6 +115,7 @@ ${queryNotebook}`)
                 value={value}
                 remoteValue={remoteValue}
                 onChange={setValue}
+                onAskAI={props.onAskAI ?? (() => {})}
                 onConflict={setConflicts}
             />
             {conflicts.length ? (

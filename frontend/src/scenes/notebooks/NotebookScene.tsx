@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
-import { IconInfo, IconOpenSidebar } from '@posthog/icons'
+import { IconInfo, IconOpenSidebar, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
@@ -10,6 +10,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -46,6 +47,7 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { notebook, conflictWarningVisible, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
@@ -167,6 +169,14 @@ export function NotebookScene(): JSX.Element {
                     >
                         Open in context panel
                     </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconSparkles className="text-ai" />}
+                        size="small"
+                        aria-label="Ask AI"
+                        tooltip="Ask AI"
+                        onClick={() => openSidePanelMax()}
+                    />
                 </div>
             </div>
 

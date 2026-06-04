@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import { NotebookEditor, NotebookType } from '../types'
+import { buildMarkdownNotebookContent } from './markdownNotebookV2'
 import { notebookCollabLogic } from './notebookCollabLogic'
 import { SYNC_DELAY, notebookLogic } from './notebookLogic'
 
@@ -129,6 +130,48 @@ describe('Notebook history revert flow', () => {
             expect.anything()
         )
         expect(apiUpdateSpy).not.toHaveBeenCalled()
+    })
+
+    it('pauses autosave until notebook interaction resumes', async () => {
+        logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        logic.actions.setAutosavePaused(true)
+        logic.actions.setLocalContent(HISTORICAL_DOC)
+        await expectLogic(logic)
+            .delay(SYNC_DELAY + 100)
+            .toFinishAllListeners()
+
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+
+        logic.actions.setAutosavePaused(false)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(apiUpdateSpy).toHaveBeenCalledWith(
+            SHORT_ID,
+            expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })
+        )
+    })
+
+    it('does not enable ProseMirror collaboration for markdown v2 notebooks', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NOTEBOOKS_COLLABORATION], {
+            [FEATURE_FLAGS.NOTEBOOKS_COLLABORATION]: true,
+        })
+        logic = notebookLogic({
+            shortId: SHORT_ID,
+            mode: 'notebook',
+            cachedNotebook: {
+                ...cachedNotebook,
+                content: buildMarkdownNotebookContent('# Markdown v2'),
+            },
+        })
+        logic.mount()
+        logic.actions.loadNotebook()
+        await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
+
+        expect(logic.values.collabEnabled).toBe(false)
     })
 
     describe.each([

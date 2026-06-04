@@ -4201,7 +4201,7 @@
         }
     },
     "notebooks-partial-update": {
-        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version.",
+        "description": "Update an existing notebook by short_id. Can update title, content, and deleted status. IMPORTANT: when updating the content field, you must provide the current version number for optimistic concurrency control. Retrieve the notebook first to get the latest version. If the notebook content is a single ph-markdown-notebook node, preserve that structure and update attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Update notebook",

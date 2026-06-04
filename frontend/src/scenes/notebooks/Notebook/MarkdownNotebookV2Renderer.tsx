@@ -31,11 +31,12 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import { MarkdownNotebook, createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
+import type { MarkdownNotebookAskAIRequest } from 'lib/components/MarkdownNotebook'
 import {
     NotebookComponentDefinition,
     NotebookComponentProps,
@@ -44,6 +45,10 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxLogic } from 'scenes/max/maxLogic'
+import { MaxContextType } from 'scenes/max/maxTypes'
+import type { MaxUIContext } from 'scenes/max/maxTypes'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -138,30 +143,170 @@ const MARKDOWN_NODE_DEFINITIONS: {
 
 export function MarkdownNotebookV2(): JSX.Element {
     const { content, isEditable, notebook } = useValues(notebookLogic)
-    const { setLocalContent } = useActions(notebookLogic)
+    const { setLocalContent, setAutosavePaused } = useActions(notebookLogic)
+    const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { askMax } = useActions(maxLogic({ tabId: 'sidepanel' }))
     const markdown = getMarkdownNotebookMarkdown(content)
     const remoteMarkdown = getMarkdownNotebookMarkdown(notebook?.content)
     const nodeId = getMarkdownNotebookNodeId(content)
+    const [isInteractionActive, setIsInteractionActive] = useState(false)
+    const [draftMarkdown, setDraftMarkdown] = useState<string | null>(null)
+    const isInteractionActiveRef = useRef(false)
+    const latestMarkdownRef = useRef(markdown)
+    const bufferedMarkdownRef = useRef<string | null>(null)
+    const nodeIdRef = useRef(nodeId)
+    const renderedMarkdown = draftMarkdown ?? markdown
+
+    useEffect(() => {
+        if (draftMarkdown === null) {
+            latestMarkdownRef.current = markdown
+        } else if (draftMarkdown === markdown) {
+            latestMarkdownRef.current = markdown
+            setDraftMarkdown(null)
+        }
+    }, [markdown, draftMarkdown])
+
+    useEffect(() => {
+        nodeIdRef.current = nodeId
+    }, [nodeId])
+
+    const flushBufferedMarkdown = useCallback((): void => {
+        const bufferedMarkdown = bufferedMarkdownRef.current
+        if (bufferedMarkdown === null) {
+            return
+        }
+
+        bufferedMarkdownRef.current = null
+        if (bufferedMarkdown === latestMarkdownRef.current) {
+            return
+        }
+
+        latestMarkdownRef.current = bufferedMarkdown
+        setLocalContent(buildMarkdownNotebookContent(bufferedMarkdown, nodeIdRef.current))
+    }, [setLocalContent])
 
     const handleChange = useCallback(
         (nextMarkdown: string): void => {
-            setLocalContent(buildMarkdownNotebookContent(nextMarkdown, nodeId))
+            if (isInteractionActiveRef.current) {
+                bufferedMarkdownRef.current = nextMarkdown
+                setDraftMarkdown(nextMarkdown)
+                return
+            }
+
+            if (nextMarkdown === latestMarkdownRef.current) {
+                return
+            }
+
+            latestMarkdownRef.current = nextMarkdown
+            setLocalContent(buildMarkdownNotebookContent(nextMarkdown, nodeIdRef.current))
         },
-        [nodeId, setLocalContent]
+        [setLocalContent]
+    )
+    const handleInteractionStateChange = useCallback(
+        (nextIsInteractionActive: boolean): void => {
+            if (isInteractionActiveRef.current === nextIsInteractionActive) {
+                return
+            }
+
+            isInteractionActiveRef.current = nextIsInteractionActive
+            setIsInteractionActive(nextIsInteractionActive)
+            if (nextIsInteractionActive) {
+                setDraftMarkdown(latestMarkdownRef.current)
+                setAutosavePaused(true)
+                return
+            }
+
+            const hadBufferedMarkdown = bufferedMarkdownRef.current !== null
+            flushBufferedMarkdown()
+            if (!hadBufferedMarkdown) {
+                setDraftMarkdown(null)
+            }
+            setAutosavePaused(false)
+        },
+        [flushBufferedMarkdown, setAutosavePaused]
+    )
+    const handleAskAI = useCallback(
+        ({ query, placeholderNodeId, markdownWithPlaceholder }: MarkdownNotebookAskAIRequest): void => {
+            const notebookShortId = notebook?.short_id
+            const notebookTitle = notebook?.title ?? 'Untitled notebook'
+            const uiContext: Partial<MaxUIContext> | undefined = notebookShortId
+                ? {
+                      notebooks: [
+                          {
+                              type: MaxContextType.NOTEBOOK,
+                              id: notebookShortId,
+                              name: notebookTitle,
+                          },
+                      ],
+                  }
+                : undefined
+
+            openSidePanelMax()
+            window.setTimeout(() => {
+                askMax(
+                    buildNotebookAskAIPrompt({
+                        query,
+                        placeholderNodeId,
+                        markdownWithPlaceholder,
+                        notebookShortId,
+                        notebookTitle,
+                    }),
+                    true,
+                    uiContext
+                )
+            }, 100)
+        },
+        [askMax, notebook?.short_id, notebook?.title, openSidePanelMax]
     )
 
     return (
         <MarkdownNotebook
-            value={markdown}
+            value={renderedMarkdown}
             remoteValue={remoteMarkdown}
             mode={isEditable ? 'edit' : 'view'}
             registry={NOTEBOOK_MARKDOWN_REGISTRY}
             onChange={isEditable ? handleChange : undefined}
+            onAskAI={isEditable ? handleAskAI : undefined}
+            deferRemoteValue={isInteractionActive}
+            onInteractionStateChange={handleInteractionStateChange}
             className="Notebook__markdown-v2"
             data-attr="notebook-markdown-v2"
             autoFocus={isEditable}
         />
     )
+}
+
+function buildNotebookAskAIPrompt({
+    query,
+    placeholderNodeId,
+    markdownWithPlaceholder,
+    notebookShortId,
+    notebookTitle,
+}: {
+    query: string
+    placeholderNodeId: string
+    markdownWithPlaceholder: string
+    notebookShortId?: string
+    notebookTitle: string
+}): string {
+    const notebookReference = notebookShortId
+        ? `Notebook short_id: ${notebookShortId}`
+        : 'Notebook short_id: unavailable in the UI'
+
+    return `The user is asking from a Markdown notebook v2 editor.
+${notebookReference}
+Notebook title: ${notebookTitle}
+AI insertion placeholder block id: ${placeholderNodeId}
+
+The placeholder block is currently shown in the notebook as "Thinking ...". In the markdown below, the exact insertion point is marked with \`<!-- Ask PostHog AI insertion placeholder -->\`. If the user says "here", "this spot", "below", "above", or similar, they mean this placeholder location. Use notebook tools against the current notebook when changing notebook content. For Markdown notebook v2, preserve the single ph-markdown-notebook node and update its attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks.
+
+Current notebook markdown with insertion placeholder:
+\`\`\`markdown
+${markdownWithPlaceholder}
+\`\`\`
+
+User request:
+${query}`
 }
 
 const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry(

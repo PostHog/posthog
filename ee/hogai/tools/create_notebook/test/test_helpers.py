@@ -151,3 +151,53 @@ class TestSaveNotebookToDb(BaseTest):
 
         ph_queries = _find_ph_query_nodes(notebook.content)
         self.assertEqual(len(ph_queries), 0)
+
+    def test_save_notebook_preserves_existing_markdown_v2_wrapper(self):
+        parent = self._create_notebook_parent("nv2m")
+        notebook = Notebook.objects.create(
+            team=self.team,
+            short_id=parent.short_id,
+            title="Original title",
+            created_by=self.user,
+            last_modified_by=self.user,
+            content={
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "custom-node-id",
+                            "markdown": "# Original",
+                        },
+                    }
+                ],
+            },
+        )
+
+        async_to_sync(save_notebook_to_db)(
+            team=self.team,
+            user=self.user,
+            artifact=parent,
+            blocks=[],
+            title="Updated title",
+            state_messages=[],
+            markdown_content="# Updated\n\nAdd this here.",
+        )
+
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.title, "Updated title")
+        self.assertEqual(
+            notebook.content,
+            {
+                "type": "doc",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "custom-node-id",
+                            "markdown": "# Updated\n\nAdd this here.",
+                        },
+                    }
+                ],
+            },
+        )

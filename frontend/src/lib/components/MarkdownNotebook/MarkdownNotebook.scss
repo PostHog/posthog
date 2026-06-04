@@ -2,6 +2,7 @@
     --markdown-notebook-component-background: var(--color-bg-surface-primary);
 
     width: 100%;
+    min-height: 100%;
 }
 
 [theme='dark'] .MarkdownNotebook {
@@ -13,11 +14,13 @@
     gap: 1rem;
     align-items: stretch;
     width: 100%;
+    min-height: 100%;
 }
 
 .MarkdownNotebook__main {
     flex: 1 1 auto;
     min-width: 0;
+    min-height: 100%;
 }
 
 .MarkdownNotebook__debug-toolbar {
@@ -73,7 +76,6 @@
     gap: 0;
     width: 100%;
     max-width: 56rem;
-    padding: 1rem 0;
     margin: 0 auto;
 }
 
@@ -95,6 +97,10 @@
     align-items: center;
     width: 100%;
     min-width: 0;
+}
+
+.MarkdownNotebook__text-row--ai-prompt {
+    grid-template-columns: 2rem auto minmax(0, 1fr);
 }
 
 .MarkdownNotebook__line-insert-menu-button {
@@ -169,6 +175,55 @@
     outline: none;
 }
 
+.MarkdownNotebook__text-row--ai-prompt .MarkdownNotebook__text-block {
+    grid-column: 3;
+}
+
+.MarkdownNotebook__text-row--ai-thinking .MarkdownNotebook__text-block {
+    display: none;
+}
+
+.MarkdownNotebook__ai-prompt-tag {
+    display: inline-flex;
+    grid-column: 2;
+    gap: 0.25rem;
+    align-items: center;
+    justify-self: start;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+    white-space: nowrap;
+    appearance: none;
+    background: var(--color-accent-highlight-secondary);
+    border: 1px solid var(--color-accent);
+    border-radius: 0.375rem;
+    box-shadow: 0 0 0 2px color-mix(in sRGB, var(--color-accent) 12%, transparent);
+}
+
+.MarkdownNotebook__ai-prompt-tag:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.MarkdownNotebook__ai-prompt-tag--thinking:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+.MarkdownNotebook__ai-prompt-tag svg {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+.MarkdownNotebook__ai-prompt-tag--thinking {
+    color: var(--color-text-secondary);
+    background: var(--color-bg-fill-tertiary);
+    border-color: var(--color-border-primary);
+    box-shadow: none;
+}
+
 .MarkdownNotebook__text-block:focus {
     background: var(--bg-light);
 }
@@ -235,6 +290,20 @@ h3.MarkdownNotebook__text-block--heading {
 
 .MarkdownNotebook__format-toolbar--below {
     transform: translate(-50%, 0);
+}
+
+.MarkdownNotebook__format-link-editor {
+    display: inline-flex;
+    gap: 0.25rem;
+    align-items: center;
+    padding-left: 0.25rem;
+    margin-left: 0.125rem;
+    border-left: 1px solid var(--color-border-primary);
+}
+
+.MarkdownNotebook__format-link-input {
+    width: 14rem;
+    max-width: calc(100vw - 12rem);
 }
 
 .MarkdownNotebook__insert-menu {

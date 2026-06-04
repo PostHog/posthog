@@ -1,5 +1,5 @@
 export { MarkdownNotebook } from './MarkdownNotebook'
-export type { MarkdownNotebookProps } from './MarkdownNotebook'
+export type { MarkdownNotebookAskAIRequest, MarkdownNotebookProps } from './MarkdownNotebook'
 export {
     getMarkdownNotebookDefaultRegistry,
     createMarkdownNotebookRegistry,

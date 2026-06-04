@@ -189,6 +189,7 @@ export const notebookLogic = kea<notebookLogicType>([
         editorIsReady: true,
         onEditorUpdate: true,
         onEditorSelectionUpdate: true,
+        setAutosavePaused: (paused: boolean) => ({ paused }),
         setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
             jsonContent,
             updateEditor,
@@ -266,6 +267,12 @@ export const notebookLogic = kea<notebookLogicType>([
             {
                 setPreviewContent: (_, { jsonContent }) => jsonContent,
                 clearPreviewContent: () => null,
+            },
+        ],
+        autosavePaused: [
+            false,
+            {
+                setAutosavePaused: (_, { paused }) => paused,
             },
         ],
         editor: [
@@ -622,9 +629,16 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         collabEnabled: [
-            (s) => [s.featureFlags, s.isLocalOnly],
-            (featureFlags: Record<string, string | boolean>, isLocalOnly: boolean): boolean =>
-                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] && !isLocalOnly,
+            (s) => [s.featureFlags, s.isLocalOnly, s.localContent, s.notebook],
+            (
+                featureFlags: Record<string, string | boolean>,
+                isLocalOnly: boolean,
+                localContent: JSONContent | null,
+                notebook: NotebookType | null
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.NOTEBOOKS_COLLABORATION] &&
+                !isLocalOnly &&
+                !isMarkdownNotebookContent(localContent || notebook?.content),
         ],
         notebookMissing: [
             (s) => [s.notebook, s.notebookLoading, s.mode],
@@ -1044,6 +1058,10 @@ export const notebookLogic = kea<notebookLogicType>([
 
             await breakpoint(SYNC_DELAY)
 
+            if (values.autosavePaused) {
+                return
+            }
+
             if (values.mode === 'canvas') {
                 // TODO: We probably want this to be configurable
                 cache.lastState = base64Encode(JSON.stringify(jsonContent))
@@ -1063,12 +1081,30 @@ export const notebookLogic = kea<notebookLogicType>([
                 })
             }
 
-            if (!values.isLocalOnly && values.content && !values.notebookLoading) {
+            if (!values.isLocalOnly && values.localContent && values.content && !values.notebookLoading) {
                 actions.saveNotebook({
                     content: values.content,
                     title: values.title,
                 })
             }
+        },
+
+        setAutosavePaused: ({ paused }) => {
+            if (
+                paused ||
+                values.isLocalOnly ||
+                values.previewContent ||
+                !values.localContent ||
+                values.notebookLoading ||
+                !values.notebook
+            ) {
+                return
+            }
+
+            actions.saveNotebook({
+                content: values.content,
+                title: values.title,
+            })
         },
 
         setPreviewContent: async () => {
