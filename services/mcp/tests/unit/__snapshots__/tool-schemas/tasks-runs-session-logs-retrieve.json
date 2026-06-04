@@ -35,6 +35,7 @@
             "type": "number"
         },
         "task_id": {
+            "pattern": "^[a-z]{1,16}_[0-9A-Za-z]{22}$",
             "type": "string"
         }
     },
