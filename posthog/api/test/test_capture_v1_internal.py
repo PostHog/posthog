@@ -305,6 +305,22 @@ class TestPrepareCaptureV1Batch(SimpleTestCase):
         ts = payload["batch"][0]["timestamp"]
         assert before <= ts <= after
 
+    def test_timestamp_non_utc_datetime_converted_correctly(self) -> None:
+        from datetime import timedelta, timezone
+
+        est = timezone(timedelta(hours=-5))
+        # 2024-01-15 17:00 EST = 2024-01-15 22:00 UTC
+        ts_est = datetime(2024, 1, 15, 17, 0, 0, tzinfo=est)
+        events = [_make_event(timestamp=ts_est)]
+        payload, _ = prepare_capture_v1_batch(events, token="tok", event_source="test")
+        assert payload["batch"][0]["timestamp"] == "2024-01-15T22:00:00+00:00"
+
+    def test_timestamp_naive_datetime_assumed_utc(self) -> None:
+        ts_naive = datetime(2024, 6, 1, 12, 0, 0)
+        events = [_make_event(timestamp=ts_naive)]
+        payload, _ = prepare_capture_v1_batch(events, token="tok", event_source="test")
+        assert payload["batch"][0]["timestamp"] == "2024-06-01T12:00:00+00:00"
+
     @parameterized.expand(
         [
             ("empty_token", "", [{"event": "e", "distinct_id": "u"}], "api token is required"),
@@ -584,7 +600,7 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
         )
         InstallV1Spy(mock_session_fn, [persistent_retry, persistent_retry, persistent_retry])
 
-        result = capture_v1_batch_internal(events=events, token="tok", event_source="bounded", max_retries=2)
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="bounded", max_attempts=2)
 
         assert result.status_code == 200
         assert u_retry in result.retried
@@ -763,7 +779,7 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
         assert body2["created_at"] == body1["created_at"]
 
     @patch("posthog.api.capture_v1.internal_requests_session")
-    def test_max_retries_one_means_no_resubmit(self, mock_session_fn: MagicMock) -> None:
+    def test_max_attempts_one_means_no_resubmit(self, mock_session_fn: MagicMock) -> None:
         u_retry = str(uuid4())
         events = [_make_event(event_uuid=u_retry)]
         resp = MockResponse(
@@ -772,7 +788,7 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
         )
         spy = InstallV1Spy(mock_session_fn, [resp])
 
-        result = capture_v1_batch_internal(events=events, token="tok", event_source="noretry", max_retries=1)
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="noretry", max_attempts=1)
 
         assert len(spy.calls) == 1
         assert u_retry in result.retried

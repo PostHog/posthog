@@ -27,8 +27,9 @@ from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_V1_INTERNAL_ENDPOINT,
-    CAPTURE_V1_INTERNAL_MAX_RETRIES,
+    CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
     CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS,
+    CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
 )
 
 logger = structlog.get_logger(__name__)
@@ -295,7 +296,9 @@ def prepare_capture_v1_batch(
         if not raw_ts:
             timestamp_str = datetime.now(UTC).isoformat()
         elif isinstance(raw_ts, datetime):
-            timestamp_str = raw_ts.replace(tzinfo=UTC).isoformat()
+            if raw_ts.tzinfo is None:
+                raw_ts = raw_ts.replace(tzinfo=UTC)
+            timestamp_str = raw_ts.astimezone(UTC).isoformat()
         else:
             timestamp_str = str(raw_ts)
 
@@ -340,13 +343,15 @@ def capture_v1_batch_internal(
     event_source: str,
     historical_migration: bool = False,
     process_person_profile: bool = False,
-    max_retries: int = CAPTURE_V1_INTERNAL_MAX_RETRIES,
+    max_attempts: int = CAPTURE_V1_INTERNAL_MAX_ATTEMPTS,
+    transport_retries: int = CAPTURE_V1_INTERNAL_TRANSPORT_RETRIES,
     timeout: float = 2,
 ) -> CaptureV1Result:
     """Submit a batch of events to the v1 analytics capture endpoint.
 
-    Handles whole-request transport retries (5xx) via ``urllib3.Retry``
-    and per-event ``retry`` results via bounded automatic resubmission.
+    ``transport_retries`` controls urllib3-level retries on 5xx (transparent
+    to callers).  ``max_attempts`` caps application-level resubmit rounds
+    for per-event ``retry`` results — the two are independent budgets.
     """
     payload, uuids = prepare_capture_v1_batch(
         events,
@@ -376,7 +381,7 @@ def capture_v1_batch_internal(
             url,
             HTTPAdapter(
                 max_retries=Retry(
-                    total=max_retries,
+                    total=transport_retries,
                     backoff_factor=0.1,
                     status_forcelist=[500, 502, 503, 504],
                     allowed_methods={"POST"},
@@ -446,7 +451,7 @@ def capture_v1_batch_internal(
                 else:
                     aggregated[uid] = entry
 
-            if not retry_uuids or attempt >= max_retries:
+            if not retry_uuids or attempt >= max_attempts:
                 for uid in retry_uuids:
                     entry = results_map.get(uid, {"result": "retry"})
                     aggregated[uid] = entry
