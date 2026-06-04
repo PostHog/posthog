@@ -3,6 +3,7 @@ import { ApiError } from 'lib/api-error'
 import { errorTrackingWidgetConfigSchema } from '../../widget_types/configSchemas'
 import {
     parseErrorTrackingWidgetConfigApiError,
+    patchErrorTrackingWidgetFilterFields,
     validateErrorTrackingWidgetConfigInput,
 } from './errorTrackingWidgetConfigValidation'
 
@@ -11,7 +12,7 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
         const result = validateErrorTrackingWidgetConfigInput({
             limit: 30,
             orderBy: 'occurrences',
-            dateFrom: '-7d',
+            orderDirection: 'DESC',
             filterTestAccounts: true,
             baseConfig: errorTrackingWidgetConfigSchema.parse({}),
         })
@@ -26,15 +27,19 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
         const result = validateErrorTrackingWidgetConfigInput({
             limit: 10,
             orderBy: 'occurrences',
-            dateFrom: '-7d',
+            orderDirection: 'DESC',
             filterTestAccounts: true,
-            baseConfig: errorTrackingWidgetConfigSchema.parse({}),
+            baseConfig: errorTrackingWidgetConfigSchema.parse({
+                dateRange: { date_from: '-30d' },
+                status: 'resolved',
+            }),
         })
 
         expect(result.success).toBe(true)
         if (result.success) {
             expect(result.config.limit).toBe(10)
-            expect(result.config.dateRange).toEqual({ date_from: '-7d' })
+            expect(result.config.dateRange).toEqual({ date_from: '-30d' })
+            expect(result.config.status).toBe('resolved')
             expect(result.config.filterTestAccounts).toBe(true)
         }
     })
@@ -51,21 +56,6 @@ describe('validateErrorTrackingWidgetConfigInput', () => {
             expect(result.data.filterTestAccounts).toBeUndefined()
         }
     })
-
-    it('accepts short date range', () => {
-        const result = validateErrorTrackingWidgetConfigInput({
-            limit: 10,
-            orderBy: 'occurrences',
-            dateFrom: '-1h',
-            filterTestAccounts: true,
-            baseConfig: errorTrackingWidgetConfigSchema.parse({}),
-        })
-
-        expect(result.success).toBe(true)
-        if (result.success) {
-            expect(result.config.dateRange).toEqual({ date_from: '-1h' })
-        }
-    })
 })
 
 describe('parseErrorTrackingWidgetConfigApiError', () => {
@@ -78,10 +68,48 @@ describe('parseErrorTrackingWidgetConfigApiError', () => {
             parseErrorTrackingWidgetConfigApiError(error, {
                 limit: 30,
                 orderBy: 'occurrences',
+                orderDirection: 'DESC',
+                status: 'active',
                 dateRange: { date_from: '-7d' },
             })
         ).toEqual({
             limit: 'Must be an integer between 1 and 25.',
         })
+    })
+})
+
+describe('patchErrorTrackingWidgetFilterFields', () => {
+    it('updates status while preserving sort fields', () => {
+        const base = errorTrackingWidgetConfigSchema.parse({
+            limit: 5,
+            orderBy: 'users',
+            status: 'active',
+            dateRange: { date_from: '-7d' },
+        })
+        const next = patchErrorTrackingWidgetFilterFields(base, { status: 'resolved' })
+        expect(next.status).toBe('resolved')
+        expect(next.limit).toBe(5)
+        expect(next.orderBy).toBe('users')
+    })
+
+    it('persists widgetFilters patch on tile config', () => {
+        const base = errorTrackingWidgetConfigSchema.parse({
+            limit: 5,
+            orderBy: 'occurrences',
+            status: 'active',
+            dateRange: { date_from: '-7d' },
+        })
+        const next = patchErrorTrackingWidgetFilterFields(base, {
+            widgetFilters: {
+                'qf-1': {
+                    filterId: 'qf-1',
+                    propertyName: '$environment',
+                    optionId: 'opt-1',
+                    value: 'production',
+                    operator: 'exact',
+                },
+            },
+        })
+        expect(next.widgetFilters?.['qf-1']?.propertyName).toBe('$environment')
     })
 })

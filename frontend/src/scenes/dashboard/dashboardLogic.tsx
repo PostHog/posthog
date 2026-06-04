@@ -23,6 +23,11 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
+import {
+    applyIssueMetadataToWidgetListResult,
+    type WidgetIssueMetadataContext,
+    type WidgetIssueMetadataDelta,
+} from '@posthog/products-dashboards/frontend/widgets/error_tracking/applyWidgetIssueMetadataChange'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError } from 'lib/api-error'
@@ -44,6 +49,7 @@ import {
     findNewlyAddedWidgetTiles,
     WIDGET_CLIENT_TTL_MS,
 } from 'scenes/dashboard/widgetFetchUtils'
+import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -265,6 +271,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        /** Debounced run_widgets refresh for a single tile (tile filters). */
+        scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
+        applyWidgetIssueMetadataChange: (payload: {
+            tileId: number
+            issueId: string
+            delta: WidgetIssueMetadataDelta
+            context: WidgetIssueMetadataContext
+        }) => payload,
         setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => ({ results }),
         setWidgetRefreshStatuses: (tileIds: number[], loading: boolean, error?: string | null) => ({
             tileIds,
@@ -735,7 +749,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardsModel.actions.updateDashboardSuccess(dashboard)
                         }
                         if (config !== undefined) {
-                            actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
+                            actions.scheduleRefreshDashboardWidgets(tile.id)
                         }
                         return null
                     } catch (e) {
@@ -1251,6 +1265,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {} as Record<number, DashboardWidgetRunResultApi>,
             {
                 setWidgetRunResults: (state, { results }) => ({ ...state, ...results }),
+                applyWidgetIssueMetadataChange: (state, { tileId, issueId, delta, context }) => {
+                    const run = state[tileId]
+                    if (!run?.result || typeof run.result !== 'object') {
+                        return state
+                    }
+                    const nextResult = applyIssueMetadataToWidgetListResult(
+                        run.result as Parameters<typeof applyIssueMetadataToWidgetListResult>[0],
+                        issueId,
+                        delta,
+                        context
+                    )
+                    return {
+                        ...state,
+                        [tileId]: {
+                            ...run,
+                            result: nextResult,
+                        },
+                    }
+                },
             },
         ],
         widgetRefreshStatus: [
@@ -1839,7 +1872,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, props, values }) => ({
+    events(({ actions, props, values, cache }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
@@ -1883,6 +1916,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
         },
     })),
@@ -1915,6 +1949,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
+            if (!cache.widgetTileRefreshScheduler) {
+                cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
+                    actions.refreshDashboardWidgets({ tileIds: [id], forceRefresh: true })
+                )
+            }
+            cache.widgetTileRefreshScheduler.schedule(tileId)
+        },
         setAddWidgetModalOpen: ({ open }) => {
             if (open) {
                 actions.clearAddWidgetSelectedTypes()
