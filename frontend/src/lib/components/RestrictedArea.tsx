@@ -66,7 +66,7 @@ export function useRestrictedArea({
     }, [currentOrganization, currentTeam, minimumAccessLevel]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        if (!restrictionReason || !currentTeam || !currentOrganization) {
+        if (!restrictionReason || !currentTeam?.id || !currentOrganization?.id) {
             return
         }
 
@@ -78,7 +78,7 @@ export function useRestrictedArea({
             organization_id: currentOrganization?.id,
             platform_feature: AvailableFeature.ACCESS_CONTROL,
         })
-    }, [restrictionReason, scope, minimumAccessLevel, currentTeam, currentOrganization])
+    }, [restrictionReason, scope, minimumAccessLevel, currentTeam?.id, currentOrganization?.id])
 
     return restrictionReason
 }
