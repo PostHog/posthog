@@ -4,22 +4,11 @@ import { type Series as ChartSeries, type YAxisFormat, TimeSeriesLineChart } fro
 
 import { formatDate } from '../utils'
 import { CHART_COLORS, CHART_THEME } from './theme'
-
-export interface DataPoint {
-    x: number
-    y: number
-    label: string
-}
-
-export interface Series {
-    label: string
-    points: DataPoint[]
-}
+import type { Series } from './types'
 
 export interface LineChartProps {
     series: Series[]
     labels: string[]
-    maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
     /** Y-axis value format. Mirrors a trends insight's `aggregationAxisFormat`; defaults to `numeric`. */

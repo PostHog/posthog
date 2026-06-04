@@ -123,9 +123,9 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
 
     const [chartMode, setChartMode] = useState<ChartMode>('line')
 
-    const { series, labels, maxValue, totalCohorts } = useMemo(() => {
+    const { series, labels, totalCohorts } = useMemo(() => {
         if (!results || results.length === 0) {
-            return { series: [] as Series[], labels: [] as string[], maxValue: 0, totalCohorts: 0 }
+            return { series: [] as Series[], labels: [] as string[], totalCohorts: 0 }
         }
         const sorted = sortCohorts(results)
         // Cap to MAX_COHORTS so each line gets a distinct palette color rather than wrapping back
@@ -133,14 +133,10 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
         const limited = sorted.slice(0, MAX_COHORTS)
         const numIntervals = limited.reduce((m, c) => Math.max(m, c.values.length), 0)
         const xLabels = buildXAxisLabels(numIntervals, period)
-        let computedMax = 0
 
         const built: Series[] = limited.map((cohort, idx) => {
             const points = Array.from({ length: numIntervals }, (_, i) => {
                 const y = computeSeriesValue(cohort.values, i, aggregationType, reference)
-                if (y > computedMax) {
-                    computedMax = y
-                }
                 return { x: i, y, label: xLabels[i] ?? `${i}` }
             })
             return {
@@ -152,7 +148,6 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
         return {
             series: built,
             labels: xLabels,
-            maxValue: computedMax || 1,
             totalCohorts: sorted.length,
         }
     }, [results, aggregationType, reference, period])
@@ -189,9 +184,9 @@ export function RetentionVisualizer({ query, results }: RetentionVisualizerProps
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
             {chartMode === 'bar' ? (
-                <BarChart series={series} labels={labels} maxValue={maxValue} yAxisLabel={yAxisLabel} />
+                <BarChart series={series} labels={labels} yAxisLabel={yAxisLabel} />
             ) : (
-                <LineChart series={series} labels={labels} maxValue={maxValue} yAxisLabel={yAxisLabel} />
+                <LineChart series={series} labels={labels} yAxisLabel={yAxisLabel} />
             )}
         </div>
     )

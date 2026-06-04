@@ -17,32 +17,27 @@ const CHART_MODE_OPTIONS = [
 function prepareChartData(results: TrendsResultItem[]): {
     series: Series[]
     labels: string[]
-    maxValue: number
 } {
     if (!results || results.length === 0) {
-        return { series: [], labels: [], maxValue: 0 }
+        return { series: [], labels: [] }
     }
 
     const labels = results[0]?.days || results[0]?.labels || []
-    let maxValue = 0
 
     const series = results.map((item, seriesIndex) => {
         const data = item.data || []
-        const points = data.map((value, i) => {
-            maxValue = Math.max(maxValue, value)
-            return {
-                x: i,
-                y: value,
-                label: labels[i] || `${i}`,
-            }
-        })
+        const points = data.map((value, i) => ({
+            x: i,
+            y: value,
+            label: labels[i] || `${i}`,
+        }))
         return {
             label: getSeriesLabel(item, seriesIndex),
             points,
         }
     })
 
-    return { series, labels, maxValue: maxValue || 1 }
+    return { series, labels }
 }
 
 function calculateTotal(results: TrendsResultItem[]): number {
@@ -63,7 +58,7 @@ function calculateTotal(results: TrendsResultItem[]): number {
 export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartMode, setChartMode] = useState<ChartMode>(isBarChart(displayType) ? 'bar' : 'line')
-    const { series, labels, maxValue } = prepareChartData(results)
+    const { series, labels } = prepareChartData(results)
 
     if (!results || results.length === 0 || series.length === 0) {
         return (
@@ -92,7 +87,6 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 <BarChart
                     series={series}
                     labels={labels}
-                    maxValue={maxValue}
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                     yAxisFormat={query?.trendsFilter?.aggregationAxisFormat}
                 />
@@ -100,7 +94,6 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 <LineChart
                     series={series}
                     labels={labels}
-                    maxValue={maxValue}
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                     yAxisFormat={query?.trendsFilter?.aggregationAxisFormat}
                 />

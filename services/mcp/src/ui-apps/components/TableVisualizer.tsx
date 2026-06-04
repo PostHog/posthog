@@ -3,9 +3,9 @@ import type { ReactElement } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { DataTable, type DataTableProps, Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
-import { formatNumber } from './utils'
 import { BigNumber, LineChart, type Series } from './charts'
 import type { TableVisualizerProps } from './types'
+import { formatNumber } from './utils'
 
 // Query results are truncated client-side; sorting a truncated view would
 // mislead, so columns are non-sortable.
@@ -97,22 +97,19 @@ function transformToSeries(
     timeIdx: number,
     valueIdx: number,
     valueLabel: string
-): { series: Series[]; labels: string[]; maxValue: number } {
+): { series: Series[]; labels: string[] } {
     const labels: string[] = []
-    let maxValue = 0
 
     const points = rows.map((row, i) => {
         const label = String(row[timeIdx])
         const value = row[valueIdx] as number
         labels.push(label)
-        maxValue = Math.max(maxValue, value)
         return { x: i, y: value, label }
     })
 
     return {
         series: [{ label: valueLabel, points }],
         labels,
-        maxValue: maxValue || 1,
     }
 }
 
@@ -132,13 +129,8 @@ export function TableVisualizer({ results }: TableVisualizerProps): ReactElement
         format.valueColumnIndex !== undefined
     ) {
         const valueLabel = columns[format.valueColumnIndex] || 'Value'
-        const { series, labels, maxValue } = transformToSeries(
-            rows,
-            format.timeColumnIndex,
-            format.valueColumnIndex,
-            valueLabel
-        )
-        return <LineChart series={series} labels={labels} maxValue={maxValue} showLegend={false} />
+        const { series, labels } = transformToSeries(rows, format.timeColumnIndex, format.valueColumnIndex, valueLabel)
+        return <LineChart series={series} labels={labels} showLegend={false} />
     }
 
     if (rows.length === 0) {
