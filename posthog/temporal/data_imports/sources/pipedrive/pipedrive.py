@@ -96,9 +96,12 @@ def validate_credentials(company_domain: str, api_token: str) -> Optional[int]:
     """
     try:
         url = _build_url(company_domain, "/api/v1/users/me", {})
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+        response = session.get(url, timeout=10)
         return response.status_code
     except ValueError:
+        # Re-raise invalid-domain errors from `_build_url` so the caller surfaces them,
+        # instead of letting the broad `except Exception` swallow them into `None`.
         raise
     except Exception:
         return None
@@ -112,7 +115,9 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PipedriveResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = PIPEDRIVE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
+    # `redact_values` masks the token (sent via the custom `x-api-token` header, which the
+    # name-based denylist can't catch) in logged URLs and captured HTTP samples.
+    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -128,7 +133,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # Pipedrive uses token-based rate limiting; 429s and transient 5xx are retried with
         # exponential backoff.
@@ -154,8 +159,9 @@ def get_rows(
         if not next_url:
             break
 
-        # Save state only after the batch is yielded so a crash re-yields the last page
-        # (merge dedupes on primary key) rather than skipping it.
+        # Save the next-page pointer only after the current page has been processed (yielded
+        # above when it had rows), so a crash resumes at this page rather than past it. Merge
+        # dedupes on primary key any rows re-yielded on resume.
         resumable_source_manager.save_state(PipedriveResumeConfig(next_url=next_url))
         url = next_url
 

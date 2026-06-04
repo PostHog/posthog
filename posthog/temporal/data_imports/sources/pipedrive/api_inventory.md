@@ -20,21 +20,21 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 
 ## Endpoints synced
 
-| Schema                | Path                          | Pagination | Primary key | Partition key |
-| --------------------- | ----------------------------- | ---------- | ----------- | ------------- |
-| deals                 | `/api/v2/deals`               | cursor     | id          | add_time      |
-| persons               | `/api/v2/persons`             | cursor     | id          | add_time      |
-| organizations         | `/api/v2/organizations`       | cursor     | id          | add_time      |
-| products              | `/api/v2/products`            | cursor     | id          | add_time      |
-| pipelines             | `/api/v2/pipelines`           | cursor     | id          | add_time      |
-| stages                | `/api/v2/stages`              | cursor     | id          | add_time      |
-| activities            | `/api/v1/activities`          | offset     | id          | add_time      |
-| notes                 | `/api/v1/notes`               | offset     | id          | add_time      |
-| leads                 | `/api/v1/leads`               | offset     | id          | add_time      |
-| users                 | `/api/v1/users`               | offset     | id          | —             |
-| deal_fields           | `/api/v1/dealFields`          | offset     | id          | —             |
-| person_fields         | `/api/v1/personFields`        | offset     | id          | —             |
-| organization_fields   | `/api/v1/organizationFields`  | offset     | id          | —             |
+| Schema              | Path                         | Pagination | Primary key | Partition key |
+| ------------------- | ---------------------------- | ---------- | ----------- | ------------- |
+| deals               | `/api/v2/deals`              | cursor     | id          | add_time      |
+| persons             | `/api/v2/persons`            | cursor     | id          | add_time      |
+| organizations       | `/api/v2/organizations`      | cursor     | id          | add_time      |
+| products            | `/api/v2/products`           | cursor     | id          | add_time      |
+| pipelines           | `/api/v2/pipelines`          | cursor     | id          | add_time      |
+| stages              | `/api/v2/stages`             | cursor     | id          | add_time      |
+| activities          | `/api/v1/activities`         | offset     | id          | add_time      |
+| notes               | `/api/v1/notes`              | offset     | id          | add_time      |
+| leads               | `/api/v1/leads`              | offset     | id          | add_time      |
+| users               | `/api/v1/users`              | offset     | id          | —             |
+| deal_fields         | `/api/v1/dealFields`         | offset     | id          | —             |
+| person_fields       | `/api/v1/personFields`       | offset     | id          | —             |
+| organization_fields | `/api/v1/organizationFields` | offset     | id          | —             |
 
 ## Incremental sync
 

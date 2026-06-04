@@ -114,8 +114,9 @@ class TestValidateCredentials:
         assert validate_credentials("acme", "token") == status_code
         called_url = mock_session.return_value.get.call_args.args[0]
         assert called_url == "https://acme.pipedrive.com/api/v1/users/me"
-        headers = mock_session.return_value.get.call_args.kwargs["headers"]
-        assert headers["x-api-token"] == "token"
+        # Auth header and token redaction are configured on the session, not the request.
+        assert mock_session.call_args.kwargs["headers"]["x-api-token"] == "token"
+        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
 
     @mock.patch("posthog.temporal.data_imports.sources.pipedrive.pipedrive.make_tracked_session")
     def test_returns_none_on_transport_error(self, mock_session: mock.MagicMock) -> None:
@@ -146,6 +147,8 @@ class TestGetRows:
         batches = list(get_rows("acme", "token", "deals", mock.MagicMock(), manager))
 
         assert batches == [[{"id": 1}], [{"id": 2}]]
+        # The session masks the token in logged URLs and captured samples.
+        assert mock_session.call_args.kwargs["redact_values"] == ("token",)
         # State is saved once: after the first page is yielded, pointing at page 2.
         manager.save_state.assert_called_once_with(
             PipedriveResumeConfig(next_url=f"https://acme.pipedrive.com/api/v2/deals?limit={PAGE_SIZE}&cursor=c2")
