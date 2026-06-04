@@ -7,6 +7,7 @@ import orjson
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -22,6 +23,11 @@ from posthog.temporal.data_imports.sources.mixpanel.settings import (
 CHUNK_SIZE = 5000
 ENGAGE_PAGE_SIZE = 1000
 REQUEST_TIMEOUT = 120
+
+# Let tenacity be the only retry layer. The default tracked-session retry only retries
+# GET/HEAD/OPTIONS at the urllib3 level, which would give the GET endpoints a much larger
+# (and uneven) effective retry budget than the POST ones.
+NO_URLLIB_RETRY = Retry(total=0)
 
 
 class MixpanelRetryableError(Exception):
@@ -91,10 +97,6 @@ def _to_date(value: Any) -> Optional[date]:
     return None
 
 
-def _auth(username: str, secret: str) -> tuple[str, str]:
-    return (username, secret)
-
-
 def validate_credentials(
     region: str,
     username: str,
@@ -110,10 +112,10 @@ def validate_credentials(
     treat 401 as a hard failure."""
     url = f"{_query_base(region)}/api/query/cohorts/list"
     try:
-        response = make_tracked_session().post(
+        response = make_tracked_session(retry=NO_URLLIB_RETRY).post(
             url,
             params={"project_id": project_id},
-            auth=_auth(username, secret),
+            auth=(username, secret),
             headers={"Accept": "application/json"},
             timeout=30,
         )
@@ -160,11 +162,11 @@ def _request(
     params: Optional[dict[str, Any]] = None,
     stream: bool = False,
 ) -> requests.Response:
-    response = make_tracked_session().request(
+    response = make_tracked_session(retry=NO_URLLIB_RETRY).request(
         method,
         url,
         params=params,
-        auth=_auth(username, secret),
+        auth=(username, secret),
         headers={"Accept": "application/json"},
         timeout=REQUEST_TIMEOUT,
         stream=stream,

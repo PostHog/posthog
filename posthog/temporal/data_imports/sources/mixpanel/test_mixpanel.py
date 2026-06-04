@@ -58,8 +58,8 @@ class FakeResponse:
     def __enter__(self) -> "FakeResponse":
         return self
 
-    def __exit__(self, *args: Any) -> bool:
-        return False
+    def __exit__(self, *args: Any) -> None:
+        return None
 
 
 class FakeManager:
@@ -146,7 +146,7 @@ class TestCheckResponse:
 
     def test_ok_returns_response(self) -> None:
         response = FakeResponse(status_code=200)
-        assert _check_response(response, "http://x", LOGGER) is response  # type: ignore[arg-type]
+        assert _check_response(response, "http://x", LOGGER) is response  # type: ignore[arg-type, comparison-overlap]
 
 
 class TestValidateCredentials:

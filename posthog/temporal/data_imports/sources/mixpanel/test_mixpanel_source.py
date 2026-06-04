@@ -46,7 +46,7 @@ def _inputs(schema_name: str = "export", **overrides) -> SourceInputs:
         "reset_pipeline": False,
     }
     defaults.update(overrides)
-    return SourceInputs(**defaults)  # type: ignore[arg-type]
+    return SourceInputs(**defaults)
 
 
 class TestSourceType:
