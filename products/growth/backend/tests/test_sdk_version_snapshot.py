@@ -7,6 +7,7 @@ from products.growth.backend.sdk_version_snapshot import (
     SDK_LIBS_PROPERTY,
     SDK_VERSION_KEYS_PROPERTY,
     SDK_VERSIONS_UPDATED_AT_PROPERTY,
+    _fetch_team_sdk_keys,
     _group_properties,
     _roll_up_to_groups,
     snapshot_sdk_versions_to_groups,
@@ -79,6 +80,23 @@ class TestRollUpToGroups(BaseTest):
 
     def test_empty_team_keys_returns_empty(self):
         assert _roll_up_to_groups({}) == ({}, {})
+
+
+class TestFetchTeamSdkKeys(BaseTest):
+    @patch(f"{MODULE}.sync_execute")
+    def test_scans_one_day_at_a_time_and_unions_presence(self, mock_sync_execute: MagicMock):
+        mock_sync_execute.side_effect = [
+            [(1, "web", "1.0.0")],
+            [(1, "web", "2.0.0"), (2, "posthog-php", "3.4.0")],
+        ]
+
+        team_keys = _fetch_team_sdk_keys(lookback_days=2)
+
+        assert mock_sync_execute.call_count == 2
+        assert team_keys == {1: {"web@1.0.0", "web@2.0.0"}, 2: {"posthog-php@3.4.0"}}
+        # Every scan is explicitly bounded rather than relying on the cluster default.
+        for call in mock_sync_execute.call_args_list:
+            assert "max_execution_time" in call.kwargs["settings"]
 
 
 class TestSnapshotSdkVersionsToGroups(BaseTest):
