@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use async_trait::async_trait;
 
-use personhog_common::grpc::current_client_name;
+use personhog_common::grpc::{current_client_name, current_method_name};
 
 use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
@@ -22,6 +22,7 @@ impl CohortStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -30,6 +31,7 @@ impl CohortStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -83,11 +85,13 @@ impl CohortStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             ("operation".to_string(), "count_cohort_members".to_string()),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -112,10 +116,12 @@ impl CohortStorage for PostgresStorage {
 
     async fn delete_cohort_member(&self, cohort_id: i64, person_id: i64) -> StorageResult<bool> {
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "delete_cohort_member".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -145,6 +151,7 @@ impl CohortStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             (
                 "operation".to_string(),
@@ -152,6 +159,7 @@ impl CohortStorage for PostgresStorage {
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -201,10 +209,12 @@ impl CohortStorage for PostgresStorage {
         }
 
         let client = current_client_name();
+        let method = current_method_name();
         let labels = [
             ("operation".to_string(), "insert_cohort_members".to_string()),
             ("pool".to_string(), "primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -244,6 +254,7 @@ impl CohortStorage for PostgresStorage {
         consistency: ConsistencyLevel,
     ) -> StorageResult<(Vec<i64>, Option<i64>)> {
         let client = current_client_name();
+        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -252,6 +263,7 @@ impl CohortStorage for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
