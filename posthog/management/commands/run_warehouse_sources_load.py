@@ -56,6 +56,13 @@ class Command(BaseCommand):
             help="Maximum processing attempts per batch before failing the run (default: 3)",
         )
         parser.add_argument(
+            "--batch-timeout-seconds",
+            type=float,
+            default=1800.0,
+            help="Hard ceiling on a single batch's loader before it is failed and retried, "
+            "so a hung loader cannot wedge the consumer indefinitely (default: 1800)",
+        )
+        parser.add_argument(
             "--health-port",
             type=int,
             default=8080,
@@ -78,6 +85,7 @@ class Command(BaseCommand):
             poll_interval_seconds=options["poll_interval"],
             poll_limit=options["poll_limit"],
             max_attempts=options["max_attempts"],
+            batch_processing_timeout_seconds=options["batch_timeout_seconds"],
             health_port=health_port,
             health_timeout_seconds=health_timeout,
         )
@@ -88,6 +96,7 @@ class Command(BaseCommand):
             poll_interval=config.poll_interval_seconds,
             poll_limit=config.poll_limit,
             max_attempts=config.max_attempts,
+            batch_processing_timeout_seconds=config.batch_processing_timeout_seconds,
             health_port=health_port,
         )
 

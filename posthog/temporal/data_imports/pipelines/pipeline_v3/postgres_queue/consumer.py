@@ -46,6 +46,24 @@ RECOVERY_INTERVAL_SECONDS = 30.0
 RETRY_BACKOFF_BASE_SECONDS = 15
 HEARTBEAT_INTERVAL_SECONDS = 5.0
 
+# Hard ceiling on a single batch's loader. A hung loader (e.g. a Delta write that never
+# returns) would otherwise block the run loop on `asyncio.gather` indefinitely, never
+# release the (team_id, schema_id) advisory lock — which the recovery sweep cannot reclaim
+# while this process is alive — and head-of-line-block the whole queue. Bounding it turns an
+# indefinite wedge into an ordinary retry (the lock is released in `_process_group`'s finally,
+# letting other groups drain). Keep this comfortably above the legitimate batch p99.9; tune via
+# `--batch-timeout-seconds`.
+BATCH_PROCESSING_TIMEOUT_SECONDS = 1800.0
+
+
+class BatchProcessingTimeoutError(Exception):
+    """A single batch's loader exceeded ``batch_processing_timeout_seconds``.
+
+    Surfaced as an ordinary processing failure so it flows through the normal retry /
+    fail_run path. The point is to release the advisory lock instead of wedging the
+    consumer (and the queue behind it) on a loader that never returns.
+    """
+
 
 @dataclass
 class ConsumerConfig:
@@ -61,6 +79,7 @@ class ConsumerConfig:
     heartbeat_interval_seconds: float = HEARTBEAT_INTERVAL_SECONDS
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
     retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
+    batch_processing_timeout_seconds: float = BATCH_PROCESSING_TIMEOUT_SECONDS
     recovery_grace_seconds: int | None = None
 
     def __post_init__(self) -> None:
@@ -288,7 +307,19 @@ class BatchConsumer:
 
         try:
             start = time.monotonic()
-            await self._process_batch(batch)
+            try:
+                await asyncio.wait_for(
+                    self._process_batch(batch),
+                    timeout=self._config.batch_processing_timeout_seconds,
+                )
+            except TimeoutError as e:
+                # Abandon the await so `_process_group`'s finally releases the advisory lock
+                # and the queue can drain. The orphaned worker thread is harmless: the Delta
+                # commit is idempotent on (run_uuid, batch_index).
+                raise BatchProcessingTimeoutError(
+                    f"loader exceeded {self._config.batch_processing_timeout_seconds:.0f}s "
+                    f"(run_uuid={batch.run_uuid} batch_index={batch.batch_index})"
+                ) from e
             duration = time.monotonic() - start
             BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).observe(duration)
 

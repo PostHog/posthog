@@ -95,6 +95,55 @@ class TestProcessSingle:
         assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.WAITING_RETRY]
 
     @pytest.mark.asyncio
+    async def test_hung_loader_times_out_and_sets_waiting_retry(self):
+        # A loader that never returns must not wedge the consumer: it is bounded by
+        # batch_processing_timeout_seconds, surfaced as a failure, and retried — which is
+        # what lets _process_group release its advisory lock so the queue can drain.
+        consumer = _make_consumer(max_attempts=3, batch_processing_timeout_seconds=0.01)
+        batch = _make_batch(latest_attempt=0)
+        states: list[str] = []
+        errors: list[str] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+            states.append(job_state)
+            if error_response is not None:
+                errors.append(error_response["error"])
+
+        async def hang(_batch):
+            await asyncio.sleep(60)
+
+        consumer._process_batch = hang
+        with patch(
+            "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+            side_effect=track_status,
+        ):
+            await consumer._process_single(batch)
+
+        assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.WAITING_RETRY]
+        assert errors and "exceeded" in errors[0]
+
+    @pytest.mark.asyncio
+    async def test_hung_loader_at_max_attempts_fails_run(self):
+        consumer = _make_consumer(max_attempts=2, batch_processing_timeout_seconds=0.01)
+        batch = _make_batch(latest_attempt=1)
+
+        async def hang(_batch):
+            await asyncio.sleep(60)
+
+        consumer._process_batch = hang
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+        ):
+            await consumer._process_single(batch)
+
+        mock_fail.assert_called_once()
+        assert "exceeded" in mock_fail.call_args[1]["reason"]
+
+    @pytest.mark.asyncio
     async def test_max_attempts_exceeded_fails_run(self):
         consumer = _make_consumer(max_attempts=3)
         batch = _make_batch(latest_attempt=3)
