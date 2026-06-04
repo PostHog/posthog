@@ -635,7 +635,7 @@
         WHERE equals(person_distinct_id_overrides.team_id, 99999)
         GROUP BY person_distinct_id_overrides.distinct_id
         HAVING ifNull(equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('returning_event', 'target_event')), or(and(equals(events.event, 'target_event'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'prop'), ''), 'null'), '^"|"$', ''), 'correct'), 0)), equals(events.event, 'returning_event')))
+     WHERE and(equals(events.team_id, 99999), in(events.event, tuple('returning_event', 'target_event')), or(equals(events.event, 'target_event'), equals(events.event, 'returning_event')))
      GROUP BY actor_id
      HAVING 1) AS actor_activity
   GROUP BY start_event_matching_interval,
