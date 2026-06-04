@@ -304,18 +304,14 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
 
         it('should reload person when sampleGlobals is null or does not match selectedPersonDistinctId', async () => {
+            // Wait for afterMount's loadSamplePersons to settle before starting test
+            await expectLogic(logic).toDispatchActions(['loadSamplePersonsSuccess']).toFinishAllListeners()
+
             const distinctId1 = 'person-1-id'
             const distinctId2 = 'person-2-id'
             const globalsForPerson1 = createGlobals(distinctId1)
 
-            // Reload when sampleGlobals is null
-            await expectLogic(logic, () => {
-                logic.actions.setSelectedPersonDistinctId(distinctId1)
-            }).toMatchValues({
-                selectedPersonDistinctId: distinctId1,
-                sampleGlobals: null,
-            })
-
+            // Set up mock BEFORE triggering actions that call the API
             useMocks({
                 get: {
                     '/api/environments/:team_id/persons/': {
@@ -328,6 +324,14 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                         ],
                     },
                 },
+            })
+
+            // Reload when sampleGlobals is null
+            await expectLogic(logic, () => {
+                logic.actions.setSelectedPersonDistinctId(distinctId1)
+            }).toMatchValues({
+                selectedPersonDistinctId: distinctId1,
+                sampleGlobals: null,
             })
 
             await expectLogic(logic, () => {
@@ -367,6 +371,9 @@ describe('hogFlowEditorNotificationTestLogic', () => {
         })
 
         it('should not reload person if sampleGlobals matches selectedPersonDistinctId', async () => {
+            // Wait for afterMount's loadSamplePersons to settle before starting test
+            await expectLogic(logic).toDispatchActions(['loadSamplePersonsSuccess']).toFinishAllListeners()
+
             const distinctId = 'person-1-id'
             const globalsForPerson1 = createGlobals(distinctId)
 
