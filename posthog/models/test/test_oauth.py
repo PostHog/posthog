@@ -650,7 +650,9 @@ class TestOAuthModels(TestCase):
             access_token = OAuthAccessToken.objects.create(
                 application=app, user=owner, token=f"at_{suffix}", expires=timezone.now() + timedelta(minutes=5)
             )
-            OAuthRefreshToken.objects.create(application=app, user=owner, token=f"rt_{suffix}", access_token=access_token)
+            OAuthRefreshToken.objects.create(
+                application=app, user=owner, token=f"rt_{suffix}", access_token=access_token
+            )
             OAuthGrant.objects.create(
                 application=app,
                 user=owner,
