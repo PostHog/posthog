@@ -784,7 +784,7 @@ class SlackSourceConfig(config.Config):
 
 @config.config
 class SmartsheetSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config

@@ -104,6 +104,7 @@ the row lists both.
 | shopify          | HTTP                        | requests                                                        | ✅                          |
 | shortcut         | HTTP                        | requests                                                        | ✅                          |
 | slack            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smartsheet       | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake        | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | square           | HTTP                        | requests                                                        | ✅                          |
@@ -213,7 +214,6 @@ doesn't conflict with concurrent PRs.
 - sendgrid
 - sftp
 - sharepoint
-- smartsheet
 - surveymonkey
 - trello
 - twilio
