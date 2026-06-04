@@ -2498,32 +2498,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
-              },
-              "tags": {
-                  "chain": null,
-                  "fields": [
-                      "account_id",
-                      "names"
-                  ],
-                  "hogql_value": "tags",
-                  "id": "tags",
-                  "name": "tags",
-                  "schema_valid": true,
-                  "table": "account_tags",
-                  "type": "lazy_table"
-              },
-              "notebooks": {
-                  "chain": null,
-                  "fields": [
-                      "account_id",
-                      "count"
-                  ],
-                  "hogql_value": "notebooks",
-                  "id": "notebooks",
-                  "name": "notebooks",
-                  "schema_valid": true,
-                  "table": "account_notebooks",
-                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
@@ -10505,32 +10479,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
-              },
-              "tags": {
-                  "chain": null,
-                  "fields": [
-                      "account_id",
-                      "names"
-                  ],
-                  "hogql_value": "tags",
-                  "id": "tags",
-                  "name": "tags",
-                  "schema_valid": true,
-                  "table": "account_tags",
-                  "type": "lazy_table"
-              },
-              "notebooks": {
-                  "chain": null,
-                  "fields": [
-                      "account_id",
-                      "count"
-                  ],
-                  "hogql_value": "notebooks",
-                  "id": "notebooks",
-                  "name": "notebooks",
-                  "schema_valid": true,
-                  "table": "account_notebooks",
-                  "type": "lazy_table"
               }
           },
           "id": "system.accounts",
