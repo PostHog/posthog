@@ -76,18 +76,18 @@ class RedisClusterConnectionFactory(ConnectionFactory):
                     self._cluster_clients[url] = client
         return client
 
-    def _reset_if_forked(self, pid: int) -> None:
+    @classmethod
+    def _reset_if_forked(cls, pid: int) -> None:
         # A client discovered before a fork holds the parent's sockets, so a
-        # forked worker drops the inherited cache and rediscovers its own. Caller
-        # must hold _lock.
-        if self._owner_pid == pid:
+        # forked worker drops the inherited cache and rediscovers its own. A
+        # classmethod so the writes land on the class (process-global) with no
+        # `self` in scope to shadow them onto an instance. Caller must hold _lock.
+        if cls._owner_pid == pid:
             return
-        if self._owner_pid is not None:
-            logger.info("redis_cluster_rediscovering_after_fork", previous_pid=self._owner_pid, pid=pid)
-        self._cluster_clients.clear()
-        # Assign on the class, never self: a `self._owner_pid = ...` write would
-        # create a per-instance attribute that shadows the process-global one.
-        RedisClusterConnectionFactory._owner_pid = pid
+        if cls._owner_pid is not None:
+            logger.info("redis_cluster_rediscovering_after_fork", previous_pid=cls._owner_pid, pid=pid)
+        cls._cluster_clients.clear()
+        cls._owner_pid = pid
 
     @tracer.start_as_current_span("redis_cluster.discovery")
     def _discover_cluster(self, url: str) -> RedisCluster:

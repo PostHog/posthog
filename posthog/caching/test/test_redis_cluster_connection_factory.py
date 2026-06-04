@@ -1,3 +1,4 @@
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -124,6 +125,20 @@ class TestRedisClusterConnectionFactory(TestCase):
 
         assert enters_after_warmup == 1
         assert counting_lock.enter_count == 1
+
+    @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
+    def test_owner_pid_is_recorded_on_the_class_not_the_instance(self, from_url: MagicMock) -> None:
+        # The fork guard only works if _owner_pid is process-global. If it were
+        # ever written through `self` it would shadow onto the instance, every
+        # fresh per-request factory would look unforked, and discovery would run
+        # per request again. Pin it to the class.
+        from_url.return_value = MagicMock()
+        factory = self._factory()
+
+        factory.connect("redis://node-a:6379")
+
+        assert RedisClusterConnectionFactory._owner_pid == os.getpid()
+        assert "_owner_pid" not in factory.__dict__
 
     @patch("posthog.caching.redis_cluster_connection_factory.os.getpid")
     @patch("posthog.caching.redis_cluster_connection_factory.RedisCluster.from_url")
