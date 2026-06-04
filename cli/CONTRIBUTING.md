@@ -20,7 +20,7 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
 5. Commits the release bump to `master`
 6. Runs cargo-dist against the release bump commit
-7. Creates the GitHub release and publishes the npm package
+7. Creates the `posthog-cli/vX.Y.Z` GitHub release and publishes the npm package
 
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
 
