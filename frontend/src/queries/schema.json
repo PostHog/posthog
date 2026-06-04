@@ -23830,6 +23830,10 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showPercentagesOnSeries": {
+                    "description": "Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect.",
+                    "type": "boolean"
+                },
                 "showValuesOnSeries": {
                     "type": "boolean"
                 },

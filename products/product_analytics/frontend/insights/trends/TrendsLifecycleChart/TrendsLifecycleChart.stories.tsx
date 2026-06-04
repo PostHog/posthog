@@ -120,6 +120,7 @@ interface LifecycleInsightOpts {
     name?: string
     showValuesOnSeries?: boolean
     showLegend?: boolean
+    showPercentagesOnSeries?: boolean
 }
 
 function lifecycleInsight({
@@ -129,6 +130,7 @@ function lifecycleInsight({
     name,
     showValuesOnSeries,
     showLegend,
+    showPercentagesOnSeries,
 }: LifecycleInsightOpts): object {
     return {
         id,
@@ -165,7 +167,7 @@ function lifecycleInsight({
                 interval: 'day',
                 kind: 'LifecycleQuery',
                 series: [{ event: '$pageview', kind: 'EventsNode', math: 'total', name: '$pageview' }],
-                lifecycleFilter: { stacked, showValuesOnSeries, showLegend },
+                lifecycleFilter: { stacked, showValuesOnSeries, showLegend, showPercentagesOnSeries },
                 version: 2,
             },
             full: true,
@@ -236,6 +238,36 @@ export const UnstackedWithLegend: Story = {
                 shortId: 'lifecycleUnstackedLegend',
                 name: 'Lifecycle unstacked (with legend)',
                 showLegend: true,
+            })}
+        />
+    ),
+}
+
+export const StackedWithPercentagesOnSeries: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: true,
+                id: 306,
+                shortId: 'lifecycleStackedPercentages',
+                name: 'Lifecycle stacked (values + percentages on series)',
+                showValuesOnSeries: true,
+                showPercentagesOnSeries: true,
+            })}
+        />
+    ),
+}
+
+export const UnstackedWithPercentagesOnSeries: Story = {
+    render: () => (
+        <LifecycleStory
+            insightFixture={lifecycleInsight({
+                stacked: false,
+                id: 307,
+                shortId: 'lifecycleUnstackedPercentages',
+                name: 'Lifecycle unstacked (values + percentages on series)',
+                showValuesOnSeries: true,
+                showPercentagesOnSeries: true,
             })}
         />
     ),

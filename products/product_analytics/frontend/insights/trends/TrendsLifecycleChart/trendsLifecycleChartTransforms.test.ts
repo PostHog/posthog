@@ -149,6 +149,10 @@ describe('buildTrendsLifecycleConfig', () => {
             input: { formatter: (v: number) => `${v}!` },
             expected: { formatter: expect.any(Function) },
         },
+        {
+            input: { formatter: (v: number) => `${v}!`, showPercentages: true },
+            expected: { formatter: expect.any(Function), showPercentages: true },
+        },
     ])('forwards valueLabels=$input to the config', ({ input, expected }) => {
         const cfg = buildTrendsLifecycleConfig({ isStacked: true, valueLabels: input })
         expect(cfg.valueLabels).toEqual(expected)

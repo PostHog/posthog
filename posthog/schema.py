@@ -7737,6 +7737,7 @@ class LifecycleFilter(BaseModel):
         extra="forbid",
     )
     showLegend: bool | None = False
+    showPercentagesOnSeries: bool | None = None
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
     toggledLifecycles: list[LifecycleToggle] | None = None

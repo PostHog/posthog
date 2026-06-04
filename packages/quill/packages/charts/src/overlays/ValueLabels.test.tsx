@@ -312,6 +312,82 @@ describe('ValueLabels', () => {
         })
     })
 
+    describe('showPercentages', () => {
+        it('appends per-band percentage to each segment label', () => {
+            // Band totals (sum of |value|): Mon = 30+10 = 40, Tue = 25+75 = 100.
+            // a: Mon 30/40=75%, Tue 25/100=25%. b: Mon 10/40=25%, Tue 75/100=75%.
+            // Values spread across distinct y positions so collision avoidance doesn't drop labels.
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
+                { key: 'b', label: 'B', color: '#0a0', data: [10, 75] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const { container } = renderInChart(ctx, <ValueLabels showPercentages />)
+            const labels = labelDivs(container).map((d) => d.textContent)
+            expect(labels.sort()).toEqual(['10 (25%)', '25 (25%)', '30 (75%)', '75 (75%)'])
+        })
+
+        it('uses absolute values in the denominator so diverging stacks (lifecycle) work', () => {
+            // dormant is negative — the existing `bandTotal` would reject this band as mixed-sign,
+            // but `showPercentages` uses |sum(abs)| so the segment shares are still meaningful.
+            // Band total: |20| + |-10| = 30. positive 20/30=67%, dormant 10/30=33%.
+            const series: ResolvedSeries[] = [
+                { key: 'pos', label: 'Positive', color: '#a00', data: [20] },
+                { key: 'neg', label: 'Dormant', color: '#0a0', data: [-10] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon'] })
+            const { container } = renderInChart(ctx, <ValueLabels showPercentages />)
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['-10 (33%)', '20 (67%)'])
+        })
+
+        it('respects the caller-provided value formatter and appends percentages after it', () => {
+            const series: ResolvedSeries[] = [{ key: 'a', label: 'A', color: '#a00', data: [50] }]
+            const ctx = makeContext(series, { labels: ['Mon'] })
+            const { container } = renderInChart(
+                ctx,
+                <ValueLabels showPercentages valueFormatter={(v) => `$${v.toFixed(0)}`} />
+            )
+            expect(labelDivs(container).map((d) => d.textContent)).toEqual(['$50 (100%)'])
+        })
+
+        it('does not append percentages when isPercent is true (labels already express fractions)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [20, 60] },
+                { key: 'b', label: 'B', color: '#0a0', data: [80, 40] },
+            ]
+            const percentScales: ChartScales = {
+                x: xScale,
+                y: (v: number) => 368 - v * 352,
+                yTicks: () => [0, 0.5, 1],
+            }
+            const positionByKey: Record<string, number[]> = {
+                a: [0.2, 0.6],
+                b: [1.0, 1.0],
+            }
+            const resolvePositionValue: ResolveValueFn = (s, i) => positionByKey[s.key]?.[i] ?? 0
+            const ctx = makeContext(series, {
+                isPercent: true,
+                labels: ['Mon', 'Tue'],
+                scales: percentScales,
+                resolvePositionValue,
+            })
+            const { container } = renderInChart(
+                ctx,
+                <ValueLabels showPercentages valueFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+            )
+            // Same expected output as the non-`showPercentages` percent-layout test — no double-tagging.
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['20%', '40%', '60%', '80%'])
+        })
+    })
+
     it('in percent layout, formatter receives each segment fraction (0..1), not raw data', () => {
         // Both series have non-zero values in both bands so we exercise the `raw / total`
         // division, not the trivial single-segment-per-band 100% path.

@@ -13,6 +13,12 @@ export interface ValueLabelsProps {
     valueFormatter?: (value: number, seriesIndex: number, dataIndex: number) => string
     minGap?: number
     mode?: ValueLabelsMode
+    /** Append per-band percentage to each segment label (e.g. `580 (42%)`). Each segment's
+     *  percentage is its share of the sum of absolute values in the band — using `abs`
+     *  rather than the signed sum so diverging stacks (lifecycle's negative dormant)
+     *  still produce intuitive proportions. Ignored in `mode: 'stack-total'` (would
+     *  always be 100%) and in percent layout (labels already express fractions). */
+    showPercentages?: boolean
 }
 
 const LABEL_FONT =
@@ -54,6 +60,7 @@ interface BuildCandidatesArgs {
     isHorizontal: boolean
     mode: ValueLabelsMode
     isPercent: boolean
+    showPercentages: boolean
 }
 
 function pushCandidate(
@@ -92,6 +99,21 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
         ctx.font = LABEL_FONT
     }
     return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
+}
+
+// Sum of `|value|` across visible series for one band. Used by the percentage-append
+// path (`showPercentages`) — distinct from `bandTotal` because we want diverging stacks
+// (e.g. lifecycle's negative dormant) to produce a non-null denominator and intuitive
+// proportions rather than be filtered out as mixed-sign.
+function bandAbsTotal(visible: ResolvedSeries[], dIdx: number): number {
+    let total = 0
+    for (const s of visible) {
+        const v = s.data[dIdx]
+        if (typeof v === 'number' && isFinite(v)) {
+            total += Math.abs(v)
+        }
+    }
+    return total
 }
 
 function bandTotal(visible: ResolvedSeries[], dIdx: number): number | null {
@@ -158,7 +180,8 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
 }
 
 function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2D | null): Candidate[] {
-    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
+    const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent, showPercentages } =
+        args
     const out: Candidate[] = []
 
     // In percent layout each band sums to 1, so we need the band total to convert each segment's
@@ -168,6 +191,15 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     const visibleForTotal = isPercent
         ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
         : []
+
+    // The `showPercentages` denominator follows the same "every non-excluded stacked series"
+    // rule as `visibleForTotal` so a band's percentages sum to 100% regardless of which
+    // segments opted out of value labels. Skip the computation entirely when `isPercent`
+    // is true — labels there are already fractions.
+    const visibleForPercent =
+        showPercentages && !isPercent
+            ? series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
+            : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -209,6 +241,15 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
                 continue
             }
+            let text = valueFormatter(displayValue, sIdx, dIdx)
+            if (showPercentages && !isPercent) {
+                const absTotal = bandAbsTotal(visibleForPercent, dIdx)
+                if (absTotal > 0) {
+                    const pct = Math.round((Math.abs(rawValue) / absTotal) * 100)
+                    text = `${text} (${pct}%)`
+                }
+            }
+
             pushCandidate(
                 out,
                 ctx,
@@ -217,7 +258,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
                 sIdx,
                 dIdx,
                 barColorAt(s, dIdx),
-                valueFormatter(displayValue, sIdx, dIdx),
+                text,
                 categoricalCoord,
                 valueCoord,
                 above,
@@ -386,6 +427,7 @@ export function ValueLabels({
     valueFormatter,
     minGap = 4,
     mode = 'per-segment',
+    showPercentages = false,
 }: ValueLabelsProps): React.ReactElement | null {
     const { series, scales, labels, theme, resolvePositionValue, axis, dimensions } = useChartLayout()
     const { hoverIndex } = useChartHover()
@@ -407,6 +449,7 @@ export function ValueLabels({
                         isHorizontal,
                         mode,
                         isPercent,
+                        showPercentages,
                     }),
                     dimensions,
                     isHorizontal
@@ -414,7 +457,19 @@ export function ValueLabels({
                 minGap,
                 isHorizontal
             ),
-        [series, labels, scales, resolvePositionValue, formatter, minGap, isHorizontal, mode, isPercent, dimensions]
+        [
+            series,
+            labels,
+            scales,
+            resolvePositionValue,
+            formatter,
+            minGap,
+            isHorizontal,
+            mode,
+            isPercent,
+            showPercentages,
+            dimensions,
+        ]
     )
 
     // Skip the lift when a dataIndex has labels at multiple distinct x positions

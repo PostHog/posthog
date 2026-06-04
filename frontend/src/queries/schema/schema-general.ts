@@ -1918,6 +1918,9 @@ export type LifecycleFilterLegacy = Omit<LifecycleFilterType, keyof FilterType |
 
 export type LifecycleFilter = {
     showValuesOnSeries?: LifecycleFilterLegacy['show_values_on_series']
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires
+     *  `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
