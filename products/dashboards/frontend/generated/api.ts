@@ -59,6 +59,7 @@ import type {
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
+    TilePresentationApi,
     UpdateTextTileRequestApi,
     UpdateTileRequestApi,
     WidgetCatalogResponseApi,
@@ -926,8 +927,8 @@ export const dashboardsUpdateTileCreate = async (
     updateTileRequestApi: UpdateTileRequestApi,
     params?: DashboardsUpdateTileCreateParams,
     options?: RequestInit
-): Promise<DashboardTileApi> => {
-    return apiMutator<DashboardTileApi>(getDashboardsUpdateTileCreateUrl(projectId, id, params), {
+): Promise<TilePresentationApi> => {
+    return apiMutator<TilePresentationApi>(getDashboardsUpdateTileCreateUrl(projectId, id, params), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

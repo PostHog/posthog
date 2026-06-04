@@ -484,7 +484,10 @@ const DashboardUpdateTileSchema = DashboardsUpdateTileCreateParams.omit({ projec
     .extend(DashboardsUpdateTileCreateBody.shape)
     .extend({ id: z.preprocess(castStringToInt, DashboardsUpdateTileCreateParams.shape['id']) })
 
-const dashboardUpdateTile = (): ToolBase<typeof DashboardUpdateTileSchema, WithPostHogUrl<Schemas.DashboardTile>> => ({
+const dashboardUpdateTile = (): ToolBase<
+    typeof DashboardUpdateTileSchema,
+    WithPostHogUrl<Schemas.TilePresentation>
+> => ({
     name: 'dashboard-update-tile',
     schema: DashboardUpdateTileSchema,
     handler: async (context: Context, params: z.infer<typeof DashboardUpdateTileSchema>) => {
@@ -502,7 +505,7 @@ const dashboardUpdateTile = (): ToolBase<typeof DashboardUpdateTileSchema, WithP
         if (params.layouts !== undefined) {
             body['layouts'] = params.layouts
         }
-        const result = await context.api.request<Schemas.DashboardTile>({
+        const result = await context.api.request<Schemas.TilePresentation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/update_tile/`,
             body,

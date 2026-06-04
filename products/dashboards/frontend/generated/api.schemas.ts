@@ -7772,6 +7772,19 @@ export interface UpdateTileRequestApi {
     layouts?: TileLayoutsApi
 }
 
+export interface TilePresentationApi {
+    readonly id: number
+    readonly dashboard_id: number
+    /** @nullable */
+    show_description?: boolean | null
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    layouts?: unknown
+}
+
 export interface AddDashboardWidgetRequestApi {
     /**
      * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.

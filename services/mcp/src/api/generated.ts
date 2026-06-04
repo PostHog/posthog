@@ -39249,6 +39249,19 @@ export namespace Schemas {
       metadata: TextReprMetadata;
     }
 
+    export interface TilePresentation {
+      readonly id: number;
+      readonly dashboard_id: number;
+      /** @nullable */
+      show_description?: boolean | null;
+      /**
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      layouts?: unknown;
+    }
+
     export interface TopPage {
       /** Host for the page, if recorded. */
       host: string;

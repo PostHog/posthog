@@ -483,6 +483,12 @@ class UpdateTileRequestSerializer(serializers.Serializer):
     )
 
 
+class TilePresentationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardTile
+        fields = ["id", "dashboard_id", "show_description", "color", "layouts"]
+
+
 class DeleteTileRequestSerializer(serializers.Serializer):
     tile_id = serializers.IntegerField(
         required=True,
@@ -2473,7 +2479,7 @@ class DashboardsViewSet(
 
     @extend_schema(
         request=UpdateTileRequestSerializer,
-        responses={200: DashboardTileSerializer},
+        responses={200: TilePresentationSerializer},
     )
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
     def update_tile(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2513,7 +2519,7 @@ class DashboardsViewSet(
             tile.save(update_fields=tile_updates)
 
         tile.refresh_from_db()
-        return Response(DashboardTileSerializer(tile, context=self.get_serializer_context()).data)
+        return Response(TilePresentationSerializer(tile).data)
 
     @extend_schema(
         operation_id="dashboards_delete_tile",
