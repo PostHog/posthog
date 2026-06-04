@@ -98,11 +98,20 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
             "experiment_metrics_recalculation_workflow_started",
             "Number of experiment metrics recalculation workflows started.",
         ).add(1)
-        with ExecutionTimeRecorder(
-            "experiment_metrics_recalculation_workflow_execution_latency",
-            description="End-to-end execution latency for the experiment metrics recalculation workflow.",
-        ):
-            return await super().execute_workflow(input)
+        try:
+            with ExecutionTimeRecorder(
+                "experiment_metrics_recalculation_workflow_execution_latency",
+                description="End-to-end execution latency for the experiment metrics recalculation workflow.",
+            ):
+                return await super().execute_workflow(input)
+        except BaseException:
+            # The workflow body emits `increment_workflow_finished` immediately before its return statements,
+            # so any exception escaping past here means the body's call never ran — no risk of double-count.
+            # Without this, hard failures (activity retries exhausted, non-retryable ApplicationError, etc.)
+            # increment `_workflow_started` but not `_workflow_finished`, silently under-counting in any
+            # `finished / started` success-rate dashboard.
+            increment_workflow_finished("failed")
+            raise
 
 
 class ExperimentsRecalculationMetricsInterceptor(Interceptor):

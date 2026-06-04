@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
@@ -8,6 +9,7 @@ from temporalio.worker import ActivityInboundInterceptor
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
 from posthog.temporal.common.interceptor import is_task_queue_supported
 
+from products.experiments.backend.temporal import recalculation_metrics
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
@@ -101,3 +103,37 @@ def test_increment_workflow_finished_emits_status_attribute(name: str, status: s
         mock_meter_with_attrs.create_counter.call_args.args[0] == "experiment_metrics_recalculation_workflow_finished"
     )
     mock_counter.add.assert_called_once_with(1)
+
+
+async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
+    # If the inner execute_workflow raises (activity retries exhausted, non-retryable ApplicationError, etc.),
+    # the workflow body's `increment_workflow_finished` call never runs. Without the interceptor's except path,
+    # `_workflow_started` increments but `_workflow_finished` does not, and any `finished / started` dashboard
+    # silently under-counts hard failures. The interceptor closes that gap before re-raising.
+    from unittest.mock import AsyncMock
+
+    boom = RuntimeError("activity retries exhausted")
+    next_interceptor = MagicMock()
+    next_interceptor.execute_workflow = AsyncMock(side_effect=boom)
+
+    interceptor = recalculation_metrics._WorkflowInboundInterceptor(next_interceptor)
+
+    mock_info = MagicMock()
+    mock_info.workflow_type = "experiment-metrics-recalculation-workflow"
+
+    with (
+        patch("products.experiments.backend.temporal.recalculation_metrics.workflow.info", return_value=mock_info),
+        patch(
+            "products.experiments.backend.temporal.recalculation_metrics.workflow.metric_meter",
+            return_value=MagicMock(),
+        ),
+        # ExecutionTimeRecorder reaches into Temporal's workflow context on exit; stub it for the unit test.
+        patch("posthog.temporal.ai_observability.metrics.get_metric_meter", return_value=MagicMock()),
+        patch(
+            "products.experiments.backend.temporal.recalculation_metrics.increment_workflow_finished"
+        ) as mock_finished,
+    ):
+        with pytest.raises(RuntimeError, match="activity retries exhausted"):
+            await interceptor.execute_workflow(MagicMock())
+
+    mock_finished.assert_called_once_with("failed")
