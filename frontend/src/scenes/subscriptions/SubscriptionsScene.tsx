@@ -137,7 +137,7 @@ export function SubscriptionsScene(): JSX.Element {
                             data-attr="new-subscription-button"
                             onClick={() => router.actions.push(urls.subscriptionNew())}
                         >
-                            New subscription
+                            New AI subscription
                         </LemonButton>
                     ) : undefined
                 }

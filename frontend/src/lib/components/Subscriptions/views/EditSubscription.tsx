@@ -394,7 +394,7 @@ function EditSubscriptionForm({
                             </LemonField>
                         </div>
 
-                        {dashboard?.tiles && selectionReady && (
+                        {dashboard?.tiles && selectionReady && !isAiPrompt && (
                             <DashboardInsightsField
                                 dashboard={dashboard}
                                 subscription={subscription}

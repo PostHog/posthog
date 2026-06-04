@@ -162,7 +162,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                               : undefined
                           : undefined,
                 dashboard_export_insights:
-                    props.dashboardId && (!dashboard_export_insights || dashboard_export_insights.length === 0)
+                    resource_type !== 'ai_prompt' &&
+                    props.dashboardId &&
+                    (!dashboard_export_insights || dashboard_export_insights.length === 0)
                         ? ('Select at least one insight' as any)
                         : undefined,
             }),
