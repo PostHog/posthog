@@ -37,6 +37,8 @@ use crate::{
     types::operator::TeamId,
 };
 
+const FRAME_EXPIRY_FALLBACK_SECONDS: u64 = 300;
+
 #[derive(Clone)]
 pub struct LocalSymbolResolver {
     catalog: Arc<Catalog>,
@@ -52,7 +54,7 @@ impl Expiry<RawFrameId, Vec<ErrorTrackingStackFrame>> for FrameResultTtlPolicy {
         value: &Vec<ErrorTrackingStackFrame>,
         _created_at: Instant,
     ) -> Option<Duration> {
-        self.ttl_for_records(key, value).to_std().ok()
+        Some(expiration_duration(self, key, value))
     }
 
     fn expire_after_update(
@@ -62,8 +64,22 @@ impl Expiry<RawFrameId, Vec<ErrorTrackingStackFrame>> for FrameResultTtlPolicy {
         _updated_at: Instant,
         _duration_until_expiry: Option<Duration>,
     ) -> Option<Duration> {
-        self.ttl_for_records(key, value).to_std().ok()
+        Some(expiration_duration(self, key, value))
     }
+}
+
+fn expiration_duration(
+    policy: &FrameResultTtlPolicy,
+    key: &RawFrameId,
+    value: &[ErrorTrackingStackFrame],
+) -> Duration {
+    policy
+        .ttl_for_records(key, value)
+        .to_std()
+        .unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "invalid frame cache ttl, using fallback");
+            Duration::from_secs(FRAME_EXPIRY_FALLBACK_SECONDS)
+        })
 }
 
 impl LocalSymbolResolver {
