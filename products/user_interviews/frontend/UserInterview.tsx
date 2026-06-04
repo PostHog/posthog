@@ -242,7 +242,10 @@ function InvitePreviewModal({
 }): JSX.Element {
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title="Invite email preview" width="90vw">
-            {loading && !preview ? (
+            {/* Gate on `loading` alone (not `loading && !preview`): while a newly opened person's
+                preview loads, kea-loaders still holds the previous person's value, so keying off
+                `loading` shows the skeleton instead of the stale email. */}
+            {loading ? (
                 <div className="space-y-3 h-[70vh]">
                     <LemonSkeleton.Text className="h-4 w-[50%]" />
                     <LemonSkeleton className="h-[60vh]" />
