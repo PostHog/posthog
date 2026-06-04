@@ -7559,12 +7559,6 @@ export namespace Schemas {
       * `organization` - organization
       * `recording` - recording */
       scope?: AnnotationScopeEnum;
-      /**
-         * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
-         * @maxLength 16
-         * @nullable
-         */
-      emoji?: string | null;
     }
 
     export interface AppMetricSeries {
@@ -27088,12 +27082,6 @@ export namespace Schemas {
       * `organization` - organization
       * `recording` - recording */
       scope?: AnnotationScopeEnum;
-      /**
-         * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
-         * @maxLength 16
-         * @nullable
-         */
-      emoji?: string | null;
     }
 
     export interface PatchedApprovalPolicy {
