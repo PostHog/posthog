@@ -77,6 +77,7 @@ from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, C
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
+from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
@@ -117,6 +118,7 @@ BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
 REALTIME_COHORT_FLAG_TARGETING_FLAG = "realtime-cohort-flag-targeting"
 MIXED_TARGETING_FLAG = "feature-flag-mixed-targeting"
+EARLY_EXIT_FLAG = "feature-flag-early-exit"
 
 # Fields that Rust's FeatureFlag struct expects for historical evaluation
 RUST_FLAG_FIELDS = (
@@ -299,6 +301,11 @@ LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER = Counter(
     "posthog_local_evaluation_personal_api_key_source_total",
     "Local evaluation requests authenticated via personal API key, by source",
     labelnames=["source"],  # "header", "body", "query_string"
+)
+
+LOCAL_EVALUATION_DEPENDENCY_UNAVAILABLE_COUNTER = Counter(
+    "posthog_local_evaluation_dependency_unavailable_total",
+    "Local evaluation requests returning 503 because a flag dependency was unavailable on a cold cache",
 )
 
 _AUTH_METHOD_BY_CLASS: dict[type, str] = {
@@ -1077,6 +1084,22 @@ class FeatureFlagSerializer(
                     if p.get("operator") in ("regex", "not_regex") and isinstance(p.get("value"), str):
                         existing_patterns.add(p["value"])
 
+        early_exit = filters.get("early_exit")
+        if early_exit is not None and not isinstance(early_exit, bool):
+            raise serializers.ValidationError(f"early_exit must be a boolean or null, got {type(early_exit).__name__}")
+
+        # Gate enabling early_exit behind the feature-flag-early-exit flag. The UI hides
+        # the toggle, but the public REST API, MCP tools, and terraform provider all reach
+        # this validator — without the gate they could persist early_exit before server-side
+        # local evaluation honors it. Only block newly turning it on: leaving an existing
+        # truthy value unchanged (or turning it off) always passes, so flags created while
+        # the feature was enabled keep working if access is later revoked.
+        previously_enabled = (
+            bool((self.instance.filters or {}).get("early_exit")) if self.instance is not None else False
+        )
+        if early_exit and not previously_enabled and not self._is_early_exit_enabled():
+            raise serializers.ValidationError("early_exit is not available for this organization.")
+
         for group_index, group in enumerate(filters.get("groups", [])):
             variant = group.get("variant")
             if variant is not None and not isinstance(variant, str):
@@ -1454,6 +1477,26 @@ class FeatureFlagSerializer(
             )
         except Exception:
             logger.exception("Failed to check mixed targeting flag")
+            return False
+
+    def _is_early_exit_enabled(self) -> bool:
+        try:
+            request = self.context.get("request")
+            if not request:
+                return False
+            user = getattr(request, "user", None)
+            if user is None or user.is_anonymous:
+                return False
+            return posthoganalytics.feature_enabled(
+                EARLY_EXIT_FLAG,
+                user.distinct_id,
+                groups={"organization": str(user.organization.id)},
+                group_properties={"organization": {"id": str(user.organization.id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            logger.exception("Failed to check early exit flag")
             return False
 
     def _check_flag_circular_dependencies(self, filters):
@@ -2471,7 +2514,7 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
 # action on this viewset, wrap it with tag_queries(product=Product.FEATURE_FLAGS,
 # feature=Feature.QUERY, team_id=self.team_id) so query_log attribution stays correct.
 # See posthog/models/feature_flag/user_blast_radius.py for the pattern.
-@extend_schema(tags=[ProductKey.FEATURE_FLAGS])
+@extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,
     TeamAndOrgViewSetMixin,
@@ -2897,6 +2940,7 @@ class FeatureFlagViewSet(
         )
 
     @extend_schema(
+        operation_id="feature_flags_bulk_keys_retrieve",
         request=BulkKeysRequestSerializer,
         responses={
             200: OpenApiResponse(response=BulkKeysResponseSerializer),
@@ -3408,6 +3452,7 @@ class FeatureFlagViewSet(
             200: OpenApiResponse(response=LocalEvaluationResponseSerializer()),
             402: OpenApiResponse(description="Payment required"),
             500: OpenApiResponse(description="Internal server error"),
+            503: OpenApiResponse(description="Feature flag dependencies temporarily unavailable"),
         },
     )
     @action(
@@ -3511,6 +3556,27 @@ class FeatureFlagViewSet(
                 response["Cache-Control"] = "private, must-revalidate"
             return response
 
+        except HyperCacheDependencyUnavailable:
+            # Cold cache during an upstream (persons DB) outage. Fail loud with a
+            # retryable 503 rather than a generic 500: SDKs treat 5xx as "retry / keep
+            # last-known config". The dependency layer already captured this (throttled),
+            # so re-capturing per request would flood Sentry during an outage.
+            LOCAL_EVALUATION_DEPENDENCY_UNAVAILABLE_COUNTER.inc()
+            duration = time.time() - start_time
+            logger.warning(
+                "Feature flag dependencies unavailable during local evaluation",
+                extra={"duration": duration, "team_id": self.team.pk},
+            )
+            response = Response(
+                {
+                    "type": "service_unavailable",
+                    "code": "flags_dependency_unavailable",
+                    "detail": "Feature flag dependencies are temporarily unavailable; retry shortly",
+                },
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+            response["Retry-After"] = "30"
+            return response
         except Exception as e:
             duration = time.time() - start_time
             logger.error(

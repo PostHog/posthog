@@ -358,7 +358,7 @@ class OrganizationInviteDelegateSerializer(serializers.Serializer):
         return validate_message_body(value)
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 class OrganizationInviteViewSet(
     TeamAndOrgViewSetMixin,
     mixins.DestroyModelMixin,

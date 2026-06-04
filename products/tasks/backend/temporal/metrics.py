@@ -50,6 +50,23 @@ def increment_snapshot_usage(used_snapshot: bool) -> None:
     ).add(1)
 
 
+def increment_credential_refresh(kind: str, outcome: str) -> None:
+    """Record a sandbox credential refresh outcome.
+
+    outcome is one of: refreshed (token re-injected), skipped (nothing to do or
+    token could not be resolved), failed (the credential raised). Best-effort:
+    a metric failure must never break the refresh loop.
+    """
+    try:
+        meter = _metric_meter({"kind": kind, "outcome": outcome})
+        meter.create_counter(
+            "tasks_sandbox_credential_refresh",
+            "Sandbox credential refresh outcomes for running cloud task runs",
+        ).add(1)
+    except Exception:
+        pass
+
+
 class StepTimer:
     def __init__(self, step: str, used_snapshot: bool | None = None) -> None:
         self.step = step

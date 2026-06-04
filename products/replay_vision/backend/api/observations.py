@@ -1,6 +1,9 @@
 import uuid
+from typing import Any
 
-from django.db.models import QuerySet
+from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
+from django.db.models.functions import Cast
 
 import structlog
 import django_filters
@@ -8,12 +11,16 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.constants import VISION_TAG
+from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
+from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -29,6 +36,10 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
+
+
+def _jsonb_typeof(expr: Any) -> Func:
+    return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
 class ScannerSnapshotSerializer(serializers.Serializer):
@@ -152,37 +163,237 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ]
 
 
-class ReplayObservationFilter(django_filters.FilterSet):
-    status = django_filters.ChoiceFilter(
-        field_name="status",
-        choices=ObservationStatus.choices,
-        help_text="Filter by observation status.",
+class ObservationStatusCountsSerializer(serializers.Serializer):
+    total = serializers.IntegerField(help_text="Total observations in the filtered set.")
+    succeeded = serializers.IntegerField(help_text="Observations with `status=succeeded`.")
+    failed = serializers.IntegerField(help_text="Observations with `status=failed`.")
+    ineligible = serializers.IntegerField(help_text="Observations with `status=ineligible`.")
+    in_flight = serializers.IntegerField(help_text="Observations not yet in a terminal status.")
+    success_rate = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. "
+            "Null when no observations have completed."
+        ),
     )
-    triggered_by = django_filters.ChoiceFilter(
+
+
+class MonitorStatsSerializer(serializers.Serializer):
+    yes_total = serializers.IntegerField(help_text="Succeeded observations whose verdict was `yes`.")
+    no_total = serializers.IntegerField(help_text="Succeeded observations whose verdict was `no`.")
+    inconclusive_total = serializers.IntegerField(help_text="Succeeded observations whose verdict was `inconclusive`.")
+
+
+class TagCountSerializer(serializers.Serializer):
+    tag = serializers.CharField(help_text="The tag value.")
+    count = serializers.IntegerField(help_text="Number of succeeded observations carrying this tag.")
+
+
+class ClassifierStatsSerializer(serializers.Serializer):
+    fixed_ranked = TagCountSerializer(many=True, help_text="Top fixed-vocabulary tags by emission count.")
+    freeform_ranked = TagCountSerializer(many=True, help_text="Top freeform tags by emission count.")
+    total_with_tags = serializers.IntegerField(help_text="Succeeded observations that emitted at least one tag.")
+
+
+class ScorerSummarySerializer(serializers.Serializer):
+    min = serializers.FloatField(help_text="Minimum observed score.")
+    p25 = serializers.FloatField(help_text="25th-percentile score.")
+    median = serializers.FloatField(help_text="Median score.")
+    mean = serializers.FloatField(help_text="Mean score.")
+    p75 = serializers.FloatField(help_text="75th-percentile score.")
+    max = serializers.FloatField(help_text="Maximum observed score.")
+    count = serializers.IntegerField(help_text="Number of scored observations summarized.")
+
+
+class ScorerHistogramSerializer(serializers.Serializer):
+    labels = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Bucket labels (one per histogram bar) spanning the scanner's configured scale.",
+    )
+    counts = serializers.ListField(
+        child=serializers.IntegerField(),
+        help_text="Observation count per bucket; same length as `labels`.",
+    )
+
+
+class ScorerStatsSerializer(serializers.Serializer):
+    summary = ScorerSummarySerializer(
+        allow_null=True,
+        help_text="Score quantile summary; null when no observations have been scored.",
+    )
+    histogram = ScorerHistogramSerializer(
+        allow_null=True,
+        help_text="Score histogram; null when no observations have been scored.",
+    )
+
+
+class CoverageStatsSerializer(serializers.Serializer):
+    recent_sessions = serializers.IntegerField(
+        help_text="Distinct sessions observed within the last `recent_days` days."
+    )
+    total_sessions = serializers.IntegerField(help_text="Distinct sessions observed overall.")
+    recent_days = serializers.IntegerField(help_text="Window size in days used for `recent_sessions`.")
+
+
+class ObservationStatsSerializer(serializers.Serializer):
+    status_counts = ObservationStatusCountsSerializer(help_text="Counts of observations by terminal status.")
+    coverage = CoverageStatsSerializer(help_text="Session-level scanner coverage.")
+    available_tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
+    )
+    monitor = MonitorStatsSerializer(
+        allow_null=True,
+        help_text="Monitor-type aggregates; null when the scanner is not a monitor.",
+    )
+    classifier = ClassifierStatsSerializer(
+        allow_null=True,
+        help_text="Classifier-type aggregates; null when the scanner is not a classifier.",
+    )
+    scorer = ScorerStatsSerializer(
+        allow_null=True,
+        help_text="Scorer-type aggregates; null when the scanner is not a scorer.",
+    )
+
+
+# Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
+OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
+
+# JSONB-backed sort keys; numeric values (`result_score`, `scanner_version`) need a numeric cast in the filter.
+_JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
+_ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS
+
+
+_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
+
+
+class _ObservationOrderByFilter(OrderByFilter):
+    """Observation-specific ordering: plain columns + JSONB-backed keys with numeric casts and nulls-last."""
+
+    _allowed_keys = frozenset(_ALL_ORDER_KEYS)
+
+    def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
+        if key in OBSERVATION_ORDER_FIELDS:
+            return self._order_plain(qs, key, descending)
+        if key == "result_score":
+            # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
+            score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
+            score_text = KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result"))
+            qs = qs.annotate(
+                _score_type=_jsonb_typeof(score_jsonb),
+                _order_score=Case(
+                    When(_score_type="number", then=Cast(score_text, FloatField())),
+                    default=Value(None),
+                    output_field=FloatField(),
+                ),
+            )
+            return self._order_nulls_last(qs, "_order_score", descending)
+        if key == "scanner_version":
+            version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
+            version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
+            qs = qs.annotate(
+                _version_type=_jsonb_typeof(version_jsonb),
+                _order_version=Case(
+                    When(_version_type="number", then=Cast(version_text, IntegerField())),
+                    default=Value(None),
+                    output_field=IntegerField(),
+                ),
+            )
+            return self._order_nulls_last(qs, "_order_version", descending)
+        qs = qs.annotate(
+            _order_verdict=KeyTextTransform("verdict", KeyTextTransform("model_output", "scanner_result")),
+        )
+        return self._order_nulls_last(qs, "_order_verdict", descending)
+
+
+class ReplayObservationFilter(django_filters.FilterSet):
+    status = MultiChoiceFilter(
+        field_name="status",
+        valid_choices=frozenset(v for v, _ in ObservationStatus.choices),
+        help_text="Filter by observation status. Accepts a comma-separated list.",
+    )
+    triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
-        choices=ObservationTrigger.choices,
-        help_text="Filter by trigger source (schedule or on_demand).",
+        valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
+        help_text="Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.",
+    )
+    verdict = MultiChoiceFilter(
+        field_name="scanner_result__model_output__verdict",
+        valid_choices=_MONITOR_VERDICTS,
+        error_key="verdict",
+        help_text="Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
+    )
+    tags = django_filters.CharFilter(
+        method="_filter_tags",
+        help_text=(
+            "Filter classifier observations whose fixed or freeform tags include any of the given values "
+            "(comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`."
+        ),
     )
     session_id = django_filters.CharFilter(
         field_name="session_id",
         help_text="Filter to observations of a specific session recording.",
     )
-    order_by = django_filters.OrderingFilter(
-        fields=(
-            ("created_at", "created_at"),
-            ("started_at", "started_at"),
-            ("completed_at", "completed_at"),
-            ("status", "status"),
+    order_by = _ObservationOrderByFilter(
+        help_text=(
+            "Sort observations by created_at, started_at, completed_at, status, result_score, result_verdict, "
+            "or scanner_version. Prefix with `-` for descending. JSONB-backed keys (result_*, scanner_version) "
+            "sort nulls last regardless of direction."
         ),
-        help_text="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
     )
 
     class Meta:
         model = ReplayObservation
         fields = ["status", "triggered_by", "session_id"]
 
+    @classmethod
+    def schema_parameters(cls) -> list[OpenApiParameter]:
+        """Mirror declared filters as `OpenApiParameter`s for `@action` methods drf-spectacular can't auto-discover."""
+        return [
+            OpenApiParameter(
+                name,
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=str(field.extra.get("help_text", "")),
+            )
+            for name, field in cls.declared_filters.items()
+            if name != "order_by"
+        ]
 
-@extend_schema(tags=[VISION_TAG])
+    def _filter_tags(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        tags = [t for t in (t.strip() for t in value.split(",")) if t]
+        if not tags:
+            return queryset
+        # `__contains` on a JSONB array uses the `@>` operator: matches when the stored array contains the given element.
+        q = Q()
+        for tag in tags:
+            q |= Q(scanner_result__model_output__tags__contains=[tag])
+            q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
+        return queryset.filter(q)
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=ordering_enum(_ALL_ORDER_KEYS),
+                description=(
+                    "Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: "
+                    "result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending."
+                ),
+            )
+        ]
+    )
+)
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -199,7 +410,11 @@ class ReplayObservationViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_class = ReplayObservationFilter
 
-    def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+    def _scanner_for_url(self) -> ReplayScanner:
+        # Per-request cache so `stats` doesn't re-run the RBAC + scanner-lookup roundtrip.
+        cached = getattr(self, "_scanner_for_url_cache", None)
+        if cached is not None:
+            return cached
         try:
             scanner_id = uuid.UUID(self.kwargs["parent_lookup_scanner_id"])
         except (KeyError, ValueError):
@@ -207,18 +422,37 @@ class ReplayObservationViewSet(
         scanner = ReplayScanner.objects.filter(team_id=self.team_id, id=scanner_id).first()
         if scanner is None:
             raise NotFound()
-        # Observations expose recording-derived output, so observe inherits the scanner's RBAC and also requires session_recording read.
+        # Observations expose recording-derived output, so they inherit the scanner's RBAC and also require session_recording read.
         self.check_object_permissions(self.request, scanner)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        self._scanner_for_url_cache = scanner
+        return scanner
+
+    def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        scanner = self._scanner_for_url()
         return (
-            queryset.filter(team_id=self.team_id, scanner_id=scanner_id)
+            queryset.filter(team_id=self.team_id, scanner_id=scanner.id)
             .select_related("triggered_by_user")
             .order_by("-created_at", "id")
         )
 
+    @extend_schema(
+        parameters=ReplayObservationFilter.schema_parameters(),
+        responses={200: ObservationStatsSerializer},
+        description=(
+            "Aggregate counts and per-scanner-type distributions over the filtered observation set. "
+            "Same filters as the list endpoint apply."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def stats(self, request: Request, **kwargs: Any) -> Response:
+        scanner = self._scanner_for_url()
+        queryset = self.filter_queryset(self.get_queryset())
+        payload = compute_observation_stats(scanner, queryset)
+        return Response(payload)
 
-@extend_schema(tags=[VISION_TAG])
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -262,3 +496,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 raise ValidationError("The `session_id` query parameter is required.")
             queryset = queryset.filter(session_id=session_id)
         return queryset
+
+    # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
+    def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
+        raise NotFound()

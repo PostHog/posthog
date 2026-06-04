@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Literal, get_args
 
 ## API Scopes
@@ -35,7 +36,6 @@ APIScopeObject = Literal[
     "event_filter",
     "dashboard_template",
     "dataset",
-    "deployment",
     "desktop_recording",
     "early_access_feature",
     "endpoint",
@@ -144,6 +144,48 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "w
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
 
+# Server-side scope assignment string-set constants (see RFC: server-side scope
+# assignment for OAuthApplications).
+#
+# Naming convention in this module: `*_SCOPE_OBJECTS` (frozenset[APIScopeObject])
+# and `*_SCOPE_ACTIONS` hold scope-OBJECT sets; bare `*_SCOPES` (frozenset[str])
+# hold scope-STRING (`obj:action`) sets. The object sets above
+# (INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS) remain canonical for
+# object-level checks; the string sets below are the surface used by
+# `OAuthApplication.scopes` and `UNPRIVILEGED_SCOPES` set arithmetic.
+
+# Every public `obj:action` scope string. Matches `get_scope_descriptions()`
+# keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
+ALL_SCOPES: frozenset[str] = frozenset(
+    f"{obj}:{action}"
+    for obj in API_SCOPE_OBJECTS
+    if obj not in INTERNAL_API_SCOPE_OBJECTS
+    for action in API_SCOPE_ACTIONS
+)
+
+# Privileged scopes only land on `OAuthApplication.scopes` via an admin-driven
+# path (Django admin, the Stripe HMAC seed list, first-party data migrations).
+# Filtered out of partner-facing self-serve registration (CIMD, DCR per
+# RFC 7591), so a partner cannot programmatically grant themselves
+# `llm_gateway:read`.
+PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
+
+# String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
+# advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
+# alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
+# so a future hidden object whose action set narrows doesn't carry a phantom
+# string into the set.
+OAUTH_HIDDEN_SCOPES: frozenset[str] = (
+    frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
+)
+
+# Everything safe to grant a generic OAuth client. The broad default for an
+# `OAuthApplication` with empty `scopes`: empty resolves to this set at
+# `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
+# they live in `OIDC_SCOPES` below and are accepted at `/authorize`
+# independently of `application.scopes`.
+UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_HIDDEN_SCOPES
+
 
 def get_scope_descriptions() -> dict[str, str]:
     return {
@@ -197,6 +239,81 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
 OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 
 
+# OIDC + introspection are accepted independently of an app's scope ceiling:
+# they are identity / token-management scopes, not resource permissions. Mirrors
+# `OAuthValidator._ALWAYS_ALLOWED_SCOPES` in `posthog/api/oauth/views.py`.
+ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
+
+
+def effective_ceiling(app_scopes: Iterable[str]) -> frozenset[str]:
+    """The scope set a request resolves against: the explicit `app_scopes` ceiling,
+    or the broad `UNPRIVILEGED_SCOPES` default when the app has none."""
+    app = frozenset(app_scopes or [])
+    return app if app else UNPRIVILEGED_SCOPES
+
+
+def scopes_within_ceiling(
+    requested: Iterable[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> bool:
+    """Whether every requested scope is grantable under an app's scope ceiling.
+
+    The single source of truth for ceiling resolution: `/authorize`
+    (`OAuthValidator.validate_scopes`) and the hand-rolled agentic-provisioning
+    mint paths both call this so they enforce identical rules.
+
+    - OIDC + introspection (`ALWAYS_ALLOWED_SCOPES`) are always granted.
+    - An explicit `app_scopes` ceiling is an exhaustive allow-list: anything
+      outside it is rejected, including `*`.
+    - An empty `app_scopes` falls back to the broad `UNPRIVILEGED_SCOPES` default.
+
+    `allow_wildcard_under_empty_ceiling` is the only resolution difference between
+    the callers: `/authorize` passes `True` to grandfather legacy `*` clients (the
+    PostHog Code CLI) until wildcard retirement; provisioning leaves it `False`
+    (the default) since it never granted wildcard, so an unseeded ceiling must not
+    silently become one.
+    """
+    app = frozenset(app_scopes or [])
+    to_check = set(requested) - ALWAYS_ALLOWED_SCOPES
+    if not to_check:
+        return True
+    if app:
+        return "*" not in to_check and to_check.issubset(app)
+    allowed = UNPRIVILEGED_SCOPES | {"*"} if allow_wildcard_under_empty_ceiling else UNPRIVILEGED_SCOPES
+    return to_check.issubset(allowed)
+
+
+def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
+    """Cap previously-granted scopes at an app's current ceiling (refresh-time).
+
+    Mirrors `OAuthValidator.get_original_scopes` so hand-rolled refresh flows
+    drop scopes that were valid when issued but fall outside a since-tightened
+    ceiling, rather than refreshing the broader set forever.
+
+    - Empty `app_scopes` (no cap) is a no-op: returns `original` as a list.
+    - A `*` token is left untouched (narrowing it would strip all resource
+      access; `*` retirement is handled separately).
+    - Otherwise returns the sorted intersection with the ceiling plus any
+      always-allowed scopes, or `None` when that intersection is empty (the
+      caller should reject with `invalid_grant` and force re-authorization).
+    """
+    original_list = list(original)
+    app = set(app_scopes or [])
+    if not app:
+        return original_list
+
+    original_set = set(original_list)
+    if "*" in original_set:
+        return original_list
+
+    narrowed = (original_set & app) | (original_set & ALWAYS_ALLOWED_SCOPES)
+    if not narrowed:
+        return None
+    return sorted(narrowed)
+
+
 def get_oauth_scopes_supported() -> list[str]:
     """Full `scopes_supported` list published in OAuth metadata.
 
@@ -205,10 +322,13 @@ def get_oauth_scopes_supported() -> list[str]:
     (the latter generated at build time via `bin/build-mcp-oauth-scopes.py` so
     the protected resource cannot drift out of subset of the AS).
 
-    Strict-excludes both `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only scopes
-    like `signal_scout_internal` — never advertised, never user-grantable) and
-    `OAUTH_HIDDEN_SCOPE_OBJECTS` (PAK-only alpha scopes). PAT validation uses
-    `get_scope_descriptions()` directly and is unaffected.
+    Built from `UNPRIVILEGED_SCOPES`, so it excludes all three non-advertised
+    classes: `INTERNAL_API_SCOPE_OBJECTS` (server-mint-only, e.g.
+    `signal_scout_internal` — never user-grantable), `OAUTH_HIDDEN_SCOPES`
+    (alpha / PAT-only), and `PRIVILEGED_SCOPES` (`llm_gateway:*`, admin-granted
+    only). Discovery metadata shouldn't advertise scopes an OAuth client can't
+    obtain self-serve. PAT validation uses `get_scope_descriptions()` directly
+    and is unaffected.
 
     The Signals scout harness sandbox token carries `signal_scout_internal:write`,
     but it is minted by directly inserting an `OAuthAccessToken` row (see
@@ -218,10 +338,8 @@ def get_oauth_scopes_supported() -> list[str]:
     via user consent — a durable prompt-injection vector (scratchpad rows are read
     verbatim into every subsequent run's prompt).
     """
-    visible = (
-        f"{obj}:{action}"
-        for obj in API_SCOPE_OBJECTS
-        if obj not in INTERNAL_API_SCOPE_OBJECTS and obj not in OAUTH_HIDDEN_SCOPE_OBJECTS
-        for action in API_SCOPE_ACTIONS
-    )
-    return list(OIDC_SCOPES) + list(visible)
+    visible = UNPRIVILEGED_SCOPES
+    ordered = [
+        f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
+    ]
+    return list(OIDC_SCOPES) + ordered
