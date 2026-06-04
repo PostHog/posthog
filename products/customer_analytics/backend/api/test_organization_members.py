@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
@@ -52,15 +53,16 @@ class TestOrganizationMembersForAccountAPI(APIBaseTest):
         response = self.client.get(self._url(self.target_org.id))
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("missing", ""),
+            ("invalid", "?organization_id=not-a-uuid"),
+            ("empty", "?organization_id="),
+        ]
+    )
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_empty_when_organization_id_missing(self, _mock_flag):
-        response = self.client.get(f"/api/projects/{self.team.id}/organization_members/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["results"], [])
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_empty_when_organization_id_invalid(self, _mock_flag):
-        response = self.client.get(self._url("not-a-uuid"))
+    def test_empty_results_for_bad_organization_id(self, _name, query_string, _mock_flag):
+        response = self.client.get(f"/api/projects/{self.team.id}/organization_members/{query_string}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"], [])
 
