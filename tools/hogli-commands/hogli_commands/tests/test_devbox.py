@@ -3546,12 +3546,12 @@ class TestKeepaliveShim:
         monkeypatch.setattr(devbox_mutagen, "_daemon_pids", lambda: [111, 222])
         monkeypatch.setattr(
             devbox_mutagen,
-            "_process_env",
-            lambda pid: {"MUTAGEN_SSH_PATH": str(tmp_path)} if pid == 222 else {"FOO": "bar"},
+            "_daemon_ssh_path",
+            lambda pid: str(tmp_path) if pid == 222 else None,
         )
         assert devbox_mutagen._daemon_uses_shim(tmp_path) is True
 
-        monkeypatch.setattr(devbox_mutagen, "_process_env", lambda pid: {"MUTAGEN_SSH_PATH": "/other"})
+        monkeypatch.setattr(devbox_mutagen, "_daemon_ssh_path", lambda pid: "/other")
         assert devbox_mutagen._daemon_uses_shim(tmp_path) is False
 
     def test_ensure_daemon_fast_path_does_not_touch_daemon(

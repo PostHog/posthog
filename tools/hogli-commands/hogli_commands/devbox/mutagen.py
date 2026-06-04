@@ -13,6 +13,7 @@ import shutil
 import hashlib
 import platform
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -268,36 +269,36 @@ def _daemon_pids() -> list[int]:
     return pids
 
 
-def _process_env(pid: int) -> dict[str, str]:
-    """Best-effort read of a process's environment (Linux /proc, else `ps eww`)."""
-    env: dict[str, str] = {}
+def _daemon_ssh_path(pid: int) -> str | None:
+    """The ``MUTAGEN_SSH_PATH`` a process was started with, or ``None``.
+
+    Best-effort: Linux reads ``/proc/<pid>/environ`` (NUL-delimited), elsewhere
+    it parses ``ps eww`` (whitespace-delimited env after the command). We only
+    compare a shim-dir path (no spaces), so token splitting suffices either way.
+    """
     if platform.system() == "Linux":
         try:
             raw = Path(f"/proc/{pid}/environ").read_bytes()
         except OSError:
-            return env
-        for entry in raw.split(b"\0"):
-            key, sep, value = entry.partition(b"=")
-            if sep:
-                env[key.decode(errors="replace")] = value.decode(errors="replace")
-        return env
-    try:
-        result = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
-    except (OSError, subprocess.SubprocessError):
-        return env
-    # macOS/BSD `ps eww` appends the env after the command as KEY=VALUE tokens.
-    # We only read shim-dir paths (no spaces), so whitespace tokenizing suffices.
-    for token in result.stdout.split():
+            return None
+        tokens: Iterable[str] = (entry.decode(errors="replace") for entry in raw.split(b"\0"))
+    else:
+        try:
+            result = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        tokens = result.stdout.split()
+    for token in tokens:
         key, sep, value = token.partition("=")
-        if sep:
-            env[key] = value
-    return env
+        if sep and key == "MUTAGEN_SSH_PATH":
+            return value
+    return None
 
 
 def _daemon_uses_shim(shim_dir: Path) -> bool:
     """Whether a running daemon already routes ssh through our shim."""
     target = str(shim_dir)
-    return any(_process_env(pid).get("MUTAGEN_SSH_PATH") == target for pid in _daemon_pids())
+    return any(_daemon_ssh_path(pid) == target for pid in _daemon_pids())
 
 
 def ensure_daemon_with_shim() -> None:
@@ -324,7 +325,7 @@ def ensure_daemon_with_shim() -> None:
     _run(["mutagen", "daemon", "stop"], capture_output=True)
     _run(["mutagen", "daemon", "unregister"], capture_output=True)
     result = _run(["mutagen", "daemon", "start"], capture_output=True)
-    if result.returncode != 0 and not _daemon_uses_shim(shim_dir):
+    if result.returncode != 0:
         click.echo(
             click.style(
                 "Warning: could not start the mutagen daemon with the keepalive shim; "
