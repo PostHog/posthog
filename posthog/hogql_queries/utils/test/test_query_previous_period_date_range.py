@@ -84,22 +84,21 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         self.assertEqual(with_override.date_from_str, utc_baseline.date_from_str)
         self.assertEqual(with_override.date_to_str, utc_baseline.date_to_str)
 
-    def test_this_month_to_date_aligns_to_previous_month(self):
-        # "This month" on June 3 is the partial window June 1–3. The previous period should be
-        # the same window one calendar month earlier (May 1–3), not the trailing equal-length span.
-        previous = self._previous_period("mStart", "2026-06-03T14:00:00Z")
-        self.assertEqual(previous.date_from(), parser.isoparse("2026-05-01T00:00:00Z"))
-        self.assertEqual(previous.date_to(), parser.isoparse("2026-05-03T23:59:59.999999Z"))
-
-    def test_today_aligns_to_yesterday(self):
-        previous = self._previous_period("dStart", "2026-06-03T14:00:00Z")
-        self.assertEqual(previous.date_from(), parser.isoparse("2026-06-02T00:00:00Z"))
-        self.assertEqual(previous.date_to(), parser.isoparse("2026-06-02T23:59:59.999999Z"))
-
-    def test_year_to_date_aligns_to_previous_year(self):
-        previous = self._previous_period("yStart", "2026-06-03T14:00:00Z")
-        self.assertEqual(previous.date_from(), parser.isoparse("2025-01-01T00:00:00Z"))
-        self.assertEqual(previous.date_to(), parser.isoparse("2025-06-03T23:59:59.999999Z"))
+    @parameterized.expand(
+        [
+            # A "to date" preset is a partial window; the previous period is the same window one
+            # calendar unit earlier (e.g. this month Jun 1–3 → May 1–3), not the trailing span.
+            ("this_month", "mStart", "2026-05-01T00:00:00Z", "2026-05-03T23:59:59.999999Z"),
+            ("today", "dStart", "2026-06-02T00:00:00Z", "2026-06-02T23:59:59.999999Z"),
+            ("year_to_date", "yStart", "2025-01-01T00:00:00Z", "2025-06-03T23:59:59.999999Z"),
+        ]
+    )
+    def test_to_date_preset_aligns_to_previous_calendar_unit(
+        self, _name: str, date_from: str, expected_from: str, expected_to: str
+    ):
+        previous = self._previous_period(date_from, "2026-06-03T14:00:00Z")
+        self.assertEqual(previous.date_from(), parser.isoparse(expected_from))
+        self.assertEqual(previous.date_to(), parser.isoparse(expected_to))
 
     def test_this_week_aligns_to_previous_week(self):
         # Robust to the team's week-start config: assert the window is shifted back exactly one
