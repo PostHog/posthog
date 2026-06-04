@@ -51,6 +51,20 @@ export type NotebookListBlockNode = {
     items: NotebookListItem[]
 }
 
+export type NotebookTableAlignment = 'left' | 'center' | 'right'
+
+export type NotebookTableCell = {
+    children: NotebookInlineNode[]
+}
+
+export type NotebookTableBlockNode = {
+    id: string
+    type: 'table'
+    headers: NotebookTableCell[]
+    rows: NotebookTableCell[][]
+    alignments?: (NotebookTableAlignment | undefined)[]
+}
+
 export type NotebookCodeBlockNode = {
     id: string
     type: 'code'
@@ -70,6 +84,7 @@ export type NotebookComponentBlockNode = {
 export type NotebookBlockNode =
     | NotebookTextBlockNode
     | NotebookListBlockNode
+    | NotebookTableBlockNode
     | NotebookCodeBlockNode
     | NotebookComponentBlockNode
 

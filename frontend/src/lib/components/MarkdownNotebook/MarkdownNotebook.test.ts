@@ -54,6 +54,15 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
     })
 
+    it('round-trips markdown tables', () => {
+        const markdown = `| Name | Count | Ratio |
+| :--- | ---: | :---: |
+| Pageview | **12** | 10% |
+| Signup | 3 | 2% |`
+
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
+    })
+
     it('preserves node identity for targeted text updates', () => {
         const previous = parseMarkdownNotebook(`Activation improved today.
 
@@ -886,6 +895,106 @@ Tail with **bold** text`
             `- rent
   - Chi`
         )
+    })
+
+    it('renders and edits markdown tables', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `| Name | Count |
+| --- | --- |
+| Pageview | 12 |`,
+                onChange,
+            })
+        )
+        const table = container.querySelector('.MarkdownNotebook__table-block table')
+        const cells = Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+
+        expect(table).toBeInstanceOf(HTMLTableElement)
+        expect(cells.map((cell) => cell.textContent)).toEqual(['Name', 'Count', 'Pageview', '12'])
+        expect(cells[0].getAttribute('contenteditable')).toEqual('true')
+
+        cells[2].textContent = 'Signup'
+        fireEvent.input(cells[2])
+
+        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+| --- | --- |
+| Signup | 12 |`)
+    })
+
+    it('moves between table cells with tab and adds rows with enter', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `| Name | Count |
+| --- | --- |
+| Pageview | 12 |`,
+                onChange,
+            })
+        )
+        const getCells = (): HTMLElement[] =>
+            Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+
+        fireEvent.keyDown(getCells()[0], { key: 'Tab' })
+
+        expect(document.activeElement).toEqual(getCells()[1])
+
+        fireEvent.keyDown(getCells()[2], { key: 'Enter' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`| Name | Count |
+| --- | --- |
+| Pageview | 12 |
+|  |  |`)
+        expect(document.activeElement).toEqual(getCells()[4])
+    })
+
+    it('pastes markdown tables as notebook table blocks', () => {
+        const onChange = jest.fn()
+        const pastedMarkdown = `| Name | Count |
+| --- | ---: |
+| Pageview | **12** |`
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onChange }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        fireEvent.paste(textBlock, {
+            clipboardData: {
+                getData: jest.fn((type: string) => (type === 'text/plain' ? pastedMarkdown : '')),
+            },
+        })
+
+        expect(container.querySelector('.MarkdownNotebook__table-block')).toBeInstanceOf(HTMLElement)
+        expect(container.querySelector('.MarkdownNotebook__table-cell-content')?.textContent).toEqual('Name')
+        expect(onChange).toHaveBeenLastCalledWith(pastedMarkdown)
+    })
+
+    it('copies selected tables as markdown', () => {
+        const markdown = `| Name | Count |
+| --- | --- |
+| Pageview | 12 |`
+        const { container } = render(createElement(MarkdownNotebook, { value: markdown }))
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const cells = Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+        const firstTextNode = cells[0].firstChild
+        const lastTextNode = cells[3].firstChild
+
+        expect(firstTextNode).toBeInstanceOf(Text)
+        expect(lastTextNode).toBeInstanceOf(Text)
+
+        act(() => {
+            const range = document.createRange()
+            range.setStart(firstTextNode as Text, 0)
+            range.setEnd(lastTextNode as Text, 2)
+            const selection = window.getSelection()
+            selection?.removeAllRanges()
+            selection?.addRange(range)
+        })
+
+        const clipboardData = {
+            setData: jest.fn(),
+        }
+        fireEvent.copy(notebook, { clipboardData })
+
+        expect(clipboardData.setData).toHaveBeenCalledWith('text/plain', markdown)
     })
 
     it('moves the formatting toolbar below selections at the top of the viewport', () => {

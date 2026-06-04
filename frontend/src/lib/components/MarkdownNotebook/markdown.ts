@@ -7,6 +7,9 @@ import {
     NotebookInlineNode,
     NotebookListBlockNode,
     NotebookParseError,
+    NotebookTableAlignment,
+    NotebookTableBlockNode,
+    NotebookTableCell,
     NotebookPropValue,
     NotebookTextBlockNode,
 } from './types'
@@ -28,6 +31,7 @@ const ORDERED_LIST_REGEX = /^\s*\d+\.\s+/
 const BULLET_LIST_REGEX = /^\s*[-*+]\s+/
 const LIST_ITEM_REGEX = /^(\s*)(\d+\.|[-*+])\s+(.*)$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
+const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
     const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
@@ -92,6 +96,16 @@ export function serializeNode(node: NotebookBlockNode): string {
                 return `${'  '.repeat(depth)}${marker} ${serializeInlineNodes(item.children)}`
             })
             .join('\n')
+    }
+    if (node.type === 'table') {
+        const columnCount = getTableColumnCount(node)
+        const headerCells = normalizeTableCells(node.headers, columnCount).map(serializeTableCell)
+        const separatorCells = Array.from({ length: columnCount }, (_, index) =>
+            serializeTableSeparatorCell(node.alignments?.[index])
+        )
+        const bodyRows = node.rows.map((row) => serializeTableRow(normalizeTableCells(row, columnCount)))
+
+        return [serializeRawTableRow(headerCells), serializeRawTableRow(separatorCells), ...bodyRows].join('\n')
     }
     if (node.type === 'code') {
         return `\`\`\`${node.language ?? ''}\n${node.text}\n\`\`\``
@@ -227,6 +241,10 @@ function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
         }
     }
 
+    if (isTableStart(lines, lineIndex)) {
+        return parseTableBlock(lines, lineIndex)
+    }
+
     if (ORDERED_LIST_REGEX.test(line) || BULLET_LIST_REGEX.test(line)) {
         return parseListBlock(lines, lineIndex)
     }
@@ -263,6 +281,7 @@ function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResu
             trimmed.startsWith('```') ||
             COMPONENT_START_REGEX.test(trimmed) ||
             HEADING_REGEX.test(line) ||
+            isTableStart(lines, nextLineIndex) ||
             ORDERED_LIST_REGEX.test(line) ||
             BULLET_LIST_REGEX.test(line) ||
             trimmed.startsWith('>')
@@ -325,6 +344,131 @@ function parseListItemLine(line: string): NotebookListBlockNode['items'][number]
 function getListItemDepth(indentation: string): number {
     const columns = [...indentation].reduce((total, character) => total + (character === '\t' ? 4 : 1), 0)
     return Math.floor(columns / 2)
+}
+
+function isTableStart(lines: string[], lineIndex: number): boolean {
+    const headerCells = splitMarkdownTableRow(lines[lineIndex] ?? '')
+    const separatorCells = splitMarkdownTableRow(lines[lineIndex + 1] ?? '')
+
+    return headerCells.length > 1 && separatorCells.length > 1 && separatorCells.every(isTableSeparatorCell)
+}
+
+function parseTableBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const headers = splitMarkdownTableRow(lines[lineIndex]).map(parseTableCell)
+    const alignments = splitMarkdownTableRow(lines[lineIndex + 1]).map(parseTableAlignment)
+    const rows: NotebookTableBlockNode['rows'] = []
+    let nextLineIndex = lineIndex + 2
+
+    while (nextLineIndex < lines.length) {
+        const cells = splitMarkdownTableRow(lines[nextLineIndex])
+        if (cells.length <= 1) {
+            break
+        }
+        rows.push(cells.map(parseTableCell))
+        nextLineIndex += 1
+    }
+
+    return {
+        node: {
+            id: '',
+            type: 'table',
+            headers,
+            rows,
+            alignments,
+        },
+        nextLineIndex,
+    }
+}
+
+function splitMarkdownTableRow(line: string): string[] {
+    if (!line.includes('|')) {
+        return []
+    }
+
+    const cells: string[] = []
+    let cell = ''
+    let source = line.trim()
+    if (source.startsWith('|')) {
+        source = source.slice(1)
+    }
+    if (source.endsWith('|')) {
+        source = source.slice(0, -1)
+    }
+
+    for (let index = 0; index < source.length; index++) {
+        const character = source[index]
+        if (character === '\\' && source[index + 1] === '|') {
+            cell += '|'
+            index += 1
+            continue
+        }
+        if (character === '|') {
+            cells.push(cell.trim())
+            cell = ''
+            continue
+        }
+        cell += character
+    }
+    cells.push(cell.trim())
+
+    return cells
+}
+
+function isTableSeparatorCell(cell: string): boolean {
+    return TABLE_SEPARATOR_CELL_REGEX.test(cell.trim())
+}
+
+function parseTableAlignment(cell: string): NotebookTableAlignment | undefined {
+    const trimmedCell = cell.trim()
+    const alignsLeft = trimmedCell.startsWith(':')
+    const alignsRight = trimmedCell.endsWith(':')
+    if (alignsLeft && alignsRight) {
+        return 'center'
+    }
+    if (alignsLeft) {
+        return 'left'
+    }
+    if (alignsRight) {
+        return 'right'
+    }
+    return undefined
+}
+
+function parseTableCell(cell: string): NotebookTableCell {
+    return { children: parseInlineMarkdown(cell) }
+}
+
+function getTableColumnCount(node: NotebookTableBlockNode): number {
+    return Math.max(1, node.headers.length, node.alignments?.length ?? 0, ...node.rows.map((row) => row.length))
+}
+
+function normalizeTableCells(cells: NotebookTableCell[], columnCount: number): NotebookTableCell[] {
+    return Array.from({ length: columnCount }, (_, index) => cells[index] ?? { children: [] })
+}
+
+function serializeTableRow(cells: NotebookTableCell[]): string {
+    return serializeRawTableRow(cells.map(serializeTableCell))
+}
+
+function serializeRawTableRow(cells: string[]): string {
+    return `| ${cells.join(' | ')} |`
+}
+
+function serializeTableCell(cell: NotebookTableCell): string {
+    return serializeInlineNodes(cell.children).replace(/\|/g, '\\|').replace(/\n/g, ' ')
+}
+
+function serializeTableSeparatorCell(alignment: NotebookTableAlignment | undefined): string {
+    if (alignment === 'left') {
+        return ':---'
+    }
+    if (alignment === 'center') {
+        return ':---:'
+    }
+    if (alignment === 'right') {
+        return '---:'
+    }
+    return '---'
 }
 
 function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {

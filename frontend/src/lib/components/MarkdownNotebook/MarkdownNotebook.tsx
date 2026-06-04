@@ -54,6 +54,8 @@ import {
     NotebookListItem,
     NotebookMode,
     NotebookPropValue,
+    NotebookTableBlockNode,
+    NotebookTableCell,
     NotebookTextBlockNode,
     NotebookTextSelectionRange,
 } from './types'
@@ -80,6 +82,7 @@ type RestoreSelectionRequest = {
     start: number
     end: number
     listItemIndex?: number
+    tableCell?: TableCellPosition
 }
 
 type InsertCommand = {
@@ -139,6 +142,14 @@ type RenderedListItem = NotebookListItem & {
     childrenItems: RenderedListItem[]
 }
 
+type TableSection = 'header' | 'body'
+
+type TableCellPosition = {
+    section: TableSection
+    rowIndex: number
+    columnIndex: number
+}
+
 type NotebookComponentShellProps = {
     node: NotebookComponentBlockNode
     mode: NotebookMode
@@ -170,7 +181,7 @@ const INSERT_MENU_PLACEHOLDER = 'Search for tool'
 const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
 const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR =
-    '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__code-block'
+    '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block'
 
 export function MarkdownNotebook({
     value,
@@ -205,6 +216,7 @@ export function MarkdownNotebook({
     const documentRef = useRef(document)
     const blockRefs = useRef<Record<string, HTMLElement | null>>({})
     const listItemRefs = useRef<Record<string, HTMLElement | null>>({})
+    const tableCellRefs = useRef<Record<string, HTMLElement | null>>({})
     const crossBlockSelectionRef = useRef<CrossBlockSelectionDragState | null>(null)
     const focusNodeRef = useRef<string | null>(null)
     const restoreSelectionRef = useRef<RestoreSelectionRequest | null>(null)
@@ -263,9 +275,11 @@ export function MarkdownNotebook({
         if (request) {
             restoreSelectionRef.current = null
             const element =
-                request.listItemIndex === undefined
-                    ? blockRefs.current[request.nodeId]
-                    : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]
+                request.tableCell !== undefined
+                    ? tableCellRefs.current[getTableCellRefKey(request.nodeId, request.tableCell)]
+                    : request.listItemIndex === undefined
+                      ? blockRefs.current[request.nodeId]
+                      : listItemRefs.current[getListItemRefKey(request.nodeId, request.listItemIndex)]
             if (element) {
                 element.focus()
                 restoreSelection(element, request.start, request.end)
@@ -392,8 +406,16 @@ export function MarkdownNotebook({
     const showInsertBoundaries = mode === 'edit' && document.nodes.length > 0
     const placeholderNodeId = hasNotebookContent(renderedNodes) ? null : renderedNodes[0]?.id
     const insertCommands = useMemo(
-        () => buildInsertCommands(mergedRegistry, replaceNodeWithInsertedComponent),
-        [mergedRegistry, replaceNodeWithInsertedComponent]
+        () =>
+            buildInsertCommands(mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, (nodeId) => {
+                restoreSelectionRef.current = {
+                    nodeId,
+                    tableCell: { section: 'header', rowIndex: 0, columnIndex: 0 },
+                    start: 0,
+                    end: 8,
+                }
+            }),
+        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -779,6 +801,26 @@ export function MarkdownNotebook({
                     return true
                 }
 
+                if (targetNode.type === 'table') {
+                    const targetCellPosition = getTableEdgeCellPosition(targetNode, direction)
+                    if (!targetCellPosition) {
+                        return false
+                    }
+
+                    const element = tableCellRefs.current[getTableCellRefKey(targetNode.id, targetCellPosition)]
+                    if (!element) {
+                        return false
+                    }
+
+                    const targetOffset = Math.min(
+                        offset,
+                        getInlineText(getTableCellAtPosition(targetNode, targetCellPosition)?.children ?? []).length
+                    )
+                    element.focus()
+                    restoreSelection(element, targetOffset, targetOffset)
+                    return true
+                }
+
                 targetIndex += step
             }
 
@@ -811,6 +853,49 @@ export function MarkdownNotebook({
             }
 
             return moveFocusToAdjacentNode(nodeId, direction, offset)
+        },
+        [moveFocusToAdjacentNode]
+    )
+
+    const moveFocusToAdjacentTableCell = useCallback(
+        (
+            nodeId: string,
+            position: TableCellPosition,
+            direction: InsertMenuSelectionDirection,
+            offset: number
+        ): boolean => {
+            const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
+            const node = nodes.find(
+                (candidate): candidate is NotebookTableBlockNode =>
+                    candidate.id === nodeId && candidate.type === 'table'
+            )
+            if (!node) {
+                return false
+            }
+
+            const positions = getTableCellPositions(node)
+            const currentIndex = positions.findIndex((candidate) => tableCellPositionsEqual(candidate, position))
+            if (currentIndex === -1) {
+                return false
+            }
+
+            const nextPosition = positions[currentIndex + (direction === 'next' ? 1 : -1)]
+            if (!nextPosition) {
+                return moveFocusToAdjacentNode(nodeId, direction, offset)
+            }
+
+            const element = tableCellRefs.current[getTableCellRefKey(nodeId, nextPosition)]
+            if (!element) {
+                return false
+            }
+
+            const targetOffset = Math.min(
+                offset,
+                getInlineText(getTableCellAtPosition(node, nextPosition)?.children ?? []).length
+            )
+            element.focus()
+            restoreSelection(element, targetOffset, targetOffset)
+            return true
         },
         [moveFocusToAdjacentNode]
     )
@@ -953,6 +1038,11 @@ export function MarkdownNotebook({
                                             setListItemRef: (itemIndex, element) => {
                                                 listItemRefs.current[getListItemRefKey(node.id, itemIndex)] = element
                                             },
+                                            setTableCellRef: (position, element) => {
+                                                tableCellRefs.current[getTableCellRefKey(node.id, position)] = element
+                                            },
+                                            getTableCellElement: (position) =>
+                                                tableCellRefs.current[getTableCellRefKey(node.id, position)] ?? null,
                                             updateNode,
                                             replaceNodeWithNodes,
                                             deleteNode: () => updateNode(node.id, () => null),
@@ -960,6 +1050,7 @@ export function MarkdownNotebook({
                                             deleteNodeBefore,
                                             moveFocusToAdjacentNode,
                                             moveFocusToAdjacentListItem,
+                                            moveFocusToAdjacentTableCell,
                                             openInsertMenu: (query = '') => openInsertMenu(node.id, query),
                                             closeInsertMenu: () => setInsertMenu(null),
                                             moveInsertMenuSelection: (direction) => {
@@ -1075,6 +1166,8 @@ function renderNode({
     toggleComponentPanel,
     setBlockRef,
     setListItemRef,
+    setTableCellRef,
+    getTableCellElement,
     updateNode,
     replaceNodeWithNodes,
     deleteNode,
@@ -1082,6 +1175,7 @@ function renderNode({
     deleteNodeBefore,
     moveFocusToAdjacentNode,
     moveFocusToAdjacentListItem,
+    moveFocusToAdjacentTableCell,
     openInsertMenu,
     closeInsertMenu,
     moveInsertMenuSelection,
@@ -1103,6 +1197,8 @@ function renderNode({
     toggleComponentPanel: (panel: ComponentPanel) => void
     setBlockRef: (element: HTMLElement | null) => void
     setListItemRef: (itemIndex: number, element: HTMLElement | null) => void
+    setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
+    getTableCellElement: (position: TableCellPosition) => HTMLElement | null
     updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
     replaceNodeWithNodes: (nodeId: string, replacementNodes: NotebookBlockNode[]) => void
     deleteNode: () => void
@@ -1112,6 +1208,12 @@ function renderNode({
     moveFocusToAdjacentListItem: (
         nodeId: string,
         itemIndex: number,
+        direction: InsertMenuSelectionDirection,
+        offset: number
+    ) => boolean
+    moveFocusToAdjacentTableCell: (
+        nodeId: string,
+        position: TableCellPosition,
         direction: InsertMenuSelectionDirection,
         offset: number
     ) => boolean
@@ -1155,6 +1257,23 @@ function renderNode({
                 replaceNodeWithNodes={replaceNodeWithNodes}
                 deleteNodeBefore={deleteNodeBefore}
                 moveFocusToAdjacentListItem={moveFocusToAdjacentListItem}
+                handleSelectionChange={handleSelectionChange}
+                startCrossBlockSelection={startCrossBlockSelection}
+                restoreSelectionRef={restoreSelectionRef}
+            />
+        )
+    }
+
+    if (node.type === 'table') {
+        return (
+            <EditableTableBlock
+                node={node}
+                mode={mode}
+                setBlockRef={setBlockRef}
+                setTableCellRef={setTableCellRef}
+                getTableCellElement={getTableCellElement}
+                updateNode={updateNode}
+                moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
                 handleSelectionChange={handleSelectionChange}
                 startCrossBlockSelection={startCrossBlockSelection}
                 restoreSelectionRef={restoreSelectionRef}
@@ -1551,6 +1670,297 @@ function EditableListItemContent({
         <div
             ref={setElementRef}
             className="MarkdownNotebook__list-item-content"
+            contentEditable={mode === 'edit'}
+            suppressContentEditableWarning
+            onInput={handleInput}
+            onPaste={handlePaste}
+            onKeyDown={handleKeyDown}
+            onMouseDown={startCrossBlockSelection}
+            onMouseUp={handleSelectionChange}
+            onKeyUp={handleSelectionChange}
+        />
+    )
+}
+
+function EditableTableBlock({
+    node,
+    mode,
+    setBlockRef,
+    setTableCellRef,
+    getTableCellElement,
+    updateNode,
+    moveFocusToAdjacentTableCell,
+    handleSelectionChange,
+    startCrossBlockSelection,
+    restoreSelectionRef,
+}: {
+    node: NotebookTableBlockNode
+    mode: NotebookMode
+    setBlockRef: (element: HTMLElement | null) => void
+    setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
+    getTableCellElement: (position: TableCellPosition) => HTMLElement | null
+    updateNode: (nodeId: string, updater: (node: NotebookBlockNode) => NotebookBlockNode | null) => void
+    moveFocusToAdjacentTableCell: (
+        nodeId: string,
+        position: TableCellPosition,
+        direction: InsertMenuSelectionDirection,
+        offset: number
+    ) => boolean
+    handleSelectionChange: () => void
+    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
+}): JSX.Element {
+    const columnCount = getTableColumnCount(node)
+    const headers = normalizeTableRow(node.headers, columnCount)
+    const rows = node.rows.map((row) => normalizeTableRow(row, columnCount))
+
+    const updateTableCell = (position: TableCellPosition, children: NotebookInlineNode[]): void => {
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'table') {
+                return currentNode
+            }
+
+            if (position.section === 'header') {
+                const nextHeaders = normalizeTableRow(currentNode.headers, columnCount)
+                nextHeaders[position.columnIndex] = { children }
+                return { ...currentNode, headers: nextHeaders }
+            }
+
+            const nextRows = currentNode.rows.map((row) => normalizeTableRow(row, columnCount))
+            const nextRow = nextRows[position.rowIndex] ?? makeEmptyTableRow(columnCount)
+            nextRow[position.columnIndex] = { children }
+            nextRows[position.rowIndex] = nextRow
+            return { ...currentNode, rows: nextRows }
+        })
+    }
+
+    const addTableRowAfter = (rowIndex: number, columnIndex: number): void => {
+        updateNode(node.id, (currentNode) => {
+            if (currentNode.type !== 'table') {
+                return currentNode
+            }
+
+            const nextRows = currentNode.rows.map((row) => normalizeTableRow(row, columnCount))
+            const insertIndex = Math.max(0, Math.min(rowIndex + 1, nextRows.length))
+            nextRows.splice(insertIndex, 0, makeEmptyTableRow(columnCount))
+            return { ...currentNode, rows: nextRows }
+        })
+        restoreSelectionRef.current = {
+            nodeId: node.id,
+            tableCell: { section: 'body', rowIndex: rowIndex + 1, columnIndex },
+            start: 0,
+            end: 0,
+        }
+    }
+
+    const focusTableCell = (position: TableCellPosition, offset: number = 0): void => {
+        const element = getTableCellElement(position)
+        if (element) {
+            element.focus()
+            restoreSelection(element, offset, offset)
+            return
+        }
+        restoreSelectionRef.current = { nodeId: node.id, tableCell: position, start: offset, end: offset }
+    }
+
+    const handleTableCellEnter = (position: TableCellPosition): void => {
+        if (position.section === 'header') {
+            if (!node.rows.length) {
+                addTableRowAfter(-1, position.columnIndex)
+                return
+            }
+            focusTableCell({ section: 'body', rowIndex: 0, columnIndex: position.columnIndex })
+            return
+        }
+
+        addTableRowAfter(position.rowIndex, position.columnIndex)
+    }
+
+    return (
+        <div className="MarkdownNotebook__table-block" ref={setBlockRef}>
+            <table>
+                <thead>
+                    <tr>
+                        {headers.map((cell, columnIndex) => (
+                            <th key={columnIndex}>
+                                <EditableTableCellContent
+                                    node={node}
+                                    cell={cell}
+                                    position={{ section: 'header', rowIndex: 0, columnIndex }}
+                                    mode={mode}
+                                    setTableCellRef={setTableCellRef}
+                                    updateTableCell={updateTableCell}
+                                    moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
+                                    handleTableCellEnter={handleTableCellEnter}
+                                    handleSelectionChange={handleSelectionChange}
+                                    startCrossBlockSelection={startCrossBlockSelection}
+                                    restoreSelectionRef={restoreSelectionRef}
+                                />
+                            </th>
+                        ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows.map((row, rowIndex) => (
+                        <tr key={rowIndex}>
+                            {row.map((cell, columnIndex) => (
+                                <td key={columnIndex}>
+                                    <EditableTableCellContent
+                                        node={node}
+                                        cell={cell}
+                                        position={{ section: 'body', rowIndex, columnIndex }}
+                                        mode={mode}
+                                        setTableCellRef={setTableCellRef}
+                                        updateTableCell={updateTableCell}
+                                        moveFocusToAdjacentTableCell={moveFocusToAdjacentTableCell}
+                                        handleTableCellEnter={handleTableCellEnter}
+                                        handleSelectionChange={handleSelectionChange}
+                                        startCrossBlockSelection={startCrossBlockSelection}
+                                        restoreSelectionRef={restoreSelectionRef}
+                                    />
+                                </td>
+                            ))}
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    )
+}
+
+function EditableTableCellContent({
+    node,
+    cell,
+    position,
+    mode,
+    setTableCellRef,
+    updateTableCell,
+    moveFocusToAdjacentTableCell,
+    handleTableCellEnter,
+    handleSelectionChange,
+    startCrossBlockSelection,
+    restoreSelectionRef,
+}: {
+    node: NotebookTableBlockNode
+    cell: NotebookTableCell
+    position: TableCellPosition
+    mode: NotebookMode
+    setTableCellRef: (position: TableCellPosition, element: HTMLElement | null) => void
+    updateTableCell: (position: TableCellPosition, children: NotebookInlineNode[]) => void
+    moveFocusToAdjacentTableCell: (
+        nodeId: string,
+        position: TableCellPosition,
+        direction: InsertMenuSelectionDirection,
+        offset: number
+    ) => boolean
+    handleTableCellEnter: (position: TableCellPosition) => void
+    handleSelectionChange: () => void
+    startCrossBlockSelection: (event: ReactMouseEvent<HTMLElement>) => void
+    restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
+}): JSX.Element {
+    const elementRef = useRef<HTMLDivElement | null>(null)
+    const skipDomSyncForHtmlRef = useRef<string | null>(null)
+    const renderedHtml = useMemo(() => inlineNodesToHtml(cell.children), [cell.children])
+
+    const setElementRef = useCallback(
+        (element: HTMLDivElement | null): void => {
+            elementRef.current = element
+            setTableCellRef(position, element)
+        },
+        [position, setTableCellRef]
+    )
+
+    useLayoutEffect(() => {
+        const element = elementRef.current
+        if (!element) {
+            return
+        }
+
+        const shouldSkipOwnInputSync =
+            document.activeElement === element && skipDomSyncForHtmlRef.current === renderedHtml
+        skipDomSyncForHtmlRef.current = null
+
+        if (shouldSkipOwnInputSync || element.innerHTML === renderedHtml) {
+            return
+        }
+
+        element.innerHTML = renderedHtml
+    }, [renderedHtml])
+
+    const updateChildren = (nextChildren: NotebookInlineNode[]): NotebookInlineNode[] => {
+        skipDomSyncForHtmlRef.current = inlineNodesToHtml(nextChildren)
+        updateTableCell(position, nextChildren)
+        return nextChildren
+    }
+
+    const handleInput = (event: FormEvent<HTMLDivElement>): void => {
+        updateChildren(htmlElementToInlineNodes(event.currentTarget))
+    }
+
+    const handlePaste = (event: ReactClipboardEvent<HTMLDivElement>): void => {
+        const plainText = event.clipboardData.getData('text/plain')
+        const html = event.clipboardData.getData('text/html')
+        const pastedDocument = plainText ? parseMarkdownNotebook(plainText) : null
+        if (
+            pastedDocument &&
+            pastedDocument.nodes.length === 1 &&
+            pastedDocument.nodes[0].type === 'paragraph' &&
+            shouldUseMarkdownPaste(plainText, html, pastedDocument)
+        ) {
+            event.preventDefault()
+            const selection = getSelectionRange(event.currentTarget, node.id)
+            const currentTextLength = getInlineText(cell.children).length
+            const selectionStart = selection ? Math.min(selection.start, selection.end) : currentTextLength
+            const selectionEnd = selection ? Math.max(selection.start, selection.end) : currentTextLength
+            const [beforeSelection, selectionAndAfter] = splitInlineNodesAt(cell.children, selectionStart)
+            const [, afterSelection] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+            const nextChildren = normalizeInlineNodes([
+                ...beforeSelection,
+                ...pastedDocument.nodes[0].children,
+                ...afterSelection,
+            ])
+            const nextCaretOffset =
+                getInlineText(beforeSelection).length + getInlineText(pastedDocument.nodes[0].children).length
+            updateChildren(nextChildren)
+            restoreSelectionRef.current = {
+                nodeId: node.id,
+                tableCell: position,
+                start: nextCaretOffset,
+                end: nextCaretOffset,
+            }
+            return
+        }
+
+        if (!html) {
+            return
+        }
+
+        event.preventDefault()
+        const container = document.createElement('div')
+        container.innerHTML = html
+        document.execCommand('insertHTML', false, inlineNodesToHtml(htmlElementToInlineNodes(container)))
+        updateChildren(htmlElementToInlineNodes(event.currentTarget))
+    }
+
+    const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+        if (event.key === 'Tab') {
+            event.preventDefault()
+            const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
+            moveFocusToAdjacentTableCell(node.id, position, event.shiftKey ? 'previous' : 'next', selection?.start ?? 0)
+            return
+        }
+
+        if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            handleTableCellEnter(position)
+            return
+        }
+    }
+
+    return (
+        <div
+            ref={setElementRef}
+            className="MarkdownNotebook__table-cell-content"
             contentEditable={mode === 'edit'}
             suppressContentEditableWarning
             onInput={handleInput}
@@ -2355,7 +2765,9 @@ function getNextInsertMenuSelectedIndex(
 
 function buildInsertCommands(
     registry: NotebookComponentRegistry,
-    replaceNodeWithInsertedComponent: (nodeId: string, nextNode: NotebookComponentBlockNode) => void
+    replaceNodeWithInsertedComponent: (nodeId: string, nextNode: NotebookComponentBlockNode) => void,
+    replaceNode: (nodeId: string, nextNode: NotebookBlockNode) => void,
+    focusInsertedTable: (nodeId: string) => void
 ): InsertCommand[] {
     const insertComponent = (targetNodeId: string, tagName: string, props: NotebookComponentProps): void => {
         const node: NotebookComponentBlockNode = {
@@ -2382,6 +2794,20 @@ function buildInsertCommands(
                     ? definition.defaultProps()
                     : (definition.defaultProps ?? {}))
         )
+    }
+
+    const insertTable = (targetNodeId: string): void => {
+        const nodeId = makeEmptyParagraph('table').id
+        replaceNode(targetNodeId, {
+            id: nodeId,
+            type: 'table',
+            headers: [
+                { children: [{ type: 'text', text: 'Column 1' }] },
+                { children: [{ type: 'text', text: 'Column 2' }] },
+            ],
+            rows: [[{ children: [] }, { children: [] }]],
+        })
+        focusInsertedTable(nodeId)
     }
 
     const queryCommands: InsertCommand[] = [
@@ -2498,13 +2924,7 @@ function buildInsertCommands(
             label: 'Table',
             category: 'Media',
             icon: <IconList />,
-            run: (targetNodeId) =>
-                insertComponent(targetNodeId, 'Query', {
-                    query: {
-                        kind: 'DataTableNode',
-                        source: { kind: 'EventsQuery', select: ['*', 'event', 'person', 'timestamp'] },
-                    },
-                }),
+            run: insertTable,
         },
         {
             key: 'media-iframe',
@@ -2602,6 +3022,62 @@ function getListItemSubtreeEndIndex(items: NotebookListItem[], itemIndex: number
     return nextIndex
 }
 
+function getTableCellRefKey(nodeId: string, position: TableCellPosition): string {
+    return `${nodeId}:${position.section}:${String(position.rowIndex)}:${String(position.columnIndex)}`
+}
+
+function getTableColumnCount(node: NotebookTableBlockNode): number {
+    return Math.max(1, node.headers.length, node.alignments?.length ?? 0, ...node.rows.map((row) => row.length))
+}
+
+function normalizeTableRow(row: NotebookTableCell[], columnCount: number): NotebookTableCell[] {
+    return Array.from({ length: columnCount }, (_, index) => row[index] ?? { children: [] })
+}
+
+function makeEmptyTableRow(columnCount: number): NotebookTableCell[] {
+    return Array.from({ length: columnCount }, () => ({ children: [] }))
+}
+
+function getTableCellPositions(node: NotebookTableBlockNode): TableCellPosition[] {
+    const columnCount = getTableColumnCount(node)
+    return [
+        ...Array.from({ length: columnCount }, (_, columnIndex) => ({
+            section: 'header' as const,
+            rowIndex: 0,
+            columnIndex,
+        })),
+        ...node.rows.flatMap((_, rowIndex) =>
+            Array.from({ length: columnCount }, (_, columnIndex) => ({
+                section: 'body' as const,
+                rowIndex,
+                columnIndex,
+            }))
+        ),
+    ]
+}
+
+function getTableEdgeCellPosition(
+    node: NotebookTableBlockNode,
+    direction: InsertMenuSelectionDirection
+): TableCellPosition | null {
+    const positions = getTableCellPositions(node)
+    return direction === 'next' ? (positions[0] ?? null) : (positions[positions.length - 1] ?? null)
+}
+
+function getTableCellAtPosition(
+    node: NotebookTableBlockNode,
+    position: TableCellPosition
+): NotebookTableCell | undefined {
+    if (position.section === 'header') {
+        return node.headers[position.columnIndex]
+    }
+    return node.rows[position.rowIndex]?.[position.columnIndex]
+}
+
+function tableCellPositionsEqual(left: TableCellPosition, right: TableCellPosition): boolean {
+    return left.section === right.section && left.rowIndex === right.rowIndex && left.columnIndex === right.columnIndex
+}
+
 function getSlashCommandQuery(text: string): string | null {
     const trimmedText = text.trimStart()
     return trimmedText.startsWith('/') ? trimmedText.slice(1) : null
@@ -2666,6 +3142,9 @@ function nodeHasContent(node: NotebookBlockNode): boolean {
     }
     if (node.type === 'list') {
         return node.items.some((item) => getInlineText(item.children).trim().length > 0)
+    }
+    if (node.type === 'table') {
+        return [...node.headers, ...node.rows.flat()].some((cell) => getInlineText(cell.children).trim().length > 0)
     }
     if (node.type === 'code') {
         return node.text.trim().length > 0
@@ -2778,7 +3257,7 @@ function getNotebookBlockCaretRangeFromPoint(
     if (range) {
         const element = getElementForNode(range.startContainer)
         const editableTextElement = element?.closest(
-            '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content'
+            '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content'
         )
         if (editableTextElement && notebookElement.contains(editableTextElement)) {
             return range
@@ -2877,6 +3356,11 @@ function getSelectedNotebookMarkdown(
             if (selectedListNode) {
                 selectedNodes.push(selectedListNode)
             }
+            return
+        }
+
+        if (node.type === 'table') {
+            selectedNodes.push(node)
             return
         }
 

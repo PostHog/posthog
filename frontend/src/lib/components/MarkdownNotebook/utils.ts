@@ -41,6 +41,12 @@ export function getNodeText(node: NotebookBlockNode): string {
     if (node.type === 'list') {
         return node.items.map((item) => getInlineText(item.children)).join('\n')
     }
+    if (node.type === 'table') {
+        return [
+            node.headers.map((cell) => getInlineText(cell.children)).join(' '),
+            ...node.rows.map((row) => row.map((cell) => getInlineText(cell.children)).join(' ')),
+        ].join('\n')
+    }
     if (node.type === 'code') {
         return node.text
     }
@@ -56,6 +62,9 @@ export function getNodeSignature(node: NotebookBlockNode): string {
     }
     if (node.type === 'list') {
         return `${node.type}:${node.ordered ? 'ordered' : 'bullet'}`
+    }
+    if (node.type === 'table') {
+        return `${node.type}:${node.headers.length}`
     }
     if (node.type === 'component') {
         return `${node.type}:${node.tagName}`
@@ -76,6 +85,14 @@ export function getNodeFingerprint(node: NotebookBlockNode): string {
             type: node.type,
             ordered: node.ordered,
             items: node.items,
+        })
+    }
+    if (node.type === 'table') {
+        return JSON.stringify({
+            type: node.type,
+            headers: node.headers,
+            rows: node.rows,
+            alignments: node.alignments,
         })
     }
     if (node.type === 'code') {
