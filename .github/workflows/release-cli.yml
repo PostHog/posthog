@@ -443,18 +443,21 @@ jobs:
         if: ${{ always() && needs.plan-release.outputs.publishing == 'true' && (needs.build-global-artifacts.result == 'skipped' || needs.build-global-artifacts.result == 'success') && (needs.build-local-artifacts.result == 'skipped' || needs.build-local-artifacts.result == 'success') }}
         runs-on: 'ubuntu-22.04'
         timeout-minutes: 15
-        permissions:
-            contents: write
-        env:
-            # Keep this job outside the Release SDK environment so approval stays single-shot.
-            GH_TOKEN: ${{ github.token }}
         outputs:
             val: ${{ steps.host.outputs.manifest }}
         steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
                   submodules: recursive
+                  token: ${{ steps.app-token.outputs.token }}
             - name: Install cached dist
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -498,6 +501,7 @@ jobs:
                   ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
                   notes_file="$RUNNER_TEMP/notes.txt"
