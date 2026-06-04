@@ -15,8 +15,9 @@ import {
     visionScannersDestroy,
     visionScannersList,
     visionScannersPartialUpdate,
+    visionScannersStatsRetrieve,
 } from '../generated/api'
-import type { UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
+import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
     ENABLED_OPTIONS,
@@ -157,6 +158,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadCreators: true,
         loadCreatorsSuccess: (creators: UserBasicApi[]) => ({ creators }),
         loadCreatorsFailure: true,
+        loadScannerStats: true,
+        loadScannerStatsSuccess: (stats: ScannerStatsResponseApi) => ({ stats }),
+        loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
         duplicateScanner: (id: string) => ({ id }),
@@ -220,6 +224,12 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             [] as UserBasicApi[],
             {
                 loadCreatorsSuccess: (_, { creators }) => creators,
+            },
+        ],
+        scannerStats: [
+            null as ScannerStatsResponseApi | null,
+            {
+                loadScannerStatsSuccess: (_, { stats }) => stats,
             },
         ],
         scannersLoading: [
@@ -334,14 +344,32 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        // Refetch after a delete or duplicate so the paginated page + count + creator dropdown stay accurate.
+        loadScannerStats: async () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                return
+            }
+            try {
+                const response = await visionScannersStatsRetrieve(String(teamId))
+                actions.loadScannerStatsSuccess(response)
+            } catch {
+                actions.loadScannerStatsFailure()
+            }
+        },
+
+        // Refetch after any mutation so the page + creator dropdown + team-wide stats stay accurate.
         deleteScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
+            actions.loadScannerStats()
         },
         duplicateScannerSuccess: () => {
             actions.loadScanners()
             actions.loadCreators()
+            actions.loadScannerStats()
+        },
+        toggleScannerEnabledDone: () => {
+            actions.loadScannerStats()
         },
 
         toggleScannerEnabled: async ({ id }) => {
@@ -450,5 +478,6 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadCreators()
+        actions.loadScannerStats()
     }),
 ])
