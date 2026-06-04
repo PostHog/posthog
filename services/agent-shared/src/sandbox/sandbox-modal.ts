@@ -1,24 +1,31 @@
 /**
  * Modal sandbox pool. One Modal Sandbox per AgentSession.
  *
- * Wire format mirrors the (now-deprecated) Docker sandbox host so the dispatch
- * script and `compiled.js` layout stay portable across backends:
+ * Wire format is identical to the Docker pool — both pull the same
+ * `posthog-agent-sandbox-host` image which bakes `/sandbox/dispatch.js`:
  *
- *   /sandbox/dispatch.js                  — per-invoke handler (inlined below).
+ *   /sandbox/dispatch.js                  — per-invoke handler (in the image).
  *   /workdir/tools/<id>/compiled.js       — author's bundled tool source.
  *   /workdir/tools/<id>/schema.json       — defineTool() input schema.
  *   /workdir/nonces.json                  — { secretName -> nonce } for ctx.secrets.ref().
  *   /workdir/req-<n>.json + res-<n>.json  — per-invoke request/response.
  *
+ * Per acquire we still write the per-session bits (tools + nonces) via
+ * `sandbox.filesystem.writeText` — those change per session. The dispatcher
+ * itself is in the image, so we no longer pay a write cost for it.
+ *
  * Modal credentials come from MODAL_TOKEN_ID + MODAL_TOKEN_SECRET in the
  * runner pod's environment. The chart pulls those from
- * agent-platform-shared-secrets. The base image is node:24-alpine — fast to
- * pull, ships with the same Node major the runner runs, no per-session image
- * build cost.
+ * agent-platform-shared-secrets.
  *
- * The Modal sandbox idles waiting for `exec()` calls; no foreground command is
- * set. `idleTimeoutMs` and `timeoutMs` are upper-bounded by the session's own
- * timeout so a wedged session doesn't leak compute.
+ * Region: `MODAL_REGION` env wins; otherwise derived from `CLOUD_DEPLOYMENT`
+ * (`US` → `us-east`, `EU` → `eu-west`, anything else → `us-east`). Matches
+ * `products/tasks/backend/services/modal_sandbox.py` so dev cross-tenant
+ * latency stays sane and EU data stays in EU.
+ *
+ * The Modal sandbox idles waiting for `exec()` calls — no foreground command
+ * is set. `timeoutMs` upper-bounds the session lifetime so a wedged session
+ * doesn't leak compute.
  */
 
 import type { App, Image, ModalClient as ModalClientType, Sandbox as ModalSandboxHandle } from 'modal'
@@ -28,7 +35,17 @@ import { AcquireOpts, InvokeRequest, InvokeResponse, Sandbox, SandboxPool } from
 
 const log = createLogger('sandbox-modal')
 
-/** Default base image. node:24-alpine matches the runner's Node major. */
+/**
+ * Default base image. `node:24-alpine` matches the runner's Node major and is
+ * always available. The chart in prod points at
+ * `ghcr.io/posthog/posthog-agent-sandbox-host@sha256:...` instead (digest
+ * pinned because Modal caches by reference indefinitely — see Tasks's
+ * modal_sandbox.py for the precedent). The canonical sandbox-host image
+ * bakes `/sandbox/dispatch.js`; we still write it per-acquire so the same
+ * code path works against a vanilla node image too. The write is idempotent
+ * + cheap (~tens of ms), so leaving it on is the simplest correctness
+ * posture until the chart-side rollout settles.
+ */
 const DEFAULT_IMAGE_TAG = 'node:24-alpine'
 
 /** Default Modal app name. Override via `appName` ctor opt. */
@@ -37,11 +54,32 @@ const DEFAULT_APP_NAME = 'posthog-agent-sandbox'
 /** Default upper bound on a Modal sandbox lifetime. Sessions cap this further. */
 const DEFAULT_SESSION_TIMEOUT_MS = 60 * 60 * 1000 // 1 hour
 
+/** Region pinning, mirrors products/tasks/backend/services/modal_sandbox.py. */
+const MODAL_REGION_BY_DEPLOYMENT: Record<string, string> = {
+    US: 'us-east',
+    EU: 'eu-west',
+}
+const DEFAULT_MODAL_REGION = 'us-east'
+
+function resolveRegion(env: NodeJS.ProcessEnv = process.env): string {
+    if (env.MODAL_REGION) {
+        return env.MODAL_REGION
+    }
+    const deployment = env.CLOUD_DEPLOYMENT
+    if (deployment && MODAL_REGION_BY_DEPLOYMENT[deployment]) {
+        return MODAL_REGION_BY_DEPLOYMENT[deployment]
+    }
+    return DEFAULT_MODAL_REGION
+}
+
 /**
- * Inlined dispatcher. Runs inside the Modal sandbox via `node /sandbox/dispatch.js`.
- * Mirrors services/agent-sandbox-host/src/dispatch.js (CommonJS, file-based wire
- * format). Kept inline so the agent-shared library is self-contained — no
- * runtime file resolution, no extra package to publish.
+ * Dispatcher source. Mirrors `services/agent-sandbox-host/src/dispatch.js`
+ * exactly — same wire format, same `ctx` shape — so the runner-side write
+ * works against either a vanilla base image or the canonical
+ * `posthog-agent-sandbox-host` image (which bakes the same script at
+ * `/sandbox/dispatch.js`). The write is idempotent; on the baked-image path
+ * we overwrite identical content. Long-term, this duplication collapses
+ * when both consumers read from a shared file via an esbuild text loader.
  */
 const DISPATCH_JS = `'use strict'
 
@@ -52,17 +90,9 @@ const { performance } = require('node:perf_hooks')
 const TOOLS_DIR = process.env.SANDBOX_TOOLS_DIR || '/workdir/tools'
 const NONCES_PATH = process.env.SANDBOX_NONCES_PATH || '/workdir/nonces.json'
 
-function readJson(p) {
-    return JSON.parse(fs.readFileSync(p, 'utf-8'))
-}
-
-function writeJson(p, value) {
-    fs.writeFileSync(p, JSON.stringify(value))
-}
-
-function loadNonces() {
-    try { return readJson(NONCES_PATH) } catch { return {} }
-}
+function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf-8')) }
+function writeJson(p, value) { fs.writeFileSync(p, JSON.stringify(value)) }
+function loadNonces() { try { return readJson(NONCES_PATH) } catch { return {} } }
 
 function loadTool(toolId) {
     const compiledPath = path.join(TOOLS_DIR, toolId, 'compiled.js')
@@ -77,9 +107,7 @@ function buildContext(nonces) {
     return {
         secrets: {
             ref: (name) => {
-                if (!(name in nonces)) {
-                    throw new Error('secret not provisioned: ' + name)
-                }
+                if (!(name in nonces)) throw new Error('secret not provisioned: ' + name)
                 return nonces[name]
             },
         },
@@ -100,9 +128,7 @@ async function withTimeout(promise, timeoutMs) {
                 timer = setTimeout(() => reject(Object.assign(new Error('tool timeout'), { code: 'timeout' })), timeoutMs)
             }),
         ])
-    } finally {
-        clearTimeout(timer)
-    }
+    } finally { clearTimeout(timer) }
 }
 
 async function dispatch(request) {
@@ -143,10 +169,30 @@ main().catch((err) => {
 interface ModalSandboxPoolOpts {
     /** Default `posthog-agent-sandbox`. Override per environment (e.g. `posthog-agent-sandbox-dev`). */
     appName?: string
-    /** Container registry image. Default `node:24-alpine`. */
+    /**
+     * Container registry image. Default
+     * `ghcr.io/posthog/posthog-agent-sandbox-host:master`. **In prod pin a
+     * `@sha256:...` digest** — Modal caches by reference, mutable tags
+     * stale-cache forever.
+     */
     image?: string
     /** Hard upper bound on a session's sandbox lifetime in ms. Default 1h. */
     defaultSessionTimeoutMs?: number
+    /**
+     * Modal region. Default: `MODAL_REGION` env → `CLOUD_DEPLOYMENT`-derived
+     * → `us-east`. Override per pool when testing cross-region.
+     */
+    region?: string
+    /**
+     * Default CPU cores when the per-acquire `limits.cpuCores` is unset.
+     * Default 0.25 — most custom tools are I/O-bound.
+     */
+    defaultCpuCores?: number
+    /**
+     * Default memory cap in MiB when the per-acquire `limits.memoryMb` is
+     * unset. Default 512.
+     */
+    defaultMemoryMiB?: number
 }
 
 interface ModalSandboxState {
@@ -269,21 +315,68 @@ export class ModalSandboxPool implements SandboxPool {
 
         const { client, app, image } = await this.getClient()
         const timeoutMs = opts.sessionTimeoutMs ?? this.opts.defaultSessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS
+        const region = this.opts.region ?? resolveRegion()
+        const cpu = opts.limits?.cpuCores ?? this.opts.defaultCpuCores ?? 0.25
+        const memoryMiB = opts.limits?.memoryMb ?? this.opts.defaultMemoryMiB ?? 512
+        // Human-readable name so the Modal dashboard is browsable. Modal
+        // requires names unique within an App; suffix with sessionId so two
+        // pools never collide. Truncated because Modal caps name length.
+        const sandboxName = `agent-${opts.sessionId.slice(0, 24)}`
 
-        const handle = await client.sandboxes.create(app, image, {
-            // No `command:` — Modal's default ("sleep indefinitely") is what
-            // we want. We drive work via exec().
-            timeoutMs,
-            tags: {
-                posthog_session_id: opts.sessionId,
-                posthog_team_id: String(opts.teamId),
-            },
-        })
+        let handle: ModalSandboxHandle
+        try {
+            handle = await client.sandboxes.create(app, image, {
+                // No `command:` — Modal's default ("sleep indefinitely") is
+                // what we want. We drive work via exec().
+                timeoutMs,
+                name: sandboxName,
+                regions: [region],
+                // CPU + memory: pass reservation and hard cap as the same
+                // value (no overcommit). Modal rejects memoryLimitMiB
+                // without memoryMiB and vice versa for cpuLimit/cpu, so
+                // both have to be set together when either is.
+                cpu,
+                cpuLimit: cpu,
+                memoryMiB,
+                memoryLimitMiB: memoryMiB,
+                tags: {
+                    posthog_session_id: opts.sessionId,
+                    posthog_team_id: String(opts.teamId),
+                },
+                // `verbose: true` plumbs Modal's provision-side logs into
+                // gRPC responses — the SDK surfaces them on failure via the
+                // error's `.message`, so a wedged image pull / scheduling
+                // failure shows up in our catch block below instead of as
+                // a silent timeout.
+                verbose: true,
+            })
+        } catch (err) {
+            // Provision-time failure. Log diagnostics and rethrow so the
+            // worker can mark the sandbox row failed with a useful message.
+            log.error(
+                {
+                    sessionId: opts.sessionId,
+                    err: (err as Error).message,
+                    stack: (err as Error).stack,
+                    image: this.opts.image ?? DEFAULT_IMAGE_TAG,
+                    region,
+                    cpu,
+                    memoryMiB,
+                    timeoutMs,
+                },
+                'modal.sandbox.provision_failed'
+            )
+            throw err
+        }
 
         try {
             await handle.filesystem.makeDirectory('/sandbox')
             await handle.filesystem.makeDirectory('/workdir')
             await handle.filesystem.makeDirectory('/workdir/tools')
+            // Dispatcher: idempotent write. The canonical
+            // posthog-agent-sandbox-host image bakes the same file; this
+            // write overwrites identical content. On a vanilla node base
+            // image (dev default) the write is what makes the sandbox work.
             await handle.filesystem.writeText(DISPATCH_JS, '/sandbox/dispatch.js')
             for (const tool of opts.tools) {
                 const dir = `/workdir/tools/${tool.id}`
@@ -302,6 +395,10 @@ export class ModalSandboxPool implements SandboxPool {
             {
                 sessionId: opts.sessionId,
                 sandboxId: handle.sandboxId,
+                name: sandboxName,
+                region,
+                cpu,
+                memoryMiB,
                 tools: opts.tools.length,
                 timeoutMs,
             },

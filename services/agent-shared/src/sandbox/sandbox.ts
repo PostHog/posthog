@@ -40,6 +40,12 @@ export interface SandboxToolLoad {
 export interface SandboxLimits {
     wallMs: number
     memoryMb: number
+    /**
+     * Optional CPU reservation in (fractional) cores. Honored by Modal as a
+     * soft reservation; Docker uses `--cpus`. InProcess ignores. When unset
+     * each backend falls back to its own default (Modal ≈ 0.25 cores).
+     */
+    cpuCores?: number
 }
 
 export interface InvokeRequest {

@@ -12,16 +12,26 @@ import { ModalSandboxPool } from './sandbox-modal'
 
 export type SandboxBackend = 'docker' | 'modal'
 
+/**
+ * Image override resolution. Backend-specific env wins; otherwise the shared
+ * `SANDBOX_HOST_IMAGE` (canonical `posthog-agent-sandbox-host` reference, pinned
+ * by SHA in prod) applies to both. Unset → backend default.
+ */
+function resolveImage(backendSpecific: string | undefined): string | undefined {
+    return backendSpecific ?? process.env.SANDBOX_HOST_IMAGE
+}
+
 export function selectSandboxPool(backend: SandboxBackend = pickFromEnv()): SandboxPool {
     switch (backend) {
         case 'docker':
-            return new DockerSandboxPool({ image: process.env.SANDBOX_DOCKER_IMAGE })
+            return new DockerSandboxPool({ image: resolveImage(process.env.SANDBOX_DOCKER_IMAGE) })
         case 'modal':
             // MODAL_TOKEN_ID + MODAL_TOKEN_SECRET are read directly from env
             // by the Modal SDK — no constructor opts needed.
             return new ModalSandboxPool({
                 appName: process.env.MODAL_APP_NAME,
-                image: process.env.SANDBOX_MODAL_IMAGE,
+                image: resolveImage(process.env.SANDBOX_MODAL_IMAGE),
+                region: process.env.MODAL_REGION,
             })
     }
 }

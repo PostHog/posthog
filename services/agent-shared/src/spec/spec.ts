@@ -264,6 +264,20 @@ export const SpecLimitsSchema = z.object({
         .int()
         .positive()
         .default(15 * 60),
+    /**
+     * Hard memory cap for the per-session sandbox in MiB. Modal honors as
+     * `memoryLimitMiB`; Docker as `--memory`. Default 512 MiB — same shape as
+     * the in-process default. Bump for tools that load large model artifacts
+     * or process big payloads.
+     */
+    max_memory_mb: z.number().int().positive().default(512),
+    /**
+     * CPU reservation for the per-session sandbox in (fractional) cores.
+     * Modal honors as `cpu`; Docker as `--cpus`. Default 0.25 — most custom
+     * tools are I/O-bound (HTTP, file reads). Bump for compute-bound tools
+     * (image processing, parsing, anything CPU-pinned).
+     */
+    max_cpu_cores: z.number().positive().default(0.25),
 })
 
 /**
@@ -397,7 +411,13 @@ export const AgentSpecSchema = z.object({
     skills: z.array(SkillRefSchema).default([]),
     integrations: z.array(z.string()).default([]),
     secrets: z.array(z.string()).default([]),
-    limits: SpecLimitsSchema.default({ max_turns: 50, max_tool_calls: 200, max_wall_seconds: 15 * 60 }),
+    limits: SpecLimitsSchema.default({
+        max_turns: 50,
+        max_tool_calls: 200,
+        max_wall_seconds: 15 * 60,
+        max_memory_mb: 512,
+        max_cpu_cores: 0.25,
+    }),
     entrypoint: z.string().default('agent.md'),
     auth: AuthConfigSchema.default({ modes: [{ type: 'public' }] }),
     reasoning: ReasoningEffortSchema.optional(),

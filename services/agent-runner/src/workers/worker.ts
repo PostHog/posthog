@@ -301,6 +301,14 @@ export class Worker {
                         tools: loads,
                         nonces,
                         sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
+                        limits: {
+                            // wallMs duplicates sessionTimeoutMs above; pools that
+                            // honor SandboxLimits.wallMs (e.g. InProcess for tests)
+                            // also see it here.
+                            wallMs: rev.spec.limits.max_wall_seconds * 1000,
+                            memoryMb: rev.spec.limits.max_memory_mb,
+                            cpuCores: rev.spec.limits.max_cpu_cores,
+                        },
                     })
                     if (sandboxInstanceId) {
                         // Real provider id (Modal sandbox id, Docker container hash,

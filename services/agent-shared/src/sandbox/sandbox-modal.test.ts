@@ -157,8 +157,7 @@ maybeDescribe('ModalSandboxPool: real e2e', () => {
                 await pool.release(sessionId)
             }
         }
-    }, // warm image, but a cold image pull can push past 30s. // 2-minute test timeout: Modal sandbox boot is typically 5-15s on a
-    120_000)
+    }, 120_000) // warm image, but a cold image pull can push past 30s. // 2-minute test timeout: Modal sandbox boot is typically 5-15s on a
 
     it('reaper terminates a Modal sandbox out-of-process by providerSandboxId', async () => {
         const pool = new ModalSandboxPool({
@@ -191,9 +190,19 @@ maybeDescribe('ModalSandboxPool: real e2e', () => {
         const second = await terminator.terminate('modal', providerSandboxId)
         expect(second.ok, `second terminate: ${JSON.stringify(second)}`).toBe(true)
 
-        // The sandbox should report dead now — poll() returns an exit
-        // code when terminated.
-        expect(await sandbox.isAlive()).toBe(false)
+        // The sandbox should report dead after terminate. Modal's poll()
+        // is eventually consistent — it takes 1-2s for the state update
+        // to propagate. Poll for a few seconds to avoid flakes.
+        const deadline = Date.now() + 10_000
+        let alive = true
+        while (Date.now() < deadline) {
+            alive = await sandbox.isAlive()
+            if (!alive) {
+                break
+            }
+            await new Promise((r) => setTimeout(r, 200))
+        }
+        expect(alive).toBe(false)
     }, 120_000)
 })
 

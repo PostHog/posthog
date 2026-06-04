@@ -91,9 +91,16 @@ jobs:
                       dockerfile: services/agent-console/Dockerfile
                       context: .
                       depot_project: 5gr3vfft7g
-                    # posthog-agent-sandbox-host is intentionally excluded for
-                    # now — prod sandbox topology (Modal vs in-cluster) is not
-                    # decided yet; revisit once that's settled.
+                    # Canonical sandbox-host image used by BOTH the Modal pool
+                    # (production) and the Docker pool (local dev). Bakes
+                    # /sandbox/dispatch.js + /sandbox/host.js into a thin
+                    # node:24-alpine. The chart wires the resulting reference
+                    # into both pools via SANDBOX_HOST_IMAGE. Reuses the
+                    # posthog-agents depot project for cache locality.
+                    - image: posthog-agent-sandbox-host
+                      dockerfile: services/agent-sandbox-host/Dockerfile
+                      context: services/agent-sandbox-host
+                      depot_project: 6gmww256q5
 
         steps:
             - name: Check out
@@ -196,6 +203,16 @@ jobs:
                           .github/scripts/smoke-test-agent-console.sh "$IMAGE_REF"
                           echo "::endgroup::"
                           ;;
+                      posthog-agent-sandbox-host)
+                          # End-to-end smoke against the built image: lay out
+                          # a fake tool + nonces, exec the dispatcher, assert
+                          # the response shape for happy / bad-action /
+                          # missing-tool. Catches "image works in isolation"
+                          # regressions before either sandbox pool sees them.
+                          echo "::group::Smoke test agent-sandbox-host"
+                          services/agent-sandbox-host/scripts/smoke-test-image.sh "$IMAGE_REF"
+                          echo "::endgroup::"
+                          ;;
                       *)
                           echo "No smoke test configured for ${IMAGE_NAME}; skipping."
                           ;;
@@ -227,13 +244,15 @@ jobs:
         # state.yaml by image name and the runtime apps (agent-ingress /
         # agent-runner / agent-janitor) all read from the same `posthog-agents`
         # row — same shape as ai-gateway / ai-gateway-billing on the chart side.
-        # agent-sandbox-host is intentionally excluded; see the build matrix.
+        # agent-sandbox-host gets its own row that the agent-runner chart
+        # consumes as the SANDBOX_HOST_IMAGE env var.
         strategy:
             fail-fast: false
             matrix:
                 image:
                     - posthog-agents
                     - posthog-agent-console
+                    - posthog-agent-sandbox-host
 
         steps:
             - name: Check out
