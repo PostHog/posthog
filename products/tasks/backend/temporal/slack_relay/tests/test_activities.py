@@ -132,3 +132,25 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
 
     def test_empty_string_returns_unchanged(self):
         assert _markdown_to_slack_mrkdwn("") == ""
+
+    def test_table_renders_as_fenced_code_block_with_aligned_columns(self):
+        md = "| License | Key Points |\n|---|---|\n| MIT | Permissive |\n| GPL | Copyleft |"
+        # Widest cells per column: 'License' (7) and 'Key Points' (10). Two-space gutter.
+        # Trailing whitespace is rstripped, so the GPL row's narrower last cell isn't padded.
+        expected = "```\nLicense  Key Points\nMIT      Permissive\nGPL      Copyleft\n```"
+        assert _markdown_to_slack_mrkdwn(md) == expected
+
+    def test_table_strips_inline_markdown_from_cells(self):
+        md = "| Name | Note |\n|---|---|\n| **MIT** | [docs](https://x.com) |"
+        result = _markdown_to_slack_mrkdwn(md)
+        # Bold markers and link syntax don't render inside a code block, so we strip them.
+        assert "**" not in result
+        assert "MIT" in result
+        assert "docs" in result
+        assert "https://x.com" not in result
+
+    def test_pipe_rows_without_separator_are_not_treated_as_a_table(self):
+        # No separator row → likely incidental pipes, not a table. Leave alone.
+        md = "| a | b |\n| c | d |"
+        result = _markdown_to_slack_mrkdwn(md)
+        assert "```" not in result
