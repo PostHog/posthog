@@ -156,6 +156,7 @@ impl PersonLookup for PostgresStorage {
             &[
                 ("operation".to_string(), "get_persons_by_ids".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -230,6 +231,7 @@ impl PersonLookup for PostgresStorage {
             &[
                 ("operation".to_string(), "get_persons_by_uuids".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -378,6 +380,7 @@ impl PersonLookup for PostgresStorage {
                     "get_persons_by_distinct_ids_in_team".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             found.len() as f64,
         );
@@ -569,6 +572,7 @@ impl PersonLookup for PostgresStorage {
                     "get_persons_by_distinct_ids_cross_team".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -651,6 +655,7 @@ async fn delete_persons_by_ids_chunk(
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), current_method_name().to_string()),
         ],
         did_result.rows_affected() as f64,
     );
@@ -676,6 +681,7 @@ async fn delete_persons_by_ids_chunk(
             ),
             ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), client.to_string()),
+            ("method".to_string(), current_method_name().to_string()),
         ],
         result.rows_affected() as f64,
     );

@@ -106,6 +106,7 @@ impl FeatureFlagStorage for PostgresStorage {
                     "get_hash_key_override_context".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );

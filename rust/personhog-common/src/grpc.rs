@@ -315,10 +315,9 @@ where
     }
 
     fn call(&mut self, request: Request<ReqBody>) -> Self::Future {
-        let method = extract_grpc_method(request.uri().path());
+        let method: Arc<str> = Arc::from(extract_grpc_method(request.uri().path()));
         let client = extract_client_name(&request);
         let caller_tag = extract_caller_tag(&request);
-        let method_arc: Arc<str> = Arc::from(method.as_str());
         gauge!("grpc_server_requests_in_flight", "method" => method.clone(), "client" => client.clone())
             .increment(1.0);
 
@@ -327,14 +326,14 @@ where
         // sees CLIENT_NAME, CALLER_TAG, and METHOD_NAME.
         let inner = CLIENT_NAME.sync_scope(client.clone(), || {
             CALLER_TAG.sync_scope(caller_tag.clone(), || {
-                METHOD_NAME.sync_scope(method_arc.clone(), || self.inner.call(request))
+                METHOD_NAME.sync_scope(method.clone(), || self.inner.call(request))
             })
         });
 
         GrpcMetricsFuture {
             inner: CLIENT_NAME.scope(
                 client.clone(),
-                CALLER_TAG.scope(caller_tag, METHOD_NAME.scope(method_arc, inner)),
+                CALLER_TAG.scope(caller_tag, METHOD_NAME.scope(method.clone(), inner)),
             ),
             method,
             client,
@@ -355,7 +354,7 @@ where
 pub struct GrpcMetricsFuture<F> {
     #[pin]
     inner: TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, TaskLocalFuture<Arc<str>, F>>>,
-    method: String,
+    method: Arc<str>,
     client: Arc<str>,
     start: Instant,
     emit_processing_time_header: bool,

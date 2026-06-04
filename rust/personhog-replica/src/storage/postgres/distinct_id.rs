@@ -77,6 +77,7 @@ impl DistinctIdLookup for PostgresStorage {
                     "get_distinct_ids_for_person".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -178,6 +179,7 @@ impl DistinctIdLookup for PostgresStorage {
                     "get_distinct_ids_for_persons".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );

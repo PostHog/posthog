@@ -60,6 +60,7 @@ impl CohortStorage for PostgresStorage {
                     "check_cohort_membership".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             member_ids.len() as f64,
         );
@@ -191,6 +192,7 @@ impl CohortStorage for PostgresStorage {
                     "delete_cohort_members_bulk".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );
@@ -239,6 +241,7 @@ impl CohortStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "insert_cohort_members".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );
@@ -295,6 +298,7 @@ impl CohortStorage for PostgresStorage {
                     "list_cohort_member_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );

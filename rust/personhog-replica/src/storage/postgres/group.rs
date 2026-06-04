@@ -109,6 +109,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "get_groups".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -171,6 +172,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "get_groups_batch".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             groups.len() as f64,
         );
@@ -234,6 +236,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_team_id".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -293,6 +296,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_team_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -346,6 +350,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_project_id".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -403,6 +408,7 @@ impl GroupStorage for PostgresStorage {
                     "get_group_type_mappings_by_project_ids".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -450,6 +456,7 @@ impl GroupStorage for PostgresStorage {
                     "count_group_type_mappings".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -590,6 +597,7 @@ impl GroupStorage for PostgresStorage {
             &[
                 ("operation".to_string(), "list_groups".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             groups.len() as f64,
         );
@@ -756,6 +764,7 @@ impl GroupStorage for PostgresStorage {
                 ),
                 ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );
@@ -931,6 +940,7 @@ impl GroupStorage for PostgresStorage {
                 ),
                 ("pool".to_string(), "bulk_primary".to_string()),
                 ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
             ],
             result.rows_affected() as f64,
         );
