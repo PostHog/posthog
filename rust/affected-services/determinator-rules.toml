@@ -33,9 +33,29 @@ mark-changed = "all"
 globs = ["../proto/**"]
 mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
 
+# Hypercache contract: Python serializer changes may break Rust deserialization.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = [
+    "../posthog/api/feature_flag.py",
+    "../posthog/models/feature_flag/flags_cache.py",
+    "../posthog/models/feature_flag/feature_flag.py",
+]
+mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
+
+# Django migrations and test environment setup — needed for Rust integration tests.
+[[path-rule]]
+globs = [
+    "../posthog/migrations/**",
+    "../ee/migrations/**",
+    "../posthog/management/commands/setup_test_environment.py",
+    "../docker-compose.dev.yml",
+]
+mark-changed = "all"
+
 # Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
 # etc.) — these are not crate source and should not trigger rust rebuilds.
-# Must come AFTER the specific ../proto and ../.github/rust-images.yml rules.
+# Must come AFTER all specific rules for files outside the workspace.
 [[path-rule]]
 globs = ["../**"]
 mark-changed = []
