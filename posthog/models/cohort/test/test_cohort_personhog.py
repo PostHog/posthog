@@ -15,30 +15,29 @@ from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 
 @parameterized_class(("personhog",), [(False,), (True,)])
-class TestGetUuidsForDistinctIdsBatch(PersonhogTestMixin, BaseTest):
-    def _create_static_cohort(self) -> Cohort:
-        return Cohort.objects.create(team=self.team, groups=[], is_static=True, name="test cohort")
+class TestGetPersonUuidsByDistinctIds(PersonhogTestMixin, BaseTest):
+    def _get_uuids(self, distinct_ids: list[str]) -> list[str]:
+        from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
+        return get_person_uuids_by_distinct_ids(self.team.pk, distinct_ids)
 
     def test_returns_uuids_for_matching_distinct_ids(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["d1", "d2"])
         p2 = self._seed_person(team=self.team, distinct_ids=["d3"])
 
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch(["d1", "d3"], team_id=self.team.pk)
+        result = self._get_uuids(["d1", "d3"])
 
         assert set(result) == {str(p1.uuid), str(p2.uuid)}
         self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
 
     def test_returns_empty_list_for_empty_input(self):
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch([], team_id=self.team.pk)
+        result = self._get_uuids([])
 
         assert result == []
         self._assert_personhog_not_called("get_persons_by_distinct_ids_in_team")
 
     def test_returns_empty_list_when_no_persons_match(self):
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch(["nonexistent"], team_id=self.team.pk)
+        result = self._get_uuids(["nonexistent"])
 
         assert result == []
 
@@ -46,48 +45,70 @@ class TestGetUuidsForDistinctIdsBatch(PersonhogTestMixin, BaseTest):
         other_team = self.organization.teams.create(name="Other Team")
         self._seed_person(team=other_team, distinct_ids=["d1"])
 
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch(["d1"], team_id=self.team.pk)
+        result = self._get_uuids(["d1"])
 
         assert result == []
 
     def test_deduplicates_persons_with_multiple_distinct_ids(self):
         p = self._seed_person(team=self.team, distinct_ids=["d1", "d2", "d3"])
 
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch(["d1", "d2", "d3"], team_id=self.team.pk)
+        result = self._get_uuids(["d1", "d2", "d3"])
 
         assert result == [str(p.uuid)]
 
     def test_handles_mix_of_found_and_missing_distinct_ids(self):
         p = self._seed_person(team=self.team, distinct_ids=["exists"])
 
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch(["exists", "missing1", "missing2"], team_id=self.team.pk)
+        result = self._get_uuids(["exists", "missing1", "missing2"])
 
         assert result == [str(p.uuid)]
 
     def test_multiple_persons_each_with_single_distinct_id(self):
         persons = [self._seed_person(team=self.team, distinct_ids=[f"d{i}"]) for i in range(5)]
 
-        cohort = self._create_static_cohort()
-        result = cohort._get_uuids_for_distinct_ids_batch([f"d{i}" for i in range(5)], team_id=self.team.pk)
+        result = self._get_uuids([f"d{i}" for i in range(5)])
 
         assert set(result) == {str(p.uuid) for p in persons}
 
 
-class TestGetUuidsForDistinctIdsBatchFallback(BaseTest):
+class TestGetPersonUuidsByDistinctIdsFallback(BaseTest):
     """Routing test: verifies ORM fallback when the personhog gate is disabled."""
 
     def test_falls_back_to_orm_when_personhog_disabled(self):
+        from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
         p = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="test cohort")
 
         with fake_personhog_client(gate_enabled=False) as fake:
-            result = cohort._get_uuids_for_distinct_ids_batch(["d1"], team_id=self.team.pk)
+            result = get_person_uuids_by_distinct_ids(self.team.pk, ["d1"])
 
         assert result == [str(p.uuid)]
         fake.assert_not_called("get_persons_by_distinct_ids_in_team")
+
+
+class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
+    """Verify the personhog path sends a UUID-only field mask."""
+
+    def test_sends_uuid_only_field_mask(self):
+        from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
+        p = Person.objects.create(team=self.team, distinct_ids=["d1"])
+
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_person(
+                team_id=self.team.pk,
+                person_id=p.pk,
+                uuid=str(p.uuid),
+                distinct_ids=["d1"],
+            )
+            get_person_uuids_by_distinct_ids(self.team.pk, ["d1"])
+
+        calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
+        mask = list(calls[0].request.read_options.field_mask)
+        assert "uuid" in mask
+        assert "id" in mask
+        assert "team_id" in mask
+        assert "properties" not in mask
 
 
 @parameterized_class(("personhog",), [(False,), (True,)])

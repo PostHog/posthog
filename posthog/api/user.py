@@ -60,6 +60,7 @@ from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -767,7 +768,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=(
@@ -800,9 +801,10 @@ class UserViewSet(
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
-        PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
     ]
     permission_classes = [
         IsAuthenticated,

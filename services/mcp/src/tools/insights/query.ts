@@ -61,6 +61,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     }
 
     const path = `/insights/${insightResult.data.short_id}`
+    const fullUrl = `${context.api.getProjectBaseUrl(projectId)}${path}`
     const queryInfo = analyzeQuery(insightResult.data.query)
 
     const useFormatted = output_format === 'optimized' && queryResult.data.formatted_results != null
@@ -71,7 +72,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
             {
                 query: queryInfo.innerQuery || insightResult.data.query,
                 insight: {
-                    url: path,
+                    url: fullUrl,
                     ...insightResult.data,
                 },
                 results: queryResult.data.formatted_results,
@@ -87,7 +88,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
             {
                 query: queryInfo.innerQuery || insightResult.data.query,
                 insight: {
-                    url: path,
+                    url: fullUrl,
                     ...insightResult.data,
                 },
                 results: queryResult.data.results,
@@ -102,7 +103,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         {
             query: insightResult.data.query,
             insight: {
-                url: path,
+                url: fullUrl,
                 ...insightResult.data,
             },
             results: {

@@ -1,11 +1,16 @@
 import { useActions, useValues } from 'kea'
+import type { ComponentType } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { WarningHog } from 'lib/components/hedgehogs'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import {
+    ProductIntroduction,
+    type ProductIntroductionProps,
+} from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { cn } from 'lib/utils/css-classes'
 import androidImage from 'scenes/onboarding/sdks/logos/android.svg'
 import flutterImage from 'scenes/onboarding/sdks/logos/flutter.svg'
 import javascriptImage from 'scenes/onboarding/sdks/logos/javascript_web.svg'
@@ -19,7 +24,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
-const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
+export const ERROR_TRACKING_FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     {
         name: 'JavaScript',
         image: javascriptImage,
@@ -56,13 +61,29 @@ export const ErrorTrackingSetupPrompt = ({
             <Spinner />
         </div>
     ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
-        <IngestionStatusCheck className={className} />
+        <ErrorTrackingIngestionPrompt className={className} />
     ) : (
         <>{children}</>
     )
 }
 
-const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Element | null => {
+export type ErrorTrackingIngestionPromptProps = {
+    className?: string
+    /** Passed to `IntroductionComponent` (e.g. `WidgetCardProductIntroduction--stacked`). */
+    introductionClassName?: string
+    /** When true, passed through to `WidgetCardProductIntroduction` for always-vertical layout. */
+    introductionStacked?: boolean
+    IntroductionComponent?: ComponentType<ProductIntroductionProps>
+    actionElementClassName?: string
+}
+
+export function ErrorTrackingIngestionPrompt({
+    className,
+    introductionClassName,
+    introductionStacked,
+    IntroductionComponent = ProductIntroduction,
+    actionElementClassName = 'flex flex-col items-start gap-4',
+}: ErrorTrackingIngestionPromptProps): JSX.Element {
     const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -77,18 +98,19 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
     }
 
     return (
-        <ProductIntroduction
+        <IntroductionComponent
             productName="Error tracking"
             thingName="issue"
             titleOverride="You haven't captured any exceptions"
             description="PostHog captures exceptions from any of our SDKs. JavaScript apps can flip on exception autocapture; other platforms wire it up in code – the docs have per-SDK instructions."
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
-            className={className}
+            className={cn(introductionClassName, className)}
+            {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
             mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
-                <div className="flex flex-col items-start gap-4">
+                <div className={actionElementClassName}>
                     <p className="text-sm text-secondary m-0">
                         Read our{' '}
                         <Link to="https://posthog.com/docs/error-tracking" onClick={onDocsLinkClick}>
@@ -97,7 +119,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                         , or pick a framework to get started:
                     </p>
                     <div className="flex flex-wrap gap-2">
-                        {FRAMEWORK_LINKS.map(({ name, image, docsLink }) => (
+                        {ERROR_TRACKING_FRAMEWORK_LINKS.map(({ name, image, docsLink }) => (
                             <LemonButton
                                 key={name}
                                 type="secondary"

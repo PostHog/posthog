@@ -276,6 +276,7 @@ class OrganizationSerializer(
             "customer_id",
             "enforce_2fa",
             "members_can_invite",
+            "members_can_create_projects",
             "members_can_use_personal_api_keys",
             "allow_publicly_shared_resources",
             "member_count",
@@ -390,6 +391,16 @@ class OrganizationSerializer(
                 )
         return value
 
+    def validate_members_can_create_projects(self, value: bool) -> bool:
+        # Gated behind the organization invite settings entitlement for now (will move to a dedicated feature later).
+        if self.instance and self.instance.members_can_create_projects != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure who can create projects.",
+                    code="payment_required",
+                )
+        return value
+
     def validate_enforce_2fa(self, value: bool | None) -> bool | None:
         if self.instance and self.instance.enforce_2fa != value:
             if not self.instance.is_feature_available(AvailableFeature.TWO_FACTOR_ENFORCEMENT):
@@ -441,7 +452,7 @@ class OrganizationSerializer(
         return super().to_representation(instance)
 
 
-@extend_schema(tags=["platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = OrganizationSerializer

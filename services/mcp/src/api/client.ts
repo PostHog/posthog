@@ -89,6 +89,13 @@ export interface QueryEndpointResponse {
 export interface ApiConfig {
     apiToken: string
     baseUrl: string
+    /**
+     * Public-facing base URL used when building links the user clicks (e.g. `_posthogUrl`).
+     * Defaults to `baseUrl` when unset or empty. Distinct from `baseUrl` so deployments can route
+     * API traffic over a cluster-internal hostname while still rendering public links
+     * (e.g. https://us.posthog.com) in tool responses.
+     */
+    publicBaseUrl?: string | undefined
     clientUserAgent?: string | undefined
     mcpClientName?: string | undefined
     mcpClientVersion?: string | undefined
@@ -104,18 +111,22 @@ type Endpoint = Record<string, any>
 export class ApiClient {
     public config: ApiConfig
     public baseUrl: string
+    public publicBaseUrl: string
 
     constructor(config: ApiConfig) {
         this.config = config
         this.baseUrl = config.baseUrl
+        // `||` (not `??`) so an empty string — e.g. the Workers vitest config sets
+        // env vars to '' — falls back to baseUrl instead of yielding relative links.
+        this.publicBaseUrl = config.publicBaseUrl || config.baseUrl
     }
 
     getProjectBaseUrl(projectId: string): string {
         if (projectId === '@current') {
-            return this.baseUrl
+            return this.publicBaseUrl
         }
 
-        return `${this.baseUrl}/project/${projectId}`
+        return `${this.publicBaseUrl}/project/${projectId}`
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
@@ -1193,6 +1204,9 @@ export class ApiClient {
                 runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
 
             lifecycleActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
+                runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
         }
     }
 

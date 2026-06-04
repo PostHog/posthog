@@ -17,8 +17,8 @@ import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-re
 import { logger } from '../../utils/logger'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
-import { GroupTypeManager } from '../../worker/ingestion/group-type-manager'
-import { PersonRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '../../worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '../../worker/ingestion/readonly-group-type-manager'
 import { OverflowOutput } from '../common/outputs'
 import { CookielessManager } from '../cookieless/cookieless-manager'
 import { BatchPipelineUnwrapper } from '../pipelines/batch-pipeline-unwrapper'
@@ -36,6 +36,7 @@ import {
     runErrorTrackingPipeline,
 } from './error-tracking-pipeline'
 import { KeyedRateLimiterStepOptions } from './keyed-rate-limiter-step'
+import { PerIssueGuardedRateLimiterService } from './per-issue-guarded-rate-limiter.service'
 import { preCymbalGroupKey } from './pre-cymbal-group-key'
 
 /**
@@ -68,6 +69,9 @@ export interface ErrorTrackingConsumerOptions {
     rateLimiterRedisPort: number
     rateLimiterRedisTls: boolean
     rateLimiterTtlSeconds: number
+    perIssueGuardThreshold: number
+    perIssueGuardWindowTtlSeconds: number
+    perIssueGuardCooldownTtlSeconds: number
     /** Fallback Redis URL when no dedicated host is configured. Required when rateLimiterEnabled. */
     fallbackRedisUrl?: string
     /** Pool sizing for the dedicated rate limiter Redis pool. */
@@ -96,10 +100,10 @@ export interface ErrorTrackingConsumerDeps {
     /** Only required when the rate limiter is enabled; constructed alongside it. */
     errorTrackingSettingsManager?: ErrorTrackingSettingsManager
     hogTransformer: ErrorTrackingHogTransformer
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
-    personRepository: PersonRepository
+    personRepository: PersonReadRepository
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)
@@ -133,6 +137,7 @@ export class ErrorTrackingConsumer {
     protected overflowLaneTTLRefreshService?: OverflowRedirectService
     protected topHog?: TopHog
     protected rateLimiter?: KeyedRateLimiterService
+    protected perIssueGuardedRateLimiter?: PerIssueGuardedRateLimiterService
     protected rateLimiterAppMetricsAggregator?: AppMetricsAggregator
     protected rateLimiterRedis?: RedisV2
 
@@ -211,6 +216,16 @@ export class ErrorTrackingConsumer {
                 },
                 this.rateLimiterRedis
             )
+            this.perIssueGuardedRateLimiter = new PerIssueGuardedRateLimiterService(
+                {
+                    name: 'error-tracking-rate-limiter',
+                    threshold: config.perIssueGuardThreshold,
+                    windowTtlSeconds: config.perIssueGuardWindowTtlSeconds,
+                    cooldownTtlSeconds: config.perIssueGuardCooldownTtlSeconds,
+                    bucketTtlSeconds: config.rateLimiterTtlSeconds,
+                },
+                this.rateLimiterRedis
+            )
             this.rateLimiterAppMetricsAggregator = new AppMetricsAggregator(deps.outputs)
         }
     }
@@ -280,30 +295,30 @@ export class ErrorTrackingConsumer {
         logger.info('✅', `${this.name} - pipeline initialized`)
     }
 
-    /**
-     * Construct the pre-Cymbal rate limiter spec list. Add new specs here as
-     * we extend rate limiting beyond the team-global limit (per-hash, per-event-name etc).
-     */
+    /** Per-issue spec uses the guarded service; team-global spec uses the base service. */
     private buildPreCymbalRateLimiterSpecs(): KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] {
-        if (!this.rateLimiter) {
+        if (!this.rateLimiter || !this.perIssueGuardedRateLimiter) {
             return []
         }
 
-        const specs: KeyedRateLimiterStepOptions<PreCymbalRateLimiterInput>[] = [
+        return [
             // Per-issue cap runs before the team-global cap so a runaway issue
             // gets dropped against its own bucket instead of draining the
             // team-global budget on its way out.
             {
-                rateLimiter: this.rateLimiter,
+                rateLimiter: this.perIssueGuardedRateLimiter,
                 appMetricsAggregator: this.rateLimiterAppMetricsAggregator,
                 appSource: 'exceptions',
                 getKey: (input) => {
                     if (input.errorTrackingSettings?.perIssueRateLimitValue == null) {
                         return null
                     }
-                    const sig = preCymbalGroupKey(input.event)
-                    return sig ? `${input.team.id}:exceptions:issue:${sig}` : null
+                    const scopeKey = preCymbalGroupKey(input.event)
+                    return scopeKey ? `${input.team.id}:exceptions:issue:${scopeKey}` : null
                 },
+                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
+                // single app_metrics2 row per team rather than one row per issue.
+                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:per_issue',
@@ -346,8 +361,6 @@ export class ErrorTrackingConsumer {
                 },
             },
         ]
-
-        return specs
     }
 
     public async stop(): Promise<void> {
