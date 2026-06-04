@@ -15,6 +15,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
+from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
 from products.experiments.backend.models.experiment import (
@@ -26,23 +27,53 @@ from products.experiments.backend.temporal.recalc_fingerprint import compute_rec
 from products.experiments.backend.temporal.recalculation_logic import _find_metric_dict
 
 
-def _serialize_job(recalc: ExperimentMetricsRecalculation, *, is_existing: bool) -> dict:
-    return {
+def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict] | None = None) -> tuple[int, int]:
+    """Counters are not stored on the row (PR1 contract): they're derived on read from result rows + errors.
+
+    `completed_metrics` = ExperimentMetricResult rows with status=COMPLETED for this run's fingerprints.
+    `failed_metrics`    = ExperimentMetricResult rows with status=FAILED + metric_errors keys that never made
+                          it to a result row (discovery-step failures).
+
+    Accepts an optional pre-computed `results` list to avoid recomputing fingerprints on the GET path where
+    the same list is also surfaced to the client.
+    """
+    rows = results if results is not None else get_run_results(recalc)
+    completed = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.COMPLETED)
+    failed_in_rows = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.FAILED)
+    uuids_with_row = {r["metric_uuid"] for r in rows}
+    discovery_only_failures = sum(1 for uuid in (recalc.metric_errors or {}) if uuid not in uuids_with_row)
+    return completed, failed_in_rows + discovery_only_failures
+
+
+def build_job_payload(
+    recalc: ExperimentMetricsRecalculation,
+    *,
+    is_existing: bool | None = None,
+    results: list[dict] | None = None,
+) -> dict:
+    """Shape a recalc row + derived counters as a dict the serializer can re-serialize.
+
+    Returns model-native values (datetimes, ints, dicts) — DRF handles the wire format. The POST path passes
+    `is_existing` to signal whether the workflow needs starting; the GET paths pass `results` so the same row
+    list backs both the derived counters and the response's `results` field (no duplicate fingerprint work).
+    """
+    completed_metrics, failed_metrics = _derive_counters(recalc, results=results)
+    payload: dict = {
         "id": str(recalc.id),
         "experiment_id": recalc.experiment_id,
         "status": recalc.status,
         "total_metrics": recalc.total_metrics,
-        "completed_metrics": recalc.completed_metrics,
-        "failed_metrics": recalc.failed_metrics,
-        # Output key is metric_errors (serializer field renamed to avoid shadowing Serializer.errors); the model
-        # attribute is still recalc.errors.
-        "metric_errors": recalc.errors,
+        "completed_metrics": completed_metrics,
+        "failed_metrics": failed_metrics,
+        "metric_errors": recalc.metric_errors,
         "trigger": recalc.trigger,
-        "created_at": recalc.created_at.isoformat(),
-        "started_at": recalc.started_at.isoformat() if recalc.started_at else None,
-        "completed_at": recalc.completed_at.isoformat() if recalc.completed_at else None,
-        "is_existing": is_existing,
+        "created_at": recalc.created_at,
+        "started_at": recalc.started_at,
+        "completed_at": recalc.completed_at,
     }
+    if is_existing is not None:
+        payload["is_existing"] = is_existing
+    return payload
 
 
 def request_recalculation(experiment: Experiment, user: User, trigger: str = "manual") -> dict:
@@ -55,24 +86,25 @@ def request_recalculation(experiment: Experiment, user: User, trigger: str = "ma
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
 
-    existing = ExperimentMetricsRecalculation.objects.filter(
-        experiment=experiment,
-        status__in=[
-            ExperimentMetricsRecalculation.Status.PENDING,
-            ExperimentMetricsRecalculation.Status.IN_PROGRESS,
-        ],
-    ).first()
-    if existing:
-        return _serialize_job(existing, is_existing=True)
+    with team_scope(experiment.team_id, canonical=True):
+        existing = ExperimentMetricsRecalculation.objects.filter(
+            experiment=experiment,
+            status__in=[
+                ExperimentMetricsRecalculation.Status.PENDING,
+                ExperimentMetricsRecalculation.Status.IN_PROGRESS,
+            ],
+        ).first()
+        if existing:
+            return build_job_payload(existing, is_existing=True)
 
-    recalc = ExperimentMetricsRecalculation.objects.create(
-        team=experiment.team,
-        experiment=experiment,
-        trigger=trigger,
-        status=ExperimentMetricsRecalculation.Status.PENDING,
-        created_by=user,
-    )
-    return _serialize_job(recalc, is_existing=False)
+        recalc = ExperimentMetricsRecalculation.objects.create(
+            team=experiment.team,
+            experiment=experiment,
+            trigger=trigger,
+            status=ExperimentMetricsRecalculation.Status.PENDING,
+            created_by=user,
+        )
+        return build_job_payload(recalc, is_existing=False)
 
 
 def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalculation | None:
@@ -81,31 +113,32 @@ def get_latest_recalculation(experiment: Experiment) -> ExperimentMetricsRecalcu
     Powers ``GET /metrics_recalculation/latest``: the frontend renders cached results from the last good run.
     Runs that are pending/in_progress/failed are NOT returned — the client tracks those separately by id.
     """
-    return (
-        ExperimentMetricsRecalculation.objects.filter(
-            team=experiment.team,
-            experiment=experiment,
-            status=ExperimentMetricsRecalculation.Status.COMPLETED,
+    with team_scope(experiment.team_id, canonical=True):
+        return (
+            ExperimentMetricsRecalculation.objects.filter(
+                team=experiment.team,
+                experiment=experiment,
+                status=ExperimentMetricsRecalculation.Status.COMPLETED,
+            )
+            .order_by("-created_at")
+            .first()
         )
-        .order_by("-created_at")
-        .first()
-    )
 
 
 def get_recalculation_by_id(experiment: Experiment, recalculation_id: str) -> ExperimentMetricsRecalculation | None:
     """Return the recalculation row for ``recalculation_id`` if it belongs to ``experiment``, else None.
 
     Enforces experiment scoping so the id-based GET cannot leak rows from a different experiment in the same team.
-    Team scoping is already implicit via the viewset's team filter on ``experiment``. Returns None for a malformed
-    UUID rather than raising, so the calling view can answer with a clean 404.
+    Returns None for a malformed UUID rather than raising, so the calling view can answer with a clean 404.
     """
     try:
         uuid_value = UUID(recalculation_id)
     except (ValueError, TypeError):
         return None
-    return ExperimentMetricsRecalculation.objects.filter(
-        team=experiment.team, experiment=experiment, id=uuid_value
-    ).first()
+    with team_scope(experiment.team_id, canonical=True):
+        return ExperimentMetricsRecalculation.objects.filter(
+            team=experiment.team, experiment=experiment, id=uuid_value
+        ).first()
 
 
 def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetricsRecalculation) -> dict[str, str]:

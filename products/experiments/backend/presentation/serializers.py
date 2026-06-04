@@ -645,6 +645,17 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         help_text="Current status of the recalculation job",
     )
     total_metrics = serializers.IntegerField(read_only=True, help_text="Total number of metrics to recalculate")
+    completed_metrics = serializers.IntegerField(
+        read_only=True,
+        help_text="Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+    )
+    failed_metrics = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures "
+            "that never made it to a result row"
+        ),
+    )
     # Named metric_errors (not errors) to avoid shadowing DRF's reserved Serializer.errors property.
     metric_errors = serializers.JSONField(read_only=True, help_text="Map of metric_uuid to error details")
     trigger = serializers.ChoiceField(

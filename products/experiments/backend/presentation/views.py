@@ -57,6 +57,7 @@ from products.experiments.backend.presentation.serializers import (
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
+    build_job_payload,
     get_latest_recalculation,
     get_recalculation_by_id,
     get_run_results,
@@ -891,23 +892,12 @@ class EnterpriseExperimentsViewSet(
 
 
 def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
-    """Shape an ExperimentMetricsRecalculation row + its per-run results for the GET responses."""
-    payload = {
-        "id": str(recalc.id),
-        "experiment_id": recalc.experiment_id,
-        "status": recalc.status,
-        "total_metrics": recalc.total_metrics,
-        "completed_metrics": recalc.completed_metrics,
-        "failed_metrics": recalc.failed_metrics,
-        "metric_errors": recalc.errors,
-        "trigger": recalc.trigger,
-        "created_at": recalc.created_at,
-        "started_at": recalc.started_at,
-        "completed_at": recalc.completed_at,
-        # The serializer's nested results field declares this in the OpenAPI schema so the generated TS type
-        # includes `results`. The POST endpoint omits it (workflow has just started; no results yet).
-        "results": get_run_results(recalc),
-    }
-    data = ExperimentMetricsRecalculationSerializer(payload).data
-    data["results"] = MetricRecalculationResultSerializer(get_run_results(recalc), many=True).data
-    return data
+    """Shape an ExperimentMetricsRecalculation row + its per-run results for the GET responses.
+
+    Computes the per-run results once and threads them into both the derived counters and the response
+    `results` field — recomputing per-metric fingerprints once per request is enough.
+    """
+    results = get_run_results(recalc)
+    payload = build_job_payload(recalc, results=results)
+    payload["results"] = results
+    return ExperimentMetricsRecalculationSerializer(payload).data
