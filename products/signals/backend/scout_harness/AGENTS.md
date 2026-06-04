@@ -10,9 +10,9 @@ output for one report. The harness here is the inverse: it runs on a schedule, d
 _what_ to investigate from scratch, and pushes new signals into the same pipeline rather
 than acting on existing ones.
 
-In production it is driven by `SignalsScoutCoordinatorWorkflow` (hourly tick → fan out
-per-(team, skill) child workflows). Locally it is exercised via the `run_signals_scout`
-management command (see `../management/AGENTS.md`).
+In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick every
+`COORDINATOR_INTERVAL_MINUTES = 15` → fan out per-(team, skill) child workflows). Locally
+it is exercised via the `run_signals_scout` management command (see `../management/AGENTS.md`).
 
 ## What lives here
 
