@@ -65,6 +65,42 @@ describe('linkedin template', () => {
         expect(fetchResponse.error).toBeUndefined()
     })
 
+    it('falls back to USD for unsupported currency codes', async () => {
+        const response = await tester.invoke(
+            buildInputs({
+                currencyCode: 'XYZ',
+                conversionValue: '80',
+                event: {
+                    value_usd: '100',
+                },
+            })
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"conversion":"urn:lla:llaPartnerConversion:conversion-rule-12345","conversionHappenedAt":1737464596570,"user":{"userIds":[{"idType":"SHA256_EMAIL","idValue":"3edfaed7454eedb3c72bad566901af8bfbed1181816dde6db91dfff0f0cffa98"},{"idType":"LINKEDIN_FIRST_PARTY_ADS_TRACKING_UUID","idValue":"abc"}],"userInfo":{"lastName":"AI","firstName":"Max","companyName":"PostHog","countryCode":"US"}},"eventId":"event-12345","conversionValue":{"currencyCode":"USD","amount":"100"}}",
+              "headers": {
+                "Authorization": "Bearer oauth-1234",
+                "Content-Type": "application/json",
+                "LinkedIn-Version": "202508",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://api.linkedin.com/rest/conversionEvents",
+            }
+        `)
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
     it('does not contain empty objects', async () => {
         const response = await tester.invoke(
             buildInputs({

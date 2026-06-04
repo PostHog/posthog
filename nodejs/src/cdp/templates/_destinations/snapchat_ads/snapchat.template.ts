@@ -101,6 +101,23 @@ if (empty(inputs.pixelId) or empty(inputs.oauth.access_token)) {
     throw Error('Pixel ID and access token are required')
 }
 
+// Subset of ISO 4217 codes from Snap Conversions API custom_data.currency docs
+let SNAPCHAT_CURRENCIES := [
+    'USD','AED','AUD','BGN','BRL','CAD','CHF','CLP','CNY','COP','CZK','DKK','EGP','EUR','GBP','GIP',
+    'HKD','HRK','HUF','IDR','ILS','INR','JPY','KRW','KWD','KZT','LBP','MXN','MYR','NGN','NOK','NZD',
+    'PEN','PHP','PKR','PLN','QAR','RON','RUB','SAR','SEK','SGD','THB','TRY','TWD','TZS','UAH','VND',
+    'ZAR','ALL','BHD','DZD','GHS','IQD','ISK','JOD','KES','MAD','OMR','XOF'
+]
+
+let txCurrency := upper(inputs.customData.currency ?? 'USD')
+let txValue := inputs.customData.value
+
+if (not has(SNAPCHAT_CURRENCIES, txCurrency)) {
+    txCurrency := 'USD'
+    // Add an input variable that maps to inputs.customData for this conversion value
+    txValue := inputs.customData.value_usd
+}
+
 let body := {
     'data': [
         {
@@ -122,7 +139,13 @@ for (let key, value in inputs.userData) {
 
 for (let key, value in inputs.customData) {
     if (not empty(value)) {
-        body.data.1.custom_data[key] := value
+        if (key == 'currency') {
+            body.data.1.custom_data[key] := txCurrency
+        } else if (key == 'value') {
+            body.data.1.custom_data[key] := txValue
+        } else if (key != 'value_usd') {
+            body.data.1.custom_data[key] := value
+        }
     }
 }
 

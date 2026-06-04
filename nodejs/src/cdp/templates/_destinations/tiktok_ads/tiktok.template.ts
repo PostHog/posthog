@@ -79,6 +79,23 @@ if (empty(inputs.pixelId) or empty(inputs.accessToken)) {
     throw Error('Pixel ID and access token are required')
 }
 
+// Supported currency enum from TikTok Events API (ads.tiktok.com help article on parameters)
+let TIKTOK_CURRENCIES := [
+    'AED','ARS','AUD','BDT','BHD','BIF','BOB','BRL','CAD','CHF','CLP','CNY','COP','CRC','CZK','DKK','DZD',
+    'EGP','EUR','GBP','GTQ','HKD','HNL','HUF','IDR','ILS','INR','ISK','JPY','KES','KHR','KRW','KWD','KZT',
+    'MAD','MOP','MXN','MYR','NGN','NIO','NOK','NZD','OMR','PEN','PHP','PKR','PLN','PYG','QAR','RON','RUB',
+    'SAR','SEK','SGD','THB','TRY','TWD','UAH','USD','VES','VND','ZAR'
+]
+
+let txCurrency := upper(inputs.propertyProperties.currency ?? 'USD')
+let txValue := inputs.propertyProperties.value
+
+if (not has(TIKTOK_CURRENCIES, txCurrency)) {
+    txCurrency := 'USD'
+    // Add an input variable that maps to inputs.propertyProperties for this conversion value
+    txValue := inputs.propertyProperties.value_usd
+}
+
 let body := {
     'event_source': 'web',
     'event_source_id': inputs.pixelId,
@@ -106,7 +123,13 @@ for (let key, value in inputs.userProperties) {
 
 for (let key, value in inputs.propertyProperties) {
     if (not empty(value)) {
-        body.data.1.properties[key] := value
+        if (key == 'currency') {
+            body.data.1.properties[key] := txCurrency
+        } else if (key == 'value') {
+            body.data.1.properties[key] := txValue
+        } else if (key != 'value_usd') {
+            body.data.1.properties[key] := value
+        }
     }
 }
 

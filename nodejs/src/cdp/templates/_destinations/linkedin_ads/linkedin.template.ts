@@ -11,6 +11,22 @@ export const template: HogFunctionTemplate = {
     category: ['Advertisement'],
     code_language: 'hog',
     code: `
+// LinkedIn ad account billing currencies (see learn.microsoft.com linkedin/shared/references/v2/ads/supported-currencies)
+let LINKEDIN_AD_ACCOUNT_CURRENCIES := [
+    'AED','ARS','AUD','BRL','CAD','CHF','CLP','CNY','COP','DKK','EGP','EUR','GBP','HKD','IDR','INR',
+    'JPY','KRW','MXN','MYR','NOK','NZD','PEN','PLN','SAR','SEK','SGD','THB','TRY','USD','ZAR'
+]
+
+let txCurrency := upper(inputs.currencyCode ?? 'USD')
+let txAmount := inputs.conversionValue
+
+if (not empty(inputs.currencyCode) and not has(LINKEDIN_AD_ACCOUNT_CURRENCIES, txCurrency)) {
+    txCurrency := 'USD'
+
+    // Add an input variable that maps to event.properties for this conversion value
+    txAmount := inputs.event.value_usd
+}
+
 let body := {
     'conversion': f'urn:lla:llaPartnerConversion:{inputs.conversionRuleId}',
     'conversionHappenedAt': inputs.conversionDateTime,
@@ -24,10 +40,10 @@ if (not empty(inputs.conversionValue) or not empty(inputs.currencyCode)) {
     body.conversionValue := {}
 }
 if (not empty(inputs.currencyCode)) {
-    body.conversionValue.currencyCode := inputs.currencyCode
+    body.conversionValue.currencyCode := txCurrency
 }
 if (not empty(inputs.conversionValue)) {
-    body.conversionValue.amount := inputs.conversionValue
+    body.conversionValue.amount := txAmount
 }
 
 let userInfo := {}

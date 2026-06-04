@@ -60,7 +60,49 @@ describe('snapchat template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"data":[{"event_name":"VIEW_CONTENT","action_source":"WEB","event_time":1735689600,"event_source_url":"https://posthog.com/merch?product=tactical-black-t-shirt","user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":30,"currency":"usd","content_ids":"43431-18","content_category":"merch","contents":[{"item_price":30,"id":"43431-18","quantity":1,"delivery_category":"normal"}],"num_items":1,"event_id":"event-id"}}]}",
+              "body": "{"data":[{"event_name":"VIEW_CONTENT","action_source":"WEB","event_time":1735689600,"event_source_url":"https://posthog.com/merch?product=tactical-black-t-shirt","user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":30,"currency":"USD","content_ids":"43431-18","content_category":"merch","contents":[{"item_price":30,"id":"43431-18","quantity":1,"delivery_category":"normal"}],"num_items":1,"event_id":"event-id"}}]}",
+              "headers": {
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://tr.snapchat.com/v3/pixel-id/events?access_token=access-token",
+            }
+        `)
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it('falls back to USD for unsupported currency codes', async () => {
+        const response = await tester.invokeMapping(
+            'Product Viewed',
+            {
+                oauth: {
+                    access_token: 'access-token',
+                },
+                pixelId: 'pixel-id',
+            },
+            createAdDestinationPayload(),
+            {
+                customData: {
+                    currency: 'XYZ',
+                    value: 80,
+                    value_usd: 100,
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"data":[{"event_name":"VIEW_CONTENT","action_source":"WEB","event_time":1735689600,"event_source_url":null,"user_data":{"em":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","ph":"c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab782862f268646","sc_click_id":"snapchat-id","fn":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","ln":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10"},"custom_data":{"value":100,"currency":"USD"}}]}",
               "headers": {
                 "Content-Type": "application/json",
               },

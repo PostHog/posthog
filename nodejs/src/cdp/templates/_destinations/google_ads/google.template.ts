@@ -83,6 +83,30 @@ if (empty(inputs.gclid)) {
     return
 }
 
+// Subset of ISO 4217 codes supported via Google Ads CurrencyConstant
+let GOOGLE_ADS_CURRENCIES := [
+    'AED','AFN','ALL','AMD','ANG','AOA','ARS','AUD','AWG','AZN','BAM','BBD','BDT','BGN','BHD',
+    'BIF','BMD','BND','BOB','BRL','BSD','BTN','BWP','BZD','CAD','CDF','CHF','CLP','CNY','COP',
+    'CRC','CVE','CZK','DJF','DKK','DOP','DZD','EGP','ERN','ETB','EUR','FJD','GBP','GEL','GHS',
+    'GMD','GNF','GTQ','GYD','HKD','HNL','HRK','HTG','HUF','IDR','ILS','INR','IQD','IRR','ISK',
+    'JMD','JOD','JPY','KES','KGS','KHR','KMF','KRW','KWD','KYD','KZT','LAK','LBP','LKR','LRD',
+    'LSL','LYD','MAD','MDL','MGA','MKD','MMK','MNT','MOP','MRU','MUR','MVR','MWK','MXN','MYR',
+    'MZN','NAD','NGN','NIO','NOK','NPR','NZD','OMR','PAB','PEN','PGK','PHP','PKR','PLN','PYG',
+    'QAR','RON','RSD','RUB','RWF','SAR','SBD','SCR','SDG','SEK','SGD','SHP','SLL','SOS','SRD',
+    'SSP','STN','SYP','SZL','THB','TJS','TND','TOP','TRY','TTD','TWD','TZS','UAH','UGX','UYU',
+    'UZS','VES','VND','VUV','WST','XAF','XCD','XOF','XPF','YER','ZAR','ZMW','ZWL','USD'
+]
+
+let txCurrency := upper(inputs.currencyCode ?? 'USD')
+let txConversionValue := inputs.conversionValue
+
+if (not has(GOOGLE_ADS_CURRENCIES, txCurrency)) {
+    txCurrency := 'USD'
+
+    // Add an input variable that maps to event.properties for this conversion value
+    txConversionValue := inputs.event.value_usd
+}
+
 let body := {
     'conversions': [
         {
@@ -94,11 +118,11 @@ let body := {
     'partialFailure': true
 }
 
-if (not empty(inputs.conversionValue)) {
-    body.conversions[1].conversion_value := inputs.conversionValue
+if (not empty(txConversionValue)) {
+    body.conversions[1].conversion_value := txConversionValue
 }
 if (not empty(inputs.currencyCode)) {
-    body.conversions[1].currency_code := inputs.currencyCode
+    body.conversions[1].currency_code := txCurrency
 }
 if (not empty(inputs.orderId)) {
     body.conversions[1].order_id := inputs.orderId

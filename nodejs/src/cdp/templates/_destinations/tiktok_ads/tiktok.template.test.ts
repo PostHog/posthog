@@ -33,7 +33,7 @@ describe('tiktok template', () => {
                         price: 30,
                         quantity: 1,
                         coupon: 'BLACKFRIDAY',
-                        currency: 'usd',
+                        currency: 'USD',
                         position: 3,
                         value: 30,
                         url: 'https://posthog.com/merch?product=tactical-black-t-shirt',
@@ -50,7 +50,48 @@ describe('tiktok template', () => {
         expect(response.finished).toEqual(false)
         expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
             {
-              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"ViewContent","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_ids":["43431-18"],"contents":[{"price":30,"content_id":"43431-18","content_category":"merch","content_name":"Tactical black t-shirt","brand":"PostHog"}],"content_type":"product","currency":"usd","value":30,"num_items":1},"page":{"url":"https://posthog.com/merch?product=tactical-black-t-shirt"}}]}",
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"ViewContent","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"content_ids":["43431-18"],"contents":[{"price":30,"content_id":"43431-18","content_category":"merch","content_name":"Tactical black t-shirt","brand":"PostHog"}],"content_type":"product","currency":"USD","value":30,"num_items":1},"page":{"url":"https://posthog.com/merch?product=tactical-black-t-shirt"}}]}",
+              "headers": {
+                "Access-Token": "access-token",
+                "Content-Type": "application/json",
+              },
+              "method": "POST",
+              "type": "fetch",
+              "url": "https://business-api.tiktok.com/open_api/v1.3/event/track/",
+            }
+        `)
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { status: 'OK' },
+        })
+
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.error).toBeUndefined()
+    })
+
+    it('falls back to USD for unsupported currency codes', async () => {
+        const response = await tester.invokeMapping(
+            'Product Viewed',
+            {
+                accessToken: 'access-token',
+                pixelId: 'pixel-id',
+            },
+            createAdDestinationPayload(),
+            {
+                propertyProperties: {
+                    currency: 'XYZ',
+                    value: 80,
+                    value_usd: 100,
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toEqual(false)
+        expect(response.invocation.queueParameters).toMatchInlineSnapshot(`
+            {
+              "body": "{"event_source":"web","event_source_id":"pixel-id","data":[{"event":"ViewContent","event_time":1735689600,"event_id":"event-id","user":{"email":"3d4eee8538a4bbbe2ef7912f90ee494c1280f74dd7fd81232e58deb9cb9997e3","first_name":"9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6","last_name":"32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566","phone":"422ce82c6fc1724ac878042f7d055653ab5e983d186e616826a72d4384b68af8","external_id":"b5400f5d931b20e0e905cc4a009a428ce3427b3110e3a2a1cfc7e6349beabc10","ttclid":"tiktok-id"},"properties":{"value":100,"currency":"USD"},"page":{}}]}",
               "headers": {
                 "Access-Token": "access-token",
                 "Content-Type": "application/json",

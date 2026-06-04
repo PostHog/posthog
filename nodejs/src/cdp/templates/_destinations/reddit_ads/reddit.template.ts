@@ -58,10 +58,34 @@ let RDT_ALLOWED_EVENT_NAMES := [
     'Custom',
 ];
 
+// ISO 4217 allowlist for currency fallback (Reddit CAPI requires ISO 4217)
+let REDDIT_CURRENCIES := [
+    'AED','ARS','AUD','BDT','BHD','BIF','BOB','BRL','CAD','CHF','CLP','CNY','COP','CRC','CZK','DKK','DZD',
+    'EGP','EUR','GBP','GTQ','HKD','HNL','HUF','IDR','ILS','INR','ISK','JPY','KES','KHR','KRW','KWD','KZT',
+    'MAD','MOP','MXN','MYR','NGN','NIO','NOK','NZD','OMR','PEN','PHP','PKR','PLN','PYG','QAR','RON','RUB',
+    'SAR','SEK','SGD','THB','TRY','TWD','UAH','USD','VES','VND','ZAR'
+]
+
+let txCurrency := upper(inputs.eventProperties.currency ?? 'USD')
+let txValue := inputs.eventProperties.value
+
+if (not has(REDDIT_CURRENCIES, txCurrency)) {
+    txCurrency := 'USD'
+    
+    // Add an input variable that maps to inputs.eventProperties for this conversion value
+    txValue := inputs.eventProperties.value_usd
+}
+
 let eventProperties := {};
 for (let key, value in inputs.eventProperties) {
     if (not empty(value)) {
-        eventProperties[key] := value;
+        if (key == 'currency') {
+            eventProperties[key] := txCurrency
+        } else if (key == 'value') {
+            eventProperties[key] := txValue
+        } else if (key != 'value_usd') {
+            eventProperties[key] := value
+        }
     }
 }
 
