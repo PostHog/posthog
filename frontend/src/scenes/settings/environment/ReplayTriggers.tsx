@@ -23,6 +23,41 @@ function toDisplaySampleRate(rate: string | null | undefined): number {
     return typeof rate === 'string' ? Math.floor(parseFloat(rate) * 100) : 100
 }
 
+function AnyWith100SamplingWarning({
+    currentTeam,
+    isV2TriggersEnabled,
+}: {
+    currentTeam: TeamType | TeamPublicType | null | undefined
+    isV2TriggersEnabled: boolean
+}): JSX.Element | null {
+    const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    const matchType = currentTeam?.session_recording_trigger_match_type_config || 'all'
+    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const hasOtherCondition =
+        (urlTriggerConfig?.length ?? 0) > 0 ||
+        (eventTriggerConfig?.length ?? 0) > 0 ||
+        !!currentTeam?.session_recording_linked_flag
+
+    if (matchType !== 'any' || sampleRate !== 100 || !hasOtherCondition) {
+        return null
+    }
+
+    return (
+        <LemonBanner type="error">
+            <strong>100% sampling rate with "any" matching records every session.</strong> To fix this, either lower the
+            sample rate or switch to "all" matching.
+            {isV2TriggersEnabled && (
+                <>
+                    {' '}
+                    Consider using <strong>trigger groups</strong> above for more precise control over when sessions are
+                    recorded.
+                </>
+            )}
+        </LemonBanner>
+    )
+}
+
 function TriggerPanelHeader({
     title,
     status,
@@ -394,6 +429,8 @@ export function ReplayTriggers(): JSX.Element {
 
                     <IngestionControls.MatchTypeSelect />
 
+                    <AnyWith100SamplingWarning currentTeam={currentTeam} isV2TriggersEnabled={!!isV2TriggersEnabled} />
+
                     <div>
                         <h3 className="text-sm font-semibold mb-2">Recording conditions</h3>
                         <LemonCollapse
@@ -443,7 +480,13 @@ export function ReplayTriggers(): JSX.Element {
                             panels={[
                                 {
                                     key: 'sampling',
-                                    header: <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} />,
+                                    header: (
+                                        <TriggerPanelHeader
+                                            title="Sampling"
+                                            status={statuses.samplingStatus}
+                                            showMatchTag
+                                        />
+                                    ),
                                     content: <Sampling />,
                                 },
                                 {
