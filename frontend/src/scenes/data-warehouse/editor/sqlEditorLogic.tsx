@@ -1786,14 +1786,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Keep this tab's cached insight in sync when it's renamed/updated from another surface
                 // (saved insights list, insight view, dashboard). Without this the tab holds a stale insight
                 // and a later save from here clobbers the newer name/description with that stale state.
+                // updateInsight re-broadcasts this on a local save, so it also fires on our own saves — that's
+                // an idempotent no-op (same insight; updateTab does not re-emit the broadcast, so no loop).
                 const activeTab = values.activeTab
                 if (activeTab?.insight && activeTab.insight.short_id === item.short_id) {
                     actions.updateTab({
                         ...activeTab,
                         name: item.name ?? activeTab.name,
                         description: item.description ?? activeTab.description,
-                        // Merge over the existing insight so tab-only fields (e.g. query) survive
-                        // a partial payload from a list response.
+                        // Merge rather than replace so any tab-local insight fields are preserved.
                         insight: { ...activeTab.insight, ...item },
                     })
                 }
