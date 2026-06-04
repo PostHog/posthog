@@ -1044,6 +1044,21 @@ def export_events_to_duckling_s3(
 
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
+    # Event rows are wide (large properties/person_properties JSON), and the Parquet
+    # writer buffers a full row group per encoding thread before flushing — this is where
+    # the export OOMs (ParquetBlockOutputFormat in the stack trace), not the scan. Peak
+    # memory is ~ row_group_size * bytes_per_row * threads, so the 1M-row default builds
+    # multi-GB groups that blow the limit under parallel encoding. 250k rows lands each
+    # group in Parquet's recommended byte range (~hundreds of MB) while keeping read
+    # efficiency near the default; the raised ceiling is headroom on top.
+    export_settings = settings.copy()
+    export_settings.update(
+        {
+            "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB, matching the full-persons export
+            "output_format_parquet_row_group_size": 250_000,  # down from the 1M default
+        }
+    )
+
     # ClickHouse uses its EC2 instance role - no credentials needed
     # The duckling bucket policy allows the ClickHouse EC2 role
     export_sql = f"""
@@ -1073,7 +1088,7 @@ def export_events_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, settings, info)
+        _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported events for {info}")
         logger.info("duckling_export_success", team_id=team_id, date=date_str)
         return s3_path
