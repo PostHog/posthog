@@ -12,4 +12,20 @@ export DEBUG=0
 export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
 pnpm --filter=@posthog/frontend... install
+
+# Vite pre-bundles dependencies into frontend/node_modules/.vite, keyed on the lockfile.
+# When you switch to a branch whose deps differ, the leftover cache makes Vite re-optimize
+# lazily on the first browser request, which can blank the page with a 504 "Outdated
+# Optimize Dep" until a hard reload. Drop the cache only when the lockfile (or vite config)
+# actually changed, so Vite re-optimizes once, cleanly, at startup instead of mid-load.
+# No-op on the common restart where deps are unchanged.
+vite_cache="frontend/node_modules/.vite"
+deps_hash_file="frontend/.cache/vite-deps.hash"
+deps_hash="$(git hash-object pnpm-lock.yaml frontend/vite.config.mts 2>/dev/null | tr -d '\n')"
+if [ -n "$deps_hash" ] && [ -d "$vite_cache" ] && [ "$(cat "$deps_hash_file" 2>/dev/null)" != "$deps_hash" ]; then
+    echo "[start-frontend] deps changed since last start — clearing stale Vite optimize cache"
+    rm -rf "$vite_cache"
+fi
+[ -n "$deps_hash" ] && mkdir -p "$(dirname "$deps_hash_file")" && printf '%s' "$deps_hash" >"$deps_hash_file"
+
 bin/turbo --filter=@posthog/frontend start-vite
