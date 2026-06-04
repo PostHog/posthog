@@ -41,7 +41,7 @@ Registry parity table (all layers that must stay aligned): [CONTRIBUTING.md § F
 
 When changing config shape on tiles already stored in Postgres:
 
-1. **Backward-compatible (preferred)** — in `validate_*_config`, merge defaults, accept legacy keys, rename in-place, strip unknown keys. Existing tiles keep working without a data migration. Example: persisted **`widgetFilters`** with legacy read of **`quickFilters`** (`widget_filters.py`, `normalizeWidgetConfigKeys()` on FE).
+1. **Backward-compatible (preferred)** — in `validate_*_config`, merge defaults, accept legacy keys, rename in-place, strip unknown keys. Existing tiles keep working without a data migration.
 2. **Breaking** — treat as a new `widget_type` (or accept that old tiles may fail validation until users re-save from the edit modal).
 3. **Touch every layer** for non-breaking adds/removals:
    - BE: `validate_*_config`, `config_schema_hints` in `widget_catalog.py`

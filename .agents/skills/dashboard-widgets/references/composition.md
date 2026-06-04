@@ -216,7 +216,7 @@ When the FE catalog lacks a `widget_type` (partial deploy, unrebased stack):
 
 References: `EditErrorTrackingWidgetModal.tsx`, `EditSessionReplayWidgetModal.tsx`. Omit sections you do not need — gate with booleans like `showTileDetails` / product-specific setup flags.
 
-**`widgetFilters`** on config (BE still reads legacy `quickFilters`). Edit modal = test accounts + limit + sort. Tile bar = date + type pickers + property filters.
+**`widgetFilters`** on config (persisted property filter selections). Edit modal = test accounts + limit + sort. Tile bar = date + type pickers + property filters.
 
 | Layer               | Path                                                                                                |
 | ------------------- | --------------------------------------------------------------------------------------------------- |
