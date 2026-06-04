@@ -566,6 +566,19 @@ class TestResolver(BaseTest):
 
         assert printed == "WITH cte AS (SELECT event FROM events) SELECT event FROM cte LIMIT 50000"
 
+    def test_resolve_column_cte_used_as_table_raises(self):
+        # `WITH (subquery) AS name` is a scalar/column CTE, not a table CTE. Using it in a FROM
+        # clause would generate invalid ClickHouse, so we should raise a clear error here instead.
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(
+                self._select("WITH (SELECT event FROM events) AS cte SELECT event FROM cte"),
+                self.context,
+                dialect="clickhouse",
+            )
+        message = str(ctx.exception)
+        self.assertIn("Cannot use column CTE cte as a table", message)
+        self.assertIn("WITH cte AS (<subquery>)", message)
+
     @parameterized.expand(
         [
             ("SELECT event FROM (SELECT event FROM events) AS e", ["events"]),

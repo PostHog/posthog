@@ -1029,6 +1029,14 @@ class Resolver(CloningVisitor):
 
             cte_table = self.ctes.get(".".join(table_name_chain))
             if cte_table:
+                if cte_table.cte_type == "column":
+                    # Scalar CTE: WITH (SELECT ...) AS x or WITH expr AS x - can't be used as a table.
+                    # ClickHouse would otherwise reject the generated scalar subquery with an opaque
+                    # "Unknown table expression identifier" error, so surface a clear message here.
+                    raise QueryError(
+                        f"Cannot use column CTE {cte_table.name} as a table. "
+                        f"Use table CTE syntax instead: WITH {cte_table.name} AS (<subquery>)."
+                    )
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
                 cte_table_type = ast.CTETableType(name=cte_table.name, select_query_type=cte_table.expr.type)
