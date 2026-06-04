@@ -12,17 +12,17 @@ from django.test.client import Client as HttpClient
 from asgiref.sync import async_to_sync
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import (
-    assert_is_daily_schedule,
-    assert_is_weekly_schedule,
-    describe_schedule,
-)
-from posthog.api.test.batch_exports.fixtures import create_organization
-from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
 from products.batch_exports.backend.models.batch_export import BatchExport
+from products.batch_exports.backend.tests.api.conftest import (
+    assert_is_daily_schedule,
+    assert_is_weekly_schedule,
+    describe_schedule,
+)
+from products.batch_exports.backend.tests.api.fixtures import create_organization
+from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
     pytest.mark.django_db,

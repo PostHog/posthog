@@ -11,8 +11,12 @@ from asgiref.sync import async_to_sync
 from rest_framework import status
 from temporalio.service import RPCError
 
-from posthog.api.test.batch_exports.fixtures import create_organization
-from posthog.api.test.batch_exports.operations import (
+from posthog.api.test.test_team import create_team
+from posthog.api.test.test_user import create_user
+from posthog.temporal.common.schedule import describe_schedule
+
+from products.batch_exports.backend.tests.api.fixtures import create_organization
+from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
     create_batch_export_ok,
     delete_batch_export,
@@ -20,9 +24,6 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export,
     wait_for_workflow_executions,
 )
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
-from posthog.temporal.common.schedule import describe_schedule
 
 pytestmark = [
     pytest.mark.django_db,

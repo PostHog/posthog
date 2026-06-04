@@ -5,9 +5,10 @@ from django.test.client import Client as HttpClient
 from rest_framework import status
 from temporalio.client import ScheduleActionStartWorkflow
 
-from posthog.api.test.batch_exports.conftest import describe_schedule
-from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.models.integration import Integration
+
+from products.batch_exports.backend.tests.api.conftest import describe_schedule
+from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
     pytest.mark.django_db,

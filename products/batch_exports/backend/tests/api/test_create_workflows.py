@@ -5,8 +5,8 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import assert_is_daily_schedule, describe_schedule
-from posthog.api.test.batch_exports.operations import create_batch_export
+from products.batch_exports.backend.tests.api.conftest import assert_is_daily_schedule, describe_schedule
+from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
     pytest.mark.django_db,

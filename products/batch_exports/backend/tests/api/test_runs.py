@@ -9,8 +9,8 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
-from posthog.api.test.batch_exports.operations import (
+from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
+from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
     cancel_batch_export_run_ok,
     create_batch_export_ok,

@@ -12,7 +12,6 @@ import aioboto3
 import pytest_asyncio
 from rest_framework import status
 
-from posthog.api.test.batch_exports.operations import create_batch_export_ok
 from posthog.models import Integration
 
 from products.batch_exports.backend.api.destination_tests.base import DestinationTestStepResult, Status
@@ -23,6 +22,7 @@ from products.batch_exports.backend.api.destination_tests.databricks import (
 )
 from products.batch_exports.backend.api.destination_tests.snowflake import SnowflakeEstablishConnectionTestStep
 from products.batch_exports.backend.models.batch_export import BatchExportDestination
+from products.batch_exports.backend.tests.api.operations import create_batch_export_ok
 
 pytestmark = [
     pytest.mark.django_db,

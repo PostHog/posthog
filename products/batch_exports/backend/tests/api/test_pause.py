@@ -7,7 +7,10 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.batch_exports.operations import (
+from posthog.temporal.common.schedule import describe_schedule
+
+from products.batch_exports.backend.service import batch_export_delete_schedule
+from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
     pause_batch_export,
@@ -15,9 +18,6 @@ from posthog.api.test.batch_exports.operations import (
     unpause_batch_export,
     unpause_batch_export_ok,
 )
-from posthog.temporal.common.schedule import describe_schedule
-
-from products.batch_exports.backend.service import batch_export_delete_schedule
 
 pytestmark = [
     pytest.mark.django_db,
@@ -94,9 +94,10 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
         "interval": "hour",
     }
 
-    from posthog.api.test.batch_exports.fixtures import create_organization
     from posthog.api.test.test_team import create_team
     from posthog.api.test.test_user import create_user
+
+    from products.batch_exports.backend.tests.api.fixtures import create_organization
 
     other_organization = create_organization("Other Test Org")
     create_team(other_organization)

@@ -3,14 +3,15 @@ from unittest import mock
 
 from django.test.client import Client as HttpClient
 
-from posthog.api.test.batch_exports.fixtures import create_organization
-from posthog.api.test.batch_exports.operations import (
+from posthog.api.test.test_team import create_team
+from posthog.api.test.test_user import create_user
+
+from products.batch_exports.backend.tests.api.fixtures import create_organization
+from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     delete_batch_export_ok,
     list_batch_exports_ok,
 )
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
 
 pytestmark = [
     pytest.mark.django_db,
