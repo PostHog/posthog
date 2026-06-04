@@ -260,17 +260,29 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
+    // `bulk` is a fresh object every render, but its members are individually stable
+    // (callbacks/useState/useMemo or primitives). Destructure so hook deps reference the
+    // stable members instead of the unstable wrapper object.
+    const {
+        selectedKeys,
+        clearSelection,
+        toggleRow,
+        toggleAllOnPage,
+        selectedKeysSet,
+        isAllOnPageSelected,
+        isSomeOnPageSelected,
+    } = bulk
 
     useEffect(() => {
-        setSelectedTicketIds(bulk.selectedKeys)
-    }, [bulk.selectedKeys])
+        setSelectedTicketIds(selectedKeys)
+    }, [selectedKeys, setSelectedTicketIds])
 
     // Clear hook selection when kea resets (e.g. after bulk update or page reload)
     useEffect(() => {
-        if (selectedTicketIds.length === 0 && bulk.selectedKeys.length > 0) {
-            bulk.clearSelection()
+        if (selectedTicketIds.length === 0 && selectedKeys.length > 0) {
+            clearSelection()
         }
-    }, [selectedTicketIds, bulk.clearSelection])
+    }, [selectedTicketIds, selectedKeys.length, clearSelection])
 
     const columns = useMemo<LemonTableColumns<Ticket>>(() => {
         const checkboxCol: LemonTableColumns<Ticket>[number] = {
@@ -278,16 +290,16 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             width: 32,
             title: (
                 <LemonCheckbox
-                    checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
-                    onChange={bulk.toggleAllOnPage}
+                    checked={isSomeOnPageSelected ? 'indeterminate' : isAllOnPageSelected}
+                    onChange={toggleAllOnPage}
                     stopPropagation
                 />
             ),
             render: (_, ticket: Ticket, recordIndex: number) => (
                 <LemonCheckbox
-                    checked={bulk.selectedKeysSet.has(ticket.id)}
+                    checked={selectedKeysSet.has(ticket.id)}
                     onChange={(_value, event) =>
-                        bulk.toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                        toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
                     }
                     stopPropagation
                 />
@@ -297,14 +309,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
             : SUPPORT_TICKETS_TABLE_COLUMNS
         return [checkboxCol, ...base]
-    }, [
-        embedded,
-        bulk.isSomeOnPageSelected,
-        bulk.isAllOnPageSelected,
-        bulk.toggleAllOnPage,
-        bulk.selectedKeysSet,
-        bulk.toggleRow,
-    ])
+    }, [embedded, isSomeOnPageSelected, isAllOnPageSelected, toggleAllOnPage, selectedKeysSet, toggleRow])
 
     return (
         <LemonTable<Ticket>
