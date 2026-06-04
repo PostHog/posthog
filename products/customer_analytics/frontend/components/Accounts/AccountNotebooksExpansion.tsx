@@ -1,7 +1,16 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTabs,
+    Link,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -12,6 +21,7 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
+import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
 const PREVIEW_MAX_CHARS = 200
@@ -67,9 +77,16 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
-export function AccountNotebooksExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountNotebooksExpansion({
+    accountId,
+    externalId,
+}: {
+    accountId: string
+    externalId: string
+}): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksLoading } = useValues(logic)
+    const [activeTab, setActiveTab] = useState<'notes' | 'users'>('notes')
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -127,18 +144,36 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
                     <UsefulLinks accountId={accountId} />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <LemonTable<AccountNotebookApi>
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={setActiveTab}
                         size="small"
-                        embedded
-                        dataSource={notebooks ?? []}
-                        rowKey="short_id"
-                        loading={notebooksLoading}
-                        columns={columns}
-                        emptyState={
-                            notebooks === null
-                                ? 'Failed to load account notes.'
-                                : 'No notes linked to this account yet.'
-                        }
+                        tabs={[
+                            {
+                                key: 'notes',
+                                label: 'Notes',
+                                content: (
+                                    <LemonTable<AccountNotebookApi>
+                                        size="small"
+                                        embedded
+                                        dataSource={notebooks ?? []}
+                                        rowKey="short_id"
+                                        loading={notebooksLoading}
+                                        columns={columns}
+                                        emptyState={
+                                            notebooks === null
+                                                ? 'Failed to load account notes.'
+                                                : 'No notes linked to this account yet.'
+                                        }
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'users',
+                                label: 'Users',
+                                content: <AccountRelatedUsersExpansion externalId={externalId} />,
+                            },
+                        ]}
                     />
                 </div>
             </div>
