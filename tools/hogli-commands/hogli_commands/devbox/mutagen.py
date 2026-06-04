@@ -31,25 +31,33 @@ _MUTAGEN_VERSION = "0.18.1"
 # happens when a devbox's Tailscale path flaps to a DERP relay (it resets the
 # direct path roughly every 26s) mid-sync, surfacing as a "broken pipe" at the
 # staging step and a sync that loops forever without ever reaching `watching`.
-# We can't change the constant, but we can interpose an ssh that rewrites it: a
-# shim on MUTAGEN_SSH_PATH bumps the count so the connection rides out a reset
-# window. _KEEPALIVE_COUNT x interval(10s) is the resulting silence tolerance.
+# We can't change the constant, but we can interpose an ssh that rewrites it for
+# devbox connections: a shim on MUTAGEN_SSH_PATH bumps the count so the
+# connection rides out a reset window. _KEEPALIVE_COUNT x interval(10s) is the
+# resulting silence tolerance (~30s, comfortably past the ~26s reset cadence).
 _SSH_SHIM_DIR = Path.home() / ".hogli" / "mutagen-ssh-shim"
-_KEEPALIVE_COUNT = 6
+_KEEPALIVE_COUNT = 3
 
-# Baked at generation time (see ensure_ssh_shim): rewrite mutagen's count, then
-# exec the real ssh/scp by absolute path so a shim-dir entry on PATH can never
-# make the shim re-invoke itself.
+# Baked at generation time (see ensure_ssh_shim): only when the ssh/scp target is
+# a devbox (a `coder.*` host -- the sole thing hogli syncs to) do we bump
+# mutagen's count; every other invocation passes through untouched, so a shared
+# daemon's non-devbox syncs are unaffected. Execs the real ssh/scp by absolute
+# path so a shim-dir entry on PATH can never make the shim re-invoke itself.
 _SHIM_TEMPLATE = """#!/usr/bin/env bash
 # Managed by hogli (`hogli devbox:sync`) -- do not edit; regenerated on sync.
-# Raises mutagen's intolerant `-oServerAliveCountMax=1` so the sync transport
-# survives a Tailscale/DERP path reset instead of dying with a broken pipe.
+# Raises mutagen's intolerant `-oServerAliveCountMax=1` for devbox (coder.*)
+# connections so the sync survives a Tailscale/DERP path reset instead of dying
+# with a broken pipe. Any non-devbox ssh is passed through unchanged.
+devbox=
+for a in "$@"; do
+  case "$a" in coder.*|*@coder.*) devbox=1 ;; esac
+done
 args=()
 for a in "$@"; do
   case "$a" in
-  -oServerAliveCountMax=*) args+=("-oServerAliveCountMax={count}") ;;
-  *) args+=("$a") ;;
+  -oServerAliveCountMax=*) [ -n "$devbox" ] && a="-oServerAliveCountMax={count}" ;;
   esac
+  args+=("$a")
 done
 exec "{real}" ${{args[@]+"${{args[@]}}"}}
 """

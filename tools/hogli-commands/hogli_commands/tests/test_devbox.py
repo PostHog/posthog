@@ -3475,12 +3475,17 @@ class TestKeepaliveShim:
         assert isinstance(env, dict)
         assert env["MUTAGEN_SSH_PATH"] == str(devbox_mutagen._SSH_SHIM_DIR)
 
-    def test_shim_rewrites_keepalive_count_and_passes_through(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    @pytest.mark.parametrize(
+        "target, bumped",
+        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-bumped", "non-devbox-host-untouched"],
+    )
+    def test_shim_rewrites_keepalive_only_for_devbox_hosts(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
     ) -> None:
         # End-to-end of the generated shim script: run it like mutagen would and
-        # assert it execs the real ssh with the count rewritten, everything else
-        # verbatim and in order.
+        # assert it bumps the keepalive ONLY for a coder.* (devbox) target, while
+        # passing every other argument (and every non-devbox invocation) verbatim.
         shim_dir = tmp_path / "shim"
         log = tmp_path / "args.log"
         fake = tmp_path / "fakessh"
@@ -3495,7 +3500,7 @@ class TestKeepaliveShim:
             "-oConnectTimeout=5",
             "-oServerAliveInterval=10",
             "-oServerAliveCountMax=1",
-            "nobody@host",
+            target,
             ".mutagen/agents/0.18.1/mutagen-agent",
             "synchronizer",
             "--log-level=info",
@@ -3504,10 +3509,13 @@ class TestKeepaliveShim:
         assert result.returncode == 0
 
         forwarded = log.read_text().splitlines()
-        bumped = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
-        expected = [bumped if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
-        assert forwarded == expected
-        assert "-oServerAliveCountMax=1" not in forwarded
+        if bumped:
+            bump = f"-oServerAliveCountMax={devbox_mutagen._KEEPALIVE_COUNT}"
+            assert forwarded == [bump if a.startswith("-oServerAliveCountMax=") else a for a in incoming]
+            assert "-oServerAliveCountMax=1" not in forwarded
+        else:
+            # Non-devbox ssh must pass through byte-for-byte, keepalive included.
+            assert forwarded == incoming
 
     def test_ensure_ssh_shim_writes_both_executables_and_is_idempotent(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
