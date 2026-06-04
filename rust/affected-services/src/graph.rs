@@ -65,22 +65,40 @@ impl TempWorktree {
             .keep();
         let path_s = path.to_string_lossy();
 
-        // Disable sparse checkout before creating the worktree so it doesn't
-        // inherit the parent's sparse-checkout filter (CI uses sparse checkout
-        // for the main working tree).
-        let _ = Command::new("git")
-            .args(["config", "--local", "core.sparseCheckout", "false"])
-            .output();
+        // Read the current sparse checkout setting so we can restore it after
+        // creating the worktree. Without this, CI's sparse checkout config
+        // would be inherited by the worktree and produce an incomplete checkout.
+        let prev_sparse = Command::new("git")
+            .args(["config", "--local", "core.sparseCheckout"])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+
+        if prev_sparse.as_deref() == Some("true") {
+            let _ = Command::new("git")
+                .args(["config", "--local", "core.sparseCheckout", "false"])
+                .output();
+        }
 
         let out = Command::new("git")
             .args(["worktree", "add", "--detach", path_s.as_ref(), base_ref])
             .output()
             .context("failed to create git worktree")?;
 
-        // Re-enable sparse checkout for the parent worktree
-        let _ = Command::new("git")
-            .args(["config", "--local", "core.sparseCheckout", "true"])
-            .output();
+        // Restore the original sparse checkout setting
+        match prev_sparse.as_deref() {
+            Some(val) => {
+                let _ = Command::new("git")
+                    .args(["config", "--local", "core.sparseCheckout", val])
+                    .output();
+            }
+            None => {
+                let _ = Command::new("git")
+                    .args(["config", "--local", "--unset", "core.sparseCheckout"])
+                    .output();
+            }
+        }
 
         anyhow::ensure!(
             out.status.success(),
