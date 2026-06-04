@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -62,10 +62,6 @@ class ErrorTrackingQueryRunnerTestsMixin:
     def assertEqual(
         self, first: object, second: object, msg: object = None
     ) -> None: ...  # will be provided by inheritance from TestCase
-
-    def assertRaises(  # will be provided by inheritance from TestCase
-        self, expected_exception: type[BaseException] | tuple[type[BaseException], ...]
-    ) -> AbstractContextManager[object]: ...
 
     distinct_id_one = "user_1"
     distinct_id_two = "user_2"
@@ -351,7 +347,7 @@ class ErrorTrackingQueryRunnerTestsMixin:
     @freeze_time("2022-01-10T12:11:00")
     def test_search_query_with_too_many_tokens_raises_validation_error(self):
         # An over-long search string should surface a user-facing 400, not an unhandled exception.
-        with self.assertRaises(ValidationError):
+        with pytest.raises(ValidationError):
             self._calculate(searchQuery=" ".join(str(i) for i in range(101)))
 
     @freeze_time("2022-01-10 12:11:00")
