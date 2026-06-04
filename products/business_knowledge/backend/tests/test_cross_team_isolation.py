@@ -2,11 +2,12 @@ from posthog.test.base import BaseTest
 
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.logic import create_text_source
-from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
+from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 
 
 class TestCrossTeamIsolation(BaseTest):
@@ -28,6 +29,11 @@ class TestCrossTeamIsolation(BaseTest):
             name="Team B Docs",
             text="Team B has a completely different pricing approach.",
         )
+        # Text starts `unknown` (classifier-gated); this test is about team
+        # isolation, not safety, so model both teams' docs as classifier-cleared.
+        for team_id in (self.team.id, self.other_team.id):
+            with team_scope(team_id, canonical=True):
+                KnowledgeDocument.objects.filter(team_id=team_id).update(safety_verdict=SafetyVerdict.SAFE)
 
     def test_search_only_returns_own_team_chunks(self) -> None:
         results_a = logic.search_knowledge(self.team.id, "pricing")

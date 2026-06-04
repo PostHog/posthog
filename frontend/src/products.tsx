@@ -98,9 +98,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSource: () => import('../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'),
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
-    Deployments: () => import('../../products/deployments/frontend/Deployments'),
-    DeploymentProject: () => import('../../products/deployments/frontend/DeploymentProject'),
-    Deployment: () => import('../../products/deployments/frontend/Deployment'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -120,6 +117,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LiveDebugger: () => import('../../products/live_debugger/frontend/LiveDebugger'),
     Logs: () => import('../../products/logs/frontend/LogsScene'),
     LogsAlertDetail: () => import('../../products/logs/frontend/scenes/LogsAlertDetailScene/LogsAlertDetailScene'),
+    LogsAlertNotificationDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsAlertNotificationDetailScene/LogsAlertNotificationDetailScene'),
     LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
@@ -137,6 +136,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
     TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
+    SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
@@ -220,9 +220,6 @@ export const productRoutes: Record<string, [string, string]> = {
     ],
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
-    '/deployments': ['Deployments', 'deployments'],
-    '/deployments/:projectId': ['DeploymentProject', 'deploymentProject'],
-    '/deployments/:projectId/:deploymentId': ['Deployment', 'deployment'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -242,6 +239,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/live-debugger': ['LiveDebugger', 'liveDebugger'],
     '/logs': ['Logs', 'logs'],
     '/logs/alerts/:id': ['LogsAlertDetail', 'logsAlertDetail'],
+    '/logs/alerts/:id/notifications/:hogFunctionId': ['LogsAlertNotificationDetail', 'logsAlertNotificationDetail'],
     '/logs/drop-rules/new': ['LogsSamplingNew', 'logsSamplingNew'],
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
@@ -261,6 +259,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
+    '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
@@ -595,14 +594,6 @@ export const productConfiguration: Record<string, any> = {
     DataWarehouseSource: { projectBased: true, name: 'Data warehouse source' },
     DataWarehouseSourceNew: { projectBased: true, name: 'New data warehouse source' },
     DataWarehouseSourceSchema: { projectBased: true, name: 'Data warehouse schema' },
-    Deployments: {
-        projectBased: true,
-        name: 'Deployments',
-        iconType: 'deployments',
-        description: 'Connect a GitHub repository to start deploying your site.',
-    },
-    DeploymentProject: { projectBased: true, name: 'Deployment project' },
-    Deployment: { projectBased: true, name: 'Deployment' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -655,6 +646,12 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze your logs to understand and fix issues.',
     },
     LogsAlertDetail: { projectBased: true, name: 'Alert', activityScope: ActivityScope.LOG, layout: 'app-container' },
+    LogsAlertNotificationDetail: {
+        projectBased: true,
+        name: 'Destination',
+        activityScope: ActivityScope.LOG,
+        layout: 'app-container',
+    },
     LogsSamplingNew: {
         projectBased: true,
         name: 'New drop rule',
@@ -694,7 +691,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Replay vision',
         projectBased: true,
         description:
-            'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
+            'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
         layout: 'app-container',
     },
@@ -743,6 +740,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'task',
     },
     TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
+    SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
         projectBased: true,
@@ -929,9 +927,6 @@ export const productUrls = {
         const queryString = params.toString()
         return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
     },
-    deployments: (): string => '/deployments',
-    deploymentProject: (projectId: string): string => `/deployments/${projectId}`,
-    deployment: (projectId: string, deploymentId: string): string => `/deployments/${projectId}/${deploymentId}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -1048,6 +1043,8 @@ export const productUrls = {
     logs: (): string => '/logs',
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
+    logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
+        `/logs/alerts/${alertId}/notifications/${hogFunctionId}`,
     logsSamplingNew: (): string => '/logs/drop-rules/new',
     logsSamplingDetail: (id: string): string => `/logs/drop-rules/${id}`,
     managedMigration: (): string => '/managed_migrations',
@@ -1171,6 +1168,7 @@ export const productUrls = {
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
     taskTracker: (): string => '/tasks',
     taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+    slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
     userInterviews: (): string => '/user_research',
@@ -1222,13 +1220,6 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.dashboard(ref),
         iconColor: ['var(--color-product-dashboards-light)'],
         filterKey: 'dashboard',
-    },
-    deployments: {
-        name: 'Deployment',
-        iconType: 'deployments',
-        iconColor: ['var(--color-product-deployments-light)'] as FileSystemIconColor,
-        href: () => urls.deployments(),
-        filterKey: 'deployments',
     },
     early_access_feature: {
         name: 'Early access feature',
@@ -1610,22 +1601,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
     },
     {
-        path: 'Deployments',
-        intents: [ProductKey.DEPLOYMENTS],
-        category: ProductItemCategory.TOOLS,
-        href: urls.deployments(),
-        type: 'deployments',
-        iconType: 'deployments' as FileSystemIconType,
-        iconColor: [
-            'var(--color-product-deployments-light)',
-            'var(--color-product-deployments-dark)',
-        ] as FileSystemIconColor,
-        sceneKey: 'Deployments',
-        sceneKeys: ['Deployments', 'DeploymentProject', 'Deployment'],
-        flag: FEATURE_FLAGS.DEPLOYMENTS,
-        tags: ['alpha'],
-    },
-    {
         path: 'Early access features',
         intents: [ProductKey.EARLY_ACCESS_FEATURES],
         category: ProductItemCategory.FEATURES,
@@ -1796,7 +1771,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         sceneKey: 'Logs',
-        sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
+        sceneKeys: ['Logs', 'LogsAlertDetail', 'LogsAlertNotificationDetail', 'LogsSamplingNew', 'LogsSamplingDetail'],
     },
     {
         path: 'MCP analytics',

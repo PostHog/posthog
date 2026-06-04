@@ -15,6 +15,7 @@ Commands:
 
 Options:
       --host <HOST>  The PostHog host to connect to [default: https://us.posthog.com]
+      --dry-run      Skip artifact processing and upload without contacting PostHog or requiring credentials
   -h, --help         Print help
   -V, --version      Print version
 ```
@@ -26,6 +27,21 @@ You can authenticate with PostHog interactively for using the CLI locally, but i
 - `POSTHOG_CLI_HOST`: The PostHog host to connect to [default: https://us.posthog.com]
 - `POSTHOG_CLI_API_KEY`: [A posthog personal API key.](https://posthog.com/docs/api#private-endpoint-authentication) (also accepts `POSTHOG_CLI_TOKEN` for backward compatibility)
 - `POSTHOG_CLI_PROJECT_ID`: The ID number of the project/environment to connect to. E.g. the "2" in `https://us.posthog.com/project/2` (also accepts `POSTHOG_CLI_ENV_ID` for backward compatibility)
+
+These variables can also be loaded from a dotenv-style file via `--env-file <PATH>` (e.g. `posthog-cli --env-file .env query ...`). The process environment always wins; the file is only consulted if the required variables aren't set. `POSTHOG_CLI_HOST` is only read from the same source that supplied the rest, so a stray host in the file cannot redirect a key supplied by the process env.
+
+Full precedence: CLI args → process env → `--env-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
+
+## Skipping uploads (dry run)
+
+Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.
+The CLI logs that it skipped the upload and exits `0` without contacting PostHog or requiring credentials.
+(This top-level flag is separate from the `exp endpoints` `--dry-run`, which previews endpoint changes.)
+
+This is meant for CI gates that still want to run the bundling step (to catch Metro/Hermes or sourcemap regressions) but must not — or cannot — upload artifacts, for example pull-request checks that don't have PostHog credentials.
+Do not use it for release builds, since no symbols are uploaded.
+
+The env var accepts the usual truthy/falsy values (`true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`).
 
 ### Personal API key scopes
 

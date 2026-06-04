@@ -53,6 +53,7 @@ from posthog.hogql.database.models import (
     Table,
     TableNode,
     UnknownDatabaseField,
+    UUIDDatabaseField,
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
@@ -487,7 +488,7 @@ class Database(BaseModel):
         if not isinstance(system_tables, SystemTables):
             return []
 
-        return ["query_log", *system_tables.resolve_all_table_names()]
+        return ["query_log", *system_tables.resolve_visible_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -663,10 +664,8 @@ class Database(BaseModel):
 
             field_input: dict[str, Any] = {}
             table = self.get_table(table_name)
-            if isinstance(table, FunctionCallTable):
-                field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                field_input = table.fields
+            if isinstance(table, Table):
+                field_input = _schema_field_input(table)
 
             fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -680,10 +679,8 @@ class Database(BaseModel):
 
             system_field_input: dict[str, Any] = {}
             table = self.get_table(table_key)
-            if isinstance(table, FunctionCallTable):
-                system_field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                system_field_input = table.fields
+            if isinstance(table, Table):
+                system_field_input = _schema_field_input(table)
 
             fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -781,10 +778,15 @@ class Database(BaseModel):
                     )
                     fields_dict = {field.name: field for field in fields}
 
+                    # The table is also queryable by its raw underscore name, which is registered
+                    # separately from the dotted `table_key`. Surface it so search matches either form.
+                    search_aliases = [warehouse_table.name] if warehouse_table.name != table_key else None
+
                     tables[table_key] = DatabaseSchemaDataWarehouseTable(
                         fields=fields_dict,
                         id=str(warehouse_table.id),
                         name=table_key,
+                        search_aliases=search_aliases,
                         format=warehouse_table.format,
                         url_pattern=warehouse_table.url_pattern,
                         schema=schema,
@@ -1764,6 +1766,25 @@ def _should_include_connection_table(
     return not schemas or any(schema.should_sync for schema in schemas)
 
 
+def _schema_field_input(table: Table) -> dict[str, Any]:
+    """Fields to surface in the serialized schema (SQL editor sidebar, autocomplete).
+
+    `get_asterisk()` exists for `SELECT *` expansion, so it drops lazy joins, virtual tables,
+    and field traversers — but those are exactly the relational fields users need to see in the
+    schema. Add them back while preserving `get_asterisk`'s column filtering (`avoid_asterisk_fields`
+    and hidden columns), so data warehouse joins show up on `FunctionCallTable`-backed tables like
+    the `system.*` Postgres tables.
+    """
+    if not isinstance(table, FunctionCallTable):
+        return table.fields
+
+    field_input = table.get_asterisk()
+    for key, field in table.fields.items():
+        if key not in field_input and isinstance(field, (LazyJoin, Table, FieldTraverser)):
+            field_input[key] = field
+    return field_input
+
+
 def serialize_fields(
     field_input,
     context: HogQLContext,
@@ -1828,6 +1849,15 @@ def serialize_fields(
                     )
                 )
             elif isinstance(field, StringDatabaseField):
+                field_output.append(
+                    DatabaseSchemaField(
+                        name=field_key,
+                        hogql_value=hogql_value,
+                        type=DatabaseSerializedFieldType.STRING,
+                        schema_valid=schema_valid,
+                    )
+                )
+            elif isinstance(field, UUIDDatabaseField):
                 field_output.append(
                     DatabaseSchemaField(
                         name=field_key,

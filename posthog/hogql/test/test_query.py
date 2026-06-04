@@ -24,7 +24,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -313,7 +315,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 connection_id=str(selected_source.id),
             )
 
-        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+        self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
@@ -334,7 +336,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 connection_id=str(selected_source.id),
             )
 
-        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+        self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
         mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -2038,3 +2040,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
         assert response and response.metadata and response.metadata.ch_table_names
         assert any("sessions" in name for name in response.metadata.ch_table_names)
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_debug_mode_preserves_prepare_error_without_executing_clickhouse(self, mock_sync_execute):
+        def prepare_ast_for_printing_side_effect(*args, **kwargs):
+            if kwargs.get("dialect") == "clickhouse":
+                raise ExposedHogQLError("debug failure")
+            return unmocked_prepare_ast_for_printing(*args, **kwargs)
+
+        with patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=prepare_ast_for_printing_side_effect):
+            response = execute_hogql_query("SELECT 1", team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+
+        self.assertEqual(response.error, "debug failure")
+        self.assertEqual(response.clickhouse, "")
+        mock_sync_execute.assert_not_called()

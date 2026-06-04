@@ -12,6 +12,7 @@ from prometheus_client import Counter, Histogram
 from pydantic import BaseModel, ConfigDict
 
 from posthog.schema import (
+    AccountsQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -68,7 +69,6 @@ from posthog.schema import (
     WebNotableChangesQuery,
     WebOverviewQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
 )
 
 from posthog.hogql import ast
@@ -295,12 +295,12 @@ RunnableQueryNode = Union[
     WebStatsTableQuery,
     WebGoalsQuery,
     WebNotableChangesQuery,
-    WebTrendsQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
     UsageMetricsQuery,
+    AccountsQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -598,18 +598,6 @@ def get_query_runner(
         from products.web_analytics.backend.hogql_queries.notable_changes import WebNotableChangesQueryRunner
 
         return WebNotableChangesQueryRunner(
-            query=query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            user=user,
-        )
-
-    if kind == "WebTrendsQuery":
-        from products.web_analytics.backend.hogql_queries.web_trends_query_runner import WebTrendsQueryRunner
-
-        return WebTrendsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -1013,6 +1001,18 @@ def get_query_runner(
         from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 
         return UsageMetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountsQuery":
+        from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
+
+        return AccountsQueryRunner(
             query=query,
             team=team,
             timings=timings,

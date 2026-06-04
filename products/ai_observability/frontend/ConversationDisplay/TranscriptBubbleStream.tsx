@@ -9,9 +9,13 @@ import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
 import { CompatMessage } from '../types'
 import {
     AVAILABLE_TOOLS_ROLE,
+    INTERNAL_THINKING_ROLE,
+    INTERNAL_TOOL_RESULT_ROLE,
+    extractInternalContent,
+    extractText,
     extractTextContent,
-    getScaffoldTagName,
-    hasStringContentField,
+    getInternalTagName,
+    isInternalToolResultUserMessage,
     isToolStepItem,
 } from '../utils'
 
@@ -20,27 +24,6 @@ import {
 // visible through the assistant's behavior, and the full message tree is still
 // one click away via "Show steps".
 const HIDDEN_ROLES = new Set<string>(['system', AVAILABLE_TOOLS_ROLE])
-
-function extractText(message: CompatMessage): string {
-    const content = message.content
-    if (typeof content === 'string') {
-        return content
-    }
-    if (Array.isArray(content)) {
-        const parts: string[] = []
-        for (const part of content) {
-            const text = extractTextContent(part)
-            if (text !== undefined) {
-                parts.push(text)
-            }
-        }
-        return parts.join('\n')
-    }
-    if (hasStringContentField(content)) {
-        return content.content
-    }
-    return ''
-}
 
 function isUnrenderableContentItem(item: unknown): boolean {
     return extractTextContent(item) === undefined && !isToolStepItem(item)
@@ -91,15 +74,42 @@ export function captureUnrenderableMessageOnce(message: CompatMessage, seen: Set
 }
 
 // An item in the rendered transcript stream. Bubbles render as `MessageTemplate`s.
-// Scaffold groups render as a single collapsed pill where the hidden messages
+// Internal groups render as a single collapsed pill where the hidden messages
 // would have sat — preserving chronological position without polluting the chat.
+// "Internal" covers framework prompt tag wrappers, model reasoning/thinking parts,
+// and tool-call results — anything the user didn't write and didn't ask to see.
 type StreamItem =
     | { kind: 'bubble'; message: CompatMessage; text: string; nonText: boolean }
-    | { kind: 'scaffold-group'; messages: CompatMessage[]; tagNames: string[]; role: string }
+    | { kind: 'internal-group'; messages: CompatMessage[]; labels: string[]; role: string }
 
 type SessionEntry =
     | { kind: 'bubble'; message: CompatMessage; text: string; nonText: boolean }
-    | { kind: 'scaffold'; message: CompatMessage; scaffoldTag: string }
+    | { kind: 'internal'; message: CompatMessage; label: string }
+
+// Returns a short label identifying *why* a message is internal. Returns
+// `undefined` for messages that should render as normal bubbles.
+function getInternalLabel(message: CompatMessage): string | undefined {
+    if (message.role === INTERNAL_THINKING_ROLE) {
+        return 'thinking'
+    }
+    if (message.role === INTERNAL_TOOL_RESULT_ROLE) {
+        return 'tool_result'
+    }
+    const internalTag = getInternalTagName(message)
+    if (internalTag !== undefined) {
+        return internalTag
+    }
+    if (isInternalToolResultUserMessage(message)) {
+        return 'tool_result'
+    }
+    return undefined
+}
+
+const AGENT_SIDE_LABELS = new Set<string>(['thinking', 'tool_result'])
+
+function pillSideFor(labels: string[]): 'left' | 'right' {
+    return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
+}
 
 function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
     const result: SessionEntry[] = []
@@ -107,9 +117,9 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
         if (HIDDEN_ROLES.has(message.role)) {
             continue
         }
-        const scaffoldTag = getScaffoldTagName(message)
-        if (scaffoldTag !== undefined) {
-            result.push({ kind: 'scaffold', message, scaffoldTag })
+        const internalLabel = getInternalLabel(message)
+        if (internalLabel !== undefined) {
+            result.push({ kind: 'internal', message, label: internalLabel })
             continue
         }
         const text = extractText(message)
@@ -122,27 +132,24 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
     return result
 }
 
-function groupScaffolds(classified: SessionEntry[]): StreamItem[] {
+function groupInternal(classified: SessionEntry[]): StreamItem[] {
     const result: StreamItem[] = []
-    let pendingScaffolds: Extract<SessionEntry, { kind: 'scaffold' }>[] = []
+    let pending: Extract<SessionEntry, { kind: 'internal' }>[] = []
     const makeGroup = (): void => {
-        if (pendingScaffolds.length === 0) {
+        if (pending.length === 0) {
             return
         }
         result.push({
-            kind: 'scaffold-group',
-            messages: pendingScaffolds.map((b) => b.message),
-            tagNames: pendingScaffolds.map((b) => b.scaffoldTag),
-            // All pending scaffolds share the same role (the predicate only
-            // accepts `role: 'user'`), so picking the first is sufficient and
-            // future-proof if we relax the predicate later.
-            role: pendingScaffolds[0].message.role,
+            kind: 'internal-group',
+            messages: pending.map((b) => b.message),
+            labels: pending.map((b) => b.label),
+            role: pending[0].message.role,
         })
-        pendingScaffolds = []
+        pending = []
     }
     for (const item of classified) {
-        if (item.kind === 'scaffold') {
-            pendingScaffolds.push(item)
+        if (item.kind === 'internal') {
+            pending.push(item)
             continue
         }
         makeGroup()
@@ -154,7 +161,7 @@ function groupScaffolds(classified: SessionEntry[]): StreamItem[] {
 
 // Exported so the test can pin the grouping logic without rendering React.
 export function buildStreamItems(messages: CompatMessage[]): StreamItem[] {
-    return groupScaffolds(classifyMessages(messages))
+    return groupInternal(classifyMessages(messages))
 }
 
 /**
@@ -162,7 +169,7 @@ export function buildStreamItems(messages: CompatMessage[]): StreamItem[] {
  * right, everything else (assistant, tool responses, etc.) on the left. Skips
  * `system` and `available tools` pseudo-messages; their context is implicit in
  * the assistant's reply and reachable via the per-turn "Show steps" panel.
- * Framework prompt-scaffold messages (e.g. `<system_reminder>...`) are collapsed.
+ * Framework prompt tag-wrapper messages (e.g. `<system_reminder>...`) are collapsed.
  *
  * Deliberately minimal otherwise: no headers, no per-message expand toggles, no
  * metadata row, no playground button. The Trace page's `ConversationMessagesDisplay`
@@ -205,39 +212,40 @@ export function TranscriptBubbleStream({
                         {item.nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                     </MessageTemplate>
                 ) : (
-                    <ScaffoldGroupPill key={i} messages={item.messages} tagNames={item.tagNames} role={item.role} />
+                    <InternalGroupPill key={i} messages={item.messages} labels={item.labels} role={item.role} />
                 )
             )}
         </div>
     )
 }
 
-function ScaffoldGroupPill({
+function InternalGroupPill({
     messages,
-    tagNames,
-    role,
+    labels,
+    role: _role,
 }: {
     messages: CompatMessage[]
-    tagNames: string[]
+    labels: string[]
     role: string
 }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
-    const distinctTags = useMemo(() => Array.from(new Set(tagNames)), [tagNames])
+    const distinctLabels = useMemo(() => Array.from(new Set(labels)), [labels])
     const count = messages.length
-    const label = count === 1 ? '1 hidden context block' : `${count} hidden context blocks`
-    // Mirror the bubble-alignment convention: user-role on the right, everything else on the left.
-    const alignSelf = role === 'user' ? 'self-end' : 'self-start'
+    const label = count === 1 ? '1 hidden internal message' : `${count} hidden internal messages`
+    const side = pillSideFor(labels)
+    const alignSelf = side === 'right' ? 'self-end' : 'self-start'
+    const buttonAlignSelf = side === 'right' ? 'self-end' : 'self-start'
     return (
         <div className={`flex flex-col gap-1 text-xs text-muted max-w-[75%] ${alignSelf}`}>
             <button
                 type="button"
-                className="flex items-center gap-1 hover:text-default text-left cursor-pointer"
+                className={`flex items-center gap-1 hover:text-default text-left cursor-pointer ${buttonAlignSelf}`}
                 onClick={() => setExpanded((v) => !v)}
             >
                 <IconChevronRight className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
                 <span>{expanded ? `Hide ${label}` : `Show ${label}`}</span>
-                {!expanded && distinctTags.length > 0 && (
-                    <span className="font-mono opacity-60">— {distinctTags.join(', ')}</span>
+                {distinctLabels.length > 0 && (
+                    <span className="font-mono opacity-60">— {distinctLabels.join(', ')}</span>
                 )}
             </button>
             {expanded && (
@@ -247,7 +255,7 @@ function ScaffoldGroupPill({
                             key={i}
                             className="font-mono whitespace-pre-wrap break-words text-xs m-0 px-2 py-1 bg-bg-light rounded border"
                         >
-                            {extractText(m)}
+                            {extractInternalContent(m)}
                         </pre>
                     ))}
                 </div>

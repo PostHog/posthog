@@ -82,6 +82,9 @@ const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, WithPostHogUrl<Sc
 const CohortsListSchema = CohortsListQueryParams.extend({
     limit: z.preprocess(castStringToInt, CohortsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, CohortsListQueryParams.shape['offset']).optional(),
+    hide_behavioral_cohorts: CohortsListQueryParams.shape['hide_behavioral_cohorts'].describe(
+        'Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.'
+    ),
 })
 
 const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schemas.PaginatedCohortList>> =>
@@ -94,6 +97,8 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, WithPostHogUrl<Schema
                 method: 'GET',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/cohorts/`,
                 query: {
+                    basic: params.basic,
+                    hide_behavioral_cohorts: params.hide_behavioral_cohorts,
                     limit: params.limit,
                     offset: params.offset,
                 },
