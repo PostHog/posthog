@@ -166,6 +166,7 @@ describe('subscriptionLogic', () => {
         router.actions.push('/subscriptions/new')
         await expectLogic(newLogic).toFinishListeners()
         newLogic.actions.setSubscriptionValues({ resource_type: 'ai_prompt', prompt: '   ', title: 'AI test' })
+        newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscriptionErrors.prompt).toBeTruthy()
     })
@@ -178,6 +179,7 @@ describe('subscriptionLogic', () => {
             prompt: 'x'.repeat(4001),
             title: 'AI test',
         })
+        newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscriptionErrors.prompt).toContain('4000')
     })
