@@ -9,8 +9,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.scoping import team_scope
-
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -119,21 +117,20 @@ class TestRecalculationActivities(BaseTest):
         ]
     )
     def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_types):
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key=f"discover-{name}")
-            exp.metrics = primary
-            exp.metrics_secondary = secondary
-            exp.save()
-            for uuid, metric_type in saved:
-                self._attach_saved_metric(exp, uuid, metric_type)
-            recalc = self._recalc(exp)
+        exp = self._experiment(flag_key=f"discover-{name}")
+        exp.metrics = primary
+        exp.metrics_secondary = secondary
+        exp.save()
+        for uuid, metric_type in saved:
+            self._attach_saved_metric(exp, uuid, metric_type)
+        recalc = self._recalc(exp)
 
-            metrics = _discover(str(recalc.id))
+        metrics = _discover(str(recalc.id))
 
-            recalc.refresh_from_db()
-            assert set(recalc.metric_uuids) == expected_uuids
-            assert {m.metric_uuid for m in metrics} == expected_uuids
-            assert {m.metric_type for m in metrics} == expected_types
+        recalc.refresh_from_db()
+        assert set(recalc.metric_uuids) == expected_uuids
+        assert {m.metric_uuid for m in metrics} == expected_uuids
+        assert {m.metric_type for m in metrics} == expected_types
 
     @parameterized.expand(
         [
@@ -157,68 +154,82 @@ class TestRecalculationActivities(BaseTest):
         ]
     )
     def test_update_progress(self, name: str, update_kwargs: dict, expected_status: str, expects_query_to: bool):
-        with team_scope(self.team.id, canonical=True):
-            recalc = self._recalc(self._experiment(flag_key=f"progress-{name}"))
-            returned = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+        recalc = self._recalc(self._experiment(flag_key=f"progress-{name}"))
+        returned = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
 
-            recalc.refresh_from_db()
-            assert recalc.status == expected_status
+        recalc.refresh_from_db()
+        assert recalc.status == expected_status
 
-            if expects_query_to:
-                assert recalc.started_at is not None
-                assert recalc.total_metrics == update_kwargs["total_metrics"]
-                assert recalc.metric_uuids == update_kwargs["metric_uuids"]
-                assert recalc.query_to is not None
-                # Returns the query_to it set (ISO string) so the workflow can thread it into calc activities.
-                assert returned == recalc.query_to.isoformat()
-            else:
-                assert recalc.completed_at is not None
-                assert returned is None
+        if expects_query_to:
+            assert recalc.started_at is not None
+            assert recalc.total_metrics == update_kwargs["total_metrics"]
+            assert recalc.metric_uuids == update_kwargs["metric_uuids"]
+            assert recalc.query_to is not None
+            # Returns the query_to it set (ISO string) so the workflow can thread it into calc activities.
+            assert returned == recalc.query_to.isoformat()
+        else:
+            assert recalc.completed_at is not None
+            assert returned is None
 
     def test_mark_started_is_first_write_wins_on_retry(self):
         # Temporal retries the start activity (network blip, worker crash) — the second attempt must NOT move
         # query_to/started_at forward. If it did, any calc activity already in flight from the first attempt
         # would persist ExperimentMetricResult rows with the old query_to, while the recalc row points at the
         # new one — orphaning those rows from the API's perspective.
-        with team_scope(self.team.id, canonical=True):
-            recalc = self._recalc(self._experiment(flag_key="progress-retry-start"))
-            update_kwargs = {
-                "status": "in_progress",
-                "total_metrics": 3,
-                "metric_uuids": ["m1", "m2", "m3"],
-                "mark_started": True,
-            }
+        recalc = self._recalc(self._experiment(flag_key="progress-retry-start"))
+        update_kwargs = {
+            "status": "in_progress",
+            "total_metrics": 3,
+            "metric_uuids": ["m1", "m2", "m3"],
+            "mark_started": True,
+        }
 
-            first = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
-            recalc.refresh_from_db()
-            first_query_to = recalc.query_to
-            first_started_at = recalc.started_at
+        first = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+        recalc.refresh_from_db()
+        first_query_to = recalc.query_to
+        first_started_at = recalc.started_at
 
-            second = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
-            recalc.refresh_from_db()
+        second = _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+        recalc.refresh_from_db()
 
-            # DB state unchanged after retry — the conditional UPDATE matched zero rows.
-            assert recalc.query_to == first_query_to
-            assert recalc.started_at == first_started_at
-            # Both attempts return the same canonical query_to so the workflow threads the same value either way.
-            assert first == second == first_query_to.isoformat()
+        # DB state unchanged after retry — the conditional UPDATE matched zero rows.
+        assert recalc.query_to == first_query_to
+        assert recalc.started_at == first_started_at
+        # Both attempts return the same canonical query_to so the workflow threads the same value either way.
+        assert first == second == first_query_to.isoformat()
 
     def test_mark_completed_is_first_write_wins_on_retry(self):
         # Symmetric to mark_started: a retried finish activity must not re-stamp completed_at.
-        with team_scope(self.team.id, canonical=True):
-            recalc = self._recalc(self._experiment(flag_key="progress-retry-finish"))
-            update_kwargs = {"status": "completed", "mark_completed": True}
+        recalc = self._recalc(self._experiment(flag_key="progress-retry-finish"))
+        update_kwargs = {"status": "completed", "mark_completed": True}
 
-            _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
-            recalc.refresh_from_db()
-            first_completed_at = recalc.completed_at
-            first_status = recalc.status
+        _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+        recalc.refresh_from_db()
+        first_completed_at = recalc.completed_at
+        first_status = recalc.status
 
-            _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
-            recalc.refresh_from_db()
+        _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **update_kwargs))
+        recalc.refresh_from_db()
 
-            assert recalc.completed_at == first_completed_at
-            assert recalc.status == first_status
+        assert recalc.completed_at == first_completed_at
+        assert recalc.status == first_status
+
+    @parameterized.expand(
+        [
+            # Contract: exactly one of mark_started / mark_completed must be true. Both-true or neither-true
+            # is a workflow bug — fail non-retryable so Temporal terminates promptly.
+            ("both_true", {"mark_started": True, "mark_completed": True}),
+            ("neither", {}),
+        ]
+    )
+    def test_progress_update_requires_exactly_one_lifecycle_flag(self, name: str, flags: dict):
+        recalc = self._recalc(self._experiment(flag_key=f"progress-mutex-{name}"))
+
+        with pytest.raises(ApplicationError) as exc_info:
+            _update(RecalculationProgressUpdate(recalculation_id=str(recalc.id), **flags))
+
+        assert "exactly one of mark_started or mark_completed" in str(exc_info.value)
+        assert exc_info.value.non_retryable is True
 
 
 _QUERY_TO = "2026-05-29T12:00:00+00:00"
@@ -284,87 +295,80 @@ class TestCalculateActivity(BaseTest):
         # Discovery included m1 in the recalc's metric set (so input validation passes), but the experiment
         # was edited and m1 is no longer present — the calc activity's inner lookup must surface this as a
         # discovery-step failure rather than crashing.
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-missing", metrics=[])
-            recalc = self._recalc(exp, metric_uuids=["m1"])
+        exp = self._experiment(flag_key="calc-missing", metrics=[])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
 
-            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+        result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-            assert result.success is False
-            assert result.error_step == "discovery"
-            recalc.refresh_from_db()
-            assert len(recalc.metric_errors) == 1
-            assert "m1" in recalc.metric_errors
+        assert result.success is False
+        assert result.error_step == "discovery"
+        recalc.refresh_from_db()
+        assert len(recalc.metric_errors) == 1
+        assert "m1" in recalc.metric_errors
 
     def test_bad_metric_type_fails_at_calculation(self):
         # Legacy metrics never reach this workflow, so there's no discovery-time type guard; an unexpected
         # metric_type raises while building the metric and surfaces as a calculation-step failure.
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(
-                flag_key="calc-badtype",
-                metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
-            )
-            recalc = self._recalc(exp, metric_uuids=["m-bad"])
+        exp = self._experiment(
+            flag_key="calc-badtype",
+            metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
+        )
+        recalc = self._recalc(exp, metric_uuids=["m-bad"])
 
-            result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
+        result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
 
-            assert result.success is False
-            assert result.error_step == "calculation"
-            recalc.refresh_from_db()
-            assert len(recalc.metric_errors) == 1
-            assert "m-bad" in recalc.metric_errors
+        assert result.success is False
+        assert result.error_step == "calculation"
+        recalc.refresh_from_db()
+        assert len(recalc.metric_errors) == 1
+        assert "m-bad" in recalc.metric_errors
 
     def test_missing_start_date_fails(self):
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-no-start", with_start_date=False, metrics=[_mean_metric("m1")])
-            recalc = self._recalc(exp, metric_uuids=["m1"])
+        exp = self._experiment(flag_key="calc-no-start", with_start_date=False, metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
 
-            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+        result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-            assert result.success is False
-            recalc.refresh_from_db()
-            assert len(recalc.metric_errors) == 1
+        assert result.success is False
+        recalc.refresh_from_db()
+        assert len(recalc.metric_errors) == 1
 
     def test_saved_metric_is_resolvable(self):
         # A saved/shared metric (uuid only on saved_metric.query) must be found by the calc lookup; otherwise it
         # would wrongly fail at the discovery step. We force a calculation error so the run reaches the metric via
         # the saved-metric branch but fails for a non-lookup reason.
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-saved")
-            saved = ExperimentSavedMetric.objects.create(
-                team=self.team,
-                name="saved-s1",
-                query=_mean_metric("s1"),
-            )
-            ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
-            recalc = self._recalc(exp, metric_uuids=["s1"])
+        exp = self._experiment(flag_key="calc-saved")
+        saved = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="saved-s1",
+            query=_mean_metric("s1"),
+        )
+        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
+        recalc = self._recalc(exp, metric_uuids=["s1"])
 
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
-                mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-                result = _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
+        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+            mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
+            result = _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
 
-            # Found the saved metric (did not fail at discovery) but failed during calculation.
-            assert result.success is False
-            assert result.error_step == "calculation"
-            recalc.refresh_from_db()
-            assert "s1" in recalc.metric_errors
+        # Found the saved metric (did not fail at discovery) but failed during calculation.
+        assert result.success is False
+        assert result.error_step == "calculation"
+        recalc.refresh_from_db()
+        assert "s1" in recalc.metric_errors
 
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the
         # merge-into-dict behavior: each failure writes its own entry keyed by metric_uuid, no overwriting.
         # The select_for_update guard against concurrent writers is exercised by the production code, not here.
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-accumulate", metrics=[])
-            recalc = self._recalc(exp, metric_uuids=["missing-a", "missing-b"])
+        exp = self._experiment(flag_key="calc-accumulate", metrics=[])
+        recalc = self._recalc(exp, metric_uuids=["missing-a", "missing-b"])
 
-            _calculate(exp.id, "missing-a", str(recalc.id), _QUERY_TO)
-            _calculate(exp.id, "missing-b", str(recalc.id), _QUERY_TO)
+        _calculate(exp.id, "missing-a", str(recalc.id), _QUERY_TO)
+        _calculate(exp.id, "missing-b", str(recalc.id), _QUERY_TO)
 
-            recalc.refresh_from_db()
-            assert len(recalc.metric_errors) == 2
-            assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
+        recalc.refresh_from_db()
+        assert len(recalc.metric_errors) == 2
+        assert set(recalc.metric_errors.keys()) == {"missing-a", "missing-b"}
 
     @parameterized.expand(
         [
@@ -380,28 +384,27 @@ class TestCalculateActivity(BaseTest):
         # Temporal retries the whole activity on transient failure. _store_result is idempotent (update_or_create
         # keyed on fingerprint + query_to) and metric_errors is keyed by metric_uuid, so a second run must leave
         # state identical to the first — no inflated counts, no duplicate result rows.
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
-            recalc = self._recalc(exp, metric_uuids=[metric_uuid])
+        exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
+        recalc = self._recalc(exp, metric_uuids=[metric_uuid])
 
-            def _run() -> None:
-                if mock_runner_failure:
-                    with patch(
-                        "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-                    ) as mock_runner:
-                        mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-                        _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
-                else:
+        def _run() -> None:
+            if mock_runner_failure:
+                with patch(
+                    "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+                ) as mock_runner:
+                    mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
                     _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
+            else:
+                _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
 
-            _run()
-            _run()  # simulated Temporal retry
+        _run()
+        _run()  # simulated Temporal retry
 
-            recalc.refresh_from_db()
-            assert len(recalc.metric_errors) == 1
-            assert metric_uuid in recalc.metric_errors
-            # One result row per (metric_uuid, fingerprint, query_to) regardless of retry count.
-            assert ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count() <= 1
+        recalc.refresh_from_db()
+        assert len(recalc.metric_errors) == 1
+        assert metric_uuid in recalc.metric_errors
+        # One result row per (metric_uuid, fingerprint, query_to) regardless of retry count.
+        assert ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count() <= 1
 
     @parameterized.expand(
         [
@@ -438,43 +441,41 @@ class TestCalculateActivity(BaseTest):
         ]
     )
     def test_input_validation_fails_non_retryable(self, name: str, build_kwargs: dict, expected_fragment: str):
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key=f"validation-{name}", metrics=[_mean_metric("m1")])
-            recalc = self._recalc(exp, metric_uuids=["m1"])
-            if build_kwargs.get("clear_query_to"):
-                recalc.query_to = None
-                recalc.save(update_fields=["query_to"])
+        exp = self._experiment(flag_key=f"validation-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        if build_kwargs.get("clear_query_to"):
+            recalc.query_to = None
+            recalc.save(update_fields=["query_to"])
 
-            call_experiment_id = exp.id + build_kwargs.get("experiment_id_offset", 0)
-            call_metric_uuid = build_kwargs.get("metric_uuid_override", "m1")
-            call_query_to = build_kwargs.get("query_to_override", _QUERY_TO)
+        call_experiment_id = exp.id + build_kwargs.get("experiment_id_offset", 0)
+        call_metric_uuid = build_kwargs.get("metric_uuid_override", "m1")
+        call_query_to = build_kwargs.get("query_to_override", _QUERY_TO)
 
-            with pytest.raises(ApplicationError) as exc_info:
-                _calculate(call_experiment_id, call_metric_uuid, str(recalc.id), call_query_to)
+        with pytest.raises(ApplicationError) as exc_info:
+            _calculate(call_experiment_id, call_metric_uuid, str(recalc.id), call_query_to)
 
-            assert expected_fragment in str(exc_info.value)
-            assert exc_info.value.non_retryable is True
+        assert expected_fragment in str(exc_info.value)
+        assert exc_info.value.non_retryable is True
 
     def test_unexpected_error_calls_capture_exception_and_caps_message(self):
-        with team_scope(self.team.id, canonical=True):
-            exp = self._experiment(flag_key="calc-capture", metrics=[_mean_metric("m1")])
-            recalc = self._recalc(exp, metric_uuids=["m1"])
+        exp = self._experiment(flag_key="calc-capture", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
 
-            with (
-                patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
-                patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
-            ):
-                mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
-                result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
+            mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-            assert result.success is False
-            assert mock_capture.called
-            assert result.error_message is not None
-            assert len(result.error_message) <= 2000
-            row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
-            assert row.status == ExperimentMetricResult.Status.FAILED
-            assert row.error_message is not None
-            assert len(row.error_message) <= 2000
+        assert result.success is False
+        assert mock_capture.called
+        assert result.error_message is not None
+        assert len(result.error_message) <= 2000
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.status == ExperimentMetricResult.Status.FAILED
+        assert row.error_message is not None
+        assert len(row.error_message) <= 2000
 
 
 @pytest.mark.django_db(transaction=True)
@@ -485,7 +486,11 @@ class TestMissingRecalcRow:
     @parameterized.expand(
         [
             ("discover", lambda bogus_id: _discover(bogus_id)),
-            ("update_progress", lambda bogus_id: _update(RecalculationProgressUpdate(recalculation_id=bogus_id))),
+            # mark_started satisfies the XOR guard so the call reaches _get_recalc_state.
+            (
+                "update_progress",
+                lambda bogus_id: _update(RecalculationProgressUpdate(recalculation_id=bogus_id, mark_started=True)),
+            ),
             ("calculate", lambda bogus_id: _calculate(1, "m1", bogus_id, _QUERY_TO)),
         ]
     )

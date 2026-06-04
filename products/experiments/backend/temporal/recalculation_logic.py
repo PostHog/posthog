@@ -5,8 +5,7 @@ module holds the DB-touching ``_*_sync`` implementations plus the pure helpers t
 """
 
 import dataclasses
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime
 
 from django.db import close_old_connections, transaction
 from django.utils import timezone
@@ -146,13 +145,21 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
 def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> str | None:
     close_old_connections()
 
+    if update.mark_started == update.mark_completed:
+        # Contract: exactly one of mark_started / mark_completed per call. Both-true or neither-true is a
+        # workflow bug — fail non-retryable so Temporal terminates promptly.
+        raise ApplicationError(
+            "RecalculationProgressUpdate must set exactly one of mark_started or mark_completed",
+            non_retryable=True,
+        )
+
     state = _get_recalc_state(update.recalculation_id)
     with team_scope(state.team_id, canonical=True):
         # Start: write the data-window end + started_at + initial state under a first-write-wins guard so a
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            proposed_query_to = datetime.now(UTC)
+            proposed_query_to = timezone.now()
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,
@@ -174,23 +181,10 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
 
         # Finish: same first-write-wins guard so a retried mark_completed activity doesn't re-stamp the
         # completion timestamp (and, by symmetry with mark_started, doesn't reopen a closed run).
-        if update.mark_completed:
-            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
-                completed_at=timezone.now(),
-                status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
-            )
-            return None
-
-        # Plain status or counter updates (no lifecycle transition) — idempotent on the value level.
-        updates: dict[str, Any] = {}
-        if update.status:
-            updates["status"] = update.status
-        if update.total_metrics is not None:
-            updates["total_metrics"] = update.total_metrics
-        if update.metric_uuids is not None:
-            updates["metric_uuids"] = update.metric_uuids
-        if updates:
-            ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id).update(**updates)
+        ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, completed_at__isnull=True).update(
+            completed_at=timezone.now(),
+            status=update.status or ExperimentMetricsRecalculation.Status.COMPLETED,
+        )
         return None
 
 
