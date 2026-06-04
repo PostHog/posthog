@@ -6,8 +6,8 @@ description: >
   (signals-scout-llm-analytics, -logs, -error-tracking, -revenue-analytics, -surveys,
   -observability-gaps, -csp-violations) cover individual product surfaces; this
   scout looks for cross-product correlations and explores what specialists don't
-  cover. The coordinator samples one scout per (team, tick) at random, so general
-  fires intermixed with specialists over time.
+  cover. Each scout runs on its own schedule (default daily), so general fires
+  independently of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for
   scratchpad-remember/forget and emit-signal), llm_skill:read, plus standard analytics reads. Uses the
@@ -79,9 +79,9 @@ recognize) live in [`references/conventions.md`](references/conventions.md).
 ## Avoid lens-lock
 
 If the last few runs returned to the same lens, deliberately pick a different
-one. The coordinator already rotates which scout runs each tick — your job
-within a run is to follow what's interesting in the data, not to ceremonially
-rotate lenses.
+one. Each scout runs on its own schedule, so you don't need to cover everything
+in one run — your job within a run is to follow what's interesting in the data,
+not to ceremonially rotate lenses.
 
 ## Close out
 
