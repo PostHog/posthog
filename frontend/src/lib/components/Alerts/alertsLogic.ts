@@ -32,7 +32,6 @@ export const alertsLogic = kea<alertsLogicType>([
     actions({
         setPage: (page: number) => ({ page }),
         setFilters: (filters: Partial<AlertsFilters>) => ({ filters }),
-        setSearch: (search: string) => ({ search }),
     }),
 
     reducers({
@@ -50,7 +49,6 @@ export const alertsLogic = kea<alertsLogicType>([
                         ...state,
                         ...filters,
                     }),
-                setSearch: (state, { search }) => ({ ...state, search }),
             },
         ],
     }),
@@ -59,11 +57,8 @@ export const alertsLogic = kea<alertsLogicType>([
         alertsResponse: [
             { results: [], count: 0 } as { results: AlertType[]; count: number },
             {
-                loadAlerts: async (_, breakpoint) => {
+                loadAlerts: async () => {
                     const search = values.filters.search.trim()
-                    if (search) {
-                        await breakpoint(300)
-                    }
 
                     const response = await api.alerts.list(undefined, {
                         limit: ALERTS_PER_PAGE,
@@ -108,14 +103,10 @@ export const alertsLogic = kea<alertsLogicType>([
         setPage: () => {
             actions.loadAlerts()
         },
-        setFilters: () => {
-            if (values.page !== 1) {
-                actions.setPage(1)
-            } else {
-                actions.loadAlerts()
+        setFilters: async ({ filters }, breakpoint) => {
+            if ('search' in filters && filters.search?.trim()) {
+                await breakpoint(300)
             }
-        },
-        setSearch: () => {
             if (values.page !== 1) {
                 actions.setPage(1)
             } else {

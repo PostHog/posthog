@@ -1295,15 +1295,16 @@ class TestAlertListFilters(APIBaseTest):
 
         assert result_names == ["Revenue other"]
 
-    def test_list_filter_by_search_enforces_length_cap(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": "a" * 201})
+    @parameterized.expand(
+        [
+            ("search_length_cap", {"search": "a" * 201}, "search"),
+            ("invalid_created_by_uuid", {"created_by": "not-a-uuid"}, "created_by"),
+        ]
+    )
+    def test_list_filter_validation_errors(self, _name: str, query_params: dict[str, str], expected_attr: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", query_params)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "search"
-
-    def test_list_filter_by_invalid_created_by_uuid(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"created_by": "not-a-uuid"})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "created_by"
+        assert response.json()["attr"] == expected_attr
 
 
 class TestAlertAPIKeyAccess(APIBaseTest):
