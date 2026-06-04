@@ -108,6 +108,12 @@ Do not add NEW badges on individual catalog variants inside `AddWidgetModal`.
 - Remove: no confirm dialog — undo toast (`removeTileSuccess` in `dashboardLogic.tsx`)
 - Copy: "widget removed" + Undo
 
+## Header title link
+
+- Catalog **`titleHref`** — clicking the tile title navigates to the product scene in **view** mode (same destination as ⋯ **View**).
+- Title is **not** a link in dashboard **layout edit mode** (`DashboardMode.Edit`) so drag on the header does not compete with navigation — see [composition.md § List widget patterns](composition.md#list-widget-patterns-pagination--header-link).
+- Do not tie title linking to `showEditingControls`; editable dashboards still show a linked title while the ⋯ menu and edit affordances are available.
+
 ## ⋯ menu parity (`DashboardWidgetItem`)
 
 - View (if `titleHref`)

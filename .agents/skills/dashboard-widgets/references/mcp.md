@@ -20,7 +20,7 @@ There is no dedicated single-tile create or per-tile `PATCH .../widgets/:tile_id
 
 ## Typical agent flow
 
-1. `dashboard-widget-catalog-list` — pick `widget_type`, build `config` from `config_schema_hints`
+1. `dashboard-widget-catalog-list` — pick `widget_type`, build `config` from `config_schema_hints` (including shared `widgetFilters.entry` shape for property filters)
 2. `dashboard-widgets-batch-add` — add one or more tiles (up to 10 per request)
 3. `dashboard-get` — confirm tile ID(s), widget row `id`, and layout
 4. `dashboard-widgets-run` — fetch live widget data for `tile_ids` (private dashboards only — public/shared views do not call `run_widgets`)

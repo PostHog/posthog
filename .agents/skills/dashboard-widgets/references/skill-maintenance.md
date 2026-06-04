@@ -6,40 +6,44 @@
 
 One canonical home per topic — link elsewhere; do not copy tables or long prose.
 
-| Topic                        | Canonical doc                                                                                                        |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Intake / spec questions      | [widget-intake.md](widget-intake.md) (incl. [discover product UI](widget-intake.md#discover-product-ui-in-the-repo)) |
-| Add flow (files + order)     | [checklist-new-widget-type.md](checklist-new-widget-type.md)                                                         |
-| Model, naming, scaling rules | [architecture.md](architecture.md)                                                                                   |
-| Widgets vs insight charts    | [architecture.md § Charts → insight tiles](architecture.md#charts--use-insight-tiles-not-widgets)                    |
-| Product RBAC                 | [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)                                 |
-| Tile min/max size            | [layout-and-ux.md § Tile min/max size](layout-and-ux.md#tile-minmax-size-grid-rows--columns)                         |
-| Registry entry shapes (code) | [architecture.md](architecture.md)                                                                                   |
-| Product scene UI in tiles    | [composition.md § Product visual parity](composition.md#product-visual-parity)                                       |
-| Update flow                  | [managing-existing-widgets.md](managing-existing-widgets.md) — [SKILL.md §3](../SKILL.md#3-update-a-shipped-type)    |
-| Verify commands              | [SKILL.md §6 Verify](../SKILL.md#6-verify)                                                                           |
-| Human entry / nav            | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md)                                |
+| Topic                        | Canonical doc                                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Intake / spec questions      | [widget-intake.md](widget-intake.md)                                                                              |
+| Add flow (files + order)     | [checklist-new-widget-type.md](checklist-new-widget-type.md)                                                      |
+| Model, naming, scaling rules | [architecture.md](architecture.md)                                                                                |
+| Product RBAC                 | [permissions-and-sharing.md § Product RBAC](permissions-and-sharing.md#product-rbac)                              |
+| Tile min/max size            | [layout-and-ux.md § Tile min/max size](layout-and-ux.md#tile-minmax-size-grid-rows--columns)                      |
+| Registry entry shapes (code) | [architecture.md](architecture.md)                                                                                |
+| Update flow                  | [managing-existing-widgets.md](managing-existing-widgets.md) — [SKILL.md §3](../SKILL.md#3-update-a-shipped-type) |
+| Verify commands              | [SKILL.md §6 Verify](../SKILL.md#6-verify)                                                                        |
+| Human entry / nav            | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md)                             |
 
 ## When this applies
 
 Load `/dashboard-widgets` and complete the maintenance checklist below when **any** of these change:
 
-| Trigger path (glob)                                              | Examples                                                     |
-| ---------------------------------------------------------------- | ------------------------------------------------------------ |
-| `products/dashboards/backend/widgets/**`                         | New `run_*`, config validation, query wiring                 |
-| `products/dashboards/backend/widget_registry.py`                 | New/removed `widget_type`                                    |
-| `products/dashboards/backend/widget_catalog.py`                  | Labels, hints, availability strings                          |
-| `products/dashboards/backend/api/widget_openapi_serializers.py`  | Config OpenAPI shapes                                        |
-| `products/dashboards/backend/api/dashboard.py`                   | `run_widgets`, batch add, sharing serializers (generic only) |
-| `products/dashboards/backend/widget_access.py`                   | RBAC denial copy                                             |
-| `products/dashboards/frontend/widgets/**`                        | Component, edit modal, registry, previews                    |
-| `products/dashboards/frontend/widget_types/**`                   | Catalog, Zod schemas, availability                           |
-| `products/dashboards/frontend/components/WidgetCard/**`          | Shared tile chrome, placeholders, overview fixtures          |
-| `products/dashboards/frontend/components/DashboardWidgetItem/**` | Tile glue, public placement                                  |
-| `products/dashboards/mcp/tools.yaml`                             | Widget MCP tools                                             |
-| `frontend/src/scenes/dashboard/tileLayouts.ts`                   | Layout algorithm (only if behavior/docs change)              |
-| `posthog/api/test/test_sharing.py`                               | Shared dashboard widget payload expectations                 |
-| `tach.toml` (`products.dashboards` `depends_on`)                 | New product import boundary                                  |
+| Trigger path (glob)                                              | Examples                                                        |
+| ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| `products/dashboards/backend/widgets/**`                         | New `run_*`, config validation, query wiring                    |
+| `products/dashboards/backend/widget_registry.py`                 | New/removed `widget_type`                                       |
+| `products/dashboards/backend/widget_catalog.py`                  | Labels, hints, availability strings                             |
+| `products/dashboards/backend/api/widget_openapi_serializers.py`  | Config OpenAPI shapes                                           |
+| `products/dashboards/backend/api/dashboard.py`                   | `run_widgets`, batch add, sharing serializers (generic only)    |
+| `products/dashboards/backend/widget_query_throttle.py`           | Per-team burst/sustained caps on `run_widgets`                  |
+| `products/dashboards/backend/widget_access.py`                   | RBAC denial copy                                                |
+| `products/dashboards/frontend/widgets/**`                        | Component, edit modal, registry, previews                       |
+| `products/dashboards/frontend/widget_types/**`                   | Catalog, Zod schemas, availability                              |
+| `products/dashboards/frontend/components/WidgetCard/**`          | Shared tile chrome, placeholders, overview fixtures             |
+| `products/dashboards/frontend/components/DashboardWidgetItem/**` | Tile glue, public placement, `TileFilters` mount                |
+| `products/dashboards/frontend/widgets/constants.ts`              | List footer, fetch errors, tile refresh debounce ms             |
+| `frontend/src/scenes/dashboard/widgetTileRefreshScheduler.ts`    | Debounced `run_widgets` after tile filter PATCH                 |
+| `frontend/src/scenes/dashboard/dashboardLogic.tsx`               | `scheduleRefreshDashboardWidgets` vs immediate refresh          |
+| `products/dashboards/frontend/widgets/*WidgetTileFilters.tsx`    | On-tile filters (date, status, property pickers)                |
+| `frontend/src/scenes/dashboard/DashboardItems.tsx`               | `showEditingControls`, `isDashboardEditMode`, tile filter mount |
+| `products/dashboards/mcp/tools.yaml`                             | Widget MCP tools                                                |
+| `frontend/src/scenes/dashboard/tileLayouts.ts`                   | Layout algorithm (only if behavior/docs change)                 |
+| `posthog/api/test/test_sharing.py`                               | Shared dashboard widget payload expectations                    |
+| `tach.toml` (`products.dashboards` `depends_on`)                 | New product import boundary                                     |
 
 Platform-only refactors with **no** behavior or agent-facing surface change may skip narrative updates — still run Verify tests.
 
@@ -53,7 +57,11 @@ Platform-only refactors with **no** behavior or agent-facing surface change may 
 | Setup / availability gating                | [availability-and-gating.md](availability-and-gating.md); BE `availability_requirements` note                                                  |
 | Tile layout / mins / add placement         | [layout-and-ux.md](layout-and-ux.md); [architecture.md](architecture.md) if REST/MCP add path changed                                          |
 | WidgetCard / edit modal composition        | [composition.md](composition.md)                                                                                                               |
-| Product scene UI parity in widget body     | [composition.md § Product visual parity](composition.md#product-visual-parity)                                                                 |
+| Tile filter bar / `widgetFilters` config   | [composition.md](composition.md) § Widget settings modal + § List widget patterns                                                              |
+| List pagination footer / `run_*` totals    | [composition.md](composition.md) § List widget patterns (`include_total_count` on dashboard path)                                              |
+| `run_widgets` rate limits                  | [composition.md](composition.md) or [architecture.md](architecture.md); `widget_query_throttle.py` + product listing throttles (replay)        |
+| Debounced tile refresh after filter PATCH  | `constants.ts` `WIDGET_TILE_REFRESH_DEBOUNCE_MS`; `dashboardLogic.tsx`                                                                         |
+| Header title link / dashboard edit mode    | [composition.md](composition.md) § List widget patterns; [layout-and-ux.md](layout-and-ux.md) § ⋯ menu parity                                  |
 | MCP tools or agent flows                   | [mcp.md](mcp.md)                                                                                                                               |
 | New product area / tach / UI reuse pattern | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                               |
 | Human contributor entry point              | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md) registry table / Verify block                            |

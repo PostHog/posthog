@@ -23,6 +23,8 @@ Canonical rule (also SKILL.md rule 1):
 
 **Frontend `locked` alone is insufficient** — backend must enforce the same gate.
 
+**Error tracking list tile** — row status/assignee mutations: dashboard edit **or** Error tracking Editor (`userCanMutateErrorTrackingIssuesOnDashboard` in `widgetProductAccess.ts`). Tile filter PATCH still needs dashboard edit.
+
 ## Copy / move / duplicate
 
 | Action                          | Widget support                                                                                                                               |

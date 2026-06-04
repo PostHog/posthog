@@ -2,15 +2,15 @@
 
 Follow the Quill `Card` pattern: **thin shell + compound subcomponents composed at the callsite**. `WidgetCard` is chrome only — no header/body props.
 
-| File / export                                         | Role                                                                                                                                                                                                               |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `WidgetCard`                                          | Thin tile shell: decorative resize handles, edit-mode edge overlay, RGL slot. **No product/header/body props**                                                                                                     |
-| `WidgetCardHeader` (+ internal title/actions helpers) | Layout router: `simple` vs `dashboard_tile`; exports `widgetCardShouldHideMoreButton`                                                                                                                              |
-| `WidgetCardBody.tsx`                                  | Body slot; locked/error shell states. Also exports `WidgetCardContent`, `WidgetCardBodyMessage`, `WidgetLoadingState`, `WidgetCardBodySkeleton`, **`WidgetCardSharedPlaceholderBody`** (public/shared placeholder) |
-| `WidgetCardContent`                                   | Scrollable column + optional footer (list/table widgets) — from `WidgetCardBody.tsx`                                                                                                                               |
-| `WidgetCardBodyMessage`                               | Empty / inline status text — from `WidgetCardBody.tsx`                                                                                                                                                             |
-| `WidgetLoadingState` / `WidgetCardBodySkeleton`       | Widget-owned loading UI — from `WidgetCardBody.tsx`                                                                                                                                                                |
-| `DashboardWidgetItem`                                 | Production callsite — composes header + body, wires ⋯ menu, edit modal portal, product RBAC lock; **public** placement uses `WidgetCardSharedPlaceholderBody` instead of live widget body                          |
+| File / export                                         | Role                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WidgetCard`                                          | Thin tile shell: decorative resize handles, edit-mode edge overlay, RGL slot. **No product/header/body props**                                                                                                               |
+| `WidgetCardHeader` (+ internal title/actions helpers) | Layout router: `simple` vs `dashboard_tile`; exports `widgetCardShouldHideMoreButton`                                                                                                                                        |
+| `WidgetCardBody.tsx`                                  | Body slot; locked/error shell states. Also exports `WidgetCardContent`, `WidgetCardBodyMessage`, `WidgetLoadingState`, `WidgetCardBodySkeleton`, **`WidgetCardSharedPlaceholderBody`** (public/shared placeholder)           |
+| `WidgetCardContent`                                   | Scrollable column + optional footer (list/table widgets) — from `WidgetCardBody.tsx`                                                                                                                                         |
+| `WidgetCardBodyMessage`                               | Empty / inline status text — from `WidgetCardBody.tsx`                                                                                                                                                                       |
+| `WidgetLoadingState` / `WidgetCardBodySkeleton`       | Widget-owned loading UI — from `WidgetCardBody.tsx`                                                                                                                                                                          |
+| `DashboardWidgetItem`                                 | Production callsite — composes header + body, wires ⋯ menu, edit modal portal, product RBAC lock; mounts registry **`TileFilters`**; **public** placement uses `WidgetCardSharedPlaceholderBody` instead of live widget body |
 
 `WidgetCardHeaderDescription` is exported from `WidgetCardHeader.tsx` for tests only. Widget `Component`s never render card chrome — only body content primitives (`WidgetCardContent`, `WidgetCardBodyMessage`, …).
 
@@ -77,7 +77,7 @@ Render order inside `WidgetCard` (matches `InsightCard`):
 - Add header/body props back to `WidgetCard` — that defeats the compound pattern
 - Put loading placeholders in `WidgetCard` shell — breaks resize/empty-state behavior
 - Put widget body content in `gridChildren` — RGL owns that slot for resize handles only
-- Duplicate headers, menus, card chrome, or filter toggles inside the widget component — filters belong in the settings modal, not the ⋯ menu
+- Duplicate headers, menus, card chrome, or filter toggles inside the widget component — limit/sort/test accounts in edit modal; date/status/property filters on tile bar (not ⋯ menu)
 - Register in `registry.tsx` without a matching `DASHBOARD_WIDGET_CATALOG` entry
 
 ## Header layouts (`catalog.ts`)
@@ -165,17 +165,20 @@ When the FE catalog lacks a `widget_type` (partial deploy, unrebased stack):
 
 ## Widget settings modal
 
-Same compound pattern as `WidgetCard` — `LemonModal` shell with sections composed in each `Edit*WidgetModal` (no shared modal wrapper component).
+`LemonModal` + sections per `Edit*WidgetModal` — no shared wrapper. Copy `EditErrorTrackingWidgetModal.tsx`.
 
-| File / export                       | Role                                                                                                                                         |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EditWidgetModalTileDetailsSection` | Tile name + description fields (saved with config in one PATCH via `buildWidgetTileMetadataPatch`)                                           |
-| `EditWidgetModalFiltersSection`     | Shared `TestAccountFilter` section                                                                                                           |
-| `editWidgetModalBuilders.ts`        | Shared kea **actions** and reducer templates; spread actions only — inline reducers per logic file                                           |
-| `editWidgetModalTileUtils.ts`       | Tile name/description defaults + `buildWidgetTileMetadataPatch`                                                                              |
-| `edit*WidgetModalLogic.ts`          | Per-type kea logic wired to validation + save listeners                                                                                      |
-| `widgets/widgetConfigValidation.ts` | Shared Zod form/config helpers (`parseWidgetConfig`, `validateWidgetConfigInput`, `parseWidgetConfigApiError`) — per-type wrappers call this |
-| `*WidgetConfigValidation.ts`        | Per-type thin wrapper; export `parse*WidgetConfigApiError` wired as **`parseConfigApiError`** on the registry entry                          |
+| Path                                                       | Role                                                                                                |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `EditWidgetModalTileDetailsSection.tsx`                    | Tile name/description                                                                               |
+| `EditWidgetModalFiltersSubsection.tsx`                     | Test accounts + limit/sort under product `h5`                                                       |
+| `editWidgetModalBuilders.ts`                               | Shared kea actions; `buildWidgetTileMetadataPatch` — spread actions only, inline reducers per logic |
+| `edit*WidgetModalLogic.ts`                                 | Validate + save listener                                                                            |
+| `widgetConfigValidation.ts` + `*WidgetConfigValidation.ts` | Zod; registry **`parseConfigApiError`**                                                             |
+| `widgetFilters.ts`                                         | `widgetFilters` persist/HogQL; edit setups; tile persist/restore hooks                              |
+| `widgetFiltersUi.tsx`                                      | Filter chips (edit flow)                                                                            |
+| `widgetTileFiltersReadOnly.tsx`                            | `WidgetTileFiltersBar` + read-only labels                                                           |
+| `*WidgetTileFilters.tsx`                                   | Registry **`TileFilters`** — always-visible bar                                                     |
+| `constants.ts`                                             | Fetch error copy, `WIDGET_TILE_REFRESH_DEBOUNCE_MS`, `formatWidgetListCountFooter`                  |
 
 ```tsx
 <LemonModal … footer={/* Cancel + Save with saveDisabledReason / saving */}>
@@ -193,18 +196,16 @@ Same compound pattern as `WidgetCard` — `LemonModal` shell with sections compo
     {showTypeSettings ? (
       <>
         {showTileDetails ? <LemonDivider className="my-0" /> : null}
-        <EditWidgetModalFiltersSection
-          filterTestAccounts={filterTestAccounts}
-          saving={saving}
-          setFilterTestAccounts={setFilterTestAccounts}
-        />
-        <LemonDivider className="my-0" />
         <section className="flex flex-col gap-3">
           <h5 className="text-sm font-semibold m-0">
             {getDashboardWidgetGroupLabel('error_tracking')}
           </h5>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* type-specific LemonField rows — date range, limit, orderBy, … */}
+          <div className="flex flex-col gap-4">
+            <EditWidgetModalFiltersSubsection title="Issue filters" …>
+              <TestAccountFilter … />
+              {/* limit, sort — property/date/status filters are on the tile bar, not here */}
+            </EditWidgetModalFiltersSubsection>
+            <div>{/* Sorting subsection */}</div>
           </div>
         </section>
       </>
@@ -214,6 +215,17 @@ Same compound pattern as `WidgetCard` — `LemonModal` shell with sections compo
 ```
 
 References: `EditErrorTrackingWidgetModal.tsx`, `EditSessionReplayWidgetModal.tsx`. Omit sections you do not need — gate with booleans like `showTileDetails` / product-specific setup flags.
+
+**`widgetFilters`** on config (BE still reads legacy `quickFilters`). Edit modal = test accounts + limit + sort. Tile bar = date + type pickers + property filters.
+
+| Layer               | Path                                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| Zod                 | `configSchemas.ts`                                                                                  |
+| FE helpers          | `widgetFilters.ts`                                                                                  |
+| BE validate + HogQL | `backend/widgets/widget_filters.py` — product property allowlists (e.g. SR `constants.ts`)          |
+| Tile bar            | `*WidgetTileFilters.tsx`, `WidgetPropertyFiltersSection` (direct `config.widgetFilters` read/write) |
+
+`DashboardWidgetItem` mounts registry `TileFilters`; `canEditDashboard` gates edit vs read-only bar (`DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON` in `constants.ts`). Not coupled to the dashboard quick-filter bar.
 
 ### Kea edit-modal logic
 
@@ -229,3 +241,25 @@ References: `EditErrorTrackingWidgetModal.tsx`, `EditSessionReplayWidgetModal.ts
 - Per-type config schema in `configSchemas.ts`; list widgets export a form schema via `widgetListFormSchema(orderBySchema)` (or a type-specific form schema extending the shared list fields)
 - Per-type `*WidgetConfigValidation.ts` wraps shared helpers from `widgets/widgetConfigValidation.ts`
 - Register **`parseConfigApiError`** on the `DASHBOARD_WIDGET_REGISTRY` entry (dispatched via `parseDashboardWidgetConfigApiError` in `registry.tsx` → `updateDashboardWidgetTile` in `utils.ts`)
+
+## List widget patterns (pagination + header link)
+
+Shipped list types (`error_tracking_list`, `session_replay_list`) share the same UX contracts.
+
+### Pagination footer
+
+| Layer   | Responsibility                                                                                                                                                                                                                                                                  |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_*` | `results`, `hasMore`, `limit`, `offset`. `!hasMore` → `totalCount` = shown. `hasMore` + `include_total_count=True` → capped count query (`MAX_WIDGET_RESULT_LIMIT`). **Dashboard** `run_widgets` always passes `include_total_count=False` — skip count when page has more rows |
+| FE      | `WidgetCardContent` **`footer`**: `formatWidgetListCountFooter(shown, totalCount, totalCountCapped, noun, hasMore)` — nouns in `constants.ts` (`WIDGET_LIST_COUNT_ISSUES` / `RECORDINGS`). Omit total + `hasMore` → `N+` copy                                                   |
+| Stories | When mocking `hasMore: true`, either totals or rely on `hasMore` for `N+` footer                                                                                                                                                                                                |
+
+Count failures never fail the tile (log + omit totals).
+
+### Header title navigation
+
+- Catalog **`titleHref`** — product scene route (`urls.errorTracking()`, `urls.replay()`, …).
+- **`WidgetCardHeader`** wraps the title in `<Link>` when `titleHref` is set and **`isDashboardEditMode` is false** — do not gate on `showEditingControls` (editable dashboards keep editing chrome in view mode).
+- **`DashboardItems`** sets `isDashboardEditMode={dashboardMode === DashboardMode.Edit}` on `DashboardWidgetItem`.
+- Dashboard **layout edit mode** keeps the title plain text so header drag does not compete with navigation; ⋯ **View** still uses `titleHref`.
+- Public placement: `titleHref` suppressed in `DashboardWidgetItem` (existing sharing rules).
