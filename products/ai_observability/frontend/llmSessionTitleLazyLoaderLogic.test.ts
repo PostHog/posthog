@@ -52,13 +52,13 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
         })
 
         it('stores resolved titles and clears loading on batch success', async () => {
-            await expectStored(() => logic.actions.loadSessionTitlesBatchSuccess({ s1: 'hello' }, ['s1']))
+            await expectStored(() => logic.actions.loadSessionTitlesBatchSuccess(new Map([['s1', 'hello']]), ['s1']))
             expect(logic.values.getSessionTitle('s1')).toBe('hello')
             expect(logic.values.loadingSessionIds.has('s1')).toBe(false)
         })
 
         it('stores null (not undefined) for a requested session with no resolved title', async () => {
-            await expectStored(() => logic.actions.loadSessionTitlesBatchSuccess({}, ['s1']))
+            await expectStored(() => logic.actions.loadSessionTitlesBatchSuccess(new Map(), ['s1']))
             expect(logic.values.getSessionTitle('s1')).toBeNull()
         })
 
@@ -79,6 +79,15 @@ describe('llmSessionTitleLazyLoaderLogic', () => {
             logic.actions.ensureSessionTitleLoaded('s1')
             await settle()
             expect(logic.values.getSessionTitle('s1')).toBe('plan a trip to Japan')
+        })
+
+        it('handles a session id that collides with object prototype keys without polluting Object.prototype', async () => {
+            mockSources({ events: [['__proto__', userInputState('not prototype pollution'), '', '']] })
+            logic.actions.ensureSessionTitleLoaded('__proto__')
+            await settle()
+            expect(logic.values.getSessionTitle('__proto__')).toBe('not prototype pollution')
+            // The merge must not have written the parsed payload onto Object.prototype.
+            expect(({} as Record<string, unknown>).inputState).toBeUndefined()
         })
 
         it('merges payloads split across the events and ai_events tables', async () => {

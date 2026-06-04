@@ -112,7 +112,7 @@ function aiEventsTableQuery(sessionIds: string): HogQLQuery {
  * Returns the resolved titles, or `null` if every source query failed (so the
  * caller can mark the batch failed rather than cache empty titles).
  */
-async function fetchSessionTitles(batch: string[]): Promise<Record<string, string | null> | null> {
+async function fetchSessionTitles(batch: string[]): Promise<Map<string, string | null> | null> {
     const sessionIds = batch.map((id) => escapeHogQLString(id)).join(',')
 
     const settled = await Promise.allSettled([
@@ -126,7 +126,10 @@ async function fetchSessionTitles(batch: string[]): Promise<Record<string, strin
     }
 
     // Merge across both sources: keep the first non-empty payload per session.
-    const payloads: Record<string, SessionPayloads> = {}
+    // Keyed by a Map (not a plain object) so session ids that collide with object
+    // prototype keys (e.g. `__proto__`, sourced from untrusted event data) are
+    // treated as plain keys rather than reading or polluting Object.prototype.
+    const payloads = new Map<string, SessionPayloads>()
     for (const result of settled) {
         if (result.status !== 'fulfilled') {
             continue
@@ -141,8 +144,11 @@ async function fetchSessionTitles(batch: string[]): Promise<Record<string, strin
             if (!sessionId) {
                 continue
             }
-            const current =
-                payloads[sessionId] ?? (payloads[sessionId] = { inputState: null, genInput: null, traceName: null })
+            let current = payloads.get(sessionId)
+            if (!current) {
+                current = { inputState: null, genInput: null, traceName: null }
+                payloads.set(sessionId, current)
+            }
             if (current.inputState == null) {
                 current.inputState = parseTruncatedJson(firstInputState)
             }
@@ -155,12 +161,13 @@ async function fetchSessionTitles(batch: string[]): Promise<Record<string, strin
         }
     }
 
-    const titles: Record<string, string | null> = {}
+    const titles = new Map<string, string | null>()
     for (const sessionId of batch) {
-        const payload = payloads[sessionId]
-        titles[sessionId] = payload
-            ? resolveTitleFromInputs(payload.inputState, payload.genInput, payload.traceName)
-            : null
+        const payload = payloads.get(sessionId)
+        titles.set(
+            sessionId,
+            payload ? resolveTitleFromInputs(payload.inputState, payload.genInput, payload.traceName) : null
+        )
     }
     return titles
 }
@@ -176,7 +183,7 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
     actions({
         ensureSessionTitleLoaded: (sessionId: string) => ({ sessionId }),
         markSessionIdsLoading: (sessionIds: string[]) => ({ sessionIds }),
-        loadSessionTitlesBatchSuccess: (titles: Record<string, string | null>, requestedSessionIds: string[]) => ({
+        loadSessionTitlesBatchSuccess: (titles: Map<string, string | null>, requestedSessionIds: string[]) => ({
             titles,
             requestedSessionIds,
         }),
@@ -184,21 +191,23 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
     }),
 
     reducers({
-        // `undefined` = not yet requested, `null` = resolved with no usable title.
+        // Map keyed by session id. `undefined` (key absent) = not yet requested,
+        // `null` = resolved with no usable title. A Map keeps untrusted session ids
+        // (e.g. `__proto__`) from colliding with object prototype keys.
         titlesBySessionId: [
-            {} as Record<string, string | null>,
+            new Map<string, string | null>(),
             {
                 loadSessionTitlesBatchSuccess: (state, { titles, requestedSessionIds }) => {
-                    const next = { ...state }
+                    const next = new Map(state)
                     for (const sessionId of requestedSessionIds) {
-                        next[sessionId] = titles[sessionId] ?? null
+                        next.set(sessionId, titles.get(sessionId) ?? null)
                     }
                     return next
                 },
                 loadSessionTitlesBatchFailure: (state, { requestedSessionIds }) => {
-                    const next = { ...state }
+                    const next = new Map(state)
                     for (const sessionId of requestedSessionIds) {
-                        next[sessionId] = null
+                        next.set(sessionId, null)
                     }
                     return next
                 },
@@ -239,7 +248,7 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
         getSessionTitle: [
             (s) => [s.titlesBySessionId],
             (titlesBySessionId): ((sessionId: string) => string | null | undefined) => {
-                return (sessionId: string) => titlesBySessionId[sessionId]
+                return (sessionId: string) => titlesBySessionId.get(sessionId)
             },
         ],
     }),
@@ -249,7 +258,7 @@ export const llmSessionTitleLazyLoaderLogic = kea<llmSessionTitleLazyLoaderLogic
             if (
                 !sessionId ||
                 sessionId.length > SESSION_ID_MAX_LENGTH ||
-                values.titlesBySessionId[sessionId] !== undefined ||
+                values.titlesBySessionId.has(sessionId) ||
                 values.loadingSessionIds.has(sessionId)
             ) {
                 return

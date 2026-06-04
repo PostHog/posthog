@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
@@ -125,9 +125,9 @@ function SessionSceneWrapper(): JSX.Element {
     // and independent of the passed date window)
     const heroTitle = getSessionTitle(sessionId)
     const titleLoading = heroTitle === undefined
-    if (titleLoading) {
+    useEffect(() => {
         ensureSessionTitleLoaded(sessionId)
-    }
+    }, [sessionId, ensureSessionTitleLoaded])
 
     if (responseLoading) {
         return <SpinnerOverlay />
