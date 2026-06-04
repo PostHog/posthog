@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { BARE_DOMAIN_REGEX, ensureAnchored } from 'lib/components/IngestionControls/triggers/urlConfigLogic'
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,12 +17,6 @@ const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
 
 export function isStringWithLength(x: unknown): x is string {
     return typeof x === 'string' && x.trim() !== ''
-}
-
-function ensureAnchored(url: string): string {
-    url = url.startsWith('^') ? url.substring(1) : url
-    url = url.endsWith('$') ? url.substring(0, url.length - 1) : url
-    return `^${url}$`
 }
 
 export const replayTriggersLogic = kea<replayTriggersLogicType>([
@@ -149,11 +144,11 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     if (type !== 'trigger') {
                         return _
                     }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+                    // Bare-domain patterns are expanded on save (see ensureAnchored), so let the user
+                    // know the saved pattern will match the domain and all of its sub-paths.
+                    if (BARE_DOMAIN_REGEX.test(url)) {
                         const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+                        return `This will be saved as "${sanitizedUrl}(/.*)?" so it matches ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
                     }
                     return null
                 },
@@ -166,11 +161,11 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
                     if (type !== 'blocklist') {
                         return _
                     }
-                    // Check if it ends with a TLD
-                    if (/\.[a-z]{2,}\/?$/i.test(url)) {
+                    // Bare-domain patterns are expanded on save (see ensureAnchored), so let the user
+                    // know the saved pattern will match the domain and all of its sub-paths.
+                    if (BARE_DOMAIN_REGEX.test(url)) {
                         const sanitizedUrl = url.endsWith('/') ? url.slice(0, -1) : url
-                        return `If you want to match all paths of a domain, you should write " ${sanitizedUrl}(/.*)? ". This would match: 
-                        ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
+                        return `This will be saved as "${sanitizedUrl}(/.*)?" so it matches ${sanitizedUrl}, ${sanitizedUrl}/, ${sanitizedUrl}/page, etc. Don't forget to include https:// at the beginning of the url.`
                     }
                     return null
                 },

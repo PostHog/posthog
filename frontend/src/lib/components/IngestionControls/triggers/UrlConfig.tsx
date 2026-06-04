@@ -266,9 +266,10 @@ function UrlConfigForm({
         >
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
-                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). This is
-                    because <pre className="inline">https://example.com/</pre> does not only match the homepage. You'd
-                    need <pre className="inline">^https://example.com/$</pre>
+                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do not). Bare domains
+                    like <pre className="inline">https://example.com</pre> are saved as{' '}
+                    <pre className="inline">^https://example.com(/.*)?$</pre> so they match the domain and all of its
+                    sub-paths.
                 </LemonBanner>
                 <LemonLabel className="w-full">
                     Matching regex:
@@ -276,7 +277,7 @@ function UrlConfigForm({
                         <LemonInput autoFocus placeholder="Enter URL regex." data-attr="url-input" />
                     </LemonField>
                 </LemonLabel>
-                {validationWarning && <span className="text-danger">{validationWarning}</span>}
+                {validationWarning && <span className="text-warning">{validationWarning}</span>}
             </div>
             <div className="flex justify-between gap-2 w-full">
                 <div>
