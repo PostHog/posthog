@@ -33,14 +33,19 @@ message ProcessItem {
   // Serialized rust/cymbal AnyEvent JSON in the strict canonical shape already
   // accepted by Cymbal's HTTP /process boundary.
   bytes event_json = 2;
-  // Time allocated to process this item, in milliseconds. A zero value expires
-  // immediately.
-  uint32 timeout_ms = 3;
+  // Optional time allocated to process this item, in milliseconds. When absent,
+  // the server default applies. A present zero value expires immediately.
+  optional uint32 timeout_ms = 3;
 }
 
 // ProcessBatchRequest is a finite ordered batch of process items.
 message ProcessBatchRequest {
   repeated ProcessItem items = 1;
+  // Optional default time allocated to process each item in this batch, in
+  // milliseconds. An item-level timeout_ms overrides this value. When both are
+  // absent, the server default applies. A present zero value expires items
+  // immediately.
+  optional uint32 timeout_ms = 2;
 }
 
 // ProcessBatchResponse contains exactly one outcome for each request item, in

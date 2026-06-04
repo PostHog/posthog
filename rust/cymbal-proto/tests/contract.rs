@@ -16,7 +16,7 @@ fn process_item_serializes_canonical_event_with_opaque_id() {
     let item = ProcessItem {
         id: "caller-1".to_string(),
         event_json: br#"{"uuid":"0198f1d7-26fb-7f17-9b75-4377002fe472","event":"$exception","team_id":42,"timestamp":"2026-01-01T00:00:00Z","properties":{"$exception_list":[]}}"#.to_vec(),
-        timeout_ms: 1_500,
+        timeout_ms: Some(1_500),
     };
 
     let decoded = ProcessItem::decode(item.encode_to_vec().as_slice()).unwrap();
@@ -26,7 +26,7 @@ fn process_item_serializes_canonical_event_with_opaque_id() {
         decoded.event_json,
         br#"{"uuid":"0198f1d7-26fb-7f17-9b75-4377002fe472","event":"$exception","team_id":42,"timestamp":"2026-01-01T00:00:00Z","properties":{"$exception_list":[]}}"#
     );
-    assert_eq!(decoded.timeout_ms, 1_500);
+    assert_eq!(decoded.timeout_ms, Some(1_500));
 }
 
 #[test]
@@ -104,12 +104,12 @@ fn process_contract_allows_duplicate_ids() {
         ProcessItem {
             id: "duplicate".to_string(),
             event_json: br#"{"event":"$exception","properties":{}}"#.to_vec(),
-            timeout_ms: 100,
+            timeout_ms: Some(100),
         },
         ProcessItem {
             id: "duplicate".to_string(),
             event_json: br#"{"event":"$exception","properties":{"second":true}}"#.to_vec(),
-            timeout_ms: 200,
+            timeout_ms: Some(200),
         },
     ];
 
@@ -121,8 +121,8 @@ fn process_contract_allows_duplicate_ids() {
     assert_eq!(decoded[0].id, "duplicate");
     assert_eq!(decoded[1].id, "duplicate");
     assert_ne!(decoded[0].event_json, decoded[1].event_json);
-    assert_eq!(decoded[0].timeout_ms, 100);
-    assert_eq!(decoded[1].timeout_ms, 200);
+    assert_eq!(decoded[0].timeout_ms, Some(100));
+    assert_eq!(decoded[1].timeout_ms, Some(200));
 }
 
 #[test]
@@ -161,14 +161,15 @@ fn process_batch_preserves_input_order_contract() {
             ProcessItem {
                 id: "first".to_string(),
                 event_json: br#"{"event":"$exception","properties":{"first":true}}"#.to_vec(),
-                timeout_ms: 1_000,
+                timeout_ms: Some(1_000),
             },
             ProcessItem {
                 id: "second".to_string(),
                 event_json: br#"{"event":"$exception","properties":{"second":true}}"#.to_vec(),
-                timeout_ms: 2_000,
+                timeout_ms: Some(2_000),
             },
         ],
+        timeout_ms: Some(3_000),
     };
     let response = ProcessBatchResponse {
         outcomes: vec![
@@ -191,10 +192,11 @@ fn process_batch_preserves_input_order_contract() {
     let decoded_response =
         ProcessBatchResponse::decode(response.encode_to_vec().as_slice()).unwrap();
 
+    assert_eq!(decoded_request.timeout_ms, Some(3_000));
     assert_eq!(decoded_request.items[0].id, "first");
-    assert_eq!(decoded_request.items[0].timeout_ms, 1_000);
+    assert_eq!(decoded_request.items[0].timeout_ms, Some(1_000));
     assert_eq!(decoded_request.items[1].id, "second");
-    assert_eq!(decoded_request.items[1].timeout_ms, 2_000);
+    assert_eq!(decoded_request.items[1].timeout_ms, Some(2_000));
     assert_eq!(decoded_response.outcomes[0].id, "first");
     assert_eq!(decoded_response.outcomes[1].id, "second");
 }
