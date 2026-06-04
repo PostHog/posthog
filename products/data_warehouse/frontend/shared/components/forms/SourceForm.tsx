@@ -32,6 +32,7 @@ import {
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
+import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 
@@ -278,6 +279,13 @@ export const sourceFieldToElement = (
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />
+    }
+
+    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
+        // Special case — once the user picks an OAuth integration the selector swaps the
+        // text input for a dropdown populated from the Search Console API. Avoids the
+        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
+        return <GoogleSearchConsoleSiteSelector key={field.name} />
     }
 
     return (

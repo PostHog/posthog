@@ -292,6 +292,25 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
+class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
+    siteUrl = serializers.CharField(
+        help_text=(
+            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
+            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
+        )
+    )
+    permissionLevel = serializers.CharField(
+        help_text=(
+            "The connected user's permission level for this site. One of `siteOwner`, "
+            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
+        )
+    )
+
+
+class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
+    sites = GoogleSearchConsoleSiteSerializer(many=True)
+
+
 @extend_schema_serializer(component_name="IntegrationConfig")
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
@@ -809,6 +828,35 @@ class IntegrationViewSet(
 
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
+        return Response(response_data)
+
+    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
+    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the Search Console properties the connected Google account has access to."""
+        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
+        # import path, mirroring how other ad-platform endpoints stay self-contained.
+        from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            google_search_console_session,
+            list_sites,
+        )
+
+        instance = self.get_object()
+        if instance.kind != "google-search-console":
+            raise ValidationError(
+                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
+            )
+        _ensure_oauth_token_valid(instance)
+
+        cache_key = f"google_search_console/{instance.id}/sites"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        session = google_search_console_session(instance.id, instance.team_id)
+        sites = list_sites(session)
+        response_data = {"sites": sites}
+        cache.set(cache_key, response_data, 60)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
