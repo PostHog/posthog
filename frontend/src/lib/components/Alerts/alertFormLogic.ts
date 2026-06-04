@@ -26,7 +26,7 @@ import {
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
-import { getAlertFormValidationErrors, thresholdAlertHasBounds } from './alertFormSchema'
+import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'

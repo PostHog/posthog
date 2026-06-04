@@ -69,7 +69,7 @@ describe('alertFormSchema', () => {
                 threshold: {
                     configuration: {
                         type: InsightThresholdType.ABSOLUTE,
-                        bounds: { lower: '', upper: '' },
+                        bounds: { lower: '' as unknown as number, upper: '' as unknown as number },
                     },
                 },
             })
