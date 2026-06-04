@@ -2152,6 +2152,22 @@ def validate_team_attrs(
                 raise exceptions.PermissionDenied(
                     "Only project admins can modify these settings: " + ", ".join(sorted(admin_fields_touched))
                 )
+    else:
+        # On create there's no team yet, so check the creator's org-level membership. Without this a
+        # non-admin member (allowed to create projects via members_can_create_projects) could set
+        # admin-only team fields like receive_org_level_activity_logs. `is_demo` is excluded — demo
+        # project creation is intentionally open to members and gated separately.
+        admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
+        if admin_fields_touched:
+            membership = OrganizationMembership.objects.filter(
+                user=view.request.user, organization_id=view.organization_id
+            ).first()
+            level = membership.level if membership else None
+            if level is None or level < OrganizationMembership.Level.ADMIN:
+                raise exceptions.PermissionDenied(
+                    "Only organization admins can set these settings on project creation: "
+                    + ", ".join(sorted(admin_fields_touched))
+                )
 
     if "primary_dashboard" in attrs:
         if not instance:

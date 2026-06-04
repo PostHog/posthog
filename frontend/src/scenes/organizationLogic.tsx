@@ -12,7 +12,7 @@ import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { OrganizationType } from '~/types'
+import { AvailableFeature, OrganizationType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'
 import { urls } from './urls'
@@ -132,12 +132,16 @@ export const organizationLogic = kea<organizationLogicType>([
                 !currentOrganization?.membership_level && !currentOrganizationLoading,
         ],
         projectCreationForbiddenReason: [
-            (s) => [s.currentOrganization],
-            (currentOrganization): string | null => {
+            (s) => [s.currentOrganization, s.hasAvailableFeature],
+            (currentOrganization, hasAvailableFeature): string | null => {
                 const isAdminOrAbove =
                     !!currentOrganization?.membership_level &&
                     currentOrganization.membership_level >= OrganizationMembershipLevel.Admin
-                if (isAdminOrAbove || currentOrganization?.members_can_create_projects) {
+                // Mirror the backend: members can create only when the toggle is on AND the org has the entitlement.
+                const membersCanCreate =
+                    !!currentOrganization?.members_can_create_projects &&
+                    hasAvailableFeature(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)
+                if (isAdminOrAbove || membersCanCreate) {
                     return null
                 }
                 return 'You need to be an organization admin or above to create new projects.'

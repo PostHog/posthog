@@ -166,6 +166,36 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_member_cannot_set_admin_only_fields_when_creating_project(self):
+        # A member allowed to create projects must not be able to set admin-only team fields like
+        # receive_org_level_activity_logs, which would grant org-wide activity log access.
+        self._set_unlimited_projects()
+        self.organization.members_can_create_projects = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        with patch("posthog.api.project.create_notification"):
+            response = self.client.post(
+                "/api/projects/", {"name": "Sneaky Project", "receive_org_level_activity_logs": True}
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("receive_org_level_activity_logs", response.json()["detail"])
+        self.assertFalse(self.organization.teams.filter(receive_org_level_activity_logs=True).exists())
+
+    def test_admin_can_set_admin_only_fields_when_creating_project(self):
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post(
+            "/api/projects/", {"name": "Admin Project", "receive_org_level_activity_logs": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.json()["receive_org_level_activity_logs"])
+
     @parameterized.expand(
         [
             ("admin", OrganizationMembership.Level.ADMIN),
