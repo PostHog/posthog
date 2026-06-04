@@ -85,22 +85,3 @@ export interface PulseWatchedCandidate {
     label: string
     query: Record<string, any>
 }
-
-// Per-run scan tuning knobs (staff only). Sent in the manual-trigger request to override the heuristics
-// for one scan — nothing is persisted server-side. A per-source limit of 0 turns that source off.
-export interface PulseScanConfigType {
-    // Selection — which metrics get scanned.
-    max_candidates: number
-    recent_days: number
-    min_viewers_for_recent_insight: number
-    dashboard_tile_limit: number
-    recent_insight_limit: number
-    saved_insight_limit: number
-    top_event_limit: number
-    // Detection — what counts as a notable change.
-    min_baseline_value: number
-    min_change_pct: number
-    robust_z_threshold: number
-    baseline_weeks: number
-    max_findings: number
-}

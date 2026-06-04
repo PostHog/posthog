@@ -16,12 +16,14 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import PulseScanConfig
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import PulseDigest, PulseFinding, PulseSubscription
 from posthog.models.pulse import DetectionMode, PulseSubscriptionFrequency
+from posthog.temporal.ai.pulse.detection import MIN_BASELINE_WEEKS
 from posthog.temporal.ai.pulse.period import period_bounds, period_key
 from posthog.temporal.ai.pulse.selection import select_candidates
-from posthog.temporal.ai.pulse.types import PulseScanConfig
 from posthog.temporal.ai.pulse.workflow import PulseScanInputs
 from posthog.temporal.common.client import async_connect
 
@@ -284,7 +286,7 @@ class PulseScanConfigSerializer(serializers.Serializer):
     )
     min_change_pct = serializers.FloatField(
         required=False,
-        min_value=0.0,
+        min_value=0.01,
         max_value=10.0,
         help_text="Primary gate: minimum absolute fractional change to flag (0.25 = 25%).",
     )
@@ -296,7 +298,7 @@ class PulseScanConfigSerializer(serializers.Serializer):
     )
     baseline_weeks = serializers.IntegerField(
         required=False,
-        min_value=3,
+        min_value=MIN_BASELINE_WEEKS,
         max_value=12,
         help_text="Completed weeks used to compute the baseline median.",
     )
@@ -457,7 +459,7 @@ class PulseSubscriptionViewSet(
     )
     @action(detail=False, methods=["get"], url_path="watched")
     def watched(self, request: Request, *args, **kwargs) -> Response:
-        # Show the default watched set (the baseline selection), just capped smaller for the panel.
+        # Preview the default-config selection (every source at its default limit), capped to a small total for the panel.
         candidates = async_to_sync(select_candidates)(
             team_id=self.team_id, config=PulseScanConfig(max_candidates=WATCHED_MAX_CANDIDATES)
         )

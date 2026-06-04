@@ -19,7 +19,6 @@ import {
     PulseDigestDetail,
     PulseDigestSummary,
     PulseFindingType,
-    PulseScanConfigType,
     PulseSubscriptionType,
     PulseWatchedCandidate,
 } from 'scenes/pulse/pulseTypes'
@@ -59,6 +58,7 @@ import {
     Node,
     NodeKind,
     PersistedFolder,
+    PulseScanConfig,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -2782,8 +2782,7 @@ const api = {
         async getDigest(id: string): Promise<PulseDigestDetail> {
             return new ApiRequest().pulseDigest(id).get()
         },
-        async triggerScan(config?: Partial<PulseScanConfigType>): Promise<{ workflow_id: string }> {
-            // An empty body resolves the run's config from the team's subscription; a config overrides it.
+        async triggerScan(config?: Partial<PulseScanConfig>): Promise<{ workflow_id: string }> {
             return new ApiRequest()
                 .pulseDigests()
                 .withAction('trigger_scan')

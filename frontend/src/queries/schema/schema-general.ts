@@ -4513,6 +4513,40 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+/**
+ * Per-run tuning knobs for one Pulse scan. Defaults mirror the production constants and are resolved per-run
+ * (staff override → team subscription → these defaults); nothing is persisted. Every field is optional so its
+ * `@default` flows into the generated pydantic — a resolved config is always fully populated at runtime.
+ */
+export interface PulseScanConfig {
+    // Selection — which metrics get scanned. A per-source limit of 0 disables that source.
+    /** @default 200 */
+    max_candidates?: integer
+    /** @default 30 */
+    recent_days?: integer
+    /** @default 3 */
+    min_viewers_for_recent_insight?: integer
+    /** @default 10 */
+    dashboard_tile_limit?: integer
+    /** @default 100 */
+    recent_insight_limit?: integer
+    /** @default 15 */
+    saved_insight_limit?: integer
+    /** @default 25 */
+    top_event_limit?: integer
+    // Detection — what counts as a notable change.
+    /** @default 5 */
+    min_baseline_value?: number
+    /** @default 0.25 */
+    min_change_pct?: number
+    /** @default 3.5 */
+    robust_z_threshold?: number
+    /** @default 4 */
+    baseline_weeks?: integer
+    /** @default 5 */
+    max_findings?: integer
+}
+
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
 export interface AlertScheduleRestrictionWindow {
     start: string

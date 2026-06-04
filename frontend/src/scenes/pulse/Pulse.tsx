@@ -49,17 +49,12 @@ import { userLogic } from 'scenes/userLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { PulseScanConfig } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 
 import { PulseFindingChart } from './PulseFindingChart'
 import { pulseLogic } from './pulseLogic'
-import {
-    PulseDigestStatus,
-    PulseDigestSummary,
-    PulseFindingType,
-    PulseScanConfigType,
-    PulseSensitivity,
-} from './pulseTypes'
+import { PulseDigestStatus, PulseDigestSummary, PulseFindingType, PulseSensitivity } from './pulseTypes'
 import {
     SENSITIVITY_PRESETS,
     buildFindingInsightContext,
@@ -423,7 +418,7 @@ function WatchedPanel(): JSX.Element | null {
 }
 
 // Knob definitions for the staff scan-tuning panel — kept module-level so they aren't rebuilt each render.
-type ScanKnob = { key: keyof PulseScanConfigType; label: string; step?: number; hint?: string }
+type ScanKnob = { key: keyof PulseScanConfig; label: string; step?: number; hint?: string }
 const SELECTION_KNOBS: ScanKnob[] = [
     { key: 'max_candidates', label: 'Max candidates' },
     { key: 'recent_days', label: 'Recent window (days)' },
@@ -463,8 +458,7 @@ function ScanTuningPanel(): JSX.Element {
                 onChange={(v) =>
                     // LemonInput type="number" emits NaN (not undefined) for an empty field, and NaN ?? x
                     // doesn't catch it — so guard on finiteness to keep NaN out of the draft and the request.
-                    Number.isFinite(v) &&
-                    updateScanConfigLocal({ [knob.key]: v as number } as Partial<PulseScanConfigType>)
+                    Number.isFinite(v) && updateScanConfigLocal({ [knob.key]: v as number } as Partial<PulseScanConfig>)
                 }
             />
         </div>

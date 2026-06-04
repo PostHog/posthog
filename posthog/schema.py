@@ -7888,6 +7888,24 @@ class PropertyValueItem(BaseModel):
     name: str | float | bool | None = None
 
 
+class PulseScanConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline_weeks: int | None = 4
+    dashboard_tile_limit: int | None = 10
+    max_candidates: int | None = 200
+    max_findings: int | None = 5
+    min_baseline_value: float | None = 5
+    min_change_pct: float | None = 0.25
+    min_viewers_for_recent_insight: int | None = 3
+    recent_days: int | None = 30
+    recent_insight_limit: int | None = 100
+    robust_z_threshold: float | None = 3.5
+    saved_insight_limit: int | None = 15
+    top_event_limit: int | None = 25
+
+
 class QueryResponseAlternative9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

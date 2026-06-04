@@ -120,7 +120,7 @@ Stay factual and humble: at most one hypothesis, clearly hedged ("worth checking
 
 def _build_breakdown_query(base_query: dict, breakdown_property: str) -> dict:
     query = json.loads(json.dumps(base_query))  # deep copy
-    # Match the detection window so attribution compares the same completed-week-vs-baseline.
+    # Attribution is intentionally pinned to a fixed ~4-week window; detection's baseline window is configurable but the breakdown stays fixed for simplicity.
     query["dateRange"] = {"date_from": "-42d", "date_to": None}
     query["interval"] = "week"
     query["breakdownFilter"] = {"breakdown": breakdown_property, "breakdown_type": "event"}

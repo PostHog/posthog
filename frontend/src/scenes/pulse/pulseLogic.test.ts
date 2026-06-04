@@ -5,9 +5,10 @@ import { expectLogic } from 'kea-test-utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import schemaJson from '~/queries/schema.json'
 import { initKeaTests } from '~/test/init'
 
-import { pulseLogic } from './pulseLogic'
+import { PULSE_SCAN_CONFIG_DEFAULTS, pulseLogic } from './pulseLogic'
 
 const DIGEST = {
     id: 'd1',
@@ -219,5 +220,13 @@ describe('pulseLogic', () => {
                 expandedDigestId: 'd1',
                 expandedDigest: expect.objectContaining({ id: 'd1' }),
             })
+    })
+
+    it('PULSE_SCAN_CONFIG_DEFAULTS matches the schema defaults', () => {
+        const props = (schemaJson as any).definitions.PulseScanConfig.properties
+        const schemaDefaults = Object.fromEntries(
+            Object.keys(PULSE_SCAN_CONFIG_DEFAULTS).map((k) => [k, props[k].default])
+        )
+        expect(PULSE_SCAN_CONFIG_DEFAULTS).toEqual(schemaDefaults)
     })
 })

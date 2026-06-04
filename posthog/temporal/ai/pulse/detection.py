@@ -7,11 +7,13 @@ from typing import Any
 
 import structlog
 
+from posthog.schema import PulseScanConfig
+
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.pulse.detectors.base import DetectionResult, PulseDetector
 from posthog.temporal.ai.pulse.detectors.registry import get_detector, register_detector
-from posthog.temporal.ai.pulse.types import CandidateMetric, Finding, PulseScanConfig, run_trends_query_sync
+from posthog.temporal.ai.pulse.types import CandidateMetric, Finding, run_trends_query_sync
 
 logger = structlog.get_logger(__name__)
 
@@ -107,6 +109,11 @@ def _evaluate_candidate(
     config: PulseScanConfig,
     detection_mode: str = "change_v1",
 ) -> Finding | None:
+    # PulseScanConfig fields are Optional in the generated schema; a resolved config is always populated.
+    assert config.baseline_weeks is not None
+    assert config.min_change_pct is not None
+    assert config.robust_z_threshold is not None
+    assert config.min_baseline_value is not None
     # Need the in-progress current week + MIN_BASELINE_WEEKS completed baseline weeks.
     if len(weekly_values) < MIN_BASELINE_WEEKS + 2:
         return None
@@ -145,6 +152,9 @@ async def _evaluate_one(
 ) -> Finding | None:
     async with semaphore:
         try:
+            assert (
+                config.baseline_weeks is not None
+            )  # Optional in the generated schema; always set on a resolved config
             query = _build_detection_query(candidate.descriptor.query, config.baseline_weeks)
             result = await run_trends_query_sync(team, query)
             series = _extract_weekly_series(result)

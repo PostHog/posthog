@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Count, Q
 
+from posthog.schema import PulseScanConfig
+
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor, PulseScanConfig
+from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -170,6 +172,15 @@ def _select_sync(team_id: int, config: PulseScanConfig) -> list[CandidateMetric]
     from posthog.models import Team  # lazy: avoid app-init circular import
 
     team = Team.objects.get(id=team_id)
+    # Every PulseScanConfig field is Optional in the generated schema (so its @default can flow); a
+    # resolved config is always fully populated at runtime. Narrow the fields used below.
+    assert config.dashboard_tile_limit is not None
+    assert config.recent_insight_limit is not None
+    assert config.saved_insight_limit is not None
+    assert config.top_event_limit is not None
+    assert config.recent_days is not None
+    assert config.min_viewers_for_recent_insight is not None
+    assert config.max_candidates is not None
     # Each source contributes only when its limit is positive — a limit of 0 turns it off, the per-run
     # on/off lever. Order matters: earlier sources win the dedup, so dashboard tiles take priority.
     candidates: list[CandidateMetric] = []

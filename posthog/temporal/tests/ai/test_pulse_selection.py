@@ -1,8 +1,10 @@
 import pytest
 from unittest.mock import patch
 
+from posthog.schema import PulseScanConfig
+
 from posthog.temporal.ai.pulse.selection import _select_saved_insight_candidates, _select_sync
-from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor, PulseScanConfig
+from posthog.temporal.ai.pulse.types import CandidateMetric, MetricDescriptor
 
 _SELECTION = "posthog.temporal.ai.pulse.selection."
 
@@ -91,3 +93,13 @@ class TestSelectSyncConfig:
         with dash, recent, saved, top:
             out = _select_sync.func(team.id, PulseScanConfig(max_candidates=2))
         assert len(out) == 2
+
+    def test_scalar_knobs_forwarded_to_sources(self, team):
+        dash, recent, saved, top = self._patched_sources()
+        with dash as m_dash, recent as m_recent, saved, top:
+            _select_sync.func(team.id, PulseScanConfig(recent_days=14, min_viewers_for_recent_insight=7))
+        # dashboard helper: (team, limit, recent_days)
+        assert m_dash.call_args.args[2] == 14
+        # recent-viewed helper: (team, limit, existing_ids, recent_days, min_viewers)
+        assert m_recent.call_args.args[3] == 14
+        assert m_recent.call_args.args[4] == 7

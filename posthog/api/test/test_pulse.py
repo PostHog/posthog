@@ -297,7 +297,6 @@ class TestPulseTriggerScan(APIBaseTest):
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
         self.assertIn("workflow_id", resp.json())
-        # No knobs sent → no override; the run resolves its config from the subscription in the workflow.
         self.assertIsNone(captured["inputs"].config)
 
     @patch(FLAG_TARGET, return_value=True)
@@ -317,7 +316,6 @@ class TestPulseTriggerScan(APIBaseTest):
         self.assertEqual(config.top_event_limit, 0)
         self.assertEqual(config.max_findings, 3)
         self.assertEqual(config.min_change_pct, 0.5)
-        # Knobs left out of the body fall back to the built-in defaults.
         self.assertEqual(config.dashboard_tile_limit, 10)
         self.assertEqual(config.max_candidates, 200)
 
@@ -325,6 +323,7 @@ class TestPulseTriggerScan(APIBaseTest):
         [
             ("min_change_pct_too_high", {"min_change_pct": 99}),
             ("min_change_pct_negative", {"min_change_pct": -0.1}),
+            ("min_change_pct_zero", {"min_change_pct": 0.0}),
             ("top_event_limit_negative", {"top_event_limit": -1}),
             ("dashboard_tile_limit_over_max", {"dashboard_tile_limit": 201}),
             ("recent_insight_limit_negative", {"recent_insight_limit": -1}),

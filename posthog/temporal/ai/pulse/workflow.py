@@ -7,6 +7,8 @@ import structlog
 from pydantic import BaseModel
 from temporalio import activity, common, workflow
 
+from posthog.schema import PulseScanConfig
+
 from posthog.models import PulseDigest
 from posthog.models.pulse import PulseDigestStatus, PulseSubscription
 from posthog.models.scoping import team_scope
@@ -23,7 +25,6 @@ from posthog.temporal.ai.pulse.types import (
     EnrichedFinding,
     EnrichFindingsInputs,
     Finding,
-    PulseScanConfig,
     SelectCandidatesInputs,
     SynthesizeDigestInputs,
 )
@@ -273,6 +274,10 @@ class PulseScanWorkflow(PostHogWorkflow):
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=retry_policy,
             )
+
+        workflow.logger.info(
+            "pulse_scan_config_resolved", extra={"team_id": inputs.team_id, "config": config.model_dump()}
+        )
 
         try:
             candidates = await workflow.execute_activity(

@@ -6,12 +6,13 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { PulseScanConfig } from '~/queries/schema/schema-general'
+
 import type { pulseLogicType } from './pulseLogicType'
 import {
     PulseDigestDetail,
     PulseDigestSummary,
     PulseFindingType,
-    PulseScanConfigType,
     PulseSubscriptionType,
     PulseWatchedCandidate,
 } from './pulseTypes'
@@ -70,7 +71,7 @@ const DEFAULT_SUBSCRIPTION: PulseSubscriptionType = {
 
 // Defaults mirror the backend PulseScanConfig (the production constants). The staff tuning draft starts
 // here and is persisted to localStorage so tweaks survive a reload while iterating.
-export const PULSE_SCAN_CONFIG_DEFAULTS: PulseScanConfigType = {
+export const PULSE_SCAN_CONFIG_DEFAULTS: PulseScanConfig = {
     max_candidates: 200,
     recent_days: 30,
     min_viewers_for_recent_insight: 3,
@@ -102,7 +103,7 @@ export const pulseLogic = kea<pulseLogicType>([
         markScanInProgress: true,
         scanResolved: true,
         setUpPulseAlerts: true,
-        updateScanConfigLocal: (patch: Partial<PulseScanConfigType>) => ({ patch }),
+        updateScanConfigLocal: (patch: Partial<PulseScanConfig>) => ({ patch }),
         resetScanConfig: true,
     }),
     loaders(({ values, cache }) => ({
@@ -180,8 +181,7 @@ export const pulseLogic = kea<pulseLogicType>([
         scanTrigger: [
             null as { workflow_id: string } | null,
             {
-                // No config → the run resolves from the team's subscription; a config is a staff per-run override.
-                triggerScan: async (config?: Partial<PulseScanConfigType>) => await api.pulse.triggerScan(config),
+                triggerScan: async (config?: Partial<PulseScanConfig>) => await api.pulse.triggerScan(config),
             },
         ],
     })),

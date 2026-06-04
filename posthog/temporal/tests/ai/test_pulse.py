@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import PulseScanConfig
+
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.pulse import PulseSubscription, Sensitivity
 from posthog.temporal.ai.pulse import detection, narrative, selection
@@ -55,7 +57,6 @@ from posthog.temporal.ai.pulse.types import (
     EnrichFindingsInputs,
     Finding,
     MetricDescriptor,
-    PulseScanConfig,
 )
 from posthog.temporal.ai.pulse.workflow import _resolve_scan_config
 

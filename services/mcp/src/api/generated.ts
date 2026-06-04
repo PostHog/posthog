@@ -34009,7 +34009,7 @@ export namespace Schemas {
       min_baseline_value?: number;
       /**
          * Primary gate: minimum absolute fractional change to flag (0.25 = 25%).
-         * @minimum 0
+         * @minimum 0.01
          * @maximum 10
          */
       min_change_pct?: number;
