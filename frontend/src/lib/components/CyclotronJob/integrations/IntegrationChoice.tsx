@@ -38,7 +38,13 @@ export function IntegrationChoice({
     const kind = integration
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
-    const integrationKind = integrationsOfKind?.find((integration) => integration.id === value)
+    // Coerce both sides to Number — `integration.id` comes from the API as a JSON number,
+    // but `value` can arrive as a string when the form is hydrated from a source's stored
+    // `job_inputs` (Postgres JSONB preserves whatever was originally written, and some
+    // sources end up persisting integration IDs as strings). Without the coercion, the
+    // strict-equality lookup silently misses a perfectly valid integration and trips the
+    // "no longer available" banner below for every loaded source.
+    const integrationKind = integrationsOfKind?.find((integration) => Number(integration.id) === Number(value))
 
     // The stored value points to an integration that's no longer available (deleted, or
     // re-installed under a new ID). We deliberately do NOT auto-substitute here — that
