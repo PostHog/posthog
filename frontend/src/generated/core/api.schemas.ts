@@ -2659,11 +2659,11 @@ export interface SubscriptionApi {
   * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
-    interval?: number
+    interval: number
     /**
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
@@ -2789,8 +2789,8 @@ export interface PatchedSubscriptionApi {
   * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
     interval?: number
@@ -2943,6 +2943,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number

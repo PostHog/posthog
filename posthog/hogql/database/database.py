@@ -1,7 +1,9 @@
+import copy
 import dataclasses
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from functools import cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -664,10 +666,8 @@ class Database(BaseModel):
 
             field_input: dict[str, Any] = {}
             table = self.get_table(table_name)
-            if isinstance(table, FunctionCallTable):
-                field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                field_input = table.fields
+            if isinstance(table, Table):
+                field_input = _schema_field_input(table)
 
             fields = serialize_fields(field_input, context, table_name.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -681,10 +681,8 @@ class Database(BaseModel):
 
             system_field_input: dict[str, Any] = {}
             table = self.get_table(table_key)
-            if isinstance(table, FunctionCallTable):
-                system_field_input = table.get_asterisk()
-            elif isinstance(table, Table):
-                system_field_input = table.fields
+            if isinstance(table, Table):
+                system_field_input = _schema_field_input(table)
 
             fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
             fields_dict = {field.name: field for field in fields}
@@ -1511,26 +1509,38 @@ def _use_person_id_from_person_overrides(database: Database) -> None:
     )
 
 
+@cache
+def _error_tracking_event_exprs() -> dict[str, ast.Expr]:
+    # Parsed once, copy.deepcopy'd per use (the resolver mutates exprs in place); these fall under
+    # the parser's min-cacheable length, so they would otherwise re-parse on every build.
+    return {
+        "event_issue_id": parse_expr("toUUID(properties.$exception_issue_id)"),
+        # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
+        "issue_id": parse_expr(
+            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
+            start=None,
+        ),
+        "issue_id_v2": parse_expr("fingerprint_issue_state.issue_id", start=None),
+        "issue_name": parse_expr("fingerprint_issue_state.issue_name", start=None),
+        "issue_description": parse_expr("fingerprint_issue_state.issue_description", start=None),
+        "issue_status": parse_expr("fingerprint_issue_state.issue_status", start=None),
+        "issue_assigned_user_id": parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+        "issue_assigned_role_id": parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+        "issue_first_seen": parse_expr("fingerprint_issue_state.first_seen", start=None),
+    }
+
+
 def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: Database) -> None:
+    exprs = copy.deepcopy(_error_tracking_event_exprs())
     table = database.get_table("events")
-    table.fields["event_issue_id"] = ExpressionField(
-        name="event_issue_id",
-        # convert to UUID to match type of `issue_id` on overrides table
-        expr=parse_expr("toUUID(properties.$exception_issue_id)"),
-    )
+    # convert event_issue_id to UUID to match type of `issue_id` on the overrides table
+    table.fields["event_issue_id"] = ExpressionField(name="event_issue_id", expr=exprs["event_issue_id"])
     table.fields["exception_issue_override"] = LazyJoin(
         from_field=["fingerprint"],
         join_table=ErrorTrackingIssueFingerprintOverridesTable(),
         join_function=join_with_error_tracking_issue_fingerprint_overrides_table,
     )
-    table.fields["issue_id"] = ExpressionField(
-        name="issue_id",
-        expr=parse_expr(
-            # NOTE: assumes `join_use_nulls = 0` (the default), as ``override.fingerprint`` is not Nullable
-            "if(not(empty(exception_issue_override.issue_id)), exception_issue_override.issue_id, event_issue_id)",
-            start=None,
-        ),
-    )
+    table.fields["issue_id"] = ExpressionField(name="issue_id", expr=exprs["issue_id"])
 
     # Issue metadata from the fingerprint_issue_state table
     table.fields["fingerprint_issue_state"] = LazyJoin(
@@ -1538,34 +1548,17 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
         join_table=ErrorTrackingFingerprintIssueStateTable(),
         join_function=join_with_error_tracking_fingerprint_issue_state_table,
     )
-    table.fields["issue_id_v2"] = ExpressionField(
-        name="issue_id_v2",
-        expr=parse_expr("fingerprint_issue_state.issue_id", start=None),
-    )
-    table.fields["issue_name"] = ExpressionField(
-        name="issue_name",
-        expr=parse_expr("fingerprint_issue_state.issue_name", start=None),
-    )
-    table.fields["issue_description"] = ExpressionField(
-        name="issue_description",
-        expr=parse_expr("fingerprint_issue_state.issue_description", start=None),
-    )
-    table.fields["issue_status"] = ExpressionField(
-        name="issue_status",
-        expr=parse_expr("fingerprint_issue_state.issue_status", start=None),
-    )
+    table.fields["issue_id_v2"] = ExpressionField(name="issue_id_v2", expr=exprs["issue_id_v2"])
+    table.fields["issue_name"] = ExpressionField(name="issue_name", expr=exprs["issue_name"])
+    table.fields["issue_description"] = ExpressionField(name="issue_description", expr=exprs["issue_description"])
+    table.fields["issue_status"] = ExpressionField(name="issue_status", expr=exprs["issue_status"])
     table.fields["issue_assigned_user_id"] = ExpressionField(
-        name="issue_assigned_user_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_user_id", start=None),
+        name="issue_assigned_user_id", expr=exprs["issue_assigned_user_id"]
     )
     table.fields["issue_assigned_role_id"] = ExpressionField(
-        name="issue_assigned_role_id",
-        expr=parse_expr("fingerprint_issue_state.assigned_role_id", start=None),
+        name="issue_assigned_role_id", expr=exprs["issue_assigned_role_id"]
     )
-    table.fields["issue_first_seen"] = ExpressionField(
-        name="issue_first_seen",
-        expr=parse_expr("fingerprint_issue_state.first_seen", start=None),
-    )
+    table.fields["issue_first_seen"] = ExpressionField(name="issue_first_seen", expr=exprs["issue_first_seen"])
 
 
 def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]]) -> None:
@@ -1768,6 +1761,25 @@ def _should_include_connection_table(
 
     schemas = _get_active_external_data_schemas(warehouse_table)
     return not schemas or any(schema.should_sync for schema in schemas)
+
+
+def _schema_field_input(table: Table) -> dict[str, Any]:
+    """Fields to surface in the serialized schema (SQL editor sidebar, autocomplete).
+
+    `get_asterisk()` exists for `SELECT *` expansion, so it drops lazy joins, virtual tables,
+    and field traversers — but those are exactly the relational fields users need to see in the
+    schema. Add them back while preserving `get_asterisk`'s column filtering (`avoid_asterisk_fields`
+    and hidden columns), so data warehouse joins show up on `FunctionCallTable`-backed tables like
+    the `system.*` Postgres tables.
+    """
+    if not isinstance(table, FunctionCallTable):
+        return table.fields
+
+    field_input = table.get_asterisk()
+    for key, field in table.fields.items():
+        if key not in field_input and isinstance(field, (LazyJoin, Table, FieldTraverser)):
+            field_input[key] = field
+    return field_input
 
 
 def serialize_fields(
