@@ -137,8 +137,17 @@ tools:
     inbox-source-configs-update:
         operation: signals_source_configs_update
         enabled: false
+    signals-config-create:
+        operation: signals_config_create
+        enabled: false
+    signals-config-list:
+        operation: signals_config_list
+        enabled: false
     signals-reports-cursor-connection-create:
         operation: signals_reports_cursor_connection_create
+        enabled: false
+    signals-reports-cursor-connection-destroy:
+        operation: signals_reports_cursor_connection_destroy
         enabled: false
     signals-reports-cursor-connection-retrieve:
         operation: signals_reports_cursor_connection_retrieve
