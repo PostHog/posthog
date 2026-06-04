@@ -189,8 +189,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-evals/evaluations/:id': ['AIObservabilityEvaluation', 'aiObservabilityEvaluation'],
     '/prompt-management/prompts': ['AIObservabilityPrompts', 'aiObservabilityPrompts'],
     '/prompt-management/prompts/:name': ['AIObservabilityPrompt', 'aiObservabilityPrompt'],
-    '/prompt-management/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
-    '/prompt-management/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
+    '/skills': ['AIObservabilitySkills', 'aiObservabilitySkills'],
+    '/skills/:name': ['AIObservabilitySkill', 'aiObservabilitySkill'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -315,6 +315,10 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityTag(params.id), searchParams, hashParams).url,
     '/prompt-management': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPrompts(), searchParams, hashParams).url,
+    '/prompt-management/skills': (_params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySkills(), searchParams, hashParams).url,
+    '/prompt-management/skills/:name': (params, searchParams, hashParams) =>
+        combineUrl(urls.aiObservabilitySkill(params.name), searchParams, hashParams).url,
     '/llm-analytics': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityDashboard(), searchParams, hashParams).url,
     '/llm-analytics/settings': (_params, searchParams, hashParams) => {
@@ -845,14 +849,14 @@ export const productUrls = {
     aiObservabilityEvaluation: (id: string): string => `/ai-evals/evaluations/${id}`,
     aiObservabilityPrompts: (): string => '/prompt-management/prompts',
     aiObservabilityPrompt: (name: string): string => `/prompt-management/prompts/${name}`,
-    aiObservabilitySkills: (): string => '/prompt-management/skills',
+    aiObservabilitySkills: (): string => '/skills',
     aiObservabilitySkill: (
         name: string,
         params?: {
             file?: string
             version?: number
         }
-    ): string => combineUrl(`/prompt-management/skills/${name}`, params).url,
+    ): string => combineUrl(`/skills/${name}`, params).url,
     aiObservabilityClusters: (runId?: string): string =>
         runId ? `/ai-observability/clusters/${encodeURIComponent(runId)}` : '/ai-observability/clusters',
     aiObservabilityCluster: (runId: string, clusterId: number | string): string =>

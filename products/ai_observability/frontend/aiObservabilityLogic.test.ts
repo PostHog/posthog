@@ -38,7 +38,7 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
-        expect(urls.aiObservabilitySkills()).toBe('/prompt-management/skills')
+        expect(urls.aiObservabilitySkills()).toBe('/skills')
     })
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
@@ -63,9 +63,12 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
             '/prompt-management/prompts/prompt-1'
         )
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
-            '/prompt-management/skills/skill-1'
-        )
+        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe('/skills/skill-1')
+    })
+
+    it('redirects the legacy prompt-management skills URLs to the standalone skills product', () => {
+        expect(redirectUrl('/prompt-management/skills')).toBe('/skills')
+        expect(redirectUrl('/prompt-management/skills/:name', { name: 'skill-1' })).toBe('/skills/skill-1')
     })
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {

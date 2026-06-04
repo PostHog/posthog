@@ -558,7 +558,7 @@ export const llmSkillLogic = kea<llmSkillLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        '/prompt-management/skills/:name': (_, __, ___, { method }) => {
+        '/skills/:name': (_, __, ___, { method }) => {
             if (method === 'PUSH' && values.isNewSkill) {
                 actions.setSkill(DEFAULT_SKILL_FORM_VALUES)
                 actions.resetSkillForm(DEFAULT_SKILL_FORM_VALUES)
