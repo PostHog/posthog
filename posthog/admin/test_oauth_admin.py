@@ -1,11 +1,15 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin, OAuthApplicationForm
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 
 
 class TestOAuthApplicationAdmin(BaseTest):
@@ -37,3 +41,28 @@ class TestOAuthApplicationAdmin(BaseTest):
         form = OAuthApplicationForm()
 
         assert "Only used for HMAC provisioning partners" in form.fields["provisioning_signing_secret"].help_text
+
+    def test_revoke_all_sessions_action_force_invalidates_tokens(self):
+        app = OAuthApplication.objects.create(
+            name="Revoke Action App",
+            client_id="revoke_action_client_id",
+            client_secret="revoke_action_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            algorithm="RS256",
+        )
+        access_token = OAuthAccessToken.objects.create(
+            application=app, user=self.user, token="at_revoke_action", expires=timezone.now() + timedelta(minutes=5)
+        )
+        OAuthRefreshToken.objects.create(
+            application=app, user=self.user, token="rt_revoke_action", access_token=access_token
+        )
+
+        with patch.object(self.admin, "message_user") as message_user:
+            self.admin.revoke_all_sessions(request=None, queryset=OAuthApplication.objects.filter(id=app.id))
+
+        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
+        message_user.assert_called_once()

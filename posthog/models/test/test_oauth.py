@@ -18,6 +18,7 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
+    revoke_application_sessions,
     revoke_oauth_session,
 )
 
@@ -639,3 +640,33 @@ class TestOAuthModels(TestCase):
         revoke_oauth_session(access_token=access_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+
+    def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
+        app = self._make_app("Narrowed App", "narrowed_client_id")
+        other_app = self._make_app("Other App", "other_client_id")
+        other_user = User.objects.create(email="other@example.com")
+
+        for owner, suffix in [(self.user, "a"), (other_user, "b")]:
+            access_token = OAuthAccessToken.objects.create(
+                application=app, user=owner, token=f"at_{suffix}", expires=timezone.now() + timedelta(minutes=5)
+            )
+            OAuthRefreshToken.objects.create(application=app, user=owner, token=f"rt_{suffix}", access_token=access_token)
+            OAuthGrant.objects.create(
+                application=app,
+                user=owner,
+                code=f"grant_{suffix}",
+                code_challenge="challenge",
+                code_challenge_method="S256",
+                expires=timezone.now() + timedelta(minutes=5),
+            )
+
+        survivor = OAuthAccessToken.objects.create(
+            application=other_app, user=self.user, token="at_survivor", expires=timezone.now() + timedelta(minutes=5)
+        )
+
+        revoke_application_sessions(app)
+
+        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthGrant.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
+        self.assertTrue(OAuthAccessToken.objects.filter(id=survivor.id).exists())

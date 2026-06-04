@@ -12,7 +12,7 @@ from django.utils.html import format_html
 from oauth2_provider.generators import generate_client_id, generate_client_secret
 from oauth2_provider.models import AbstractApplication
 
-from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 
 
 class OAuthApplicationForm(forms.ModelForm):
@@ -90,6 +90,14 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
     search_fields = ("name", "client_id", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
+    actions = ("revoke_all_sessions",)
+
+    @admin.action(description="Revoke all sessions (force re-auth under current scopes)")
+    def revoke_all_sessions(self, request, queryset):
+        count = queryset.count()
+        for application in queryset:
+            revoke_application_sessions(application)
+        self.message_user(request, f"Revoked all sessions for {count} application(s).")
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"
