@@ -902,9 +902,8 @@ class _InCohortFinder(TraversingVisitor):
 
 def contains_in_cohort(expr: ast.Expr) -> bool:
     """An unresolved IN COHORT op (inCohortVia=LEFTJOIN) is rewritten to a cohort LEFT JOIN *after* pushdown
-    runs. Pushing such a predicate would move that join inside the synthetic events subquery; keep it out so
-    the pushdown declines. (inCohortVia=SUBQUERY resolves to `IN (subquery)` before pushdown — caught instead
-    by contains_subquery.)
+    runs. Pushing it would move that join inside the synthetic events subquery; keep it out so the pushdown
+    declines. (inCohortVia=SUBQUERY resolves to `IN (subquery)` before pushdown, caught by contains_subquery.)
     """
     finder = _InCohortFinder()
     finder.visit(expr)
@@ -928,7 +927,7 @@ class _SubqueryFinder(TraversingVisitor):
 def contains_subquery(expr: ast.Expr) -> bool:
     """A predicate with a nested SELECT (e.g. `person_id IN (SELECT … FROM cohortpeople)`, the inCohortVia=
     SUBQUERY form of IN COHORT) is kept out of the events subquery: rebuilding the hand-typed subquery around
-    an already-resolved nested query is a correctness risk, and these predicates are rare in pushable filters.
+    an already-resolved nested query is a correctness risk, and these are rare in pushable filters.
     """
     finder = _SubqueryFinder()
     finder.visit(expr)
@@ -1204,12 +1203,12 @@ class EventsPredicatePushdownExtractor:
 
         cloned = clone_expr(expr, clear_types=False, clear_locations=True)
         # Keep in the outer query (fail-safe), same as a joined-table reference, when the predicate:
-        # - contains a row-multiplying call (arrayJoin) — pushing it would expand rows in a different scope
+        # - contains a row-multiplying call (arrayJoin): pushing it would expand rows in a different scope
         #   than the same call in the outer SELECT/GROUP BY, changing the result set;
-        # - contains an unresolved IN COHORT op (inCohortVia=LEFTJOIN) — it becomes a cohort LEFT JOIN after
+        # - contains an unresolved IN COHORT op (inCohortVia=LEFTJOIN): it becomes a cohort LEFT JOIN after
         #   pushdown, which must not land inside the synthetic events subquery; or
         # - contains a nested subquery (e.g. the inCohortVia=SUBQUERY `IN (SELECT …)` form, or any other
-        #   `x IN (SELECT …)`) — rebuilding the hand-typed subquery around it is a correctness risk.
+        #   `x IN (SELECT …)`): rebuilding the hand-typed subquery around it is a correctness risk.
         if (
             references_joined_table(expr, self.joined_table_aliases, self.events_table_type, self.select_aliases)
             or contains_row_multiplying_function(expr)

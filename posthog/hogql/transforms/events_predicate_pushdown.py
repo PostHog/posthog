@@ -27,8 +27,7 @@ logger = structlog.get_logger(__name__)
 def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
     """Whether events-predicate pushdown is enabled: explicitly on, or unset under TEST (broad coverage).
 
-    Single source of truth for the gate so the call-site short-circuit and the transform's own check can't
-    drift apart.
+    Single source of truth so the call-site short-circuit and the transform's own check can't drift apart.
     """
     return bool(modifiers.pushDownPredicates or (modifiers.pushDownPredicates is None and TEST))
 
@@ -37,15 +36,12 @@ def apply_events_predicate_pushdown(
     node: _T_AST,
     context: HogQLContext,
 ) -> _T_AST:
-    """Apply predicate pushdown to events tables with lazy joins.
-
-    The transform modifies the AST in place but also returns it for chaining.
-    """
-    # The outermost select queries always get a top-level LIMIT injected — the executor's _apply_limit
-    # default, or the printer's limit_top_select cap of MAX_SELECT_RETURNED_ROWS — even when the user wrote
-    # none. Both target exactly the extract_select_queries() set and cap at a value in the beneficial range,
-    # so the gate treats these as guaranteed-limited regardless of execution path. (limit_top_select runs
-    # after this transform, so the limit isn't on the AST here yet — hence the precomputed set.)
+    """Apply predicate pushdown to events tables with lazy joins. Mutates the AST in place; returns it for chaining."""
+    # Outermost selects always get a top-level LIMIT injected later (the executor's _apply_limit default, or
+    # the printer's limit_top_select cap of MAX_SELECT_RETURNED_ROWS), even when the user wrote none. Both
+    # target exactly the extract_select_queries() set and cap in the beneficial range, so the gate treats
+    # these as guaranteed-limited. limit_top_select runs after this transform, so the limit isn't on the AST
+    # yet, hence the precomputed set.
     top_level_select_ids = (
         {id(select) for select in extract_select_queries(node)}
         if isinstance(node, (ast.SelectQuery, ast.SelectSetQuery))
@@ -61,8 +57,8 @@ class SelectAliasInliner(CloningVisitor):
     """Replaces references to SELECT-list aliases with the alias's own expression.
 
     A pushed predicate referencing a SELECT alias (e.g. `WHERE c > 0` with `lower(events.event) AS c`) must
-    carry the full expression into the subquery; otherwise the bare name would re-bind to the raw column and
-    drop the wrapper, changing results.
+    carry the full expression into the subquery; the bare name would re-bind to the raw column and drop the
+    wrapper, changing results.
 
     Known limitation: a self-referential `toTimeZone(timestamp, 'UTC') AS timestamp` filter keeps a
     field-side `toTimeZone` in the subquery (weaker partition pruning, identical results; ClickHouse still
@@ -88,8 +84,7 @@ class SelectAliasInliner(CloningVisitor):
 class LazyTypeDetector(TraversingVisitor):
     """Detects any LazyJoinType / LazyTableType reference (on Field, JoinExpr, Alias, SelectQuery).
 
-    Pushdown bails if any remain: the inner subquery won't have those joins.
-    """
+    Pushdown bails if any remain: the inner subquery won't have those joins."""
 
     def __init__(self):
         super().__init__()
@@ -156,8 +151,7 @@ class LazyTypeDetector(TraversingVisitor):
 class EventsFieldCollector(TraversingVisitor):
     """Collects the direct events columns a query references, with their resolved FieldTypes so the inner
     subquery can be built without re-running resolve_types. Flags non-direct fields / lazy joins that block
-    safe pushdown.
-    """
+    safe pushdown."""
 
     def __init__(self, target_table: ast.TableType | ast.TableAliasType, context: HogQLContext):
         super().__init__()
@@ -195,7 +189,7 @@ class EventsFieldCollector(TraversingVisitor):
 
             if self._matches_target_table(table_type):
                 # Expose the physical mat/dmat/group column the printer reads (not the ~100x-slower
-                # `properties` blob); falls through to collecting the blob if the property isn't materialized.
+                # `properties` blob); falls through to the blob if the property isn't materialized.
                 if property_type is not None and self._collect_materialized_column(property_type, field_type):
                     return
 
@@ -223,8 +217,7 @@ class EventsFieldCollector(TraversingVisitor):
         """The property-group Map column an OPTIMIZED `JSONHas(<events properties>, <const>)` reads, else None.
 
         Mirrors ClickHousePrinter._get_property_group_source_for_field: gated on OPTIMIZED only (not
-        materializationMode), returning the first property-group column for the key.
-        """
+        materializationMode), returning the first property-group column for the key."""
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
         if node.name != "JSONHas" or len(node.args) != 2 or not isinstance(node.args[1], ast.Constant):
@@ -253,11 +246,10 @@ class EventsFieldCollector(TraversingVisitor):
         return table.table.to_printed_hogql(), field_name
 
     def _collect_materialized_column(self, property_type: ast.PropertyType, base_field_type: ast.FieldType) -> bool:
-        """Record the physical column the printer will read for this event property; return True if any.
+        """Record the physical column the printer will read for this event property; True if any.
 
-        Returns False when the property has no materialized backing, so the caller collects the raw
-        `properties` column for the JSONExtract path.
-        """
+        False when the property has no materialized backing, so the caller collects the raw `properties`
+        column for the JSONExtract path."""
         if self.context.modifiers.materializationMode == "disabled" or not property_type.chain:
             return False
         resolved = self._resolve_events_table_and_column(base_field_type)
@@ -275,8 +267,7 @@ class EventsFieldCollector(TraversingVisitor):
 
         Mirrors BasePrinter._get_all_materialized_property_sources' priority (static materialized column, then
         dmat slot, then first property-group Map column) using the same lookups, so the subquery exposes
-        exactly the column the outer reference resolves to.
-        """
+        exactly the column the outer reference resolves to."""
         materialized_column = get_materialized_column_for_property(
             cast(TablesWithMaterializedColumns, table_name),
             cast(TableColumn, field_name),
@@ -320,7 +311,7 @@ class EventsFieldCollector(TraversingVisitor):
                 return resolved.name
             return None
         except Exception as err:
-            # Fail-safe: any resolution failure -> treat as non-direct and decline (pushdown is a pure
+            # Fail-safe: any resolution failure means treat as non-direct and decline (pushdown is a pure
             # optimization). Debug-logged so a resolver regression silently disabling pushdown stays visible.
             logger.debug("events_predicate_pushdown_field_resolution_failed", error=str(err))
             return None
@@ -349,10 +340,9 @@ class EventsFieldCollector(TraversingVisitor):
 
 
 class _ShortCircuitBlockerFinder(TraversingVisitor):
-    """Finds aggregate or window functions in an expression — constructs that consume the whole result
-    before a LIMIT applies. Does not recurse into subqueries: only this query level's own SELECT/HAVING
-    expressions determine whether its own LIMIT can short-circuit the events scan.
-    """
+    """Finds aggregate or window functions, which consume the whole result before a LIMIT applies. Does not
+    recurse into subqueries: only this query level's own expressions determine whether its own LIMIT can
+    short-circuit the events scan."""
 
     def __init__(self):
         super().__init__()
@@ -372,8 +362,8 @@ class _ShortCircuitBlockerFinder(TraversingVisitor):
         if find_hogql_aggregation(node.name):
             self.found = True
         else:
-            # Recurse into every child position (args, params, within_group, order_by, filter_expr), not just
-            # args, so an aggregate nested in a parametric/filtered call can't slip past the gate.
+            # Recurse into every child position (params, within_group, order_by, filter_expr), not just args,
+            # so an aggregate nested in a parametric/filtered call can't slip past the gate.
             super().visit_call(node)
 
 
@@ -382,15 +372,14 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     `FROM events` -> `FROM (SELECT <needed cols> FROM events WHERE <predicates>) AS events`.
 
     Runs after resolve_lazy_tables (lazy joins are real JoinExprs, aliases visible via next_join), and
-    applies bottom-up so nested `FROM events` subqueries benefit too.
-    """
+    applies bottom-up so nested `FROM events` subqueries benefit too."""
 
-    # Join types across which moving an events PREDICATE is result-safe: they preserve the events (left) side
-    # (RIGHT / FULL OUTER preserve the right side, so pre-filtering events would NULL-pad matched rows).
-    # This is a broader set than the LIMIT gate's _all_joins_preserve_every_row (LEFT [OUTER] only): pushing
-    # the predicate before an INNER / CROSS join is fine, but pushing the inner LIMIT is not (those joins can
-    # drop events rows). Since the single-rule gate always requires the inner LIMIT, INNER / CROSS pass this
-    # set but then decline at _safe_inner_limit.
+    # Join types across which moving an events PREDICATE is result-safe: they preserve the events (left) side.
+    # RIGHT / FULL OUTER preserve the right side, so pre-filtering events would NULL-pad matched rows. This is
+    # broader than the LIMIT gate's _all_joins_preserve_every_row (LEFT [OUTER] only): pushing the predicate
+    # before an INNER / CROSS join is fine, but pushing the inner LIMIT is not (those joins can drop events
+    # rows). Since the single-rule gate always requires the inner LIMIT, INNER / CROSS pass this set but then
+    # decline at _safe_inner_limit.
     _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
 
     def __init__(
@@ -402,7 +391,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         super().__init__()
         self.context = context
         self.dialect = dialect
-        # ids of the outermost select queries — guaranteed to get a top-level LIMIT injected later.
+        # ids of the outermost select queries, guaranteed to get a top-level LIMIT injected later.
         self.top_level_select_ids = top_level_select_ids or set()
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -410,9 +399,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         super().visit_select_query(node)
 
         if self._should_apply_pushdown(node):
-            # _apply_pushdown returns a reason when it declines after passing the eligibility gate (None if
-            # applied). Debug-logged so "eligible but silently not optimizing" (e.g. a resolver change that
-            # disables pushdown) stays observable; the timing span alone can't tell applied from declined.
+            # _apply_pushdown returns a decline reason (None if applied). Debug-logged so "eligible but
+            # silently not optimizing" stays observable; the timing span alone can't tell applied from declined.
             decline_reason = self._apply_pushdown(node)
             if decline_reason is not None:
                 logger.debug("events_predicate_pushdown_declined", reason=decline_reason)
@@ -436,11 +424,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if collector is None or (not collector.collected_fields and not collector.materialized_columns):
             return "no_collectable_columns"
 
-        # SELECT-list aliases so the extractor can classify a WHERE field that resolves to an alias by
-        # what the alias actually references (e.g. `f(session.x) AS event` must not be pushed by name).
+        # SELECT-list aliases so the extractor can classify a WHERE field that resolves to an alias by what
+        # the alias actually references (e.g. `f(session.x) AS event` must not be pushed by name).
         select_aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
 
-        # Split WHERE/PREWHERE without mutating node yet, so the pushdown stays atomic (any bail below leaves the original predicates intact).
+        # Split WHERE/PREWHERE without mutating node yet, so the pushdown stays atomic (any bail below leaves the originals intact).
         extractor = EventsPredicatePushdownExtractor(
             joined_table_aliases=joined_aliases,
             events_table_type=events_table_type,
@@ -459,8 +447,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
         # PREWHERE is only valid on a physical MergeTree scan, not a subquery. A valid PREWHERE is events-only
         # (fully pushable) and moves into the inner subquery, staying a PREWHERE there. A non-pushable PREWHERE
-        # predicate (a joined column / arrayJoin, already invalid as PREWHERE on the base table) would have to
-        # stay on the outer subquery, which is invalid, so bail and let the original query fail itself.
+        # (a joined column / arrayJoin, already invalid as PREWHERE on the base table) would have to stay on
+        # the outer subquery, which is invalid, so bail and let the original query fail itself.
         if new_prewhere is not None:
             return "prewhere_not_fully_pushable"
 
@@ -472,20 +460,18 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         inner_where = self._prepare_inner_predicate(inner_from_where, select_aliases)
         inner_prewhere = self._prepare_inner_predicate(inner_from_prewhere, select_aliases)
 
-        # The optimization only pays off when a LIMIT can short-circuit the events read: measured on
-        # ClickHouse 26.3 (team 2, ~435M events/week), pushing predicates + an inner LIMIT beats the flat
-        # query for every column type (timestamp / materialized / property-group / raw JSON), while
-        # predicates-only regresses for the raw `properties` blob and ORDER BY (which blocks the inner LIMIT)
-        # regresses ~4x for everything. So push the inner LIMIT whenever it stays result-equivalent, and
-        # decline otherwise — the flat query is never slower than the cases we decline.
+        # The optimization only pays off when a LIMIT can short-circuit the events read. Pushing predicates +
+        # an inner LIMIT beats the flat query for every column type (timestamp / materialized / property-group
+        # / raw JSON), while predicates-only regresses for the raw `properties` blob, and ORDER BY (which
+        # blocks the inner LIMIT) regresses ~4x for everything. So push the inner LIMIT whenever it stays
+        # result-equivalent and decline otherwise; the flat query is never slower than the declined cases.
         inner_limit = self._safe_inner_limit(node, new_where, new_prewhere)
         if inner_limit is None:
             return "no_short_circuitable_limit"
 
         # Build the subquery with explicit types (not resolve_types, which would re-resolve lazy joins). The
-        # inner events table keeps the outer query's alias (e.g. `FROM events AS e`) so the pushed predicates,
-        # which still reference that alias, resolve against it unchanged. The per-table team_id guard is
-        # injected later by the printer.
+        # inner events table keeps the outer query's alias (e.g. `FROM events AS e`) so the pushed predicates
+        # resolve against it unchanged. The per-table team_id guard is injected later by the printer.
         events_subquery = self._build_typed_subquery(
             collector.collected_fields,
             collector.materialized_columns,
@@ -500,8 +486,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         subquery_type = events_subquery.type
         assert subquery_type is not None  # _build_typed_subquery always sets it; checked before mutating node
 
-        # All checks passed; commit: drop the pushed predicates from the outer query and swap the events
-        # table for the subquery, keeping the original alias (default "events").
+        # Commit: drop the pushed predicates from the outer query and swap the events table for the subquery,
+        # keeping the original alias (default "events").
         node.where = new_where
         node.prewhere = new_prewhere
         original_alias = node.select_from.alias
@@ -510,7 +496,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         node.select_from.alias = new_alias
 
         # Mark the FROM as a subquery alias so the printer prints the subquery. Outer field refs keep their
-        # original types, which is fine; they resolve against the alias by name.
+        # original types and resolve against the alias by name.
         # TODO: re-point outer field refs so query metadata reflects the rewrite.
         node.select_from.type = ast.SelectQueryAliasType(
             alias=new_alias,
@@ -527,7 +513,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         - has joins (lazy or explicit)
         - has an effective LIMIT (so pushing the predicate lets the LIMIT short-circuit the events scan), and
         - does not aggregate / DISTINCT / window (those read the whole filtered set regardless of the LIMIT,
-          so the pre-filter subquery would be pure materialization overhead — a measured regression).
+          so the pre-filter subquery would be pure materialization overhead, a measured regression).
         """
         return (
             events_pushdown_enabled(self.context.modifiers)
@@ -549,7 +535,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
 
         Contexts that disable the top-level cap (COHORT_CALCULATION / SAVED_QUERY / exports set
         limit_top_select=False) inject only a huge sentinel limit that can't short-circuit the events scan,
-        so there's no benefit to gain — decline in those.
+        so there's no benefit; decline in those.
         """
         if not self.context.limit_top_select:
             return False
@@ -559,12 +545,12 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """True if the query consumes the whole filtered event set before its LIMIT applies.
 
         GROUP BY, DISTINCT, and aggregate / window functions all read every matching row before the LIMIT
-        selects from the result, so the LIMIT can't short-circuit the events scan. The pushdown stays
-        correct, but with nothing to short-circuit the pre-filter subquery is pure materialization overhead.
+        selects from the result, so the LIMIT can't short-circuit the events scan. Pushdown stays correct but
+        with nothing to short-circuit the pre-filter subquery is pure materialization overhead.
 
         An aggregate or window in ORDER BY or QUALIFY (e.g. `ORDER BY count() DESC` with no GROUP BY) is an
-        implicit whole-set read too, so those clauses are scanned as well. A plain `ORDER BY <column>` is not
-        a blocker (no aggregate/window present), so ordered-but-not-aggregated queries still push.
+        implicit whole-set read too, so those clauses are scanned. A plain `ORDER BY <column>` is not a
+        blocker (no aggregate/window present), so ordered-but-not-aggregated queries still push.
         """
         if node.group_by or node.distinct:
             return True
@@ -578,8 +564,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """True if every events row yields at least one output row, i.e. all joins are LEFT [OUTER].
 
         Pushing a LIMIT into the events subquery is only safe when no join can drop an events row; an INNER /
-        CROSS join could, leaving fewer than `limit` rows after the join.
-        """
+        CROSS join could, leaving fewer than `limit` rows after the join."""
         join = node.select_from.next_join if node.select_from is not None else None
         while join is not None:
             if join.join_type not in ("LEFT JOIN", "LEFT OUTER JOIN"):
@@ -596,8 +581,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         JOIN / WITH TIES / percent limit, no predicate left on the outer query, and every events row survives
         the joins (all LEFT). Then the first `offset + limit` events cover the outer slice, so the inner LIMIT
         returns the same rows as the flat query (modulo the usual no-ORDER-BY arbitrary-row choice when the
-        LIMIT is below the match count, which the flat query is subject to as well). Uses the explicit LIMIT,
-        falling back to the context's top-level cap that an outermost select gets injected later when it has none.
+        LIMIT is below the match count, which the flat query is subject to too). Uses the explicit LIMIT,
+        falling back to the context's top-level cap an outermost select gets injected later when it has none.
         """
         if (
             node.order_by is not None
@@ -618,10 +603,10 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             offset = node.offset.value
         if isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, int):
             return ast.Constant(value=node.limit.value + offset)
-        # An outermost select with no explicit LIMIT gets the context's top-level cap injected later (the
-        # executor default or the printer's cap), so push that exact cap. Deriving it from limit_context
-        # (rather than hardcoding MAX_SELECT_RETURNED_ROWS) keeps the inner LIMIT from under-capping contexts
-        # whose cap is larger (EXPORT / HEATMAPS / RETENTION), which would otherwise drop rows.
+        # An outermost select with no explicit LIMIT gets the context's top-level cap injected later, so push
+        # that exact cap. Deriving it from limit_context (not hardcoding MAX_SELECT_RETURNED_ROWS) keeps the
+        # inner LIMIT from under-capping contexts whose cap is larger (EXPORT / HEATMAPS / RETENTION), which
+        # would otherwise drop rows.
         if id(node) in self.top_level_select_ids:
             cap = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
             return ast.Constant(value=cap + offset)
@@ -631,8 +616,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """True when the FROM resolves directly to the physical events table (not a subquery).
 
         Checking the resolved table type rather than the field chain also matches the qualified form
-        (`FROM posthog.events`), which a `chain == ["events"]` string comparison silently misses.
-        """
+        (`FROM posthog.events`), which a `chain == ["events"]` string comparison silently misses."""
         table_type: ast.Type | None = join_expr.type
         while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
             table_type = table_type.table_type
@@ -641,15 +625,14 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     def _collect_joined_aliases(self, node: ast.SelectQuery) -> set[str]:
         """Collect aliases from the JOIN chain.
 
-        Returns an empty set if any join uses an unsafe type (e.g. RIGHT JOIN,
-        FULL OUTER JOIN), which causes _apply_pushdown to bail out.
-        """
+        Returns an empty set if any join uses an unsafe type (e.g. RIGHT JOIN, FULL OUTER JOIN), which causes
+        _apply_pushdown to bail out."""
         aliases: set[str] = set()
         join = node.select_from.next_join if node.select_from else None
         while join is not None:
-            # Only push when the join type is provably safe. A missing join_type is unreachable today
-            # (the parser always sets it on next_join entries) but is treated as unsafe rather than safe,
-            # so an unverified join can never let us filter the preserved side of an unknown join.
+            # Only push when the join type is provably safe. A missing join_type is unreachable today (the
+            # parser always sets it on next_join entries) but is treated as unsafe, so an unverified join can
+            # never let us filter the preserved side of an unknown join.
             if join.join_type is None or join.join_type not in self._SAFE_JOIN_TYPES:
                 return set()
             if join.alias:
@@ -661,8 +644,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         self, node: ast.SelectQuery, events_table_type: ast.TableType | ast.TableAliasType
     ) -> EventsFieldCollector | None:
         """Walk the whole outer query and collect the events columns it references (SELECT, WHERE/PREWHERE,
-        GROUP BY, ORDER BY, HAVING, JOIN constraints). Returns the collector, or None if it can't be pushed.
-        """
+        GROUP BY, ORDER BY, HAVING, JOIN constraints). Returns the collector, or None if it can't be pushed."""
         # Unresolved lazy types would break once we replace the FROM clause.
         lazy_detector = LazyTypeDetector()
         lazy_detector.visit(node)
@@ -682,10 +664,9 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """Ready a pushed predicate for the inner subquery, or None if there is none.
 
         Inlines SELECT-alias references so the full expression is carried (not just the alias name, which
-        would re-bind to the raw column and drop the wrapper). The predicate is otherwise moved unchanged:
-        the inner subquery keeps the outer events alias, so references like `e.timestamp` / `e.properties.x`
-        resolve against it as-is. A fresh clone keeps the subquery's copy independent of the outer query.
-        """
+        would re-bind to the raw column and drop the wrapper). Otherwise moved unchanged: the inner subquery
+        keeps the outer events alias, so references like `e.timestamp` / `e.properties.x` resolve against it
+        as-is. A fresh clone keeps the subquery's copy independent of the outer query."""
         if expr is None:
             return None
         expr = SelectAliasInliner(select_aliases).visit(expr)
@@ -701,15 +682,12 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         alias: str | None = None,
         limit: ast.Constant | None = None,
     ) -> ast.SelectQuery | None:
-        """Build a subquery using the already-resolved types from the outer query.
-
-        Uses the collected FieldTypes to build the subquery, avoiding the need to
-        call resolve_types which might resolve HogQL abstract columns to lazy joins.
+        """Build a subquery from the outer query's already-resolved FieldTypes, avoiding resolve_types (which
+        might resolve HogQL abstract columns to lazy joins).
 
         When the outer query aliased events (`FROM events AS e`), the inner table keeps that alias so the
         pushed predicates resolve against it unchanged. The projection and scope reference the same aliased
-        type, so the SELECT list prints `e.<col>` to match the aliased inner FROM.
-        """
+        type, so the SELECT list prints `e.<col>` to match the aliased inner FROM."""
         # The subquery reads from the same physical events table the outer query did.
         base_table_type: ast.Type = events_table_type
         if isinstance(base_table_type, ast.TableAliasType):
@@ -718,8 +696,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             return None  # shouldn't happen for valid events queries; bail rather than raise (pure optimization)
 
         inner_table_type = self._inner_table_type_with_materialized_columns(base_table_type, materialized_columns)
-        # Field references (projection + scope) point at the aliased table when there is an alias, so they
-        # print `e.<col>` against the aliased inner FROM; otherwise they print `events.<col>`.
+        # Field references point at the aliased table when there is an alias, so they print `e.<col>` against
+        # the aliased inner FROM; otherwise `events.<col>`.
         ref_table_type: ast.TableType | ast.TableAliasType = (
             ast.TableAliasType(alias=alias, table_type=inner_table_type) if alias else inner_table_type
         )
@@ -777,8 +755,7 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         """Inner events table type, augmented with synthetic DatabaseFields for the materialized columns.
 
         Mat/dmat/property-group columns are physical ClickHouse columns, not HogQL schema fields, so they
-        can't resolve as plain Fields without this. Uses a copy; the shared table object is never mutated.
-        """
+        can't resolve as plain Fields without this. Uses a copy; the shared table object is never mutated."""
         synthetic_fields = {
             column: DatabaseField(name=column)
             for column in materialized_columns

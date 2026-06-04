@@ -410,9 +410,9 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         self.team.timezone = timezone
         self.team.save()
         # This class asserts the structural shape of toTimeZone stripping (a PropertySwapper concern).
-        # Predicate pushdown is orthogonal — it relocates the (already-stripped) WHERE into an events
-        # subquery, which would change where these comparisons appear without changing the tz behavior.
-        # Disable it here so the assertions stay about tz stripping; pushdown has its own test suite.
+        # Predicate pushdown is orthogonal: it relocates the (already-stripped) WHERE into an events subquery,
+        # changing where these comparisons appear without changing the tz behavior. Disable it here so the
+        # assertions stay about tz stripping; pushdown has its own test suite.
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,

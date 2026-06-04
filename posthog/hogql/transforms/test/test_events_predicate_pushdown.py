@@ -80,13 +80,10 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         assert printed == self.snapshot
 
     def test_aliased_events_pushdown_subquery_defines_its_own_alias(self):
-        # Regression for the aliased-events pushdown bug.
-        #
         # When the events table is aliased (FROM events AS e), the pushed predicate keeps referencing `e`.
         # Rather than rewrite every reference to the inner table (fragile: the printer renders a field from
         # its resolved type, not its chain, so a materialized property still leaked `e.mat_*`), the inner
-        # subquery keeps the same alias on its own FROM (`FROM events AS e`). The alias is therefore defined
-        # in the subquery's scope, so `e.timestamp` resolves there.
+        # subquery keeps the same alias on its own FROM (`FROM events AS e`), so `e.timestamp` resolves there.
         printed = self._print_select(
             "SELECT e.event, session.$session_duration FROM events AS e WHERE e.timestamp >= '2024-01-01'"
         )
@@ -96,7 +93,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         events_subquery = printed.split("FROM (", 1)[1].split(") AS e LEFT JOIN", 1)[0]
 
         # The subquery aliases its own events scan as `e`, so the pushed `e.timestamp` predicate resolves
-        # against it (rather than the out-of-scope outer alias).
+        # against it, not the out-of-scope outer alias.
         assert "FROM events AS e" in events_subquery, (
             "expected the inner subquery to alias events as `e` so pushed `e.*` predicates resolve:\n" + events_subquery
         )
@@ -194,9 +191,9 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         assert printed == self.snapshot
 
     # Only LEFT [OUTER] joins preserve every events row, so only they let the pushed inner LIMIT stay
-    # result-equivalent — they push. INNER / CROSS can drop an events row, and RIGHT / FULL can synthesize
-    # null events rows, so both groups decline under the single-rule gate (no safe inner LIMIT). Join types
-    # within each group differ only in the keyword, so they share one parameterized snapshot test.
+    # result-equivalent and push. INNER / CROSS can drop an events row, and RIGHT / FULL can synthesize null
+    # events rows, so both groups decline under the single-rule gate (no safe inner LIMIT). Join types within
+    # each group differ only in the keyword, so they share one parameterized snapshot test.
     _ROW_PRESERVING_JOINS = [
         ("left_join", "LEFT JOIN sessions ON events.$session_id = sessions.session_id"),
         ("left_outer_join", "LEFT OUTER JOIN sessions ON events.$session_id = sessions.session_id"),
@@ -226,7 +223,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_non_row_preserving_join_skips_pushdown(self, _name: str, join_clause: str):
         """INNER / CROSS can drop an events row and RIGHT / FULL can synthesize null events rows, so the
-        pushed inner LIMIT would change results — the pushdown declines and the query runs flat."""
+        pushed inner LIMIT would change results; the pushdown declines and the query runs flat."""
         printed = self._print_select(
             f"SELECT sessions.session_id, uuid FROM events {join_clause} WHERE events.timestamp > '2021-01-01'"
         )
@@ -245,8 +242,8 @@ class TestEventsPredicatePushdownTransform(BaseTest):
     def test_non_pushable_prewhere_bails(self):
         # A PREWHERE with a non-events (joined) predicate can't be pushed, and can't stay on the outer query
         # either: after pushdown the outer FROM is a subquery, where PREWHERE is invalid. So the transform
-        # bails entirely rather than emit an invalid PREWHERE on a subquery. (Such a query is already invalid
-        # ClickHouse — PREWHERE can't reference a joined column — so this just guarantees we don't make it worse.)
+        # bails rather than emit an invalid PREWHERE on a subquery. (Such a query is already invalid ClickHouse
+        # since PREWHERE can't reference a joined column, so this just guarantees we don't make it worse.)
         printed = self._print_select(
             "SELECT event, session.$session_duration FROM events "
             "PREWHERE timestamp >= '2024-01-01' AND session.$session_duration > 0"
@@ -277,7 +274,7 @@ class TestEventsPredicatePushdownTransform(BaseTest):
 
     # Gate: pushdown only helps when the LIMIT can short-circuit the events scan. Aggregate / GROUP BY /
     # DISTINCT / window all consume the whole filtered set before the LIMIT applies, so the pre-filter
-    # subquery would be pure materialization overhead — decline (still correct, just not worth it).
+    # subquery would be pure materialization overhead; decline (still correct, just not worth it).
     _FORCES_FULL_READ_SHAPES = [
         (
             "aggregate_fn",
@@ -526,7 +523,7 @@ class TestEventsPredicatePushdownTransformUnit:
 
     def test_should_apply_pushdown_ignoring_aggregate_in_scalar_subquery(self):
         # An aggregate inside a scalar subquery in the SELECT list belongs to that subquery's scope, not this
-        # one — it must NOT make this (non-aggregate) query decline, or we'd lose the optimization needlessly.
+        # one, so it must NOT make this (non-aggregate) query decline, or we'd lose the optimization.
         node = self._make_events_select_with_join(where_clause=self._TS_PRED)
         scalar_subquery = ast.SelectQuery(
             select=[ast.Call(name="count", args=[])],
@@ -540,7 +537,7 @@ class TestEventsPredicatePushdownTransformUnit:
 
     def test_should_not_apply_pushdown_when_top_level_limit_disabled(self):
         # COHORT_CALCULATION / SAVED_QUERY / exports set limit_top_select=False and inject only a huge
-        # sentinel limit — nothing for the LIMIT to short-circuit, so decline even though node.limit is set.
+        # sentinel limit, nothing for the LIMIT to short-circuit, so decline even though node.limit is set.
         node = self._make_events_select_with_join(where_clause=self._TS_PRED)
         context = HogQLContext(team_id=1)
         context.limit_top_select = False
@@ -550,8 +547,8 @@ class TestEventsPredicatePushdownTransformUnit:
         assert transform._should_apply_pushdown(node) is False
 
     def test_should_not_apply_pushdown_with_aggregate_in_order_by(self):
-        # A bare aggregate in ORDER BY (no GROUP BY) is an implicit whole-set read — the LIMIT can't
-        # short-circuit, so decline.
+        # A bare aggregate in ORDER BY (no GROUP BY) is an implicit whole-set read, so the LIMIT can't
+        # short-circuit; decline.
         node = self._make_events_select_with_join(where_clause=self._TS_PRED)
         node.order_by = [ast.OrderExpr(expr=ast.Call(name="count", args=[]), order="DESC")]
 
@@ -572,7 +569,7 @@ class TestEventsPredicatePushdownTransformUnit:
 
     def test_should_not_apply_pushdown_with_aggregate_in_call_filter(self):
         # An aggregate hidden in a non-arg call position (here filter_expr of a non-aggregate call) must still
-        # be detected — the finder recurses into every child position, not just args.
+        # be detected: the finder recurses into every child position, not just args.
         node = self._make_events_select_with_join(where_clause=self._TS_PRED)
         node.select = [
             ast.Call(name="toString", args=[ast.Field(chain=["event"])], filter_expr=ast.Call(name="count", args=[]))
@@ -710,8 +707,8 @@ class TestEventsPredicatePushdownTransformUnit:
 class TestLazyTypeDetector(BaseTest):
     """Tests for LazyTypeDetector using real HogQL queries.
 
-    LazyTypeDetector finds LazyJoinType/LazyTableType in the AST which indicates
-    that lazy join resolution hasn't completed - predicate pushdown should be skipped.
+    A LazyJoinType / LazyTableType in the AST means lazy join resolution hasn't completed, so predicate
+    pushdown should be skipped.
     """
 
     def setUp(self):
@@ -728,7 +725,7 @@ class TestLazyTypeDetector(BaseTest):
 
     def test_detects_lazy_join_from_session_field(self):
         """Query accessing session.$session_duration has LazyJoinType before lazy resolution."""
-        # session is a LazyJoin on events - produces LazyJoinType after resolve_types
+        # session is a LazyJoin on events, so resolve_types produces a LazyJoinType
         node = self._resolve_query("SELECT session.$session_duration FROM events")
 
         detector = LazyTypeDetector()
@@ -772,8 +769,8 @@ class TestLazyTypeDetector(BaseTest):
 class TestEventsFieldCollector(BaseTest):
     """Tests for EventsFieldCollector using real HogQL queries.
 
-    EventsFieldCollector walks the AST to collect database columns needed from events table
-    and detects non-direct fields (PropertyType, LazyJoinType) that prevent safe pushdown.
+    EventsFieldCollector collects the events database columns a query needs and detects non-direct fields
+    (PropertyType, LazyJoinType) that prevent safe pushdown.
     """
 
     def setUp(self):
@@ -887,7 +884,7 @@ class TestEventsFieldCollector(BaseTest):
         assert collector.has_non_direct_fields is False
 
     def test_poe_revenue_analytics_lazy_join_triggers_non_direct(self):
-        """poe.revenue_analytics is a LazyJoin inside VirtualTable — triggers non-direct flag."""
+        """poe.revenue_analytics is a LazyJoin inside VirtualTable, so it triggers the non-direct flag."""
         node, events_table_type = self._resolve_query("SELECT poe.revenue_analytics.revenue FROM events")
 
         collector = EventsFieldCollector(events_table_type, self.context)
@@ -899,17 +896,15 @@ class TestEventsFieldCollector(BaseTest):
 class TestSavedQueryWithLazyJoins(BaseTest):
     """Tests for predicate pushdown with SavedQuery views that contain lazy joins.
 
-    SavedQuery views (e.g., revenue_analytics) may contain queries with lazy joins
-    (like events.person.distinct_id). When these views are expanded during resolve_types,
-    the lazy joins should be fully resolved before predicate pushdown runs.
+    A SavedQuery view's lazy joins (like events.person.distinct_id) should be fully resolved when the view is
+    expanded during resolve_types, before predicate pushdown runs.
     """
 
     def setUp(self):
         super().setUp()
         self.database = Database.create_for(team=self.team)
 
-        # Create a SavedQuery that contains a query with lazy joins
-        # This simulates what revenue_analytics views do
+        # A SavedQuery containing lazy joins, simulating what revenue_analytics views do.
         self.saved_query = SavedQuery(
             id="test_view",
             name="test_events_with_person",
@@ -921,7 +916,6 @@ class TestSavedQueryWithLazyJoins(BaseTest):
             },
         )
 
-        # Add the saved query to the database using the proper table structure
         self.database.tables.add_child(TableNode(name="test_events_with_person", table=self.saved_query))
 
         self.context = HogQLContext(
@@ -933,19 +927,18 @@ class TestSavedQueryWithLazyJoins(BaseTest):
     def test_saved_query_with_lazy_joins_and_session_join(self):
         """Query from SavedQuery that internally uses lazy joins should resolve properly."""
 
-        # Need to set team on context for persons table join to work
+        # The persons table join needs the team on the context.
         self.context.team = self.team
 
         query_str = "SELECT event, person_id, session_duration FROM test_events_with_person"
 
-        # Use the full pipeline
         query, prepared_ast = prepare_and_print_ast(
             parse_select(query_str),
             self.context,
             "clickhouse",
         )
 
-        # Should complete without error - verifies lazy joins are fully resolved
+        # Completing without error verifies the lazy joins were fully resolved.
         assert "SELECT" in query
 
 
@@ -1017,14 +1010,14 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
 
     def _assert_pushdown_equivalent(self, select: str, *, expected_rows: int) -> None:
         # Sorted comparison: the pushed inner LIMIT means queries don't need an ORDER BY (which would decline
-        # the pushdown), so the row order isn't pinned — only the set of rows must match on vs off.
+        # the pushdown), so the row order isn't pinned; only the set of rows must match on vs off.
         with_pushdown = self._assert_results_equivalent(select)
         assert len(with_pushdown) == expected_rows, f"expected {expected_rows} rows, got {with_pushdown}"
 
     def test_exec_self_join_with_inner_limit_stays_equivalent(self):
         # Adversarial: a self-join shares the same `EventsTable` instance, so the column collector matches the
         # right side's columns by identity, and the right side is one-to-many on distinct_id. With the pushed
-        # inner LIMIT bounding only the left scan, the full result set (LIMIT >= output) must stay identical.
+        # inner LIMIT bounding only the left scan, the full result set (LIMIT >= output) stays identical.
         self._create_data()
         select = (
             "SELECT a.event AS ae, b.event AS be FROM events AS a "
@@ -1036,8 +1029,8 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         self._assert_results_equivalent(select)
 
     def test_exec_limit_below_match_count_returns_valid_rows_both_ways(self):
-        # A non-ORDER-BY LIMIT smaller than the matching set is non-deterministic — even two un-pushed runs can
-        # return different rows — so on==off isn't a valid assertion. The pushed inner LIMIT bounds the events
+        # A non-ORDER-BY LIMIT smaller than the matching set is non-deterministic (even two un-pushed runs can
+        # return different rows), so on==off isn't a valid assertion. The pushed inner LIMIT bounds the events
         # scan rather than the joined output, so the chosen rows can differ; assert instead that BOTH forms
         # return a valid result: exactly LIMIT rows, each drawn from the full matching set.
         for i in range(1, 7):
@@ -1116,7 +1109,7 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
 
     # Cohort predicates must never push, regardless of how IN COHORT resolves: inCohortVia=LEFTJOIN leaves an
     # unresolved InCohort op (kept outer), and SUBQUERY / CONJOINED / inline resolve to a nested subquery
-    # (kept outer) — across every personsOnEventsMode, so the `person_id` resolution (direct vs lazy override)
+    # (kept outer), across every personsOnEventsMode, so the `person_id` resolution (direct vs lazy override)
     # can't make it slip through. Each shape must decline (run flat) and stay result-equivalent on vs off.
     _COHORT_SHAPES = [
         (
@@ -1209,10 +1202,10 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         assert len(on or []) == expected_count, f"{_name}: expected {expected_count} rows, got {on}"
 
     # `events.person.properties.email` is a DIRECT events column (read from `person_properties`) under the
-    # "properties on events" POE modes — so it's pushable — but a lazy persons join under "properties joined"
-    # / disabled, where it declines. The pushdown runs before the person-property PropertySwapper, so the
-    # pushed PropertyType is rewritten inside the subquery; the collector pre-exposes `person_properties`.
-    # Either way results must stay equivalent on vs off.
+    # "properties on events" POE modes (so it's pushable) but a lazy persons join under "properties joined" /
+    # disabled, where it declines. The pushdown runs before the person-property PropertySwapper, so the pushed
+    # PropertyType is rewritten inside the subquery; the collector pre-exposes `person_properties`. Either way
+    # results must stay equivalent on vs off.
     _POE_PERSON_PROPERTY_SHAPES = [
         ("properties_on_events_no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, True),
         ("properties_on_events_override", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
@@ -1445,7 +1438,7 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
 
     def _create_diverse_data(self) -> None:
         # A second event name (so event filters actually discriminate) and a row whose `$session_id` is
-        # invalid (so its LEFT JOIN finds no session and the duration is NULL — an unmatched-join row).
+        # invalid (so its LEFT JOIN finds no session and the duration is NULL, an unmatched-join row).
         s1, s2 = str(uuid7("2024-01-02T00:00:00")), str(uuid7("2024-01-03T00:00:00"))
         rows = [
             ("u1", "watched movie", s1, "2024-01-02T10:00:00"),
@@ -1482,13 +1475,11 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         results = self._results(select, push_down=True)
         assert any(row[1] in (None, 0) for row in results), f"expected an unmatched-join NULL/0 duration row: {results}"
 
-    # Each shape has a session join and a pushable timestamp filter, so pushdown fires; the test asserts
-    # the events subquery was created AND that results are identical with pushdown on vs off. This is the
-    # core "pure optimization" invariant exercised against real ClickHouse across many query shapes.
     _RANGE = "timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
-    # Each shape pushes: a session (LEFT) join, a fully-pushable events predicate, no ORDER BY / aggregate,
-    # and an effective LIMIT. The runner asserts the events subquery (with its inner LIMIT) was created, then
-    # compares sorted results on vs off — the inner LIMIT means there is no ORDER BY to pin row order.
+    # The core "pure optimization" invariant across many query shapes. Each shape pushes: a session (LEFT)
+    # join, a fully-pushable events predicate, no ORDER BY / aggregate, and an effective LIMIT. The runner
+    # asserts the events subquery (with its inner LIMIT) was created, then compares sorted results on vs off
+    # (the inner LIMIT means there is no ORDER BY to pin row order).
     EQUIVALENCE_SHAPES = [
         ("baseline", f"SELECT event, session.$session_duration FROM events WHERE {_RANGE} LIMIT 50"),
         (
@@ -1689,11 +1680,10 @@ class TestEventsPredicatePushdownMaterializedExecution(_PushdownExecutionTestBas
             self._assert_equivalent(select, expected_rows=2)
 
     def test_exec_aliased_materialized_property_filter_pushed_uses_inner_table(self):
-        # Regression for the aliased-events materialized-property leak (caught by the error-tracking suite):
-        # when the events table is aliased (FROM events AS e) and a *materialized* property is in the pushed
+        # When the events table is aliased (FROM events AS e) and a *materialized* property is in the pushed
         # predicate, the printer renders `e.mat_tier` from the property's type. The inner subquery keeps the
         # `e` alias on its own events scan, so `e.mat_tier` resolves there instead of being an unknown
-        # identifier (the previous rewrite-to-inner-table approach missed the materialized property path).
+        # identifier (a rewrite-to-inner-table approach would miss the materialized property path).
         with materialized("events", "tier") as mat_col:
             self._create_data()
             select = (
@@ -1860,7 +1850,7 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
     def test_exec_is_not_null_uses_property_group_column(self):
         # Under OPTIMIZED the printer rewrites isNull/isNotNull(properties.k) to the property-group has()
         # expression, so the Map column must be exposed. The arg is a PropertyType (visit_field path), so
-        # the group column is exposed by _collect_materialized_column — pin that equivalence here.
+        # the group column is exposed by _collect_materialized_column; pin that equivalence here.
         self._create_data()
         select = (
             f"SELECT isNotNull(properties.tier) AS has_tier, session.$session_duration AS d "

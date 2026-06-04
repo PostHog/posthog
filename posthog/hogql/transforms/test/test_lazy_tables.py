@@ -161,8 +161,7 @@ class TestLazyJoins(BaseTest):
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_events_session_join_with_timestamp_filter(self):
-        # Documents current SQL generation for events with session access and timestamp filters.
-        # This serves as a baseline for future predicate pushdown optimization.
+        # Documents SQL generation for events with session access and a timestamp filter.
         printed = self._print_select(
             "SELECT event, session.$session_duration "
             "FROM events "
