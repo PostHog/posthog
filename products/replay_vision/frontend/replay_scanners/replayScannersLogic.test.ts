@@ -1,9 +1,15 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { replayScannersLogic } from './replayScannersLogic'
+import {
+    buildScannerListParams,
+    replayScannersLogic,
+    resolveScannerOrderByKey,
+    type ScannerOrderKey,
+} from './replayScannersLogic'
 import { ScannerConfig, ScannerType, ReplayScanner } from './types'
 
 function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
@@ -48,7 +54,8 @@ describe('replayScannersLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/vision/scanners/': { results: [] },
+                '/api/projects/:team/vision/scanners/': { results: [], count: 0 },
+                '/api/projects/:team/vision/scanners/creators/': { creators: [] },
             },
             patch: {
                 '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
@@ -63,86 +70,247 @@ describe('replayScannersLogic', () => {
         logic?.unmount()
     })
 
+    const alice = {
+        id: 1,
+        uuid: '00000000-0000-0000-0000-000000000001',
+        first_name: 'Alice',
+        last_name: 'Anderson',
+        email: 'alice@example.com',
+        hedgehog_config: null,
+    }
+    const bob = {
+        id: 2,
+        uuid: '00000000-0000-0000-0000-000000000002',
+        first_name: 'Bob',
+        last_name: 'Brown',
+        email: 'bob@example.com',
+        hedgehog_config: null,
+    }
+
     const scanners: ReplayScanner[] = [
-        makeScanner({ id: 'a', name: 'Confused checkout', scanner_type: 'monitor', enabled: true }),
+        makeScanner({ id: 'a', name: 'Confused checkout', scanner_type: 'monitor', enabled: true, created_by: alice }),
         makeScanner({ id: 'b', name: 'Power user behavior', scanner_type: 'classifier', enabled: false }),
-        makeScanner({ id: 'c', name: 'Refund summarizer', scanner_type: 'summarizer', enabled: true }),
+        makeScanner({ id: 'c', name: 'Refund summarizer', scanner_type: 'summarizer', enabled: true, created_by: bob }),
     ]
 
-    it.each([
-        { name: 'no filters returns all', search: '', enabled: [], types: [], expected: ['a', 'b', 'c'] },
-        { name: 'search by name', search: 'checkout', enabled: [], types: [], expected: ['a'] },
-        { name: 'search by prompt fragment', search: 'struggle', enabled: [], types: [], expected: ['a'] },
-        { name: 'enabled filter', search: '', enabled: ['enabled' as const], types: [], expected: ['a', 'c'] },
-        { name: 'disabled filter', search: '', enabled: ['disabled' as const], types: [], expected: ['b'] },
-        {
-            name: 'scanner type filter',
-            search: '',
-            enabled: [],
-            types: ['classifier' as ScannerType, 'summarizer' as ScannerType],
-            expected: ['b', 'c'],
-        },
-        {
-            name: 'combined search + enabled',
-            search: 'refund',
-            enabled: ['enabled' as const],
-            types: [],
-            expected: ['c'],
-        },
-    ])('filteredScanners: $name', async ({ search, enabled, types, expected }) => {
-        await expectLogic(logic, () => {
-            logic.actions.loadScannersSuccess(scanners)
-            logic.actions.setSearch(search)
-            logic.actions.setEnabledFilter(enabled)
-            logic.actions.setScannerTypeFilter(types)
-        }).toMatchValues({
-            filteredScanners: scanners.filter((l) => expected.includes(l.id)),
-        })
-    })
-
-    it('hasActiveFilters tracks any active filter', async () => {
-        await expectLogic(logic).toMatchValues({ hasActiveFilters: false })
-
-        await expectLogic(logic, () => logic.actions.setSearch('foo')).toMatchValues({ hasActiveFilters: true })
-        await expectLogic(logic, () => logic.actions.setSearch('')).toMatchValues({ hasActiveFilters: false })
-
-        await expectLogic(logic, () => logic.actions.setEnabledFilter(['enabled'])).toMatchValues({
-            hasActiveFilters: true,
-        })
-    })
-
-    it('clearFilters resets all filter state', async () => {
-        logic.actions.setSearch('foo')
-        logic.actions.setEnabledFilter(['enabled'])
-        logic.actions.setScannerTypeFilter(['monitor'])
-        await expectLogic(logic).toMatchValues({ hasActiveFilters: true })
-
-        await expectLogic(logic, () => logic.actions.clearFilters()).toMatchValues({
+    describe('buildScannerListParams', () => {
+        const emptyValues = {
             search: '',
             enabledFilter: [],
             scannerTypeFilter: [],
-            hasActiveFilters: false,
+            createdByFilter: [],
+            scannersSort: null,
+        }
+
+        it('returns empty params when nothing is set', () => {
+            expect(buildScannerListParams({ ...emptyValues })).toEqual({})
+        })
+
+        it('passes limit and offset (offset only when > 0)', () => {
+            expect(buildScannerListParams({ ...emptyValues }, 50, 0)).toEqual({ limit: 50 })
+            expect(buildScannerListParams({ ...emptyValues }, 50, 100)).toEqual({ limit: 50, offset: 100 })
+        })
+
+        it('CSV-joins each filter array; trims search', () => {
+            const params = buildScannerListParams({
+                ...emptyValues,
+                search: '   hello   ',
+                enabledFilter: ['enabled', 'disabled'],
+                scannerTypeFilter: ['monitor', 'classifier'],
+                createdByFilter: ['1', '42'],
+            })
+            expect(params.search).toBe('hello')
+            expect(params.enabled).toBe('enabled,disabled')
+            expect(params.scanner_type).toBe('monitor,classifier')
+            expect(params.created_by).toBe('1,42')
+        })
+
+        it('omits an all-whitespace search', () => {
+            const params = buildScannerListParams({ ...emptyValues, search: '   ' })
+            expect(params.search).toBeUndefined()
+        })
+
+        it.each<[ScannerOrderKey, 1 | -1, string]>([
+            ['name', 1, 'name'],
+            ['created_at', -1, '-created_at'],
+            ['sampling_rate', 1, 'sampling_rate'],
+            ['created_by', -1, '-created_by'],
+        ])('serializes sort %p:%p as %s', (columnKey, order, expected) => {
+            const params = buildScannerListParams({
+                ...emptyValues,
+                scannersSort: { columnKey, order },
+            })
+            expect(params.order_by).toBe(expected)
+        })
+
+        it('drops sort on unknown column key', () => {
+            const params = buildScannerListParams({
+                ...emptyValues,
+                scannersSort: { columnKey: 'unknown_column' as ScannerOrderKey, order: 1 },
+            })
+            expect(params.order_by).toBeUndefined()
         })
     })
 
-    it('toggleScannerEnabled optimistically flips the row and marks it in-flight', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.loadScannersSuccess(scanners)
-            logic.actions.toggleScannerEnabled('a')
-        }).toMatchValues({
-            scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
-            togglingIds: ['a'],
+    describe('resolveScannerOrderByKey', () => {
+        it.each(['name', 'enabled', 'scanner_type', 'sampling_rate', 'created_by', 'created_at', 'updated_at'])(
+            'accepts %s',
+            (key) => {
+                expect(resolveScannerOrderByKey(key)).toBe(key)
+            }
+        )
+
+        it('rejects unknown keys', () => {
+            expect(resolveScannerOrderByKey('description')).toBeNull()
+            expect(resolveScannerOrderByKey('')).toBeNull()
         })
     })
 
-    it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.loadScannersSuccess(scanners)
-            logic.actions.toggleScannerEnabled('a')
-            logic.actions.revertScannerEnabled('a')
-        }).toMatchValues({
-            scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: true })]),
-            togglingIds: [],
+    describe('hasActiveFilters', () => {
+        it('tracks any active filter', async () => {
+            await expectLogic(logic).toMatchValues({ hasActiveFilters: false })
+
+            await expectLogic(logic, () => logic.actions.setScannersFilters({ search: 'foo' })).toMatchValues({
+                hasActiveFilters: true,
+            })
+            await expectLogic(logic, () => logic.actions.setScannersFilters({ search: '' })).toMatchValues({
+                hasActiveFilters: false,
+            })
+
+            await expectLogic(logic, () =>
+                logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
+            ).toMatchValues({
+                hasActiveFilters: true,
+            })
+            await expectLogic(logic, () => logic.actions.setScannersFilters({ enabledFilter: [] })).toMatchValues({
+                hasActiveFilters: false,
+            })
+
+            await expectLogic(logic, () => logic.actions.setScannersFilters({ createdByFilter: ['1'] })).toMatchValues({
+                hasActiveFilters: true,
+            })
+        })
+    })
+
+    describe('clearFilters', () => {
+        it('resets all filter state', async () => {
+            logic.actions.setScannersFilters({ search: 'foo' })
+            logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
+            logic.actions.setScannersFilters({ scannerTypeFilter: ['monitor'] })
+            logic.actions.setScannersFilters({ createdByFilter: ['1'] })
+            await expectLogic(logic).toMatchValues({ hasActiveFilters: true })
+
+            await expectLogic(logic, () => logic.actions.clearFilters()).toMatchValues({
+                search: '',
+                enabledFilter: [],
+                scannerTypeFilter: [],
+                createdByFilter: [],
+                hasActiveFilters: false,
+            })
+        })
+    })
+
+    describe('createdByOptions', () => {
+        it.each([
+            {
+                name: 'distinct creators sorted by label, null creators excluded',
+                createdBy: [],
+                expected: [
+                    { value: '1', label: 'Alice Anderson' },
+                    { value: '2', label: 'Bob Brown' },
+                ],
+            },
+            {
+                name: 'selected-but-unloaded id is surfaced so it stays untickable',
+                createdBy: ['999'],
+                expected: [
+                    { value: '1', label: 'Alice Anderson' },
+                    { value: '2', label: 'Bob Brown' },
+                    { value: '999', label: 'User 999' },
+                ],
+            },
+        ])('createdByOptions: $name', async ({ createdBy, expected }) => {
+            await expectLogic(logic, () => {
+                logic.actions.loadCreatorsSuccess([alice, bob])
+                logic.actions.setScannersFilters({ createdByFilter: createdBy })
+            }).toMatchValues({
+                createdByOptions: expected,
+            })
+        })
+    })
+
+    describe('page / sort interactions', () => {
+        it('changing a filter resets page to 1', async () => {
+            logic.actions.setScannersFilters({ page: 5 })
+            expect(logic.values.scannersPage).toBe(5)
+            await expectLogic(logic, () => {
+                logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
+            }).toMatchValues({ scannersPage: 1 })
+        })
+
+        it('changing sort resets page to 1', async () => {
+            logic.actions.setScannersFilters({ page: 3 })
+            await expectLogic(logic, () => {
+                logic.actions.setScannersFilters({ sort: { columnKey: 'name', order: 1 } })
+            }).toMatchValues({ scannersPage: 1 })
+        })
+
+        it('writes non-default state into the URL', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setScannersFilters({ enabledFilter: ['enabled'] })
+                logic.actions.setScannersFilters({ page: 2 })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.enabled).toBe('enabled')
+            expect(String(router.values.searchParams.page)).toBe('2')
+        })
+
+        it('omits defaults from the URL', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setScannersFilters({ page: 1 })
+                logic.actions.setScannersFilters({ sort: { columnKey: 'created_at', order: -1 } })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.page).toBeUndefined()
+            expect(router.values.searchParams.sort).toBeUndefined()
+        })
+    })
+
+    describe('delete / duplicate refresh', () => {
+        it('deleteScannerSuccess refetches the page and the creators list', async () => {
+            await expectLogic(logic, () => logic.actions.deleteScannerSuccess('a')).toDispatchActions([
+                'loadScanners',
+                'loadCreators',
+            ])
+        })
+
+        it('duplicateScannerSuccess refetches the page and the creators list', async () => {
+            const dup = makeScanner({ id: 'd', name: 'Copied' })
+            await expectLogic(logic, () => logic.actions.duplicateScannerSuccess(dup)).toDispatchActions([
+                'loadScanners',
+                'loadCreators',
+            ])
+        })
+    })
+
+    describe('optimistic toggle', () => {
+        it('toggleScannerEnabled optimistically flips the row and marks it in-flight', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadScannersSuccess(scanners, scanners.length)
+                logic.actions.toggleScannerEnabled('a')
+            }).toMatchValues({
+                scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: false })]),
+                togglingIds: ['a'],
+            })
+        })
+
+        it('revertScannerEnabled flips the row back and clears the in-flight id', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadScannersSuccess(scanners, scanners.length)
+                logic.actions.toggleScannerEnabled('a')
+                logic.actions.revertScannerEnabled('a')
+            }).toMatchValues({
+                scanners: expect.arrayContaining([expect.objectContaining({ id: 'a', enabled: true })]),
+                togglingIds: [],
+            })
         })
     })
 

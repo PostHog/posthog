@@ -774,7 +774,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5,
                 },
                 "too_short",
-                "is only 5",
+                "Only 5",
             ),
             (
                 {
@@ -784,7 +784,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 3,  # under 10s floor
                 },
                 "too_inactive",
-                "has only 3",
+                "Only 3s of active",
             ),
             (
                 {
@@ -794,7 +794,7 @@ class TestFetchSessionEventsActivity:
                     "active_seconds": 5000,  # over 3600 cap
                 },
                 "too_long",
-                "has 5000",
+                "5000s of active",
             ),
         ],
     )

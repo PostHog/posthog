@@ -1,6 +1,7 @@
 import base64
 import hashlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
@@ -21,6 +22,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
+from posthog.api.oauth.views import OAuthValidator
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -337,6 +339,32 @@ class TestOAuthAPI(APIBaseTest):
 
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
+
+    def test_authorize_with_prompt_none_openid_does_not_500(self):
+        # Regression: a missing `validate_silent_login` override on OAuthValidator caused
+        # oauthlib to raise NotImplementedError -> 500 whenever an OIDC client sent
+        # `prompt=none` with the `openid` scope. Any well-formed response (consent page,
+        # spec-compliant error redirect, or successful auth) is acceptable here — the
+        # point is the request must not crash.
+        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+
+        response = self.client.get(url)
+
+        self.assertLess(response.status_code, 500)
+
+    def test_validate_silent_login_returns_true_for_authenticated_user(self):
+        # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
+        # requests before validate_silent_login runs, so the validator's False branch can't
+        # be exercised through the HTTP flow — call it directly instead.
+        self.assertTrue(OAuthValidator().validate_silent_login(SimpleNamespace(user=self.user)))
+
+    def test_validate_silent_login_returns_false_for_unauthenticated_request(self):
+        unauthenticated = SimpleNamespace(user=SimpleNamespace(is_authenticated=False))
+        self.assertFalse(OAuthValidator().validate_silent_login(unauthenticated))
+
+        # request object with no `user` attribute at all
+        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace()))
+        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=None)))
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
@@ -2331,6 +2359,35 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
+
+    @parameterized.expand(
+        [
+            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+        ]
+    )
+    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+        self._set_ceiling(*ceiling)
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error=invalid_scope", response.get("Location") or "")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["reason"], "invalid_scope")
+        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+
+    def test_authorize_success_does_not_capture_invalid_scope_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            self._authorize_post("experiment:read")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(rejected, [])
 
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_with_json_payload(self):

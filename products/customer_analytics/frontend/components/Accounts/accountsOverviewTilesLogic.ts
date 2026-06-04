@@ -1,5 +1,8 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
+
+import { objectsEqual } from 'lib/utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
@@ -7,9 +10,14 @@ import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
-
-export const ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS = ['>', '>=', '<', '<=', '=', '!='] as const
-export type AccountsOverviewThresholdOperator = (typeof ACCOUNTS_OVERVIEW_THRESHOLD_OPERATORS)[number]
+import {
+    ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
+    AccountsEvents,
+    AccountsOverviewThresholdOperator,
+    DEFAULT_TILES,
+    MAX_ACCOUNTS_OVERVIEW_TILES,
+    NUMERIC_FIELD_TYPES,
+} from './constants'
 
 export type AccountsOverviewTileMetric =
     | { type: 'count' }
@@ -34,16 +42,6 @@ export interface AccountsOverviewTile {
 export interface TileFilter {
     tileId: string
     expression: string
-}
-
-const NUMERIC_FIELD_TYPES = new Set(['integer', 'float', 'decimal'])
-
-const DEFAULT_TILES: AccountsOverviewTile[] = [{ id: 'default-accounts', label: 'Accounts', metric: { type: 'count' } }]
-
-const teamIdForPersistence = window.POSTHOG_APP_CONTEXT?.current_team?.id
-const persistConfig = {
-    persist: true,
-    prefix: `${teamIdForPersistence}_customer_analytics_accounts_overview__`,
 }
 
 // Strip a trailing `AS alias` from a HogQL fragment — column entries in the
@@ -138,6 +136,25 @@ function reconcileTilesAgainstSchema(
     })
 }
 
+export function diffOverviewTiles(
+    before: AccountsOverviewTile[],
+    after: AccountsOverviewTile[]
+): { changed: boolean; added: number; removed: number; updated: number; reordered: boolean } {
+    const beforeById = new Map(before.map((tile) => [tile.id, tile]))
+    const afterById = new Map(after.map((tile) => [tile.id, tile]))
+    const added = after.filter((tile) => !beforeById.has(tile.id)).length
+    const removed = before.filter((tile) => !afterById.has(tile.id)).length
+    const updated = after.filter((tile) => {
+        const previous = beforeById.get(tile.id)
+        return !!previous && !objectsEqual(previous, tile)
+    }).length
+    const reordered = !objectsEqual(
+        before.filter((tile) => afterById.has(tile.id)).map((tile) => tile.id),
+        after.filter((tile) => beforeById.has(tile.id)).map((tile) => tile.id)
+    )
+    return { changed: added > 0 || removed > 0 || updated > 0 || reordered, added, removed, updated, reordered }
+}
+
 export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsOverviewTilesLogic']),
     connect(() => ({
@@ -162,12 +179,15 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
     reducers(() => ({
         tiles: [
             DEFAULT_TILES,
-            persistConfig,
+            ACCOUNTS_OVERVIEW_PERSIST_CONFIG,
             {
                 addTile: (
                     state: AccountsOverviewTile[],
                     { tile }: { tile: Omit<AccountsOverviewTile, 'id'> & { id?: string } }
-                ) => [...state, { ...tile, id: tile.id || uuidv4() }],
+                ) =>
+                    state.length >= MAX_ACCOUNTS_OVERVIEW_TILES
+                        ? state
+                        : [...state, { ...tile, id: tile.id || uuidv4() }],
                 updateTile: (
                     state: AccountsOverviewTile[],
                     { id, tile }: { id: string; tile: Omit<AccountsOverviewTile, 'id'> }
@@ -228,7 +248,28 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         tilesLoading: [(s) => [s.accountsResponseLoading], (loading: boolean): boolean => loading],
         selectedTileId: [(s) => [s.tileFilter], (filter: TileFilter | null): string | null => filter?.tileId ?? null],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        showEditor: () => {
+            cache.tilesSnapshot = values.tiles
+        },
+        hideEditor: () => {
+            const before: AccountsOverviewTile[] | undefined = cache.tilesSnapshot
+            cache.tilesSnapshot = undefined
+            if (!before) {
+                return
+            }
+            const diff = diffOverviewTiles(before, values.tiles)
+            if (diff.changed) {
+                posthog.capture(AccountsEvents.OverviewTilesEdited, {
+                    tiles_added: diff.added,
+                    tiles_removed: diff.removed,
+                    tiles_updated: diff.updated,
+                    reordered: diff.reordered,
+                    tile_count_before: before.length,
+                    tile_count_after: values.tiles.length,
+                })
+            }
+        },
         removeTile: ({ id }) => {
             if (values.tileFilter?.tileId === id) {
                 actions.setTileFilter(null)

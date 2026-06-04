@@ -98,16 +98,14 @@ pub struct Config {
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 
-    #[envconfig(default = "600")]
-    pub frame_cache_ttl_seconds: u64,
+    // Used by cymbal and cymbal-resolution through the shared symbol resolver config.
+    // Resolved frame results are relatively stable, while unresolved results can become
+    // resolvable after a user uploads missing symbols, so keep them shorter.
+    #[envconfig(default = "1800")]
+    pub frame_resolved_ttl_seconds: u64,
 
-    // When we resolve a frame, we put it in PG, so other instances of cymbal can
-    // use it, or so we can re-use it after a restart. This is the TTL for that,
-    // after this many minutes we'll discard saved resolution results and re-resolve
-    // TODO - 10 minutes is too short for production use, it's only twice as long as
-    // our in-memory caching. We should do at least an hour once we release
-    #[envconfig(default = "10")]
-    pub frame_result_ttl_minutes: u32,
+    #[envconfig(default = "300")]
+    pub frame_unresolved_ttl_seconds: u64,
 
     // Maximum number of lines of pre and post context to get per frame
     #[envconfig(default = "15")]
