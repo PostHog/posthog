@@ -296,11 +296,13 @@ def prepare_capture_v1_batch(
         event_uuid: str = ev.get("event_uuid") or ev.get("uuid") or str(uuid4())
         uuids.append(event_uuid)
 
-        timestamp: str = ev.get("timestamp", "")
-        if not timestamp:
-            timestamp = datetime.now(UTC).isoformat()
-        elif isinstance(timestamp, datetime):
-            timestamp = timestamp.replace(tzinfo=UTC).isoformat()
+        raw_ts: Any = ev.get("timestamp", "")
+        if not raw_ts:
+            timestamp_str = datetime.now(UTC).isoformat()
+        elif isinstance(raw_ts, datetime):
+            timestamp_str = raw_ts.replace(tzinfo=UTC).isoformat()
+        else:
+            timestamp_str = str(raw_ts)
 
         options, session_id, window_id, cleaned_props = _normalize_options_and_properties(
             ev, process_person_profile=process_person_profile, event_source=event_source
@@ -310,7 +312,7 @@ def prepare_capture_v1_batch(
             "event": event_name,
             "uuid": event_uuid,
             "distinct_id": distinct_id,
-            "timestamp": timestamp,
+            "timestamp": timestamp_str,
             "properties": cleaned_props,
         }
         if session_id is not None:
@@ -336,7 +338,7 @@ def prepare_capture_v1_batch(
 # --------------------------------------------------------------------------- #
 
 
-def capture_v1_internal(
+def capture_v1_batch_internal(
     *,
     events: list[dict[str, Any]],
     token: str,
@@ -488,7 +490,7 @@ def _parse_retry_after(header_value: Optional[str]) -> float:
 # --------------------------------------------------------------------------- #
 
 
-def capture_single_v1_internal(
+def capture_v1_internal(
     *,
     token: str,
     event_name: str,
@@ -504,7 +506,11 @@ def capture_single_v1_internal(
     historical_migration: bool = False,
     timeout: float = 2,
 ) -> CaptureV1Result:
-    """Wrap a single event into a 1-element batch and submit via v1."""
+    """Submit a single event to the v1 analytics capture endpoint.
+
+    Wraps the event into a 1-element batch and delegates to
+    :func:`capture_v1_batch_internal`.
+    """
     event_dict: dict[str, Any] = {
         "event": event_name,
         "distinct_id": distinct_id,
@@ -521,7 +527,7 @@ def capture_single_v1_internal(
     if event_uuid is not None:
         event_dict["event_uuid"] = event_uuid
 
-    return capture_v1_internal(
+    return capture_v1_batch_internal(
         events=[event_dict],
         token=token,
         event_source=event_source,

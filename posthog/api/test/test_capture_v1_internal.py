@@ -15,7 +15,7 @@ from posthog.api.capture_v1 import (
     _build_v1_headers,
     _normalize_options_and_properties,
     _parse_retry_after,
-    capture_single_v1_internal,
+    capture_v1_batch_internal,
     capture_v1_internal,
     prepare_capture_v1_batch,
 )
@@ -327,7 +327,7 @@ class TestPrepareCaptureV1Batch(SimpleTestCase):
         assert entry["options"]["cookieless_mode"] is True
 
 
-class TestCaptureV1Internal(SimpleTestCase):
+class TestCaptureV1BatchInternal(SimpleTestCase):
     @patch("posthog.api.capture_v1.internal_requests_session")
     def test_happy_path_batch(self, mock_session_fn: MagicMock) -> None:
         uid1, uid2 = str(uuid4()), str(uuid4())
@@ -337,7 +337,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         ]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid1, uid2))])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="happy")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="happy")
 
         assert result.status_code == 200
         assert result.succeeded()
@@ -356,7 +356,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event(event_uuid=uid)]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_v1_internal(events=events, token="phc_abc", event_source="hdr")
+        capture_v1_batch_internal(events=events, token="phc_abc", event_source="hdr")
 
         headers = spy.calls[0]["headers"]
         assert headers["Authorization"] == "Bearer phc_abc"
@@ -372,7 +372,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event(event_uuid=uid)]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_v1_internal(events=events, token="tok", event_source="env")
+        capture_v1_batch_internal(events=events, token="tok", event_source="env")
 
         body = spy.calls[0]["json"]
         assert body["capture_internal"] is True
@@ -394,7 +394,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         ]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_v1_internal(events=events, token="tok", event_source="opt")
+        capture_v1_batch_internal(events=events, token="tok", event_source="opt")
 
         entry = spy.calls[0]["json"]["batch"][0]
         assert entry["options"]["cookieless_mode"] is True
@@ -411,7 +411,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event(event_uuid=uid)]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_v1_internal(events=events, token="tok", event_source="nopt", process_person_profile=True)
+        capture_v1_batch_internal(events=events, token="tok", event_source="nopt", process_person_profile=True)
 
         entry = spy.calls[0]["json"]["batch"][0]
         assert "options" not in entry
@@ -422,7 +422,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event(event_uuid=uid)]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_v1_internal(events=events, token="tok", event_source="ppp")
+        capture_v1_batch_internal(events=events, token="tok", event_source="ppp")
 
         entry = spy.calls[0]["json"]["batch"][0]
         assert entry["options"]["process_person_profile"] is False
@@ -455,7 +455,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event()]
         InstallV1Spy(mock_session_fn, [MockResponse(status_code=status, body=error_body)])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="fail")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="fail")
 
         assert result.status_code == status
         assert result.error is not None
@@ -479,7 +479,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         }
         InstallV1Spy(mock_session_fn, [MockResponse(body=body)])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="partial")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="partial")
 
         assert result.status_code == 200
         assert u_ok in result.ok
@@ -510,7 +510,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         )
         spy = InstallV1Spy(mock_session_fn, [first_response, second_response])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="resub")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="resub")
 
         assert result.status_code == 200
         assert result.succeeded()
@@ -539,7 +539,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         )
         InstallV1Spy(mock_session_fn, [persistent_retry, persistent_retry, persistent_retry])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="bounded", max_retries=2)
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="bounded", max_retries=2)
 
         assert result.status_code == 200
         assert u_retry in result.retried
@@ -557,7 +557,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         resp2 = MockResponse(body=_ok_results(u_retry))
         InstallV1Spy(mock_session_fn, [resp1, resp2])
 
-        capture_v1_internal(events=events, token="tok", event_source="cap")
+        capture_v1_batch_internal(events=events, token="tok", event_source="cap")
 
         mock_sleep.assert_called_once_with(5.0)
 
@@ -573,7 +573,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         spy = InstallV1Spy(mock_session_fn, [resp1, resp2])
 
         with patch("posthog.api.capture_v1.time.sleep"):
-            capture_v1_internal(events=events, token="tok", event_source="rh")
+            capture_v1_batch_internal(events=events, token="tok", event_source="rh")
 
         h1 = spy.calls[0]["headers"]
         h2 = spy.calls[1]["headers"]
@@ -591,7 +591,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event(event_uuid=uid)]
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        capture_v1_internal(events=events, token="tok", event_source="mount")
+        capture_v1_batch_internal(events=events, token="tok", event_source="mount")
 
         spy._mock_session.mount.assert_called_once()
         args = spy._mock_session.mount.call_args
@@ -611,7 +611,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         }
         InstallV1Spy(mock_session_fn, [MockResponse(body=body)])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="alldrop")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="alldrop")
 
         assert result.status_code == 200
         assert not result.succeeded()
@@ -643,7 +643,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         second_resp = MockResponse(body={"results": {u_retry: {"result": "ok"}}})
         spy = InstallV1Spy(mock_session_fn, [first_resp, second_resp])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="mix")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="mix")
 
         assert len(spy.calls) == 2
         assert u_drop in result.dropped
@@ -657,7 +657,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event(event_uuid=uid)]
         InstallV1Spy(mock_session_fn, [MockResponse(body={"results": {}})])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="empty")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="empty")
 
         assert result.status_code == 200
         assert not result.ok
@@ -669,7 +669,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         events = [_make_event()]
         InstallV1Spy(mock_session_fn, [MockResponse(status_code=200, body=None, text="not json")])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="badjson")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="badjson")
 
         assert result.status_code == 200
         assert result.error is not None
@@ -687,7 +687,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         resp2 = MockResponse(body=_ok_results(u_retry))
         InstallV1Spy(mock_session_fn, [resp1, resp2])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="noheader")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="noheader")
 
         assert result.succeeded()
         mock_sleep.assert_not_called()
@@ -704,7 +704,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         resp2 = MockResponse(body=_ok_results(u_retry))
         spy = InstallV1Spy(mock_session_fn, [resp1, resp2])
 
-        capture_v1_internal(
+        capture_v1_batch_internal(
             events=events,
             token="tok",
             event_source="envelope",
@@ -727,7 +727,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         )
         spy = InstallV1Spy(mock_session_fn, [resp])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="noretry", max_retries=1)
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="noretry", max_retries=1)
 
         assert len(spy.calls) == 1
         assert u_retry in result.retried
@@ -753,7 +753,7 @@ class TestCaptureV1Internal(SimpleTestCase):
         resp2 = MockResponse(body={"results": {u_retry: {"result": "ok"}}})
         InstallV1Spy(mock_session_fn, [resp1, resp2])
 
-        result = capture_v1_internal(events=events, token="tok", event_source="merge")
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="merge")
 
         assert u_drop in result.dropped
         assert u_retry in result.ok
@@ -779,13 +779,13 @@ class TestParseRetryAfter(SimpleTestCase):
         assert _parse_retry_after(header) == expected
 
 
-class TestCaptureSingleV1Internal(SimpleTestCase):
+class TestCaptureV1Internal(SimpleTestCase):
     @patch("posthog.api.capture_v1.internal_requests_session")
     def test_single_event_wrapper(self, mock_session_fn: MagicMock) -> None:
         uid = str(uuid4())
         spy = InstallV1Spy(mock_session_fn, [MockResponse(body=_ok_results(uid))])
 
-        result = capture_single_v1_internal(
+        result = capture_v1_internal(
             token="tok",
             event_name="single_test",
             event_source="single",
@@ -813,7 +813,7 @@ class TestCaptureSingleV1Internal(SimpleTestCase):
     def test_single_minimal(self, mock_session_fn: MagicMock) -> None:
         InstallV1Spy(mock_session_fn, [MockResponse(body={"results": {}})])
 
-        result = capture_single_v1_internal(
+        result = capture_v1_internal(
             token="tok",
             event_name="minimal",
             event_source="min",
