@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
@@ -78,6 +79,20 @@ class TestHeatmapsAPI(APIBaseTest):
         # created_by present
         found = next(x for x in r.data["results"] if x["url"] == "https://a.example")
         self.assertEqual(found["created_by"]["id"], self.user.id)
+
+    @parameterized.expand(
+        [
+            ("non_integer_limit", {"limit": "abc"}, 400),
+            ("non_integer_offset", {"offset": "xyz"}, 400),
+            ("non_integer_created_by", {"created_by": "nope"}, 400),
+            ("valid_limit", {"limit": 5}, 200),
+            ("oversized_limit_does_not_500", {"limit": 100000000}, 200),
+        ]
+    )
+    def test_saved_list_validates_and_bounds_pagination(self, _name, query, expected_status):
+        SavedHeatmap.objects.create(team=self.team, url="https://a.example", created_by=self.user)
+        r = self.client.get(f"/api/environments/{self.team.id}/saved/", query)
+        assert r.status_code == expected_status
 
     def test_team_isolation_for_content(self):
         other_team = Team.objects.create_with_data(

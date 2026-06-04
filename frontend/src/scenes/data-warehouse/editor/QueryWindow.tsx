@@ -33,7 +33,7 @@ import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
-import { sqlEditorLogic } from './sqlEditorLogic'
+import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -253,6 +253,11 @@ export function QueryWindow({
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
                         queryKey: codeEditorKey,
+                        // Bind the editor to the tab's persistent Monaco model and keep it
+                        // alive across the diff <-> editor swap, so undo history survives an
+                        // accepted AI suggestion. Shares the URI with the model createTab makes.
+                        path: tabModelPath(tabId),
+                        keepCurrentModel: true,
                         metadataQuery: activeQueryText ?? undefined,
                         metadataQueryOffset: activeQueryOffset,
                         onChange: (v) => {
