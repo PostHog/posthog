@@ -87,32 +87,27 @@ def _build_page_url(
     return f"{path}?{urlencode(params)}"
 
 
+@retry(
+    # Only transport hiccups and explicit 429/5xx are retried — HTTPError (a RequestException
+    # subclass raised for 4xx by raise_for_status) must fail fast, not retry.
+    retry=retry_if_exception_type((FreshsalesRetryableError, RequestsConnectionError, ReadTimeout)),
+    stop=stop_after_attempt(5),
+    # No Retry-After header is documented, and the default ceiling is 1000 req/hour, so back off
+    # generously on 429/5xx.
+    wait=wait_exponential_jitter(initial=2, max=60),
+    reraise=True,
+)
 def _fetch_page(session: Any, url: str, logger: FilteringBoundLogger) -> dict:
-    @retry(
-        # Only transport hiccups and explicit 429/5xx are retried — HTTPError (a RequestException
-        # subclass raised for 4xx by raise_for_status) must fail fast, not retry.
-        retry=retry_if_exception_type((FreshsalesRetryableError, RequestsConnectionError, ReadTimeout)),
-        stop=stop_after_attempt(5),
-        # No Retry-After header is documented, and the default ceiling is 1000 req/hour, so back off
-        # generously on 429/5xx.
-        wait=wait_exponential_jitter(initial=2, max=60),
-        reraise=True,
-    )
-    def _do() -> dict:
-        response = session.get(url, timeout=REQUEST_TIMEOUT)
+    response = session.get(url, timeout=REQUEST_TIMEOUT)
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise FreshsalesRetryableError(
-                f"Freshsales API error (retryable): status={response.status_code}, url={url}"
-            )
+    if response.status_code == 429 or response.status_code >= 500:
+        raise FreshsalesRetryableError(f"Freshsales API error (retryable): status={response.status_code}, url={url}")
 
-        if not response.ok:
-            logger.error(f"Freshsales API error: status={response.status_code}, body={response.text}, url={url}")
-            response.raise_for_status()
+    if not response.ok:
+        logger.error(f"Freshsales API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
 
-        return response.json()
-
-    return _do()
+    return response.json()
 
 
 def _resolve_view_id(session: Any, root: str, resource: str, logger: FilteringBoundLogger) -> Optional[int]:

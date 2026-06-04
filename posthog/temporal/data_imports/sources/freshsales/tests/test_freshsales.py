@@ -207,7 +207,7 @@ class TestCheckCredentials:
 
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
+            ("ok", 200, True, 200),
             ("unauthorized", 401, False, 401),
             ("forbidden", 403, False, 403),
             ("not_found", 404, False, 404),
