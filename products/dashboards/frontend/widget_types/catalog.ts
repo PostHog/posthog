@@ -75,6 +75,13 @@ export const DASHBOARD_WIDGET_CATALOG = {
             title: 'Top issues',
             message: 'Log in to PostHog to see which errors are affecting your users.',
         },
+        availability: {
+            requirement: 'exception_autocapture',
+            unavailableTitle: "You haven't captured any exceptions",
+            unavailableReason: 'Enable exception autocapture to get started.',
+            setupActionLabel: 'Enable exception autocapture',
+            docsHref: 'https://posthog.com/docs/error-tracking',
+        },
     },
     session_replay_list: {
         groupId: 'session_replay',
