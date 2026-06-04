@@ -109,7 +109,9 @@ class TestRunAPI:
     def test_create_run_strips_reserved_metadata_keys(self, mock_presigned, repo):
         # Clients must not be able to seed server-owned metadata keys —
         # otherwise they could target arbitrary GitHub comments for PATCH
-        # or spoof baseline commit SHAs in the audit trail.
+        # or spoof baseline commit SHAs in the audit trail. github_check_run_id
+        # is NOT reserved: the CI runner is its only source, and the rerun it
+        # enables is guarded by a head_sha match in _rerun_github_job.
         mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
 
         result = api.create_run(
@@ -131,7 +133,28 @@ class TestRunAPI:
         )
 
         run = Run.objects.get(id=result.run_id)
-        assert run.metadata == {"pr_title": "kept"}
+        assert run.metadata == {"pr_title": "kept", "github_check_run_id": "72855643533"}
+
+    @patch("products.visual_review.backend.storage.ArtifactStorage.get_presigned_upload_url")
+    def test_create_run_normalizes_github_ids_to_strings(self, mock_presigned, repo):
+        # GitHub IDs can arrive as JSON numbers; rerun logic calls .isdigit(),
+        # so they must be stored as strings.
+        mock_presigned.return_value = {"url": "https://s3.example.com/upload", "fields": {}}
+
+        result = api.create_run(
+            CreateRunInput(
+                repo_id=repo.id,
+                run_type=RunType.STORYBOOK,
+                commit_sha="abc123",
+                branch="main",
+                snapshots=[],
+                metadata={"github_check_run_id": 72855643533, "github_run_id": 98765},
+            ),
+            team_id=repo.team_id,
+        )
+
+        run = Run.objects.get(id=result.run_id)
+        assert run.metadata == {"github_check_run_id": "72855643533", "github_run_id": "98765"}
 
     def test_get_run_returns_dto(self, repo):
         create_result = api.create_run(

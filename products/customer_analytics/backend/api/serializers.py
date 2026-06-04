@@ -33,6 +33,8 @@ _ACCOUNT_PROPERTIES_SCHEMA = {
         "billing_id": {"type": "string", "nullable": True},
         "sfdc_id": {"type": "string", "nullable": True},
         "zendesk_id": {"type": "string", "nullable": True},
+        "slack_channel_id": {"type": "string", "nullable": True},
+        "usage_dashboard_link": {"type": "string", "nullable": True},
     },
 }
 
@@ -144,7 +146,8 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         help_text=(
             "Typed account properties: assignment fields (csm, account_executive, account_owner) "
             "and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, "
-            "sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected."
+            "sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty "
+            "object. Unknown keys are rejected."
         ),
     )
     tags = serializers.ListField(

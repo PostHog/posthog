@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -87,6 +87,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -106,7 +110,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -3886,6 +3890,55 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
+    /**
+     * * `activity_score` - activity_score
+    * `click_count` - click_count
+    * `console_error_count` - console_error_count
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `start_time` - start_time
+     */
+    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+
+
+    export const SessionReplayListWidgetConfigOrderByEnum = {
+      ActivityScore: 'activity_score',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      StartTime: 'start_time',
+    } as const;
+
+    export interface SessionReplayListWidgetConfig {
+      /**
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column.
+
+      * `activity_score` - activity_score
+      * `click_count` - click_count
+      * `console_error_count` - console_error_count
+      * `duration` - duration
+      * `recording_duration` - recording_duration
+      * `start_time` - start_time */
+      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+
     export interface TileLayoutBox {
       /** Column position in the dashboard grid (0-indexed). */
       x?: number;
@@ -3906,12 +3959,12 @@ export namespace Schemas {
 
     export interface AddDashboardWidgetRequest {
       /**
-         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
+         * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
          * @maxLength 64
          */
       widget_type: string;
-      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
-      config: ErrorTrackingListWidgetConfig;
+      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
+      config: DashboardWidgetConfig;
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -4536,7 +4589,6 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -6826,7 +6878,7 @@ export namespace Schemas {
       /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
       /** Widget-specific configuration JSON for this widget type. */
-      config?: ErrorTrackingListWidgetConfig;
+      config?: DashboardWidgetConfig;
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       readonly last_modified_at: string;
       team: number;
@@ -9880,6 +9932,47 @@ export namespace Schemas {
       notification_ids: string[];
     }
 
+    /**
+     * * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved
+     */
+    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
+
+
+    export const TicketStatusEnum = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface BulkUpdateStatusRequest {
+      /**
+         * List of ticket UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
+      status: TicketStatusEnum;
+    }
+
+    export interface BulkUpdateStatusResponse {
+      /** Number of tickets whose status actually changed. */
+      updated: number;
+      /** UUIDs of the tickets whose status changed. */
+      ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -10313,6 +10406,34 @@ export namespace Schemas {
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
+    }
+
+    /**
+     * * `abandoned` - Abandoned
+    * `off-topic` - Off-topic
+     */
+    export type ClassificationsEnum = typeof ClassificationsEnum[keyof typeof ClassificationsEnum];
+
+
+    export const ClassificationsEnum = {
+      Abandoned: 'abandoned',
+      OffTopic: 'off-topic',
+    } as const;
+
+    export interface TagCount {
+      /** The tag value. */
+      tag: string;
+      /** Number of succeeded observations carrying this tag. */
+      count: number;
+    }
+
+    export interface ClassifierStats {
+      /** Top fixed-vocabulary tags by emission count. */
+      fixed_ranked: TagCount[];
+      /** Top freeform tags by emission count. */
+      freeform_ranked: TagCount[];
+      /** Succeeded observations that emitted at least one tag. */
+      total_with_tags: number;
     }
 
     /**
@@ -11301,6 +11422,15 @@ export namespace Schemas {
       filter: unknown;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface CoverageStats {
+      /** Distinct sessions observed within the last `recent_days` days. */
+      recent_sessions: number;
+      /** Distinct sessions observed overall. */
+      total_sessions: number;
+      /** Window size in days used for `recent_sessions`. */
+      recent_days: number;
     }
 
     /**
@@ -13960,7 +14090,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14091,7 +14221,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14126,7 +14256,7 @@ export namespace Schemas {
          */
       derived_from_insight: string | null;
       /**
-         * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+         * When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.
          * @nullable
          */
       last_executed_at: string | null;
@@ -18146,6 +18276,37 @@ export namespace Schemas {
       readonly resolved_at: string | null;
     }
 
+    export interface HeatmapEventItem {
+      /** @nullable */
+      session_id?: string | null;
+      distinct_id: string;
+      timestamp: string;
+      pointer_relative_x: number;
+      pointer_y: number;
+      current_url: string;
+      type: string;
+    }
+
+    export interface HeatmapEventsResponse {
+      results: HeatmapEventItem[];
+      total_count: number;
+      has_more: boolean;
+    }
+
+    export interface HeatmapFoldSummary {
+      /** Number of non-fixed interactions of this type on the page in the window (the population the above/below-the-fold split applies to; fixed-position elements are excluded since they're always on screen). */
+      total_count: number;
+      /** How many of those interactions happened below the user's initial viewport — i.e. they had to scroll to reach them. */
+      below_fold_count: number;
+      /** Percentage of non-fixed interactions that were below the initial viewport (0-100). A high value means engaged content sits off the first screen and is a candidate to move up. */
+      pct_below_fold: number;
+      /**
+         * Median viewport height in CSS pixels across the matched interactions — the typical fold line to recommend against. Null when there are no interactions.
+         * @nullable
+         */
+      median_viewport_height: number | null;
+    }
+
     export interface HeatmapResponseItem {
       count: number;
       pointer_y: number;
@@ -18153,17 +18314,15 @@ export namespace Schemas {
       pointer_target_fixed: boolean;
     }
 
-    export type HeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown };
-
     /**
      * * `screenshot` - Screenshot
     * `iframe` - Iframe
     * `recording` - Recording
      */
-    export type HeatmapScreenshotResponseTypeEnum = typeof HeatmapScreenshotResponseTypeEnum[keyof typeof HeatmapScreenshotResponseTypeEnum];
+    export type HeatmapType = typeof HeatmapType[keyof typeof HeatmapType];
 
 
-    export const HeatmapScreenshotResponseTypeEnum = {
+    export const HeatmapType = {
       Screenshot: 'screenshot',
       Iframe: 'iframe',
       Recording: 'recording',
@@ -18183,37 +18342,68 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface HeatmapSnapshotMetadata {
+      /** Viewport width (CSS pixels) this screenshot was rendered at. */
+      width: number;
+      /** Whether the rendered image for this width is ready to fetch from the content endpoint. */
+      has_content: boolean;
+    }
+
     export interface HeatmapScreenshotResponse {
       readonly id: string;
+      /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
       readonly short_id: string;
       /**
+         * Human-readable label for the saved heatmap.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
-      /** @maxLength 2000 */
+      /**
+         * The page URL this saved heatmap renders and overlays data on.
+         * @maxLength 2000
+         */
       url: string;
       /**
-         * URL for fetching heatmap data
+         * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
          * @maxLength 2000
          * @nullable
          */
       data_url?: string | null;
+      /** Viewport widths (CSS pixels) the screenshot is rendered at. */
       target_widths?: unknown;
-      type?: HeatmapScreenshotResponseTypeEnum;
+      /** Render mode: 'screenshot', 'iframe', or 'recording'.
+
+      * `screenshot` - Screenshot
+      * `iframe` - Iframe
+      * `recording` - Recording */
+      type?: HeatmapType;
+      /** Screenshot generation status: 'processing', 'completed', or 'failed'.
+
+      * `processing` - Processing
+      * `completed` - Completed
+      * `failed` - Failed */
       readonly status: HeatmapScreenshotResponseStatusEnum;
+      /** Whether at least one rendered image is ready to fetch. */
       readonly has_content: boolean;
-      readonly snapshots: readonly HeatmapScreenshotResponseSnapshotsItem[];
+      /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
+      readonly snapshots: readonly HeatmapSnapshotMetadata[];
+      /** Soft-delete flag; deleted heatmaps are hidden from the list. */
       deleted?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * Error detail when screenshot generation failed, otherwise null.
+         * @nullable
+         */
       readonly exception: string | null;
     }
 
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
+      /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
+      fold?: HeatmapFoldSummary | null;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -18372,6 +18562,48 @@ export namespace Schemas {
       output_variable?: unknown;
     }
 
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `completed` - Completed
+     */
+    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
+
+
+    export const HogFlowScheduleStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Completed: 'completed',
+    } as const;
+
+    export interface HogFlowSchedule {
+      readonly id: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface HogFlow {
       readonly id: string;
       /**
@@ -18413,6 +18645,50 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `queued` - Queued
+    * `active` - Active
+    * `completed` - Completed
+    * `cancelled` - Cancelled
+    * `failed` - Failed
+     */
+    export type HogFlowBatchJobStatusEnum = typeof HogFlowBatchJobStatusEnum[keyof typeof HogFlowBatchJobStatusEnum];
+
+
+    export const HogFlowBatchJobStatusEnum = {
+      Waiting: 'waiting',
+      Queued: 'queued',
+      Active: 'active',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    export interface HogFlowBatchJob {
+      readonly id: string;
+      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+
+      * `waiting` - Waiting
+      * `queued` - Queued
+      * `active` - Active
+      * `completed` - Completed
+      * `cancelled` - Cancelled
+      * `failed` - Failed */
+      status?: HogFlowBatchJobStatusEnum;
+      /** ID of the workflow this batch run belongs to. */
+      hog_flow: string;
+      /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+      filters?: unknown;
+      /** Variable value overrides applied to this run. */
+      variables?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
     }
 
     /**
@@ -18451,34 +18727,6 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
-    }
-
-    /**
-     * * `active` - Active
-    * `paused` - Paused
-    * `completed` - Completed
-     */
-    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
-
-
-    export const HogFlowScheduleStatusEnum = {
-      Active: 'active',
-      Paused: 'paused',
-      Completed: 'completed',
-    } as const;
-
-    export interface HogFlowSchedule {
-      readonly id: string;
-      rrule: string;
-      starts_at: string;
-      /** @maxLength 64 */
-      timezone?: string;
-      variables?: unknown;
-      readonly status: HogFlowScheduleStatusEnum;
-      /** @nullable */
-      readonly next_run_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     /**
@@ -19065,98 +19313,6 @@ export namespace Schemas {
       samplingFactor?: number | null;
       searchTerm?: string | null;
       stripQueryParams?: boolean | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type WebTrendsMetric = typeof WebTrendsMetric[keyof typeof WebTrendsMetric];
-
-
-    export const WebTrendsMetric = {
-      UniqueUsers: 'UniqueUsers',
-      PageViews: 'PageViews',
-      Sessions: 'Sessions',
-      Bounces: 'Bounces',
-      SessionDuration: 'SessionDuration',
-      TotalSessions: 'TotalSessions',
-    } as const;
-
-    export interface Metrics {
-      Bounces?: number | null;
-      PageViews?: number | null;
-      SessionDuration?: number | null;
-      Sessions?: number | null;
-      TotalSessions?: number | null;
-      UniqueUsers?: number | null;
-    }
-
-    export interface WebTrendsItem {
-      bucket: string;
-      metrics: Metrics;
-    }
-
-    export interface WebTrendsQueryResponse {
-      /** Executed ClickHouse query */
-      clickhouse?: string | null;
-      /** Returned columns */
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Query explanation output */
-      explain?: string[] | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Query metadata output */
-      metadata?: HogQLMetadataResponse | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Input query string */
-      query?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: WebTrendsItem[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Types of returned columns */
-      types?: unknown[] | null;
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebTrendsQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval: IntervalType;
-      kind?: 'WebTrendsQuery';
-      limit?: number | null;
-      metrics: WebTrendsMetric[];
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebTrendsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
@@ -19899,7 +20055,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -19925,7 +20081,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -20300,6 +20456,24 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    /**
+     * * `manual` - Manual only
+    * `1h` - Every hour
+    * `6h` - Every 6 hours
+    * `24h` - Every day
+    * `7d` - Every week
+     */
+    export type RefreshIntervalEnum = typeof RefreshIntervalEnum[keyof typeof RefreshIntervalEnum];
+
+
+    export const RefreshIntervalEnum = {
+      Manual: 'manual',
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+    } as const;
+
     export interface KnowledgeSource {
       readonly id: string;
       readonly team_id: number;
@@ -20319,6 +20493,14 @@ export namespace Schemas {
       readonly last_refresh_at: string | null;
       readonly last_refresh_status: LastRefreshStatusEnum;
       readonly last_refresh_error: string;
+      readonly refresh_interval: RefreshIntervalEnum;
+      /**
+         * When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.
+         * @nullable
+         */
+      readonly next_refresh_at: string | null;
+      /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
+      readonly has_unsafe_documents: boolean;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -21929,9 +22111,25 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface MonitorStats {
+      /** Succeeded observations whose verdict was `yes`. */
+      yes_total: number;
+      /** Succeeded observations whose verdict was `no`. */
+      no_total: number;
+      /** Succeeded observations whose verdict was `inconclusive`. */
+      inconclusive_total: number;
+    }
+
     export interface MoveTileTile {
       /** Dashboard tile ID to move. */
       id: number;
+    }
+
+    export interface MoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile: MoveTileTile;
     }
 
     export interface MyFlagsResponse {
@@ -22187,6 +22385,70 @@ export namespace Schemas {
       exported_asset_id?: string | null;
       /** @nullable */
       event_definition_id?: string | null;
+    }
+
+    export interface ObservationStatusCounts {
+      /** Total observations in the filtered set. */
+      total: number;
+      /** Observations with `status=succeeded`. */
+      succeeded: number;
+      /** Observations with `status=failed`. */
+      failed: number;
+      /** Observations with `status=ineligible`. */
+      ineligible: number;
+      /** Observations not yet in a terminal status. */
+      in_flight: number;
+      /**
+         * Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. Null when no observations have completed.
+         * @nullable
+         */
+      success_rate: number | null;
+    }
+
+    export interface ScorerSummary {
+      /** Minimum observed score. */
+      min: number;
+      /** 25th-percentile score. */
+      p25: number;
+      /** Median score. */
+      median: number;
+      /** Mean score. */
+      mean: number;
+      /** 75th-percentile score. */
+      p75: number;
+      /** Maximum observed score. */
+      max: number;
+      /** Number of scored observations summarized. */
+      count: number;
+    }
+
+    export interface ScorerHistogram {
+      /** Bucket labels (one per histogram bar) spanning the scanner's configured scale. */
+      labels: string[];
+      /** Observation count per bucket; same length as `labels`. */
+      counts: number[];
+    }
+
+    export interface ScorerStats {
+      /** Score quantile summary; null when no observations have been scored. */
+      summary: ScorerSummary | null;
+      /** Score histogram; null when no observations have been scored. */
+      histogram: ScorerHistogram | null;
+    }
+
+    export interface ObservationStats {
+      /** Counts of observations by terminal status. */
+      status_counts: ObservationStatusCounts;
+      /** Session-level scanner coverage. */
+      coverage: CoverageStats;
+      /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
+      available_tags: string[];
+      /** Monitor-type aggregates; null when the scanner is not a monitor. */
+      monitor: MonitorStats | null;
+      /** Classifier-type aggregates; null when the scanner is not a classifier. */
+      classifier: ClassifierStats | null;
+      /** Scorer-type aggregates; null when the scanner is not a scorer. */
+      scorer: ScorerStats | null;
     }
 
     /**
@@ -23240,24 +23502,6 @@ export namespace Schemas {
       results: HealthIssue[];
     }
 
-    export interface PaginatedHeatmapScreenshotResponseList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HeatmapScreenshotResponse[];
-    }
-
-    export interface PaginatedHeatmapsResponseList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HeatmapsResponse[];
-    }
-
     export interface PaginatedHogFlowMinimalList {
       count: number;
       /** @nullable */
@@ -23265,15 +23509,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
-    }
-
-    export interface PaginatedHogFlowScheduleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HogFlowSchedule[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -24087,7 +24322,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -24996,11 +25231,11 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
-      interval?: number;
+      interval: number;
       /**
          * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
@@ -25834,24 +26069,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved
-     */
-    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
-
-
-    export const TicketStatusEnum = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-    } as const;
-
-    /**
      * * `low` - Low
     * `medium` - Medium
     * `high` - High
@@ -26205,6 +26422,8 @@ export namespace Schemas {
       readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio: string;
     }
 
@@ -26231,6 +26450,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PaginatedUserInterviewTopicList {
@@ -26615,7 +26844,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -26644,6 +26873,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -26663,7 +26896,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -28514,37 +28747,6 @@ export namespace Schemas {
       readonly resolved_at?: string | null;
     }
 
-    export type PatchedHeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown };
-
-    export interface PatchedHeatmapScreenshotResponse {
-      readonly id?: string;
-      readonly short_id?: string;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** @maxLength 2000 */
-      url?: string;
-      /**
-         * URL for fetching heatmap data
-         * @maxLength 2000
-         * @nullable
-         */
-      data_url?: string | null;
-      target_widths?: unknown;
-      type?: HeatmapScreenshotResponseTypeEnum;
-      readonly status?: HeatmapScreenshotResponseStatusEnum;
-      readonly has_content?: boolean;
-      readonly snapshots?: readonly PatchedHeatmapScreenshotResponseSnapshotsItem[];
-      deleted?: boolean;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      /** @nullable */
-      readonly exception?: string | null;
-    }
-
     /**
      * Variable: {key, type: string|number|boolean, default}.
      */
@@ -28591,6 +28793,36 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowSchedule {
+      readonly id?: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule?: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at?: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status?: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -30487,7 +30719,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -30570,6 +30802,39 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedSavedHeatmapRequest {
+      /**
+         * Human-readable label for the saved heatmap.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.
+         * @maxLength 2000
+         */
+      url?: string;
+      /**
+         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
+         * @maxLength 2000
+         * @nullable
+         */
+      data_url?: string | null;
+      /**
+         * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
+         * @maxItems 16
+         */
+      widths?: number[];
+      /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
+
+      * `screenshot` - Screenshot
+      * `iframe` - Iframe
+      * `recording` - Recording */
+      type?: HeatmapType;
+      /** Set true to soft-delete the saved heatmap. */
+      deleted?: boolean;
     }
 
     export interface PatchedScheduledChange {
@@ -30795,6 +31060,34 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface PatchedSignalScoutConfig {
+      readonly id?: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name?: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -30866,8 +31159,8 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency?: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
       interval?: number;
@@ -32280,6 +32573,8 @@ export namespace Schemas {
       readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio?: string;
     }
 
@@ -32297,6 +32592,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PatchedUserProductList {
@@ -36536,6 +36841,45 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SavedHeatmapListResponse {
+      results: HeatmapScreenshotResponse[];
+      /** Total number of saved heatmaps matching the filters. */
+      count: number;
+    }
+
+    export interface SavedHeatmapRequest {
+      /**
+         * Human-readable label for the saved heatmap.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.
+         * @maxLength 2000
+         */
+      url: string;
+      /**
+         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
+         * @maxLength 2000
+         * @nullable
+         */
+      data_url?: string | null;
+      /**
+         * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
+         * @maxItems 16
+         */
+      widths?: number[];
+      /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
+
+      * `screenshot` - Screenshot
+      * `iframe` - Iframe
+      * `recording` - Recording */
+      type?: HeatmapType;
+      /** Set true to soft-delete the saved heatmap. */
+      deleted?: boolean;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Human-readable scorer name.
@@ -36638,7 +36982,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -36697,7 +37041,7 @@ export namespace Schemas {
 
     export interface SendInvitesRequest {
       /**
-         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
          * @maxLength 200
          */
       subject?: string;
@@ -36917,6 +37261,34 @@ export namespace Schemas {
          * @maximum 100000
          */
       snooze_for?: number;
+    }
+
+    /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface SignalScoutConfig {
+      readonly id: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      readonly created_at: string;
     }
 
     /**
@@ -37355,6 +37727,91 @@ export namespace Schemas {
     export interface SurveyQuestionLabelsResponse {
       /** One entry per question that has an ID assigned, across all the team's surveys. */
       labels: SurveyQuestionLabel[];
+    }
+
+    export interface SurveyResponseAnswer {
+      /** UUID of the survey question this answer belongs to. */
+      question_id: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Question type: open, rating, single_choice, multiple_choice, or link. Determines the shape of the answer field. */
+      question_type: string;
+      /** Resolved answer. String for open/rating/single_choice/link questions, list of strings for multiple_choice questions. Already decoded from the raw $survey_response_<id> property so callers don't need to parse it. */
+      answer: unknown;
+    }
+
+    export interface SurveyResponseExtra {
+      /**
+         * $device_type at the time the response was sent.
+         * @nullable
+         */
+      device_type?: string | null;
+      /**
+         * $browser at the time the response was sent.
+         * @nullable
+         */
+      browser?: string | null;
+      /**
+         * $os (operating system) at the time the response was sent.
+         * @nullable
+         */
+      os?: string | null;
+      /**
+         * $geoip_country_code at submission time.
+         * @nullable
+         */
+      geoip_country_code?: string | null;
+      /**
+         * $geoip_country_name at submission time.
+         * @nullable
+         */
+      geoip_country_name?: string | null;
+      /**
+         * $geoip_city_name at submission time.
+         * @nullable
+         */
+      geoip_city_name?: string | null;
+      /**
+         * $current_url where the survey was submitted.
+         * @nullable
+         */
+      current_url?: string | null;
+      /**
+         * Survey iteration number when the response was sent. Only set for recurring surveys.
+         * @nullable
+         */
+      iteration?: string | null;
+    }
+
+    export interface SurveyResponseRow {
+      /** UUID of the underlying `survey sent` event. Use as the response identifier for archive operations. */
+      uuid: string;
+      /** distinct_id of the respondent. Cross-pivot to the persons API or session recordings. */
+      distinct_id: string;
+      /**
+         * $session_id of the respondent when available. Use to pull the session recording for this response.
+         * @nullable
+         */
+      session_id: string | null;
+      /** Event timestamp when the response was sent (ISO 8601, UTC). */
+      submitted_at: string;
+      /** One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys. */
+      answers: SurveyResponseAnswer[];
+      /** Convenience fields extracted from the event properties (device, browser, geoip, iteration). */
+      extra: SurveyResponseExtra;
+    }
+
+    export interface SurveyResponsesList {
+      /** Survey response rows for the requested page. */
+      results: SurveyResponseRow[];
+      /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
+      has_more: boolean;
+      /** The limit applied to this query (echoed back for pagination). */
+      limit: number;
+      /** The offset applied to this query (echoed back for pagination). */
+      offset: number;
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -37821,6 +38278,13 @@ export namespace Schemas {
       stats: SurveyStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyStatsResponseRates;
+      /** Per-question response counts and distributions. Only present when include_per_question_stats=true was passed. For rating questions includes `average`; for choice/rating questions `distribution` maps answer value to count; for open questions `distribution` is empty (use surveys-responses-list to read free-text). */
+      per_question_stats?: unknown[];
+    }
+
+    export interface SurveySummarizeRequest {
+      /** When true, bypass cached summaries and regenerate. Defaults to false. */
+      force_refresh?: boolean;
     }
 
     export interface Synthesize {
@@ -38967,6 +39431,11 @@ export namespace Schemas {
          * @nullable
          */
       topic_id?: string | null;
+      /**
+         * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
+         * @minItems 1
+         */
+      classifications?: ClassificationsEnum[];
       /**
          * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
          * @minimum 1
@@ -40246,6 +40715,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type EnvironmentsDashboardsMoveTileCreateParams = {
+    format?: EnvironmentsDashboardsMoveTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type EnvironmentsDashboardsMoveTilePartialUpdateParams = {
     format?: EnvironmentsDashboardsMoveTilePartialUpdateFormat;
     };
@@ -40781,6 +41262,11 @@ export namespace Schemas {
      */
     ref?: string;
     /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
+    /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
     * `all` - all
@@ -41165,16 +41651,160 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsHeatmapScreenshotsContentRetrieveParams = {
+    /**
+     * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.
+     */
+    width?: number;
+    };
+
     export type EnvironmentsHeatmapsListParams = {
     /**
-     * Number of results to return per page.
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: EnvironmentsHeatmapsListAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
+    };
+
+    export type EnvironmentsHeatmapsListAggregation = typeof EnvironmentsHeatmapsListAggregation[keyof typeof EnvironmentsHeatmapsListAggregation];
+
+
+    export const EnvironmentsHeatmapsListAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
+
+    export type EnvironmentsHeatmapsEventsRetrieveParams = {
+    /**
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: EnvironmentsHeatmapsEventsRetrieveAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * Maximum interactions to return (1-100).
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of interactions to skip, for pagination.
+     * @minimum 0
      */
     offset?: number;
+    /**
+     * JSON array of the heatmap coordinates to drill into, e.g. '[{"x": 0.5, "y": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.
+     * @minLength 1
+     */
+    points: string;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
     };
+
+    export type EnvironmentsHeatmapsEventsRetrieveAggregation = typeof EnvironmentsHeatmapsEventsRetrieveAggregation[keyof typeof EnvironmentsHeatmapsEventsRetrieveAggregation];
+
+
+    export const EnvironmentsHeatmapsEventsRetrieveAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
 
     export type EnvironmentsHogFlowTemplatesListParams = {
     /**
@@ -41403,66 +42033,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
@@ -43278,13 +43848,37 @@ export namespace Schemas {
 
     export type EnvironmentsSavedListParams = {
     /**
-     * Number of results to return per page.
+     * Filter by the creating user's ID.
+     */
+    created_by?: number;
+    /**
+     * Maximum saved heatmaps to return.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number to skip, for pagination.
      */
     offset?: number;
+    /**
+     * Field to order by, e.g. '-updated_at' (default) or 'created_at'.
+     * @minLength 1
+     */
+    order?: string;
+    /**
+     * Case-insensitive substring match on URL or name.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Filter by generation status: 'processing', 'completed', or 'failed'.
+     * @minLength 1
+     */
+    status?: string;
+    /**
+     * Filter by render mode: 'screenshot', 'iframe', or 'recording'.
+     * @minLength 1
+     */
+    type?: string;
     };
 
     export type EnvironmentsSessionRecordingExternalReferencesListParams = {
@@ -43537,6 +44131,10 @@ export namespace Schemas {
 
     export type EnvironmentsUserInterviewsListParams = {
     /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -43568,7 +44166,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -43629,7 +44227,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -43637,42 +44235,45 @@ export namespace Schemas {
      */
     session_id?: string;
     /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
+     * Filter by observation status. Accepts a comma-separated list.
      */
-    status?: EnvironmentsVisionScannersObservationsListStatus;
+    status?: string;
     /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
-    triggered_by?: EnvironmentsVisionScannersObservationsListTriggeredBy;
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
-    export type EnvironmentsVisionScannersObservationsListStatus = typeof EnvironmentsVisionScannersObservationsListStatus[keyof typeof EnvironmentsVisionScannersObservationsListStatus];
-
-
-    export const EnvironmentsVisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type EnvironmentsVisionScannersObservationsListTriggeredBy = typeof EnvironmentsVisionScannersObservationsListTriggeredBy[keyof typeof EnvironmentsVisionScannersObservationsListTriggeredBy];
-
-
-    export const EnvironmentsVisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
+    export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
 
     export type EnvironmentsWarehouseSavedQueriesListParams = {
     /**
@@ -44443,6 +45044,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -44521,6 +45123,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     /**
@@ -44585,6 +45188,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -44651,6 +45255,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -44913,6 +45518,14 @@ export namespace Schemas {
     };
 
     export type CohortsListParams = {
+    /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean;
+    /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -45322,6 +45935,18 @@ export namespace Schemas {
 
 
     export const DashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat;
+    };
+
+    export type DashboardsMoveTileCreateFormat = typeof DashboardsMoveTileCreateFormat[keyof typeof DashboardsMoveTileCreateFormat];
+
+
+    export const DashboardsMoveTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -45919,6 +46544,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
@@ -46586,16 +47216,160 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type HeatmapScreenshotsContentRetrieveParams = {
+    /**
+     * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.
+     */
+    width?: number;
+    };
+
     export type HeatmapsListParams = {
     /**
-     * Number of results to return per page.
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: HeatmapsListAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
+    };
+
+    export type HeatmapsListAggregation = typeof HeatmapsListAggregation[keyof typeof HeatmapsListAggregation];
+
+
+    export const HeatmapsListAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
+
+    export type HeatmapsEventsRetrieveParams = {
+    /**
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: HeatmapsEventsRetrieveAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * Maximum interactions to return (1-100).
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of interactions to skip, for pagination.
+     * @minimum 0
      */
     offset?: number;
+    /**
+     * JSON array of the heatmap coordinates to drill into, e.g. '[{"x": 0.5, "y": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.
+     * @minLength 1
+     */
+    points: string;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
     };
+
+    export type HeatmapsEventsRetrieveAggregation = typeof HeatmapsEventsRetrieveAggregation[keyof typeof HeatmapsEventsRetrieveAggregation];
+
+
+    export const HeatmapsEventsRetrieveAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
 
     export type HogFlowTemplatesListParams = {
     /**
@@ -46824,66 +47598,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type HogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
-
-
-    export const HogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type HogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
-
-
-    export const HogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type HogFunctionTemplatesListParams = {
@@ -48974,13 +49688,37 @@ export namespace Schemas {
 
     export type SavedListParams = {
     /**
-     * Number of results to return per page.
+     * Filter by the creating user's ID.
+     */
+    created_by?: number;
+    /**
+     * Maximum saved heatmaps to return.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number to skip, for pagination.
      */
     offset?: number;
+    /**
+     * Field to order by, e.g. '-updated_at' (default) or 'created_at'.
+     * @minLength 1
+     */
+    order?: string;
+    /**
+     * Case-insensitive substring match on URL or name.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Filter by generation status: 'processing', 'completed', or 'failed'.
+     * @minLength 1
+     */
+    status?: string;
+    /**
+     * Filter by render mode: 'screenshot', 'iframe', or 'recording'.
+     * @minLength 1
+     */
+    type?: string;
     };
 
     export type ScheduledChangesListParams = {
@@ -49238,6 +49976,62 @@ export namespace Schemas {
      * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
+    /**
+     * * `popover` - popover
+    * `widget` - widget
+    * `external_survey` - external survey
+    * `api` - api
+     */
+    type?: SurveysListType;
+    };
+
+    export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
+
+
+    export const SurveysListType = {
+      Api: 'api',
+      ExternalSurvey: 'external_survey',
+      Popover: 'popover',
+      Widget: 'widget',
+    } as const;
+
+    export type SurveysResponsesListParams = {
+    /**
+     * When true, exclude responses that have been archived via the archive_response endpoint.
+     */
+    exclude_archived?: boolean;
+    /**
+     * Maximum number of rows to return (1-500). Defaults to 100.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.
+     * @minLength 1
+     */
+    question_id?: string;
+    /**
+     * Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.
+     */
+    score_gte?: number;
+    /**
+     * Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.
+     */
+    score_lte?: number;
+    /**
+     * Only return responses submitted on or after this ISO 8601 timestamp.
+     */
+    since?: string;
+    /**
+     * Only return responses submitted on or before this ISO 8601 timestamp.
+     */
+    until?: string;
     };
 
     export type SurveysStatsRetrieveParams = {
@@ -49249,6 +50043,21 @@ export namespace Schemas {
      * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
      */
     date_to?: string;
+    /**
+     * When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.
+     */
+    include_per_question_stats?: boolean;
+    };
+
+    export type SurveysSummarizeResponsesCreateParams = {
+    /**
+     * Question UUID. Preferred over question_index — stable across question edits.
+     */
+    question_id?: string;
+    /**
+     * Zero-based question index. Omit to get the survey-wide headline instead.
+     */
+    question_index?: number;
     };
 
     export type SurveysGlobalStatsRetrieveParams = {
@@ -49601,6 +50410,10 @@ export namespace Schemas {
 
     export type UserInterviewsListParams = {
     /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -49632,7 +50445,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -49693,7 +50506,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -49701,42 +50514,45 @@ export namespace Schemas {
      */
     session_id?: string;
     /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
+     * Filter by observation status. Accepts a comma-separated list.
      */
-    status?: VisionScannersObservationsListStatus;
+    status?: string;
     /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
-    triggered_by?: VisionScannersObservationsListTriggeredBy;
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
-    export type VisionScannersObservationsListStatus = typeof VisionScannersObservationsListStatus[keyof typeof VisionScannersObservationsListStatus];
-
-
-    export const VisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type VisionScannersObservationsListTriggeredBy = typeof VisionScannersObservationsListTriggeredBy[keyof typeof VisionScannersObservationsListTriggeredBy];
-
-
-    export const VisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
+    export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
 
     export type VisualReviewReposListParams = {
     /**
