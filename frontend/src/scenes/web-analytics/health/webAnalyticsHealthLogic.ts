@@ -4,6 +4,13 @@ import { loaders } from 'kea-loaders'
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
+import {
+    REFRESH_COOLDOWN_MS,
+    REFRESH_POLL_COUNT,
+    REFRESH_POLL_INTERVAL_MS,
+    type HealthIssue,
+} from 'scenes/health/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -25,24 +32,6 @@ export interface WebAnalyticsHealthStatus {
     isSendingPageLeavesScroll: boolean
 }
 
-export interface HealthIssue {
-    id: string
-    kind: string
-    severity: 'CRITICAL' | 'WARNING' | 'INFO'
-    status: string
-    dismissed: boolean
-    payload: Record<string, unknown>
-}
-
-export interface HealthIssuesResponse {
-    results: HealthIssue[]
-    count: number
-}
-
-const REFRESH_COOLDOWN_MS = 5 * 60 * 1000
-const REFRESH_POLL_INTERVAL_MS = 5000
-const REFRESH_POLL_COUNT = 12
-
 const KIND_FOR_CHECK: Record<HealthCheckId, string> = {
     [HealthCheckId.PAGEVIEW_EVENTS]: 'no_live_events',
     [HealthCheckId.PAGELEAVE_EVENTS]: 'no_pageleave_events',
@@ -53,7 +42,7 @@ const KIND_FOR_CHECK: Record<HealthCheckId, string> = {
 }
 
 function severityToStatus(severity: HealthIssue['severity']): HealthCheckStatus {
-    return severity === 'CRITICAL' ? 'error' : 'warning'
+    return severity === 'critical' ? 'error' : 'warning'
 }
 
 function statusForCheck(checkId: HealthCheckId, issuesByKind: Record<string, HealthIssue>): HealthCheckStatus {
@@ -403,10 +392,21 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
             const url = `api/environments/${values.currentTeamId}/health_issues/refresh/`
             try {
-                await api.create(url)
+                const response = await api.create<{
+                    scheduled_kinds: string[]
+                    kinds_failed: string[]
+                    team_id: number
+                }>(url)
                 breakpoint()
 
                 actions.setNextRefreshAvailableAt(Date.now() + REFRESH_COOLDOWN_MS)
+
+                if ((response?.scheduled_kinds ?? []).length === 0) {
+                    if (isManual) {
+                        lemonToast.info('No health checks are registered for this project.')
+                    }
+                    return
+                }
 
                 for (let i = 0; i < REFRESH_POLL_COUNT; i++) {
                     await breakpoint(REFRESH_POLL_INTERVAL_MS)

@@ -16,7 +16,7 @@ import { Breadcrumb } from '~/types'
 import { CATEGORY_ORDER, HEALTH_CATEGORY_CONFIG, categoryForKind } from './healthCategories'
 import type { healthSceneLogicType } from './healthSceneLogicType'
 import type { CategoryHealthSummary, HealthIssue, HealthIssueSeverity } from './types'
-import { SEVERITY_ORDER } from './types'
+import { REFRESH_COOLDOWN_MS, REFRESH_POLL_COUNT, REFRESH_POLL_INTERVAL_MS, SEVERITY_ORDER } from './types'
 
 export interface HealthIssuesResponse {
     results: HealthIssue[]
@@ -24,10 +24,6 @@ export interface HealthIssuesResponse {
     next?: string | null
     previous?: string | null
 }
-
-const REFRESH_COOLDOWN_MS = 5 * 60 * 1000
-const REFRESH_POLL_INTERVAL_MS = 5000
-const REFRESH_POLL_COUNT = 12
 
 export const healthSceneLogic = kea<healthSceneLogicType>([
     path(['scenes', 'health', 'healthSceneLogic']),
