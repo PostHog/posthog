@@ -327,10 +327,8 @@ test.describe('Trends insights', () => {
             // Wait for mode transition to complete first (Edit → View)
             await expect(insight.editButton).toBeVisible()
             await insight.trends.waitForChart()
-            // Use toPass to handle race where DateFilter state is lost during mode transition remount
-            await expect(async () => {
-                await expect(insight.trends.dateRangeButton).toContainText('Last 7 days')
-            }).toPass({ timeout: 10_000 })
+            // Handle race where DateFilter state is lost during mode transition remount
+            await expect(insight.trends.dateRangeButton).toContainText('Last 7 days', { timeout: 10_000 })
         })
 
         await test.step('edit again, make a change, and save', async () => {
