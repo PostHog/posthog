@@ -115,8 +115,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
         ];
         const RESPONSE_SIZE_BUCKETS: &[f64] = &[
-            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 16777216.0,
-            67108864.0,
+            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 8388608.0,
+            16777216.0, 33554432.0, 67108864.0,
         ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
@@ -315,8 +315,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let incoming = tracked_tcp_incoming(listener);
 
         let result = if proxy_mode == ProxyMode::Raw {
-            let proxy =
-                RawProxyService::new(replica_backend, leader_backend, retry_config, max_recv);
+            let proxy = RawProxyService::new(
+                replica_backend,
+                leader_backend,
+                retry_config,
+                max_recv,
+                config.response_size_warn_bytes,
+            );
             Server::builder()
                 .http2_keepalive_interval(keepalive_interval)
                 .http2_keepalive_timeout(keepalive_timeout)

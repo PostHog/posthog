@@ -359,6 +359,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert table is not None
         assert len(table.fields.keys()) == 1
 
+        # The table is also queryable by its raw underscore name, so it must be surfaced for search
+        assert table.search_aliases == ["stripe_table_1"]
+
         assert table.source is not None
         assert table.source.id == str(source.id)
         assert table.source.status == "Completed"
@@ -608,6 +611,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         sql = "select some_field.key from events"
         prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+
+    def test_database_warehouse_joins_on_system_table_are_serialized(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="system.accounts",
+            source_table_key="external_id",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="my_join_field",
+        )
+
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, database=db)
+        serialized = db.serialize(context, include_only={"system.accounts"})
+
+        assert "system.accounts" in serialized
+        assert "my_join_field" in serialized["system.accounts"].fields
 
     def test_database_warehouse_joins_deleted_join(self):
         DataWarehouseJoin.objects.create(

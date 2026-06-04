@@ -54,8 +54,10 @@ export class HogFunctionHandler implements ActionHandler {
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
-            // Also the queueParameters are required
+            // Preserve queue routing and parameters from the function result
+            result.invocation.queue = functionResult.invocation.queue
             result.invocation.queueParameters = functionResult.invocation.queueParameters
+            result.invocation.queueMetadata = functionResult.invocation.queueMetadata
             return {
                 scheduledAt: functionResult.invocation.queueScheduledAt ?? DateTime.now(),
             }

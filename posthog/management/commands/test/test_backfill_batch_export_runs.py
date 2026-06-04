@@ -14,12 +14,12 @@ from asgiref.sync import async_to_sync
 from temporalio.service import RPCError
 
 from posthog.api.test.batch_exports.operations import start_test_worker
-from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun
 from posthog.management.commands.backfill_batch_export_runs import find_missing_intervals, get_batch_exports
 from posthog.models import Organization, Team
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.tests.utils.models import create_batch_export
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
 from products.batch_exports.backend.tests.temporal.backfills.conftest import wait_for_workflows
 
 

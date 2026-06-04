@@ -5,15 +5,14 @@ from django.db.models import QuerySet
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import mixins, serializers, viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.replay_vision.backend.api.constants import VISION_TAG
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -39,7 +38,7 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     )
     scanner_type = serializers.ChoiceField(
         choices=ScannerType.choices,
-        help_text="Scanner type (monitor, classifier, scorer, summarizer, indexer) at run time.",
+        help_text="Scanner type (monitor, classifier, scorer, summarizer) at run time.",
     )
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
@@ -70,13 +69,6 @@ class ScannerResultSerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of PostHog Signals emitted from this observation.",
     )
-    event_id_mapping = serializers.DictField(
-        child=serializers.JSONField(),
-        help_text=(
-            "Maps the short `event_id` the LLM cites in `model_output.reasoning` to citation metadata: "
-            "`{uuid, timestamp_ms}`. Only includes hashes the LLM actually cited."
-        ),
-    )
 
 
 class ReplayObservationSerializer(serializers.ModelSerializer):
@@ -85,12 +77,17 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     status = serializers.ChoiceField(
         choices=ObservationStatus.choices,
         read_only=True,
-        help_text="Observation status (pending, running, succeeded, failed).",
+        help_text="Observation status (pending, running, succeeded, failed, ineligible).",
     )
     error_reason = serializers.CharField(
         read_only=True,
         allow_blank=True,
-        help_text="Populated on failure; includes the malformed model response when validation fails.",
+        help_text=(
+            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
+            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
+            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
+            "validation_failed / internal_error."
+        ),
     )
     workflow_id = serializers.CharField(
         read_only=True,
@@ -154,6 +151,15 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         ]
 
 
+# Single source of truth for orderable fields; the list endpoint's OpenAPI override mirrors these as a string enum.
+OBSERVATION_ORDER_FIELDS = ("created_at", "started_at", "completed_at", "status")
+
+
+def _ordering_enum(fields: tuple[str, ...]) -> list[str]:
+    """Ascending + descending (`-`-prefixed) variants of each field, matching OrderingFilter's accepted values."""
+    return [value for field in fields for value in (field, f"-{field}")]
+
+
 class ReplayObservationFilter(django_filters.FilterSet):
     status = django_filters.ChoiceFilter(
         field_name="status",
@@ -170,12 +176,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text="Filter to observations of a specific session recording.",
     )
     order_by = django_filters.OrderingFilter(
-        fields=(
-            ("created_at", "created_at"),
-            ("started_at", "started_at"),
-            ("completed_at", "completed_at"),
-            ("status", "status"),
-        ),
+        fields=tuple((field, field) for field in OBSERVATION_ORDER_FIELDS),
         help_text="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
     )
 
@@ -184,7 +185,22 @@ class ReplayObservationFilter(django_filters.FilterSet):
         fields = ["status", "triggered_by", "session_id"]
 
 
-@extend_schema(tags=[VISION_TAG])
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            # OrderingFilter renders as an array by default, which the MCP client serializes as a JSON-bracketed
+            # string the filter rejects. Declare it as a single-value string enum so it serializes as ?order_by=field.
+            OpenApiParameter(
+                "order_by",
+                str,
+                OpenApiParameter.QUERY,
+                required=False,
+                enum=_ordering_enum(OBSERVATION_ORDER_FIELDS),
+                description="Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.",
+            )
+        ]
+    )
+)
 class ReplayObservationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -218,3 +234,48 @@ class ReplayObservationViewSet(
             .select_related("triggered_by_user")
             .order_by("-created_at", "id")
         )
+
+
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "session_id",
+                str,
+                OpenApiParameter.QUERY,
+                required=True,
+                description="Session recording id to return observations for.",
+            )
+        ]
+    )
+)
+class SessionReplayObservationViewSet(ReplayObservationViewSet):
+    """Read-only access to a session's observations across every scanner the caller can read, for the replay-page dock."""
+
+    # The dock fetches one session's observations; `session_id` is required and enforced in
+    # safely_get_queryset, so this viewset needs none of the base's optional list filters.
+    filter_backends: list = []
+
+    def safely_get_queryset(self, queryset: QuerySet[ReplayObservation]) -> QuerySet[ReplayObservation]:
+        # Observations expose recording-derived output, so reading them requires session_recording read.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Reading replay observations requires session_recording read access.")
+        # Observations inherit their scanner's RBAC. The generic access filter keys on the ReplayObservation
+        # row rather than its scanner, so scope explicitly to the scanners this caller can read.
+        readable_scanner_ids = list(
+            self.user_access_control.filter_queryset_by_access_level(
+                ReplayScanner.objects.filter(team_id=self.team_id)
+            ).values_list("id", flat=True)
+        )
+        queryset = (
+            queryset.filter(team_id=self.team_id, scanner_id__in=readable_scanner_ids)
+            .select_related("triggered_by_user")
+            .order_by("-created_at", "id")
+        )
+        # A bare list would scan the whole team's observation history; the replay page always has a session.
+        if self.action == "list":
+            session_id = self.request.query_params.get("session_id")
+            if not session_id:
+                raise ValidationError("The `session_id` query parameter is required.")
+            queryset = queryset.filter(session_id=session_id)
+        return queryset

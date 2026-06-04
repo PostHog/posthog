@@ -10,9 +10,7 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import stripe
 import structlog
-from anthropic import APIConnectionError, APIStatusError, AuthenticationError, PermissionDeniedError
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import mixins, serializers, viewsets
@@ -105,6 +103,9 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
     """
     if not install_signature or not settings.STRIPE_SIGNING_SECRET:
         return False
+
+    import stripe  # noqa: PLC0415
+
     payload = json.dumps(
         {"state": state, "user_id": user_id, "account_id": account_id},
         separators=(",", ":"),
@@ -301,6 +302,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         model = Integration
         fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
         read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+
+    def validate_kind(self, value: str) -> str:
+        if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
+            raise ValidationError("This integration kind is deprecated and can no longer be created.")
+        return value
 
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
@@ -563,7 +569,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
-@extend_schema(tags=["integrations"])
+@extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -933,6 +939,13 @@ class IntegrationViewSet(
         return self._anthropic_managed_list_response(request, resource="vaults")
 
     def _anthropic_managed_list_response(self, request: Request, *, resource: str) -> Response:
+        from anthropic import (  # noqa: PLC0415
+            APIConnectionError,
+            APIStatusError,
+            AuthenticationError,
+            PermissionDeniedError,
+        )
+
         instance = self._get_anthropic_integration_or_400()
 
         try:

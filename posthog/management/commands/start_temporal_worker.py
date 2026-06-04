@@ -6,6 +6,7 @@ import datetime as dt
 import functools
 import threading
 import faulthandler
+import collections.abc
 from collections import defaultdict
 
 import structlog
@@ -20,6 +21,16 @@ with workflow.unsafe.imports_passed_through():
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
+from posthog.temporal.ai_observability import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
+    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
+    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
+)
 from posthog.temporal.alerts import (
     ACTIVITIES as ALERT_ACTIVITIES,
     WORKFLOWS as ALERT_WORKFLOWS,
@@ -38,6 +49,7 @@ from posthog.temporal.data_imports.settings import (
     EMIT_SIGNALS_WORKFLOWS as DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
 )
+from posthog.temporal.data_imports.sources import load_all_sources
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
@@ -73,24 +85,6 @@ from posthog.temporal.health_checks import (
 from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
-)
-from posthog.temporal.llm_analytics import (
-    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
-    EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
-    EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
-    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
-    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
-    TAGGER_ACTIVITIES as LLM_ANALYTICS_TAGGER_ACTIVITIES,
-    TAGGER_WORKFLOWS as LLM_ANALYTICS_TAGGER_WORKFLOWS,
-    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
-)
-from posthog.temporal.mcp_analytics.backfill_sessions import (
-    MCP_ANALYTICS_BACKFILL_SESSIONS_ACTIVITIES,
-    MCP_ANALYTICS_BACKFILL_SESSIONS_WORKFLOWS,
-)
-from posthog.temporal.mcp_analytics.summarize_session_intents import (
-    MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_ACTIVITIES,
-    MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
@@ -144,10 +138,6 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
@@ -173,9 +163,13 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
-from products.deployments.backend.temporal import (
-    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
-    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+from products.business_knowledge.backend.temporal import (
+    ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
+    WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
+)
+from products.exports.backend.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
@@ -238,9 +232,7 @@ _task_queue_specs = [
         + EXPERIMENTS_WORKFLOWS
         + CLEANUP_PROPDEFS_WORKFLOWS
         + INGESTION_ACCEPTANCE_TEST_WORKFLOWS
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS
-        + MCP_ANALYTICS_BACKFILL_SESSIONS_WORKFLOWS
-        + MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_WORKFLOWS,
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + QUOTA_LIMITING_ACTIVITIES
@@ -252,9 +244,7 @@ _task_queue_specs = [
         + EXPERIMENTS_ACTIVITIES
         + CLEANUP_PROPDEFS_ACTIVITIES
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES
-        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES
-        + MCP_ANALYTICS_BACKFILL_SESSIONS_ACTIVITIES
-        + MCP_ANALYTICS_SUMMARIZE_SESSION_INTENTS_ACTIVITIES,
+        + WAREHOUSE_SOURCES_QUEUE_PARTITION_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -293,8 +283,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS + BUSINESS_KNOWLEDGE_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES + BUSINESS_KNOWLEDGE_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -361,11 +351,6 @@ _task_queue_specs = [
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
     ),
-    (
-        settings.DEPLOYMENTS_TASK_QUEUE,
-        DEPLOYMENTS_WORKFLOWS,
-        DEPLOYMENTS_ACTIVITIES,
-    ),
 ]
 
 # Note: When running locally, many task queues resolve to the same queue name.
@@ -381,6 +366,11 @@ for task_queue_name, workflows_for_queue, activities_for_queue in _task_queue_sp
 
 WORKFLOWS_DICT = _workflows
 ACTIVITIES_DICT = _activities
+
+
+def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type]) -> bool:
+    """True when this worker runs data-warehouse source syncs and must eagerly load the sources."""
+    return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
 if settings.DEBUG:
@@ -515,6 +505,16 @@ class Command(BaseCommand):
             activities = list(ACTIVITIES_DICT[task_queue])
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+
+        # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
+        # SDKs register protobuf descriptors into a process-global pool that rejects a second
+        # registration of the same symbol. They must be imported exactly once per process. Do it here
+        # — synchronously, at worker boot, on the main thread — for any queue that runs data syncs.
+        # Deferring to the first SourceRegistry.get_source() at runtime (the lazy path) let the
+        # registration recur and broke unrelated syncs with "duplicate symbol". Other workers never
+        # import the vendor SDKs, so they keep their fast startup.
+        if workflows_include_data_import_syncs(workflows):
+            load_all_sources()
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"

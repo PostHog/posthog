@@ -17,10 +17,13 @@ from posthog.schema import ProductKey
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 from posthog.api.team import (
+    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    PromotedProductIntentSerializer,
     TeamSerializer,
     get_or_mint_live_events_token,
     handle_conversations_token_on_update,
+    handle_logs_config,
     validate_team_attrs,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -40,6 +43,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
@@ -432,6 +436,10 @@ class ProjectBackwardCompatSerializer(
     def validate_modifiers(value: dict | None) -> dict | None:
         return TeamSerializer.validate_modifiers(value)
 
+    @staticmethod
+    def validate_test_account_filters(value: object) -> list[dict[str, object]]:
+        return TeamSerializer.validate_test_account_filters(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
@@ -656,7 +664,7 @@ class ProjectBackwardCompatSerializer(
         return instance
 
 
-@extend_schema(tags=["core"])
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=("Retrieve a project and its settings."),
@@ -908,6 +916,19 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         project = self.get_object()
         return response.Response({"is_generating_demo_data": project.passthrough_team.get_is_generating_demo_data()})
 
+    @action(
+        methods=["GET", "PATCH"],
+        detail=True,
+        permission_classes=[TeamMemberLightManagementPermission],
+        url_path="logs_config",
+    )
+    def logs_config(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage logs product configuration for this project's canonical environment.
+        Mirrors the env-router action so /api/projects/:id/logs_config/ resolves
+        alongside the legacy /api/environments/:id/logs_config/ alias."""
+        project = self.get_object()
+        return handle_logs_config(request, project.passthrough_team)
+
     @action(methods=["GET"], detail=True)
     def activity(self, request: request.Request, **kwargs):
         # TODO: This is currently the same as in TeamViewSet - we should rework for the Project scope
@@ -924,6 +945,18 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
+
+    @extend_schema(
+        tags=["platform_features"],
+        responses={200: PromotedProductIntentSerializer},
+        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
+    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
+        project = self.get_object()
+        team = project.passthrough_team
+        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
+        return response.Response({"product_key": product_key})
 
     @action(
         methods=["PATCH"],

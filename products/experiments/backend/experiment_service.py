@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Now
+from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
 import pydantic
@@ -20,13 +20,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric, ExperimentMetric
 
 from posthog.api.cohort import CohortSerializer
-from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.hogql_queries.experiments.funnel_validation import FunnelDWValidator
 from posthog.models.cohort import Cohort
-from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -45,6 +42,9 @@ from products.experiments.backend.models.experiment import (
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -189,6 +189,44 @@ class ExperimentService:
                     f"(lowercase, exactly). Got keys: {keys}. Rename the baseline variant's "
                     "'key' to 'control'."
                 )
+
+        excluded_variants = parameters.get("excluded_variants")
+        if excluded_variants is None:
+            return
+
+        if not isinstance(excluded_variants, list) or not all(isinstance(v, str) for v in excluded_variants):
+            raise ValidationError("excluded_variants must be a list of strings")
+
+        if not excluded_variants:
+            return
+
+        # `parameters` is replaced wholesale on update (see update_experiment:
+        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
+        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
+        # otherwise the stored object would have no variants at all. Surface that
+        # explicitly rather than letting every key fall through to "unknown variants".
+        if not variants:
+            raise ValidationError(
+                "excluded_variants requires feature_flag_variants in the same request — "
+                "parameters are replaced as a whole on update, so send the full parameters object"
+            )
+
+        variant_keys = {v["key"] for v in variants}
+        baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
+
+        holdout_excluded = {k for k in excluded_variants if k.startswith("holdout-")}
+        if holdout_excluded:
+            raise ValidationError(f"cannot exclude holdout pseudo-variants: {sorted(holdout_excluded)}")
+
+        if baseline_key in excluded_variants:
+            raise ValidationError(f"baseline variant cannot be excluded ('{baseline_key}')")
+
+        unknown = set(excluded_variants) - variant_keys
+        if unknown:
+            raise ValidationError(f"unknown variants for this experiment: {sorted(unknown)}")
+
+        if not variant_keys - set(excluded_variants) - {baseline_key}:
+            raise ValidationError("at least one test variant must remain in analysis")
 
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
@@ -378,6 +416,8 @@ class ExperimentService:
     EXPERIMENT_ORDER_ALLOWLIST = {
         "created_at",
         "-created_at",
+        "created_by",
+        "-created_by",
         "updated_at",
         "-updated_at",
         "name",
@@ -670,6 +710,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=(parameters or {}).get("excluded_variants"),
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
@@ -679,6 +720,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=(parameters or {}).get("excluded_variants"),
                 )
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
@@ -962,6 +1004,7 @@ class ExperimentService:
         stats_config: dict | None,
         exposure_criteria: dict | None,
         only_count_matured_users: bool = False,
+        excluded_variants: list[str] | None = None,
     ) -> list[dict]:
         """Recompute fingerprints for a list of metrics. Returns a new list with updated fingerprints."""
         stats_method = "bayesian" if stats_config is None else stats_config.get("method", "bayesian")
@@ -974,6 +1017,7 @@ class ExperimentService:
                 stats_method,
                 exposure_criteria,
                 only_count_matured_users=only_count_matured_users,
+                excluded_variants=excluded_variants,
             )
             updated.append(metric_copy)
         return updated
@@ -1153,7 +1197,11 @@ class ExperimentService:
                     experiment,
                     metric_field,
                     self._recompute_fingerprints(
-                        metrics, experiment.start_date, experiment.stats_config, experiment.exposure_criteria
+                        metrics,
+                        experiment.start_date,
+                        experiment.stats_config,
+                        experiment.exposure_criteria,
+                        excluded_variants=(experiment.parameters or {}).get("excluded_variants"),
                     ),
                 )
 
@@ -1859,6 +1907,8 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
+        new_parameters = update_data.get("parameters", experiment.parameters)
+        excluded_variants = (new_parameters or {}).get("excluded_variants")
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -1869,6 +1919,7 @@ class ExperimentService:
                     stats_config,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
+                    excluded_variants=excluded_variants,
                 )
 
         # --- metric ordering sync + validation -----------------------------
@@ -2311,6 +2362,17 @@ class ExperimentService:
                     queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
+            elif order_value in ["created_by", "-created_by"]:
+                # Match the frontend column's `first_name || email` sorter — treat an
+                # empty `first_name` as missing and fall back to `email`, so users with
+                # a blank first name aren't bunched at one end of the list.
+                prefix = "-" if order_value.startswith("-") else ""
+                queryset = queryset.annotate(
+                    created_by_display=Coalesce(
+                        NullIf(F("created_by__first_name"), Value("")),
+                        F("created_by__email"),
+                    )
+                ).order_by(f"{prefix}created_by_display")
             else:
                 queryset = queryset.order_by(order_value)
         else:
