@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -120,6 +121,67 @@ describe('projectNoticeLogic', () => {
             logic.mount()
 
             expect(reverseProxyCheckerLogic.isMounted()).toBe(false)
+
+            logic.unmount()
+        })
+    })
+
+    describe('reverse proxy banner suppression', () => {
+        let getItemSpy: jest.SpyInstance
+
+        // Configurable HogQL detection result so we can drive both the DIY-proxy-detected and
+        // no-proxy paths through the projectNoticeVariant selector. A non-null first column means
+        // events carry $lib_custom_api_host, i.e. a self-managed proxy is routing data.
+        const setupMocks = (hogqlResults: (string | null)[][]): void => {
+            useMocks({
+                get: {
+                    '/api/organizations/@current/proxy_records': [200, { results: [] }],
+                },
+                post: {
+                    '/api/environments/:team_id/query/:kind': () => [200, { results: hogqlResults }],
+                },
+            })
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            // isCloudOrDev gates the nudge — self-hosted users manage their own infrastructure.
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true } as any)
+            getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
+            jest.useFakeTimers()
+            jest.setSystemTime(new Date(2026, 3, 3)) // April 3 — inside the nudge window
+        })
+
+        afterEach(() => {
+            getItemSpy.mockRestore()
+            jest.useRealTimers()
+        })
+
+        it('suppresses the nudge when a self-managed proxy is detected', async () => {
+            setupMocks([['https://proxy.example.com'], [null]])
+
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
+            await expectLogic(logic).toDispatchActions(['loadRecordsSuccess'])
+
+            // Zero managed proxy records, but a DIY proxy is routing events — the banner must not nag.
+            expect(logic.values.projectNoticeVariant).not.toEqual('missing_reverse_proxy')
+
+            logic.unmount()
+        })
+
+        it('shows the nudge when no proxy exists and there are no managed records', async () => {
+            setupMocks([[null], [null]])
+
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
+            await expectLogic(logic).toDispatchActions(['loadRecordsSuccess'])
+
+            expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
 
             logic.unmount()
         })
