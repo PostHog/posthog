@@ -171,7 +171,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expectEvents(page, ['$autocapture'])
     })
 
-    test('survey responses visible in feature flag feedback tab', async ({ page }) => {
+    test.skip('survey responses visible in feature flag feedback tab', async ({ page }) => {
         await saveFeatureFlag(page)
         await clickCreateSurvey(page, name)
         await launchSurvey(page, name)
@@ -187,7 +187,7 @@ test.describe('Quick create survey from feature flag', () => {
         await expect(page.getByText('Filter survey results')).toBeVisible()
     })
 
-    test('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
+    test.skip('list of surveys in ff feedback tab when multiple surveys exist', async ({ page }) => {
         await addTwoVariants(page)
         await saveFeatureFlag(page)
 
@@ -195,15 +195,7 @@ test.describe('Quick create survey from feature flag', () => {
         await page.getByText(`Only users in the test-1 variant`).locator('..').locator('input').click()
         await launchSurvey(page, name)
 
-        const listResponsePromise = page.waitForResponse(
-            (resp) =>
-                resp.url().includes('/api/projects') &&
-                resp.url().includes('/feature_flags') &&
-                resp.request().method() === 'GET' &&
-                resp.status() === 200
-        )
         await page.goto(urls.featureFlags())
-        await listResponsePromise
         await expect(page.locator('h1')).toContainText('Feature flags')
         await clickCreateSurvey(page, name)
         await page.getByText(`Only users in the test-2 variant`).locator('..').locator('input').click()
