@@ -86,6 +86,14 @@ class StripeAuthMethodConfig(config.Config):
 
 
 @config.config
+class TwilioAuthMethodConfig(config.Config):
+    selection: Literal["api_key", "auth_token"] = "api_key"
+    api_key_sid: str | None = None
+    api_key_secret: str | None = None
+    auth_token: str | None = None
+
+
+@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
@@ -858,7 +866,8 @@ class TrelloSourceConfig(config.Config):
 
 @config.config
 class TwilioSourceConfig(config.Config):
-    pass
+    account_sid: str
+    auth_method: TwilioAuthMethodConfig
 
 
 @config.config
