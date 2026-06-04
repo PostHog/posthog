@@ -275,8 +275,8 @@ fn record_lz4_payload(topic: &str, result: &str, reason: &str) {
 enum Lz4PayloadError {
     #[error("decode error: {0}")]
     Decode(#[from] std::io::Error),
-    #[error("decompressed payload exceeded limit of {limit} bytes (read at least {actual} bytes before aborting)")]
-    TooLarge { actual: usize, limit: usize },
+    #[error("decompressed payload exceeded limit of {limit} bytes")]
+    TooLarge { limit: usize },
 }
 
 impl Lz4PayloadError {
@@ -296,10 +296,7 @@ fn decompress_lz4_payload(payload: &[u8], limit: usize) -> Result<Vec<u8>, Lz4Pa
         .read_to_end(&mut decompressed)?;
 
     if decompressed.len() > limit {
-        return Err(Lz4PayloadError::TooLarge {
-            actual: decompressed.len(),
-            limit,
-        });
+        return Err(Lz4PayloadError::TooLarge { limit });
     }
 
     Ok(decompressed)
