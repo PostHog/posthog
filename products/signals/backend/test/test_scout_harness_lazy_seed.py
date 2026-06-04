@@ -448,6 +448,33 @@ class TestSyncCanonicalSkills(BaseTest):
         latest = LLMSkill.objects.get(team=self.team, name="signals-scout-alpha", is_latest=True)
         assert latest.body == "team edited this"
 
+    def test_leaves_hand_authored_row_sharing_a_canonical_name_alone(self) -> None:
+        # A team hand-authors a row whose name collides with a canonical, with no seeded_by
+        # tag and no canonical_hash. We must never backfill-then-overwrite it: first sync
+        # reports it diverged, and a later canonical change still leaves the content intact.
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-alpha",
+            description="team's own",
+            body="hand authored",
+            is_latest=True,
+        )
+
+        v1 = _make_canonical("signals-scout-alpha", body="canonical v1")
+        with self._patch_canonicals((v1,)):
+            first = sync_canonical_skills(self.team)
+        assert first.diverged_skill_names == ("signals-scout-alpha",)
+        assert first.backfilled_skill_names == ()
+
+        v2 = _make_canonical("signals-scout-alpha", body="canonical v2")
+        with self._patch_canonicals((v2,)):
+            second = sync_canonical_skills(self.team)
+        assert second.diverged_skill_names == ("signals-scout-alpha",)
+        assert second.updated_skill_names == ()
+
+        latest = LLMSkill.objects.get(team=self.team, name="signals-scout-alpha", is_latest=True)
+        assert latest.body == "hand authored"
+
     def test_skips_tombstoned_rows(self) -> None:
         # Team explicitly deleted the skill — no live row, just a soft-deleted archive.
         # The sync must respect that and not re-create the canonical content.

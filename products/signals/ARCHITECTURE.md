@@ -21,7 +21,7 @@ Several additional Signals workflows also exist but are not part of the main rep
 
 - `backfill-error-tracking` (`backend/temporal/backfill_error_tracking.py`) — backfills recent error tracking issues as signals
 - `emit-eval-signal` (`backend/temporal/emit_eval_signal.py`) — converts LLMA evaluation results into Signals inputs on the Signals worker queue
-- `run-signals-scout-coordinator` (`backend/temporal/agentic/scout_coordinator.py`) — hourly tick that fans out scheduled `signals-scout-*` scout runs per (team, skill). Spec'd separately below.
+- `run-signals-scout-coordinator` (`backend/temporal/agentic/scout_coordinator.py`) — periodic tick (every `COORDINATOR_INTERVAL_MINUTES = 15`) that fans out scheduled `signals-scout-*` scout runs per (team, skill). Spec'd separately below.
 - `RunSignalsScoutWorkflow` (`backend/temporal/agentic/scout_scheduler.py`) — child workflow per planned run; thin wrapper around the harness activity. Spec'd separately below.
 
 ### Activity decoration
@@ -492,16 +492,16 @@ Per-team configuration for which signal sources are enabled.
 
 Per-scout binding for the headless **Signals agent**: one row per `(team, skill_name)`. The coordinator auto-creates a row when it discovers a `signals-scout-*` skill on a participating team. Changes are activity-logged (they drive spend); team-level participation is gated by the `signals-scout` flag at the coordinator, not here. See `backend/scout_harness/AGENTS.md` for the harness internals.
 
-| Field                  | Type                  | Description                                                                                                                                                                              |
-| ---------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `team`                 | FK → Team             | Owning team (`related_name="signal_scout_configs"`). `unique_together(team, skill_name)`.                                                                                               |
-| `skill_name`           | CharField             | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                                      |
-| `enabled`              | Boolean               | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                                      |
-| `emit`                 | Boolean               | Dry-run vs emit. Defaults `False`: the scout runs and logs but `emit_finding` writes nothing — lets a scout be validated on a team before its findings reach the inbox.                 |
-| `run_interval_minutes` | PositiveSmallInt      | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `10 <= N <= 43200`.         |
-| `last_run_at`          | DateTime (nullable)   | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                                  |
-| `created_by`           | FK → User (nullable)  | Audit pointer                                                                                                                                                                           |
-| `enabled_by`           | FK → User (nullable)  | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                                   |
+| Field                  | Type                 | Description                                                                                                                                                                     |
+| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `team`                 | FK → Team            | Owning team (`related_name="signal_scout_configs"`). `unique_together(team, skill_name)`.                                                                                       |
+| `skill_name`           | CharField            | The `signals-scout-*` skill this row controls. Auto-registered by the coordinator when it finds the skill on a participating team.                                              |
+| `enabled`              | Boolean              | Per-scout switch; defaults `True`. `False` pauses just this scout.                                                                                                              |
+| `emit`                 | Boolean              | Dry-run vs emit. Defaults `False`: the scout runs and logs but `emit_finding` writes nothing — lets a scout be validated on a team before its findings reach the inbox.         |
+| `run_interval_minutes` | PositiveSmallInt     | Minutes between runs. The coordinator dispatches when `last_run_at is None or now - last_run_at >= run_interval_minutes`. Default `1440` (daily). Validated `10 <= N <= 43200`. |
+| `last_run_at`          | DateTime (nullable)  | Stamped after each dispatch; drives the due-check. Excluded from activity logging (written every run).                                                                          |
+| `created_by`           | FK → User (nullable) | Audit pointer                                                                                                                                                                   |
+| `enabled_by`           | FK → User (nullable) | Who last flipped `enabled` — tracked because enablement drives spend.                                                                                                           |
 
 ### `SignalScoutRun`
 
@@ -1052,20 +1052,20 @@ Signal {index}:
 
 ## Key Configuration
 
-| Setting                           | Default                       | Description                                                                          |
-| --------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------ |
-| `SIGNAL_WEIGHT_THRESHOLD`         | `1.0`                         | Total weight needed to promote a report to candidate                                 |
-| `SIGNAL_MATCHING_LLM_MODEL`       | `claude-sonnet-4-5`           | LLM model for all signal operations                                                  |
-| `MAX_RESPONSE_TOKENS`             | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)   |
-| Embedding model                   | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                       |
-| Task queue                        | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                |
-| `BUFFER_MAX_SIZE`                 | `20`                          | Max signals buffered in memory before flush to S3                                    |
-| `BUFFER_FLUSH_TIMEOUT_SECONDS`    | `5`                           | Max seconds to wait for buffer to fill before flushing                               |
-| S3 prefix                         | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)     |
-| `COORDINATOR_INTERVAL_MINUTES`            | `15`   | Signals agent coordinator poll cadence (Temporal schedule, `SKIP` overlap policy)         |
-| `MAX_RUNS_PER_TICK`                       | `50`   | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)  |
-| `SignalScoutConfig.run_interval_minutes`  | `1440` | Per-scout default schedule in minutes (daily); due-check, no sampling (`10`–`43200`)      |
-| `SignalScoutConfig.emit`                  | `False` | Per-scout dry-run gate — scout runs and logs, but `emit_finding` writes nothing until flipped on |
+| Setting                                  | Default                       | Description                                                                                      |
+| ---------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------ |
+| `SIGNAL_WEIGHT_THRESHOLD`                | `1.0`                         | Total weight needed to promote a report to candidate                                             |
+| `SIGNAL_MATCHING_LLM_MODEL`              | `claude-sonnet-4-5`           | LLM model for all signal operations                                                              |
+| `MAX_RESPONSE_TOKENS`                    | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget)               |
+| Embedding model                          | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                                   |
+| Task queue                               | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                                            |
+| `BUFFER_MAX_SIZE`                        | `20`                          | Max signals buffered in memory before flush to S3                                                |
+| `BUFFER_FLUSH_TIMEOUT_SECONDS`           | `5`                           | Max seconds to wait for buffer to fill before flushing                                           |
+| S3 prefix                                | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)                 |
+| `COORDINATOR_INTERVAL_MINUTES`           | `15`                          | Signals agent coordinator poll cadence (Temporal schedule, `SKIP` overlap policy)                |
+| `MAX_RUNS_PER_TICK`                      | `50`                          | Hard cap on planned runs per coordinator tick (most-overdue-first, truncated after sort)         |
+| `SignalScoutConfig.run_interval_minutes` | `1440`                        | Per-scout default schedule in minutes (daily); due-check, no sampling (`10`–`43200`)             |
+| `SignalScoutConfig.emit`                 | `False`                       | Per-scout dry-run gate — scout runs and logs, but `emit_finding` writes nothing until flipped on |
 
 ---
 

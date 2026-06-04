@@ -428,13 +428,16 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
         live_files = list(live.files.all())
         live_hash = _compute_row_hash(live, live_files)
         stored_hash = (live.metadata or {}).get("canonical_hash")
+        # Same provenance rule as prune: only touch rows we seeded, never a hand-authored
+        # skill that happens to share a canonical name.
+        is_harness_seeded = (live.metadata or {}).get("seeded_by") == "signals_scout_harness"
 
         if stored_hash is None:
-            # Pre-existing harness-seeded row from before hash tracking landed. Establish a
-            # baseline and defer any update decision to the next tick. We do this for any
-            # signals-scout-* row regardless of provenance — a hand-authored row missing the
-            # hash is treated the same way (its baseline becomes its current content, which
-            # means it'll register as diverged on the next canonical change, which is correct).
+            # Pre-hash-tracking row. Baseline only rows we seeded — backfilling a hand-authored
+            # row's own hash would let the next canonical revision overwrite the team's content.
+            if not is_harness_seeded:
+                diverged.append(canonical.name)
+                continue
             _backfill_canonical_hash(live, live_hash)
             backfilled.append(canonical.name)
             continue
@@ -457,7 +460,11 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
 
         # Stored hash matches the team's current content (= they haven't edited since our
         # last write) but differs from current canonical (= we shipped a new revision).
-        # Safe to overwrite.
+        # Safe to overwrite — but only rows we seeded (defensive; backfill above already
+        # gates this).
+        if not is_harness_seeded:
+            diverged.append(canonical.name)
+            continue
         try:
             _update_skill_from_canonical(team, live, canonical, canonical_hash)
             updated.append(canonical.name)
