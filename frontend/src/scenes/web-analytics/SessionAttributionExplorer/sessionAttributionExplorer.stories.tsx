@@ -35,10 +35,8 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const SessionAttributionExplorer: Story = {}
-
 // Snapshot across viewport widths to catch narrow-screen layout regressions in the explorer table.
-export const SessionAttributionExplorerViewports: Story = {
+export const SessionAttributionExplorer: Story = {
     parameters: {
         testOptions: {
             waitForSelector: '.LemonTable__boundary',

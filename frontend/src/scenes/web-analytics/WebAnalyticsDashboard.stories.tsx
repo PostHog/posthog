@@ -90,7 +90,7 @@ const meta: Meta = {
         pageUrl: urls.webAnalytics(),
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
         testOptions: {
-            includeNavigationInSnapshot: true,
+            includeNavigationInSnapshot: false,
             waitForLoadersToDisappear: true,
         },
     },
@@ -98,6 +98,22 @@ const meta: Meta = {
 }
 export default meta
 
+// Snapshot every web analytics tab across viewport widths so narrow-screen layout regressions are
+// caught. `narrow` (568px) is the one that surfaces the responsive issues; the wider presets guard
+// against the opposite — a narrow fix shouldn't break the roomier layouts. Tabs other than the
+// default analytics view are reached via their URL (`pageUrl`), which drives `productTab` through
+// the scene's router. All of these capture the full scene (`includeNavigationInSnapshot: false`)
+// rather than just the viewport, so sections below the fold (e.g. Channels) are included.
+
+WebAnalyticsDashboard.parameters = {
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
+    testOptions: {
+        includeNavigationInSnapshot: false,
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ALL_VIEWPORT_WIDTHS,
+    },
+}
 export function WebAnalyticsDashboard(): JSX.Element {
     const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
 
@@ -111,44 +127,12 @@ export function WebAnalyticsDashboard(): JSX.Element {
 
     return <App />
 }
-WebAnalyticsDashboard.parameters = {
-    testOptions: {
-        includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=trend-line-graph] > canvas',
-    },
-}
-
-// Snapshot every web analytics tab across viewport widths so narrow-screen layout regressions are
-// caught. `narrow` (568px) is the one that surfaces the responsive issues; the wider presets guard
-// against the opposite — a narrow fix shouldn't break the roomier layouts. Each tab is reached via
-// its URL (`pageUrl`), which drives `productTab` through the scene's router.
-
-WebAnalyticsDashboardViewports.parameters = {
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
-    testOptions: {
-        includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=trend-line-graph] > canvas',
-        viewportWidths: ALL_VIEWPORT_WIDTHS,
-    },
-}
-export function WebAnalyticsDashboardViewports(): JSX.Element {
-    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
-
-    useEffect(() => {
-        setSourceTab(SourceTab.REFERRING_DOMAIN)
-        setDeviceTab(DeviceTab.BROWSER)
-    }, [setDeviceTab, setSourceTab])
-
-    return <App />
-}
 
 WebVitalsViewports.parameters = {
     pageUrl: '/web/web-vitals',
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
     testOptions: {
-        includeNavigationInSnapshot: true,
+        includeNavigationInSnapshot: false,
         waitForLoadersToDisappear: true,
         viewportWidths: ALL_VIEWPORT_WIDTHS,
     },
@@ -161,7 +145,7 @@ PageReportsViewports.parameters = {
     pageUrl: '/web/page-reports',
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2],
     testOptions: {
-        includeNavigationInSnapshot: true,
+        includeNavigationInSnapshot: false,
         waitForLoadersToDisappear: true,
         viewportWidths: ALL_VIEWPORT_WIDTHS,
     },
@@ -174,7 +158,7 @@ HealthViewports.parameters = {
     pageUrl: urls.webAnalyticsHealth(),
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     testOptions: {
-        includeNavigationInSnapshot: true,
+        includeNavigationInSnapshot: false,
         // The health checks stay in their loading state without a live backend, so don't wait on
         // their loaders — capture the (deterministic) loading layout instead of timing out.
         waitForLoadersToDisappear: false,
@@ -190,7 +174,7 @@ LiveViewports.parameters = {
     pageUrl: '/web/live',
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS],
     testOptions: {
-        includeNavigationInSnapshot: true,
+        includeNavigationInSnapshot: false,
         // The live tab polls the user count every second (so it never reaches network idle) and
         // waits on a live stream that doesn't connect in storybook — capture its loading layout
         // rather than waiting on loaders that never settle.
@@ -207,7 +191,7 @@ BotAnalyticsViewports.parameters = {
     pageUrl: urls.webAnalyticsBotAnalytics(),
     featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS],
     testOptions: {
-        includeNavigationInSnapshot: true,
+        includeNavigationInSnapshot: false,
         waitForLoadersToDisappear: true,
         viewportWidths: ALL_VIEWPORT_WIDTHS,
     },

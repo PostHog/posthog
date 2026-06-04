@@ -27,7 +27,7 @@ const meta: Meta = {
         pageUrl: urls.marketingAnalyticsApp(),
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
         testOptions: {
-            includeNavigationInSnapshot: true,
+            includeNavigationInSnapshot: false,
             waitForLoadersToDisappear: true,
         },
     },
@@ -53,13 +53,11 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
-export const MarketingAnalytics: Story = {}
-
 // Snapshot across viewport widths to catch narrow-screen layout regressions in the onboarding flow.
-export const MarketingAnalyticsViewports: Story = {
+export const MarketingAnalytics: Story = {
     parameters: {
         testOptions: {
-            includeNavigationInSnapshot: true,
+            includeNavigationInSnapshot: false,
             waitForLoadersToDisappear: true,
             viewportWidths: ['narrow', 'medium', 'wide', 'superwide'],
         },
