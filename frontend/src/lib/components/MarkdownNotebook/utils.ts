@@ -1,0 +1,202 @@
+import {
+    NotebookBlockNode,
+    NotebookComponentProps,
+    NotebookDocument,
+    NotebookInlineMark,
+    NotebookInlineNode,
+} from './types'
+
+export function hashString(value: string): string {
+    let hash = 5381
+    for (let index = 0; index < value.length; index++) {
+        hash = (hash * 33) ^ value.charCodeAt(index)
+    }
+    return (hash >>> 0).toString(36)
+}
+
+export function normalizeWhitespace(value: string): string {
+    return value.replace(/\s+/g, ' ').trim()
+}
+
+export function createStableNodeId(fingerprint: string, occurrence: number): string {
+    return `mdn-${hashString(fingerprint)}-${occurrence}`
+}
+
+export function cloneNotebookDocument(document: NotebookDocument): NotebookDocument {
+    return JSON.parse(JSON.stringify(document)) as NotebookDocument
+}
+
+export function cloneNotebookNode<T extends NotebookBlockNode>(node: T): T {
+    return JSON.parse(JSON.stringify(node)) as T
+}
+
+export function getInlineText(nodes: NotebookInlineNode[]): string {
+    return nodes.map((node) => (node.type === 'hardBreak' ? '\n' : node.text)).join('')
+}
+
+export function getNodeText(node: NotebookBlockNode): string {
+    if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote') {
+        return getInlineText(node.children)
+    }
+    if (node.type === 'list') {
+        return node.items.map(getInlineText).join('\n')
+    }
+    if (node.type === 'code') {
+        return node.text
+    }
+    if (node.type === 'component') {
+        return `${node.tagName}:${JSON.stringify(node.props)}`
+    }
+    return ''
+}
+
+export function getNodeSignature(node: NotebookBlockNode): string {
+    if (node.type === 'heading') {
+        return `${node.type}:${node.level ?? 1}`
+    }
+    if (node.type === 'list') {
+        return `${node.type}:${node.ordered ? 'ordered' : 'bullet'}`
+    }
+    if (node.type === 'component') {
+        return `${node.type}:${node.tagName}`
+    }
+    return node.type
+}
+
+export function getNodeFingerprint(node: NotebookBlockNode): string {
+    if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote') {
+        return JSON.stringify({
+            type: node.type,
+            level: node.level,
+            children: node.children,
+        })
+    }
+    if (node.type === 'list') {
+        return JSON.stringify({
+            type: node.type,
+            ordered: node.ordered,
+            items: node.items,
+        })
+    }
+    if (node.type === 'code') {
+        return JSON.stringify({
+            type: node.type,
+            language: node.language,
+            text: node.text,
+        })
+    }
+    if (node.type === 'component') {
+        return JSON.stringify({
+            type: node.type,
+            tagName: node.tagName,
+            props: sortProps(node.props),
+        })
+    }
+    return JSON.stringify(node)
+}
+
+export function textSimilarity(left: string, right: string): number {
+    const normalizedLeft = normalizeForSimilarity(left)
+    const normalizedRight = normalizeForSimilarity(right)
+    if (!normalizedLeft && !normalizedRight) {
+        return 1
+    }
+    if (!normalizedLeft || !normalizedRight) {
+        return 0
+    }
+    if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
+        return (
+            Math.min(normalizedLeft.length, normalizedRight.length) /
+            Math.max(normalizedLeft.length, normalizedRight.length)
+        )
+    }
+
+    const leftWords = new Set(normalizedLeft.split(' '))
+    const rightWords = new Set(normalizedRight.split(' '))
+    const intersection = [...leftWords].filter((word) => rightWords.has(word)).length
+    const union = new Set([...leftWords, ...rightWords]).size
+    return union === 0 ? 0 : intersection / union
+}
+
+function normalizeForSimilarity(value: string): string {
+    return normalizeWhitespace(value)
+        .toLowerCase()
+        .replace(/[^\w\s]/g, '')
+}
+
+export function marksEqual(left: NotebookInlineMark[], right: NotebookInlineMark[]): boolean {
+    return JSON.stringify(left) === JSON.stringify(right)
+}
+
+export function normalizeInlineNodes(nodes: NotebookInlineNode[]): NotebookInlineNode[] {
+    const normalized: NotebookInlineNode[] = []
+
+    nodes.forEach((node) => {
+        if (node.type === 'hardBreak') {
+            if (normalized[normalized.length - 1]?.type !== 'hardBreak') {
+                normalized.push(node)
+            }
+            return
+        }
+
+        if (!node.text) {
+            return
+        }
+
+        const previous = normalized[normalized.length - 1]
+        if (previous?.type === 'text' && marksEqual(previous.marks ?? [], node.marks ?? [])) {
+            previous.text += node.text
+            return
+        }
+
+        normalized.push({
+            ...node,
+            marks: node.marks?.length ? node.marks : undefined,
+        })
+    })
+
+    return normalized
+}
+
+export function isNotebookComponentProps(value: unknown): value is NotebookComponentProps {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return false
+    }
+
+    return Object.values(value).every(isNotebookPropValue)
+}
+
+export function isNotebookPropValue(value: unknown): value is NotebookComponentProps[string] {
+    if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return true
+    }
+
+    if (Array.isArray(value)) {
+        return value.every(isNotebookPropValue)
+    }
+
+    if (typeof value === 'object') {
+        return Object.values(value).every(isNotebookPropValue)
+    }
+
+    return false
+}
+
+function sortProps(props: NotebookComponentProps): NotebookComponentProps {
+    return Object.keys(props)
+        .sort()
+        .reduce<NotebookComponentProps>((accumulator, key) => {
+            accumulator[key] = sortPropValue(props[key])
+            return accumulator
+        }, {})
+}
+
+function sortPropValue(value: NotebookComponentProps[string]): NotebookComponentProps[string] {
+    if (Array.isArray(value)) {
+        return value.map(sortPropValue)
+    }
+    if (value && typeof value === 'object') {
+        return sortProps(value)
+    }
+    return value
+}

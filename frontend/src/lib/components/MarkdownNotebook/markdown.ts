@@ -1,0 +1,684 @@
+import {
+    NotebookBlockNode,
+    NotebookComponentBlockNode,
+    NotebookComponentProps,
+    NotebookDocument,
+    NotebookInlineMark,
+    NotebookInlineNode,
+    NotebookListBlockNode,
+    NotebookParseError,
+    NotebookPropValue,
+    NotebookTextBlockNode,
+} from './types'
+import { createStableNodeId, getNodeFingerprint, hashString, isNotebookPropValue, normalizeInlineNodes } from './utils'
+
+type BlockParseResult = {
+    node: NotebookBlockNode | null
+    nextLineIndex: number
+    error?: NotebookParseError
+}
+
+type PropParseResult = {
+    props: NotebookComponentProps
+    errors: string[]
+}
+
+const COMPONENT_START_REGEX = /^<[A-Z][A-Za-z0-9]*(\s|>|\/)/
+const ORDERED_LIST_REGEX = /^\s*\d+\.\s+/
+const BULLET_LIST_REGEX = /^\s*[-*+]\s+/
+const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
+
+export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
+    const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
+    const nodes: NotebookBlockNode[] = []
+    const errors: NotebookParseError[] = []
+    const occurrences = new Map<string, number>()
+
+    let lineIndex = 0
+    while (lineIndex < lines.length) {
+        const line = lines[lineIndex]
+
+        if (!line.trim()) {
+            lineIndex += 1
+            continue
+        }
+
+        const result = parseBlock(lines, lineIndex)
+        if (result.error) {
+            errors.push(result.error)
+        }
+        if (result.node) {
+            const fingerprint = getNodeFingerprint(result.node)
+            const occurrence = occurrences.get(fingerprint) ?? 0
+            occurrences.set(fingerprint, occurrence + 1)
+            result.node.id = createStableNodeId(fingerprint, occurrence)
+            nodes.push(result.node)
+        }
+        lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
+    }
+
+    return { type: 'doc', nodes, errors }
+}
+
+export function serializeMarkdownNotebook(document: NotebookDocument): string {
+    return document.nodes.map(serializeNode).join('\n\n').trimEnd()
+}
+
+export function serializeNode(node: NotebookBlockNode): string {
+    if (node.type === 'heading') {
+        return `${'#'.repeat(node.level ?? 1)} ${serializeInlineNodes(node.children)}`
+    }
+    if (node.type === 'paragraph') {
+        return serializeInlineNodes(node.children)
+    }
+    if (node.type === 'blockquote') {
+        return serializeInlineNodes(node.children)
+            .split('\n')
+            .map((line) => `> ${line}`)
+            .join('\n')
+    }
+    if (node.type === 'list') {
+        return node.items
+            .map((item, index) => `${node.ordered ? `${index + 1}.` : '-'} ${serializeInlineNodes(item)}`)
+            .join('\n')
+    }
+    if (node.type === 'code') {
+        return `\`\`\`${node.language ?? ''}\n${node.text}\n\`\`\``
+    }
+    if (node.type === 'component') {
+        return `<${node.tagName}${serializeComponentProps(node.props)} />`
+    }
+    return ''
+}
+
+export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[] = []): NotebookInlineNode[] {
+    const nodes: NotebookInlineNode[] = []
+    let index = 0
+
+    const pushText = (text: string): void => {
+        if (text) {
+            nodes.push({ type: 'text', text, marks: marks.length ? [...marks] : undefined })
+        }
+    }
+
+    while (index < markdown.length) {
+        if (markdown[index] === '\n') {
+            nodes.push({ type: 'hardBreak' })
+            index += 1
+            continue
+        }
+
+        if (markdown.startsWith('**', index)) {
+            const end = markdown.indexOf('**', index + 2)
+            if (end !== -1) {
+                nodes.push(...parseInlineMarkdown(markdown.slice(index + 2, end), [...marks, { type: 'bold' }]))
+                index = end + 2
+                continue
+            }
+        }
+
+        if (markdown.startsWith('<u>', index)) {
+            const end = markdown.indexOf('</u>', index + 3)
+            if (end !== -1) {
+                nodes.push(...parseInlineMarkdown(markdown.slice(index + 3, end), [...marks, { type: 'underline' }]))
+                index = end + 4
+                continue
+            }
+        }
+
+        if (markdown[index] === '`') {
+            const end = markdown.indexOf('`', index + 1)
+            if (end !== -1) {
+                pushTextWithMarks(nodes, markdown.slice(index + 1, end), [...marks, { type: 'code' }])
+                index = end + 1
+                continue
+            }
+        }
+
+        if (markdown[index] === '[') {
+            const labelEnd = markdown.indexOf('](', index)
+            if (labelEnd !== -1) {
+                const hrefEnd = markdown.indexOf(')', labelEnd + 2)
+                if (hrefEnd !== -1) {
+                    const href = markdown.slice(labelEnd + 2, hrefEnd)
+                    nodes.push(
+                        ...parseInlineMarkdown(markdown.slice(index + 1, labelEnd), [...marks, { type: 'link', href }])
+                    )
+                    index = hrefEnd + 1
+                    continue
+                }
+            }
+        }
+
+        if (markdown[index] === '*' && !markdown.startsWith('**', index)) {
+            const end = markdown.indexOf('*', index + 1)
+            if (end !== -1) {
+                nodes.push(...parseInlineMarkdown(markdown.slice(index + 1, end), [...marks, { type: 'italic' }]))
+                index = end + 1
+                continue
+            }
+        }
+
+        const nextSpecial = findNextInlineToken(markdown, index + 1)
+        pushText(markdown.slice(index, nextSpecial))
+        index = nextSpecial
+    }
+
+    return normalizeInlineNodes(nodes)
+}
+
+export function serializeInlineNodes(nodes: NotebookInlineNode[]): string {
+    return nodes.map(serializeInlineNode).join('')
+}
+
+export function htmlElementToInlineNodes(element: HTMLElement): NotebookInlineNode[] {
+    const nodes: NotebookInlineNode[] = []
+    element.childNodes.forEach((child) => {
+        nodes.push(...htmlNodeToInlineNodes(child, []))
+    })
+    return normalizeInlineNodes(nodes)
+}
+
+export function inlineNodesToHtml(nodes: NotebookInlineNode[]): string {
+    return nodes.map(inlineNodeToHtml).join('')
+}
+
+export function validateComponentNode(
+    node: NotebookComponentBlockNode,
+    validateProps?: (props: NotebookComponentProps) => string[]
+): NotebookComponentBlockNode {
+    const errors = validateProps?.(node.props) ?? []
+    return { ...node, errors: errors.length ? errors : node.errors }
+}
+
+function parseBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const line = lines[lineIndex]
+    const trimmed = line.trim()
+
+    if (trimmed.startsWith('```')) {
+        return parseCodeBlock(lines, lineIndex)
+    }
+
+    if (COMPONENT_START_REGEX.test(trimmed)) {
+        return parseComponentBlock(lines, lineIndex)
+    }
+
+    const headingMatch = line.match(HEADING_REGEX)
+    if (headingMatch) {
+        return {
+            node: {
+                id: '',
+                type: 'heading',
+                level: headingMatch[1].length as NotebookTextBlockNode['level'],
+                children: parseInlineMarkdown(headingMatch[2]),
+            },
+            nextLineIndex: lineIndex + 1,
+        }
+    }
+
+    if (ORDERED_LIST_REGEX.test(line) || BULLET_LIST_REGEX.test(line)) {
+        return parseListBlock(lines, lineIndex)
+    }
+
+    if (trimmed.startsWith('>')) {
+        const quoteLines: string[] = []
+        let nextLineIndex = lineIndex
+        while (nextLineIndex < lines.length && lines[nextLineIndex].trim().startsWith('>')) {
+            quoteLines.push(lines[nextLineIndex].trim().replace(/^>\s?/, ''))
+            nextLineIndex += 1
+        }
+        return {
+            node: {
+                id: '',
+                type: 'blockquote',
+                children: parseInlineMarkdown(quoteLines.join('\n')),
+            },
+            nextLineIndex,
+        }
+    }
+
+    return parseParagraphBlock(lines, lineIndex)
+}
+
+function parseParagraphBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const paragraphLines: string[] = []
+    let nextLineIndex = lineIndex
+
+    while (nextLineIndex < lines.length) {
+        const line = lines[nextLineIndex]
+        const trimmed = line.trim()
+        if (
+            !trimmed ||
+            trimmed.startsWith('```') ||
+            COMPONENT_START_REGEX.test(trimmed) ||
+            HEADING_REGEX.test(line) ||
+            ORDERED_LIST_REGEX.test(line) ||
+            BULLET_LIST_REGEX.test(line) ||
+            trimmed.startsWith('>')
+        ) {
+            break
+        }
+        paragraphLines.push(line)
+        nextLineIndex += 1
+    }
+
+    return {
+        node: {
+            id: '',
+            type: 'paragraph',
+            children: parseInlineMarkdown(paragraphLines.join('\n')),
+        },
+        nextLineIndex,
+    }
+}
+
+function parseListBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const ordered = ORDERED_LIST_REGEX.test(lines[lineIndex])
+    const items: NotebookListBlockNode['items'] = []
+    let nextLineIndex = lineIndex
+
+    while (nextLineIndex < lines.length) {
+        const line = lines[nextLineIndex]
+        if (ordered ? !ORDERED_LIST_REGEX.test(line) : !BULLET_LIST_REGEX.test(line)) {
+            break
+        }
+        items.push(parseInlineMarkdown(line.replace(ordered ? ORDERED_LIST_REGEX : BULLET_LIST_REGEX, '')))
+        nextLineIndex += 1
+    }
+
+    return {
+        node: {
+            id: '',
+            type: 'list',
+            ordered,
+            items,
+        },
+        nextLineIndex,
+    }
+}
+
+function parseCodeBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const startLine = lines[lineIndex].trim()
+    const language = startLine.slice(3).trim() || undefined
+    const codeLines: string[] = []
+    let nextLineIndex = lineIndex + 1
+
+    while (nextLineIndex < lines.length && !lines[nextLineIndex].trim().startsWith('```')) {
+        codeLines.push(lines[nextLineIndex])
+        nextLineIndex += 1
+    }
+
+    return {
+        node: {
+            id: '',
+            type: 'code',
+            language,
+            text: codeLines.join('\n'),
+        },
+        nextLineIndex: nextLineIndex < lines.length ? nextLineIndex + 1 : nextLineIndex,
+        error:
+            nextLineIndex >= lines.length
+                ? {
+                      message: 'Unclosed code block',
+                      raw: lines.slice(lineIndex).join('\n'),
+                      line: lineIndex + 1,
+                  }
+                : undefined,
+    }
+}
+
+function parseComponentBlock(lines: string[], lineIndex: number): BlockParseResult {
+    const rawLines: string[] = []
+    const firstLine = lines[lineIndex].trim()
+    const tagName = firstLine.match(/^<([A-Z][A-Za-z0-9]*)/)?.[1]
+    let nextLineIndex = lineIndex
+
+    while (nextLineIndex < lines.length) {
+        rawLines.push(lines[nextLineIndex])
+        const raw = rawLines.join('\n').trim()
+        if (raw.endsWith('/>') || (tagName && raw.includes(`</${tagName}>`))) {
+            break
+        }
+        nextLineIndex += 1
+    }
+
+    const raw = rawLines.join('\n').trim()
+    const parsed = parseComponentTag(raw)
+    return {
+        node: parsed.node,
+        nextLineIndex: nextLineIndex + 1,
+        error: parsed.error ? { ...parsed.error, line: lineIndex + 1 } : undefined,
+    }
+}
+
+function parseComponentTag(raw: string): { node: NotebookComponentBlockNode | null; error?: NotebookParseError } {
+    const match = raw.match(/^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:\/>|>[\s\S]*<\/\1>)$/)
+    if (!match) {
+        return {
+            node: null,
+            error: {
+                message: 'Invalid notebook component tag',
+                raw,
+                line: 0,
+            },
+        }
+    }
+
+    const propParseResult = parseComponentProps(match[2] ?? '')
+    return {
+        node: {
+            id: '',
+            type: 'component',
+            tagName: match[1],
+            props: propParseResult.props,
+            raw,
+            errors: propParseResult.errors.length ? propParseResult.errors : undefined,
+        },
+    }
+}
+
+function parseComponentProps(source: string): PropParseResult {
+    const props: NotebookComponentProps = {}
+    const errors: string[] = []
+    let index = 0
+
+    while (index < source.length) {
+        while (/\s/.test(source[index] ?? '')) {
+            index += 1
+        }
+        if (index >= source.length) {
+            break
+        }
+
+        const nameMatch = source.slice(index).match(/^([A-Za-z_][A-Za-z0-9_-]*)/)
+        if (!nameMatch) {
+            errors.push(`Could not parse props near: ${source.slice(index, index + 24)}`)
+            break
+        }
+
+        const name = nameMatch[1]
+        index += name.length
+        while (/\s/.test(source[index] ?? '')) {
+            index += 1
+        }
+
+        if (source[index] !== '=') {
+            props[name] = true
+            continue
+        }
+
+        index += 1
+        while (/\s/.test(source[index] ?? '')) {
+            index += 1
+        }
+
+        const parsedValue = readPropValue(source, index)
+        index = parsedValue.nextIndex
+
+        if (parsedValue.error) {
+            errors.push(parsedValue.error)
+            continue
+        }
+
+        if (isNotebookPropValue(parsedValue.value)) {
+            props[name] = parsedValue.value
+        } else {
+            errors.push(`Unsupported value for prop "${name}"`)
+        }
+    }
+
+    return { props, errors }
+}
+
+function readPropValue(source: string, index: number): { value: unknown; nextIndex: number; error?: string } {
+    const firstChar = source[index]
+
+    if (firstChar === '"' || firstChar === "'") {
+        const quote = firstChar
+        let nextIndex = index + 1
+        let value = ''
+        while (nextIndex < source.length) {
+            const char = source[nextIndex]
+            if (char === '\\' && nextIndex + 1 < source.length) {
+                value += source[nextIndex + 1]
+                nextIndex += 2
+                continue
+            }
+            if (char === quote) {
+                return { value, nextIndex: nextIndex + 1 }
+            }
+            value += char
+            nextIndex += 1
+        }
+        return { value: null, nextIndex, error: 'Unclosed quoted prop value' }
+    }
+
+    if (firstChar === '{') {
+        const balanced = readBalancedExpression(source, index)
+        if (!balanced) {
+            return { value: null, nextIndex: source.length, error: 'Unclosed expression prop value' }
+        }
+        return {
+            value: parseExpressionValue(balanced.value),
+            nextIndex: balanced.nextIndex,
+        }
+    }
+
+    const rawMatch = source.slice(index).match(/^([^\s/>]+)/)
+    const raw = rawMatch?.[1] ?? ''
+    return {
+        value: parseExpressionValue(raw),
+        nextIndex: index + raw.length,
+    }
+}
+
+function readBalancedExpression(source: string, index: number): { value: string; nextIndex: number } | null {
+    let depth = 0
+    let nextIndex = index
+    let quote: string | null = null
+
+    while (nextIndex < source.length) {
+        const char = source[nextIndex]
+        const previousChar = source[nextIndex - 1]
+
+        if (quote) {
+            if (char === quote && previousChar !== '\\') {
+                quote = null
+            }
+            nextIndex += 1
+            continue
+        }
+
+        if (char === '"' || char === "'") {
+            quote = char
+            nextIndex += 1
+            continue
+        }
+
+        if (char === '{') {
+            depth += 1
+        }
+        if (char === '}') {
+            depth -= 1
+            if (depth === 0) {
+                return {
+                    value: source.slice(index, nextIndex + 1),
+                    nextIndex: nextIndex + 1,
+                }
+            }
+        }
+        nextIndex += 1
+    }
+
+    return null
+}
+
+function parseExpressionValue(raw: string): unknown {
+    const trimmed = raw.trim()
+    const unwrapped = trimmed.startsWith('{') && trimmed.endsWith('}') ? trimmed.slice(1, -1).trim() : trimmed
+
+    if (unwrapped === 'true') {
+        return true
+    }
+    if (unwrapped === 'false') {
+        return false
+    }
+    if (unwrapped === 'null') {
+        return null
+    }
+    if (/^-?\d+(\.\d+)?$/.test(unwrapped)) {
+        return Number(unwrapped)
+    }
+
+    try {
+        return JSON.parse(unwrapped)
+    } catch {
+        return trimmed
+    }
+}
+
+function serializeComponentProps(props: NotebookComponentProps): string {
+    const serialized = Object.entries(props)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => ` ${key}=${serializePropValue(value)}`)
+        .join('')
+    return serialized
+}
+
+function serializePropValue(value: NotebookPropValue): string {
+    if (typeof value === 'string') {
+        return `"${escapeAttribute(value)}"`
+    }
+    if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
+        return `{${String(value)}}`
+    }
+    return `{${JSON.stringify(value)}}`
+}
+
+function serializeInlineNode(node: NotebookInlineNode): string {
+    if (node.type === 'hardBreak') {
+        return '\n'
+    }
+
+    return (node.marks ?? []).reduce((text, mark) => wrapInlineText(text, mark), escapeMarkdownText(node.text))
+}
+
+function wrapInlineText(text: string, mark: NotebookInlineMark): string {
+    if (mark.type === 'bold') {
+        return `**${text}**`
+    }
+    if (mark.type === 'italic') {
+        return `*${text}*`
+    }
+    if (mark.type === 'underline') {
+        return `<u>${text}</u>`
+    }
+    if (mark.type === 'code') {
+        return `\`${text.replace(/`/g, '\\`')}\``
+    }
+    return `[${text}](${mark.href})`
+}
+
+function pushTextWithMarks(nodes: NotebookInlineNode[], text: string, marks: NotebookInlineMark[]): void {
+    if (text) {
+        nodes.push({ type: 'text', text, marks: marks.length ? marks : undefined })
+    }
+}
+
+function findNextInlineToken(markdown: string, startIndex: number): number {
+    const indexes = ['**', '*', '<u>', '`', '[', '\n']
+        .map((token) => markdown.indexOf(token, startIndex))
+        .filter((index) => index !== -1)
+    return indexes.length ? Math.min(...indexes) : markdown.length
+}
+
+function htmlNodeToInlineNodes(node: ChildNode, marks: NotebookInlineMark[]): NotebookInlineNode[] {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent
+            ? [{ type: 'text', text: node.textContent, marks: marks.length ? marks : undefined }]
+            : []
+    }
+
+    if (!(node instanceof HTMLElement)) {
+        return []
+    }
+
+    const tagName = node.tagName.toLowerCase()
+    if (tagName === 'br') {
+        return [{ type: 'hardBreak' }]
+    }
+
+    const nextMarks = [...marks]
+    if (tagName === 'strong' || tagName === 'b') {
+        nextMarks.push({ type: 'bold' })
+    }
+    if (tagName === 'em' || tagName === 'i') {
+        nextMarks.push({ type: 'italic' })
+    }
+    if (tagName === 'u') {
+        nextMarks.push({ type: 'underline' })
+    }
+    if (tagName === 'code') {
+        nextMarks.push({ type: 'code' })
+    }
+    if (tagName === 'a') {
+        nextMarks.push({ type: 'link', href: node.getAttribute('href') ?? '' })
+    }
+
+    const children: NotebookInlineNode[] = []
+    node.childNodes.forEach((child) => {
+        children.push(...htmlNodeToInlineNodes(child, nextMarks))
+    })
+
+    if (tagName === 'div' || tagName === 'p') {
+        children.push({ type: 'hardBreak' })
+    }
+
+    return children
+}
+
+function inlineNodeToHtml(node: NotebookInlineNode): string {
+    if (node.type === 'hardBreak') {
+        return '<br />'
+    }
+
+    return (node.marks ?? []).reduce((html, mark) => wrapHtmlText(html, mark), escapeHtml(node.text))
+}
+
+function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
+    if (mark.type === 'bold') {
+        return `<strong>${html}</strong>`
+    }
+    if (mark.type === 'italic') {
+        return `<em>${html}</em>`
+    }
+    if (mark.type === 'underline') {
+        return `<u>${html}</u>`
+    }
+    if (mark.type === 'code') {
+        return `<code>${html}</code>`
+    }
+    return `<a href="${escapeAttribute(mark.href)}">${html}</a>`
+}
+
+function escapeMarkdownText(text: string): string {
+    return text.replace(/\\/g, '\\\\')
+}
+
+function escapeHtml(text: string): string {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+function escapeAttribute(text: string): string {
+    return escapeHtml(text).replace(/'/g, '&#39;')
+}
+
+export function makeEmptyParagraph(idSeed: string = 'empty'): NotebookTextBlockNode {
+    const node: NotebookTextBlockNode = {
+        id: '',
+        type: 'paragraph',
+        children: [],
+    }
+    node.id = createStableNodeId(`${idSeed}:${hashString(String(Date.now()))}`, 0)
+    return node
+}
