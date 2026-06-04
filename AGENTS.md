@@ -163,3 +163,17 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support
 - `/writing-skills` — creating or updating skills in `.agents/skills/`
+
+## PostHog
+
+Use `posthog-cli api` for all PostHog-related queries and operations from this repository. Prefer `posthog-cli api` over direct MCP tool calls whenever the CLI is available.
+
+Follow progressive disclosure for every PostHog task:
+
+1. Start by searching for the tool you need with `posthog-cli api search <term>` or list tools with `posthog-cli api tools`.
+2. Inspect the expected input schema with `posthog-cli api info <tool>` and `posthog-cli api schema <tool> [field.path]`.
+3. Try the tool with `posthog-cli api call --json <tool> '<json>'` so output can be piped to `jq` or saved to disk.
+
+- Use `posthog-cli api call --dry-run ...` before mutations.
+- Destructive tools require `--confirm`; only add it after verifying exact target IDs.
+- Install PostHog agent skills with `posthog-cli api skill list` and `posthog-cli api skill install <skill-id>`.
