@@ -653,33 +653,33 @@ snapshots:
     components-hogcharts-metric--number-only--light:
         hash: v1.k794b7964.9e1fbd475ba802686d23440d747df99abc015757e7708d037f246464fd46a3f8.K1CGuG2R-VxLBu6HLU-jBXWJKH_49rGnbAUx1YnrTcQ
     components-hogcharts-piechart--donut--dark:
-        hash: v1.k794b7964.6d00064e87f770329f7e7a9d9d5236ebff81c82a4e94c0b600f00348ece6ef6a.RgVbcCZ63jQoAANL631PNIP1b9KxrVpFiGBM2lnUOUs
+        hash: v1.k794b7964.95f52c48e6476dd49327e572e78275692bf3085a46c78b57d7ccb0f2af33229d.UKy0xtoAM3JGpdygHr-mG_fCI8HoINH0cq0e-w5MuYY
     components-hogcharts-piechart--donut--light:
-        hash: v1.k794b7964.095fe3ebd63660845687f6af6ca65b2e706b0905c228e8cb8b73e75538c7f763.JnyHmos50gwqb_pXwiTXtLwqk2WRwDmViIkKHVqStW4
+        hash: v1.k794b7964.0094d02615d384b5473614f1e66499dfc907fe2875f5c643ce4c5612daba4915.zgE_VTPCiOQ9B1ml1I4G1oIxWriQKHrQ00KAqen7Dig
     components-hogcharts-piechart--long-label-tooltip--dark:
-        hash: v1.k794b7964.fcd5c31744599c4755f1beadc150037ffca5a8732328003f7ae8a64f897c64e7.slrloEsMCgaoQurkJKYcEV9hf7Fq8SvCIKJ53Er34yI
+        hash: v1.k794b7964.2eb01876c36f7266b5ef594afdb4aa059aaeea48c8ad23fd4a99a4ee531ad2bb.KCI5Xfrd-yW-jq4JXylwkbJ-SUjTX0KlvEgdP2B6JGk
     components-hogcharts-piechart--long-label-tooltip--light:
-        hash: v1.k794b7964.a4c641eab44b4e87ca071d73ba3fb55e38a240f9702336c3f5f818cfab20b1b6.RVWFBDFqQ3gCs_aNwoDTcXEhCw4fFB3xN6WoDoBKhLw
+        hash: v1.k794b7964.76f4ca662585ef85568d30971ca3c3f2f0bc1067da927e6884080e4091e3da52.3aO3AeK9ytK5xR_qazf2L1Fpsmzg4S1j79lClnmy3t8
     components-hogcharts-piechart--no-hover-offset--dark:
-        hash: v1.k794b7964.2cec74c6c7c7e0b336c040cb65b297e06b108ce34e27a8729cf3ec433a4b7a71.lHnsaeqC4K3Gfqx3lFGUwKI_HOQzXL8vjYKp1pZF3dM
+        hash: v1.k794b7964.24d046831aa8180891e26bb65ac7069917dadf17e42f573a2e548741570afbf3.RHkA9q4D3NFuxE4xSAhLEvT3xRpBZf680vnnOnd7pZ8
     components-hogcharts-piechart--no-hover-offset--light:
-        hash: v1.k794b7964.5e25c7280c13678332909b637fe7ba08a1122af3a092e8b437a4782766907eb3.zLT23ilfdNumXK3zNU3BSPTq8bpI9xnHVMv8M2xPAy0
+        hash: v1.k794b7964.42318dc943205955486a4e6442bfa866ece5fb59d8ea6fea0a81dee35958935e.b3p6cg-NjDO3nWqa8kWZJd4PC5L9UVJV_mjHdfA1pag
     components-hogcharts-piechart--percent--dark:
-        hash: v1.k794b7964.b16c934f49043fdfb322b55f84195530fb96b57d4793d24d783a9c9a1e97f7e5.TBaqPOXTe4KJ8I2tXa8IzHKiHG0SODHT0WBoIaTBcDY
+        hash: v1.k794b7964.90435be53b6484331125f0db7926381893370d2fa33e780fa7b70acedd4e1d75.s02bsLZicZFeHOViyoYt5DV4kLAJCYBjvFNJnqAdjUs
     components-hogcharts-piechart--percent--light:
-        hash: v1.k794b7964.32b3e580d7f6ede1256598149de2c8a2b004c4535664f85f1876ed17794e0b32.yGWUGqY0Bu45KePvPKKrpO53D3T8hPCm7B3dd0kLitk
+        hash: v1.k794b7964.cf7b687f9b5c0c56d80cc4c217f48b07d8b3659c99094d7359791ee254e2f9f1.cVVk0GZ1cbj4AhCchW4muGg_SMPPNnr9HOVhTvOTwSY
     components-hogcharts-piechart--pie-default--dark:
-        hash: v1.k794b7964.2cec74c6c7c7e0b336c040cb65b297e06b108ce34e27a8729cf3ec433a4b7a71.e6hoQCVlBRow-OaUVnzftwzgpOGr-g9P4W-tZvP7bEk
+        hash: v1.k794b7964.24d046831aa8180891e26bb65ac7069917dadf17e42f573a2e548741570afbf3.wgupmwLF22RR9v7VtmBje09o0vtv5VOd2BfxwNWl5EI
     components-hogcharts-piechart--pie-default--light:
-        hash: v1.k794b7964.5e25c7280c13678332909b637fe7ba08a1122af3a092e8b437a4782766907eb3.bKYmPFdIKqNh4ZRRpLend-4tKDOHfidowPrJj7Ne3ZM
+        hash: v1.k794b7964.42318dc943205955486a4e6442bfa866ece5fb59d8ea6fea0a81dee35958935e.LHqZzLNWmyyjt2ASQBS_4fo9LhDTrNDDULZnSQMRrJE
     components-hogcharts-piechart--single-slice--dark:
         hash: v1.k794b7964.92bc7531883a5830155772e9df2b63b96baf8611980c1195b66cb75716fe4a79.7zFlXhqZqOTrUg3V38lXuMA6YaGwCA_-s_CsBKtwgtM
     components-hogcharts-piechart--single-slice--light:
         hash: v1.k794b7964.1a2540afa90064f951baa69e40405eb36459312978920ba46f2826cab097294a.JFioVV2KSnHa9Y-hREGuuT__I5ShHTvv8TgNVw7F0XU
     components-hogcharts-piechart--with-breakdown-labels--dark:
-        hash: v1.k794b7964.92419a30d402eb0ec78140c220101ab2c24104f5d45919c7c7016b46bc287392._0-sykluetds-tynd6qafGJ8iFF0FQF6bc9rBP26mbo
+        hash: v1.k794b7964.5202085eff2633fd9d2f43c2b1d01c0ff6708ca87aa8a104e051c0bba53b72b7.q_4nIqE5PItaSLZeF4aJNbjB14eSlTbLkX2JcZXgqVI
     components-hogcharts-piechart--with-breakdown-labels--light:
-        hash: v1.k794b7964.9532dc5331617445614589eda7ed4010c782ccb2fa1a3d8d4f29ca7b97733bcf.VXuZluV5ZcYOX8sKU2rIMFJGZep6nNiRyoC8Mgy-jdg
+        hash: v1.k794b7964.0d2c1e4814a1414b2408dca7bcf8caab2c8ae39e313df9756d210e5dca04fba6.xQ4aCFRK6tR7nYCZNS7TKRDTD7qYqoZaUuY__-vfLBY
     components-hogcharts-referenceline--fill-sides--dark:
         hash: v1.k794b7964.20d0fdc405a9dd537216032ada6fcef0a23581f114ba00501d4d7e39e773310b.jFz7FFT43BMvL4egnlYnYiV1a3SOjimiYoTRg-Iygs4
     components-hogcharts-referenceline--fill-sides--light:
@@ -2228,6 +2228,14 @@ snapshots:
         hash: v1.k794b7964.9353b60c827a8e4563ac5b680274a55e4e9c1cefeebe765331636ae824e8d2d5.t75gvt_uBTQe_ABbuxW4JiJEW4CZk-IBfvJIkyTGlPU
     insights-trendslinechart--single-series--light:
         hash: v1.k794b7964.e8d7c90005769112e971e55319b5e27731c8363aa977f21d5dbe8b9ec14b30ce.aaLz4Eg-X0FQkUCC9VXBjoVw902yotIdFJ4W5GzGu_8
+    insights-trendspiechart--breakdown--dark:
+        hash: v1.k794b7964.0a31833b6ea57d9f4600ccf6890fe628dcf649421b185cab228b64133cbf395f.AVix5li2YhjzEBTLUG_t-ykIUiNIn-JSmzkyjFnuO_A
+    insights-trendspiechart--breakdown--light:
+        hash: v1.k794b7964.d693e940dee065bffe724f5d53ee1913f60ebef68c1519d198ac2970b1938b00.3jEJqjovVqoTo-9Krah5534LJ2NznahddkdKV8Ycz3A
+    insights-trendspiechart--percent-stack-breakdown--dark:
+        hash: v1.k794b7964.e34f3d59389d536773130f86e3d548f45e8634417dd6e0cc8f7e1565625670e7.nPsI-tiuK_z1OTi2tHF4xRjtnkDonxppwaXv6-1PRzw
+    insights-trendspiechart--percent-stack-breakdown--light:
+        hash: v1.k794b7964.7d659bc5a97cfb229b7dce076b3d2524f8115622df0039ba55d0b259a9d1732a.d6C5OxdtwiAaERAZKaDiab_0N_51bFpw_hFP9aOUit4
     layout-feature-previews--basic--dark:
         hash: v1.k794b7964.65cb2d154c4f630bc48a9f6b45b24e641c97b4412ca5170e0c1de8bc5c7d759d.vu2XHwyh2oLXbqNS7NdZd2tABaC8nM7J0iJps6FVYl8
     layout-feature-previews--basic--light:

@@ -42,6 +42,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.storage import object_storage
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -339,6 +340,14 @@ def _slack_repo_research_payload(
         ),
         "log_url": log_url,
     }
+
+
+_FULL_MCP_RUN_SOURCES: frozenset[RunSource | None] = frozenset({None, RunSource.MANUAL})
+
+
+def _resolve_posthog_mcp_scopes(task_run: TaskRun) -> PosthogMcpScopes:
+    run_source = parse_run_state(task_run.state).run_source
+    return "full" if run_source in _FULL_MCP_RUN_SOURCES else "read_only"
 
 
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -735,6 +744,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 run_id=str(task_run.id),
                 team_id=task.team.id,
                 user_id=getattr(self.request.user, "id", None),
+                posthog_mcp_scopes=_resolve_posthog_mcp_scopes(task_run),
             )
             logger.info(f"Workflow trigger completed for task {task.id}, run {task_run.id}")
         except Exception as e:
@@ -1638,6 +1648,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 run_id=str(task_run.id),
                 team_id=task.team.id,
                 user_id=getattr(self.request.user, "id", None),
+                posthog_mcp_scopes=_resolve_posthog_mcp_scopes(task_run),
             )
             logger.info("Workflow trigger completed for task %s, run %s", task.id, task_run.id)
         except Exception as e:

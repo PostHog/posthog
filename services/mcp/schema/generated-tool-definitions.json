@@ -4725,7 +4725,7 @@
         }
     },
     "subscriptions-create": {
-        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and optionally interval, byweekday, start_date, and until_date. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
+        "description": "Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly, monthly, yearly) and interval (the multiplier, e.g. 2 with weekly means every 2 weeks; required, minimum 1 — use 1 for no multiplier). byweekday, start_date, and until_date are optional. Dashboard subscriptions also require dashboard_export_insights (list of insight IDs from that dashboard, max 6).",
         "category": "Core",
         "feature": "core",
         "summary": "Create subscription",
