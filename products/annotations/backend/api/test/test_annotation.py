@@ -236,7 +236,8 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             },
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "emoji" in response.json()
+        assert response.json()["attr"] == "emoji"
+        assert response.json()["code"] == "max_length"
 
     def test_updating_and_clearing_annotation_emoji(self) -> None:
         test_annotation = Annotation.objects.create(
