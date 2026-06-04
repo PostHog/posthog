@@ -248,7 +248,7 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task.id))
+        self.assertEqual(response.json()["id"], task.display_id)
 
     def test_list_signal_report_tasks_hidden_by_default(self):
         # Signal-report tasks are always created with internal=True, so the
@@ -537,7 +537,7 @@ class TestTaskVisibilityInternalDebugTeamBypass(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/?ph_debug=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task.id))
+        self.assertEqual(response.json()["id"], task.display_id)
 
     def test_retrieve_other_user_task_without_ph_debug_still_404s(self):
         # The whole point of the param-gated bypass — even on the internal team
@@ -717,8 +717,8 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(len(data["results"]), 2)
 
         # Find task1 and task2 in results
-        task1_data = next((t for t in data["results"] if t["id"] == str(task1.id)), None)
-        task2_data = next((t for t in data["results"] if t["id"] == str(task2.id)), None)
+        task1_data = next((t for t in data["results"] if t["id"] == task1.display_id), None)
+        task2_data = next((t for t in data["results"] if t["id"] == task2.display_id), None)
 
         self.assertIsNotNone(task1_data)
         self.assertIsNotNone(task2_data)
@@ -745,17 +745,18 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "Test Task")
         self.assertEqual(data["description"], "Test Description")
 
-    def test_retrieve_task_includes_display_id(self):
+    def test_serialized_id_is_display_id(self):
         task = self.create_task("Test Task")
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        display_id = response.json()["display_id"]
-        self.assertEqual(display_id, task.display_id)
-        self.assertTrue(display_id.startswith("task_"))
+        # The serialized `id` is the Stripe-style display ID, not the raw UUID.
+        serialized_id = response.json()["id"]
+        self.assertEqual(serialized_id, task.display_id)
+        self.assertTrue(serialized_id.startswith("task_"))
         # It must round-trip back to the task's UUID.
-        _prefix, decoded_uuid = decode_display_id(display_id)
+        _prefix, decoded_uuid = decode_display_id(serialized_id)
         self.assertEqual(decoded_uuid, task.id)
 
     def test_retrieve_task_by_display_id(self):
@@ -763,7 +764,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         response = self.client.get(f"/api/projects/@current/tasks/{task.display_id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["id"], str(task.id))
+        self.assertEqual(response.json()["id"], task.display_id)
 
     def test_retrieve_task_by_display_id_unknown_uuid_returns_404(self):
         display_id = encode_display_id("task", uuid.uuid4())
@@ -845,7 +846,7 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["origin_product"], Task.OriginProduct.USER_CREATED)
 
-        task = Task.objects.get(id=data["id"])
+        task = Task.objects.get(id=decode_display_id(data["id"])[1])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
     def test_create_task_with_github_user_integration(self):
@@ -867,7 +868,7 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
         self.assertEqual(data["github_user_integration"], str(user_integration.id))
 
-        task = Task.objects.get(id=data["id"])
+        task = Task.objects.get(id=decode_display_id(data["id"])[1])
         self.assertEqual(task.github_user_integration_id, user_integration.id)
 
     def test_create_and_run_slack_task_uses_user_github_integration(self):
@@ -935,7 +936,7 @@ class TestTaskAPI(BaseTaskAPITest):
             report=report,
             relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
-        self.assertEqual(str(link.task_id), data["id"])
+        self.assertEqual(link.task_id, decode_display_id(data["id"])[1])
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
@@ -1119,7 +1120,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         data = response.json()
 
-        self.assertEqual(data["id"], str(task.id))
+        self.assertEqual(data["id"], task.display_id)
         self.assertIn("latest_run", data)
         self.assertIsNotNone(data["latest_run"])
 
@@ -2207,7 +2208,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         data = response.json()
         task_ids = [t["id"] for t in data["results"]]
-        expected_task_ids = [str(tasks[i].id) for i in expected_indices]
+        expected_task_ids = [tasks[i].display_id for i in expected_indices]
 
         self.assertEqual(len(task_ids), len(expected_task_ids))
         for expected_id in expected_task_ids:
@@ -2233,7 +2234,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         data = response.json()
         self.assertEqual(len(data["results"]), 1)
-        self.assertEqual(data["results"][0]["id"], str(task1.id))
+        self.assertEqual(data["results"][0]["id"], task1.display_id)
 
     def test_deleted_task_not_retrievable(self):
         task = self.create_task("Deleted Task")
@@ -2293,7 +2294,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         data = response.json()
         task_ids = [t["id"] for t in data["results"]]
-        expected_task_ids = [str(tasks[i].id) for i in expected_indices]
+        expected_task_ids = [tasks[i].display_id for i in expected_indices]
 
         self.assertEqual(len(task_ids), len(expected_task_ids))
         for expected_id in expected_task_ids:
@@ -2343,7 +2344,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         data = response.json()
         task_ids = {t["id"] for t in data["results"]}
-        expected_task_ids = {str(tasks[i].id) for i in expected_indices}
+        expected_task_ids = {tasks[i].display_id for i in expected_indices}
         self.assertEqual(task_ids, expected_task_ids)
 
     @parameterized.expand(
@@ -2393,7 +2394,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         data = response.json()
         task_ids = {t["id"] for t in data["results"]}
-        expected_task_ids = {str(tasks[i].id) for i in expected_indices}
+        expected_task_ids = {tasks[i].display_id for i in expected_indices}
         self.assertEqual(task_ids, expected_task_ids)
 
     def test_filter_by_status_rejects_unknown_value(self):
@@ -2430,7 +2431,7 @@ class TestTaskAPI(BaseTaskAPITest):
         response = self.client.get(f"/api/projects/@current/tasks/?search=payments&status={TaskRun.Status.IN_PROGRESS}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual([t["id"] for t in data["results"]], [str(matching.id)])
+        self.assertEqual([t["id"] for t in data["results"]], [matching.display_id])
 
     def test_filter_combines_all_filters(self):
         other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
@@ -2484,7 +2485,7 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        self.assertEqual([t["id"] for t in data["results"]], [str(matching.id)])
+        self.assertEqual([t["id"] for t in data["results"]], [matching.display_id])
 
     def test_filters_survive_large_result_sets(self):
         """Regression test: filters must apply at the DB level, not after pagination truncates the page."""
@@ -2520,7 +2521,7 @@ class TestTaskAPI(BaseTaskAPITest):
         data = response.json()
 
         returned_ids = [t["id"] for t in data["results"]]
-        self.assertIn(str(needle.id), returned_ids)
+        self.assertIn(needle.display_id, returned_ids)
 
 
 class TestTaskRepositoriesAction(BaseTaskAPITest):

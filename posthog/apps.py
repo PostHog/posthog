@@ -35,6 +35,12 @@ class PostHogConfig(AppConfig):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
+        # Serialize the primary key as a display ID for any model that sets display_id_prefix,
+        # so adopting Stripe-style IDs needs only the model attribute — no serializer changes.
+        from posthog.api.display_id import patch_model_serializer_display_id_pk
+
+        patch_model_serializer_display_id_pk()
+
         connect_signal_handlers()
 
         self._setup_lazy_admin()

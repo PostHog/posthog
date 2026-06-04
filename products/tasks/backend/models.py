@@ -53,9 +53,9 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 
 class Task(DeletedMetaFields, DisplayIDModel):
-    # Setting display_id_prefix is all it takes to get a Stripe-style `display_id`
-    # (e.g. "task_2aUyqjCzEIiEcYMKj7TZtw") encoding the UUID `id` — no extra column, no
-    # migration. Exposed via `task.display_id` and resolvable on the API by display ID.
+    # Setting display_id_prefix is all it takes to adopt Stripe-style IDs: the API serializes
+    # `id` as the prefixed display ID (e.g. "task_2aUyqjCzEIiEcYMKj7TZtw") encoding the UUID,
+    # and accepts it for lookups. No extra column, no migration, no serializer changes.
     display_id_prefix = "task"
 
     class OriginProduct(models.TextChoices):
