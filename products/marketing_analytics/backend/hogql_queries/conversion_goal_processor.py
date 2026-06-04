@@ -26,6 +26,10 @@ from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 from products.actions.backend.models.action import Action
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationTable,
+    ensure_precomputed,
+)
 
 from .adapters.factory import MarketingSourceFactory
 from .marketing_analytics_config import MarketingAnalyticsConfig
@@ -415,11 +419,6 @@ class ConversionGoalProcessor:
 
         Returns None if jobs are not ready — caller falls back to direct path.
         """
-        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-            LazyComputationTable,
-            ensure_precomputed,
-        )
-
         insert_select = self.get_attributed_query_for_precomputation()
 
         result = ensure_precomputed(
@@ -487,11 +486,6 @@ class ConversionGoalProcessor:
         then attribute at read time by feeding a touchpoint-sourced array collection through the
         existing pipeline (all modes). Returns None if jobs aren't ready — caller falls back.
         """
-        from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
-            LazyComputationTable,
-            ensure_precomputed,
-        )
-
         window = timedelta(days=self.config.attribution_window_days)
         result = ensure_precomputed(
             team=self.team,
@@ -519,8 +513,8 @@ class ConversionGoalProcessor:
         conversions = self._build_conversion_only_arrays(conversion_event, date_from, date_to)
         touchpoints = self._build_touchpoint_arrays_from_table(job_ids)
 
-        select_columns: list[ast.Expr] = [ast.Alias(alias="person_id", expr=ast.Field(chain=["c", "person_id"]))]
-        for col in ("conversion_timestamps", "conversion_math_values"):
+        select_columns: list[ast.Expr] = []
+        for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
             select_columns.append(ast.Alias(alias=col, expr=ast.Field(chain=["c", col])))
         for field in TRACKED_FIELDS:
             select_columns.append(
