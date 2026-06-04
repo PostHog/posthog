@@ -353,10 +353,7 @@ mod tests {
     use lz4::Decoder;
 
     use super::{compress_lz4_frame, maybe_compress_lz4_frame, EnvelopeEncoding};
-
-    // Matches the consumer's LZ4_FRAME_MAGIC; if these ever diverge, the
-    // consumer stops recognizing what the producer emits.
-    const LZ4_FRAME_MAGIC: [u8; 4] = [0x04, 0x22, 0x4d, 0x18];
+    use crate::kafka_consumer::LZ4_FRAME_MAGIC;
 
     #[test]
     fn lz4_frame_starts_with_magic_and_round_trips() {
@@ -365,7 +362,7 @@ mod tests {
         let compressed = compress_lz4_frame(original).unwrap();
 
         assert!(
-            compressed.starts_with(&LZ4_FRAME_MAGIC),
+            compressed.starts_with(LZ4_FRAME_MAGIC),
             "compressed payload must carry the LZ4 frame magic so the consumer detects it"
         );
 
