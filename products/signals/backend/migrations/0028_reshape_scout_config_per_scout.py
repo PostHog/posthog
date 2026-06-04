@@ -6,13 +6,6 @@ from django.conf import settings
 from django.db import migrations, models
 
 
-def _wipe_scout_configs(apps, schema_editor):
-    # Old rows are one-per-team; the new shape is one-per-(team, skill). There's no
-    # meaningful fan-out, and the table is dogfood-stage, so reset it — the coordinator
-    # re-registers a row per scout skill on the next tick.
-    apps.get_model("signals", "SignalScoutConfig")._default_manager.all().delete()
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1205_delete_batch_export_models"),
@@ -21,7 +14,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(_wipe_scout_configs, migrations.RunPython.noop),
         # State-only removal: drop `enabled_skill_names` from Django's model state to match
         # the reshaped model, but leave the (nullable) Postgres column in place. Avoids the
         # backwards-incompatible, non-rollback-able `DROP COLUMN` during a rolling deploy —

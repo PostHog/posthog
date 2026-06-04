@@ -1,1 +1,1 @@
-0028_reshape_scout_config_per_scout
+0029_wipe_legacy_scout_configs
