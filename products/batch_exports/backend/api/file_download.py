@@ -2,7 +2,6 @@ import json
 import time
 import uuid
 import datetime as dt
-import functools
 import posixpath
 
 from django.conf import settings
@@ -38,13 +37,6 @@ _FILE_DOWNLOAD_BATCH_EXPORTS_LOCK_KEY = int.from_bytes(
     b"FDBE",
     byteorder="big",
 )
-
-
-@functools.cache
-def _get_session() -> boto3.Session:
-    # Lazy, not module scope: building the session resolves AWS profile config, and this
-    # module is on the Django boot path — a dangling AWS_PROFILE would otherwise crash boot.
-    return boto3.Session()
 
 
 class FileDownloadDestinationFileConfigSerializer(serializers.Serializer):
@@ -477,7 +469,9 @@ def _generate_s3_pre_signed_url(
         # Should never happen, our keys always end with a filename
         raise ValueError(f"Cannot derive filename from S3 key: {key!r}")
 
-    sts = _get_session().client("sts")
+    # Build the session here, not at module scope: constructing it resolves AWS profile config,
+    # and this module is on the Django boot path (a dangling AWS_PROFILE would crash boot).
+    sts = boto3.Session().client("sts")
 
     for attempt in range(1, max_attempts + 1):
         # It may take a few moments for access to be granted, so we retry in a loop
