@@ -49249,6 +49249,10 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string;
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
