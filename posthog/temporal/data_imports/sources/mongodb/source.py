@@ -34,7 +34,16 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         return ExternalDataSourceType.MONGODB
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {"The DNS query name does not exist": None, "authentication failed": None, "SSL handshake failed": None}
+        return {
+            "The DNS query name does not exist": None,
+            # pymongo raises OperationFailure with codeName 'AuthenticationFailed' (code 18) and
+            # errmsg 'Authentication failed.' when the credentials are wrong. Non-retryable error
+            # matching is case-sensitive, so the previous lowercase "authentication failed" never
+            # matched the real message — key off the stable codeName and the capitalised message.
+            "AuthenticationFailed": "MongoDB authentication failed. Please check the username and password for this source.",
+            "Authentication failed": "MongoDB authentication failed. Please check the username and password for this source.",
+            "SSL handshake failed": None,
+        }
 
     def get_schemas(
         self,

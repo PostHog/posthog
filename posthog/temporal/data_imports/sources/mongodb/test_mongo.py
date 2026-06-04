@@ -316,3 +316,45 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
     def test_returns_empty_set_for_collection_with_no_indexes(self):
         coll = self._collection_with_indexes([])
         assert get_leading_index_keys(coll) == set()
+
+
+class TestMongoDBNonRetryableErrors(SimpleTestCase):
+    """The non-retryable match is case-sensitive substring matching, so the patterns
+    must match the exact casing pymongo produces."""
+
+    def setUp(self):
+        from posthog.temporal.data_imports.sources.mongodb.source import MongoDBSource
+
+        self.non_retryable = MongoDBSource().get_non_retryable_errors()
+
+    @parameterized.expand(
+        [
+            # Real pymongo OperationFailure string for bad credentials (code 18).
+            (
+                "operation_failure",
+                "Authentication failed., full error: {'ok': 0.0, 'errmsg': 'Authentication failed.', "
+                "'code': 18, 'codeName': 'AuthenticationFailed'}",
+            ),
+            ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
+            ("ssl_failure", "SSL handshake failed: certificate verify failed"),
+        ]
+    )
+    def test_known_errors_are_non_retryable(self, _name, error_msg):
+        assert any(pattern in error_msg for pattern in self.non_retryable), (
+            f"MongoDB error {error_msg!r} did not match any non-retryable pattern"
+        )
+
+    @parameterized.expand(
+        [
+            ("server_selection_timeout", "No servers found yet, Timeout: 5.0s"),
+            ("connection_reset", "connection closed"),
+        ]
+    )
+    def test_transient_errors_are_retryable(self, _name, error_msg):
+        assert not any(pattern in error_msg for pattern in self.non_retryable), (
+            f"MongoDB error {error_msg!r} should remain retryable"
+        )
+
+    def test_auth_failure_has_friendly_message(self):
+        assert self.non_retryable["AuthenticationFailed"] is not None
+        assert "password" in self.non_retryable["AuthenticationFailed"].lower()
