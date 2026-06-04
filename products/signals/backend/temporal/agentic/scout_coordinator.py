@@ -13,6 +13,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -198,9 +199,37 @@ def _participating_teams() -> list[Team]:
     candidates = Team.objects.filter(id__in=team_ids)
     canonical_ids = {team.parent_team_id or team.id for team in candidates}
     canonical_teams = Team.objects.filter(id__in=canonical_ids).order_by("id")
-    return [
-        team for team in canonical_teams if posthoganalytics.feature_enabled(SIGNALS_SCOUT_DOGFOOD_FLAG, str(team.id))
-    ]
+    return [team for team in canonical_teams if _team_passes_rollout_flag(team)]
+
+
+def _team_passes_rollout_flag(team: Team) -> bool:
+    """Whether the `signals-scout` dogfood flag is on for this team.
+
+    Passes organization + project group context — mirroring the inbox gate in
+    `backend/access.py` and the house pattern in `posthog/permissions.py` — so the flag is
+    targetable per project/org from the PostHog UI. A group-aggregated release condition only
+    matches when its group is supplied here, so without this the flag could only ever be a
+    blanket rollout %. Remote eval; fails closed (eval error → team dropped).
+    """
+    org_id = str(team.organization_id)
+    project_id = str(team.id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SIGNALS_SCOUT_DOGFOOD_FLAG,
+                project_id,
+                groups={"organization": org_id, "project": project_id},
+                group_properties={
+                    "organization": {"id": org_id},
+                    "project": {"id": project_id},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as error:
+        capture_exception(error)
+        return False
 
 
 def _register_missing_configs(team: Team) -> set[str]:

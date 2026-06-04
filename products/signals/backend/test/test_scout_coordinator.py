@@ -149,6 +149,41 @@ async def test_disabled_config_is_skipped(ateam):
     assert await _run_activity() == []
 
 
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+async def test_rollout_flag_evaluated_with_project_group(ateam):
+    # The flag is group-aggregated on the project, so the call must supply project (+org) group
+    # context or no release condition could ever match. Locks that contract in.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+
+    with patch(_FLAG_PATH, return_value=True) as mock_flag:
+        await _run_activity()
+
+    org_id = str(ateam.organization_id)
+    project_id = str(ateam.id)
+    mock_flag.assert_called_once_with(
+        "signals-scout",
+        project_id,
+        groups={"organization": org_id, "project": project_id},
+        group_properties={"organization": {"id": org_id}, "project": {"id": project_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
+async def test_rollout_flag_eval_error_fails_closed(ateam):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+
+    with patch(_FLAG_PATH, side_effect=RuntimeError("flag service down")):
+        planned = await _run_activity()
+
+    assert planned == []
+
+
 # ── Auto-register: author a skill, get a scout ──────────────────────────────────
 
 
