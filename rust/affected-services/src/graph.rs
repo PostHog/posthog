@@ -76,6 +76,17 @@ impl TempWorktree {
             String::from_utf8_lossy(&out.stderr).trim()
         );
 
+        eprintln!("debug[worktree]: created at {} for ref {base_ref}", path_s);
+        if let Ok(log) = Command::new("git")
+            .args(["-C", path_s.as_ref(), "log", "--oneline", "-1"])
+            .output()
+        {
+            eprintln!(
+                "debug[worktree]: HEAD = {}",
+                String::from_utf8_lossy(&log.stdout).trim()
+            );
+        }
+
         Ok(Self { path })
     }
 
@@ -109,14 +120,31 @@ pub fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option
     let old_workspace = worktree.path().join(workspace_subdir);
     if !old_workspace.join("Cargo.toml").exists() {
         eprintln!("warning: {base_ref} has no {workspace_subdir}/Cargo.toml");
+        if let Ok(ls) = Command::new("ls").arg(old_workspace.as_os_str()).output() {
+            eprintln!(
+                "debug[old_graph]: ls {}: {}",
+                old_workspace.display(),
+                String::from_utf8_lossy(&ls.stdout).trim()
+            );
+        }
         return None;
     }
+
+    eprintln!(
+        "debug[old_graph]: found {workspace_subdir}/Cargo.toml, running cargo metadata --locked"
+    );
 
     let mut cmd = MetadataCommand::new();
     cmd.current_dir(&old_workspace);
     cmd.other_options(["--locked"]);
     match cmd.build_graph() {
-        Ok(graph) => Some(graph),
+        Ok(graph) => {
+            eprintln!(
+                "debug[old_graph]: success — {} workspace packages",
+                graph.workspace().iter().count()
+            );
+            Some(graph)
+        }
         Err(e) => {
             eprintln!("warning: could not build old package graph: {e}");
             None

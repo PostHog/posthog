@@ -46,6 +46,19 @@ pub fn compute_affected(
         .map(|f| to_workspace_relative(f))
         .collect();
 
+    eprintln!("debug[affected]: {} changed files:", changed_files.len());
+    for (repo, ws) in changed_files.iter().zip(workspace_paths.iter()) {
+        eprintln!("  {repo} → {ws}");
+    }
+    eprintln!(
+        "debug[affected]: old_graph={}",
+        if old_graph.is_some() {
+            "available"
+        } else {
+            "NONE (single-graph fallback)"
+        }
+    );
+
     // When no old graph is available (single-graph fallback) and Cargo.lock
     // changed, the determinator can't diff resolved dependencies — it sees
     // old == new. Force a full rebuild to be safe.
@@ -80,6 +93,29 @@ pub fn compute_affected(
     let workspace_size = new_graph.workspace().iter().count();
     let affected_count = result.affected_set.len();
     let rebuild_all = affected_count == workspace_size;
+
+    let path_changed_names: Vec<String> = result
+        .path_changed_set
+        .packages(DependencyDirection::Forward)
+        .map(|p| p.name().to_string())
+        .collect();
+    let summary_changed_names: Vec<String> = result
+        .summary_changed_set
+        .packages(DependencyDirection::Forward)
+        .map(|p| p.name().to_string())
+        .collect();
+    eprintln!(
+        "debug[affected]: workspace={workspace_size} affected={affected_count} \
+         path_changed={} summary_changed={} rebuild_all={rebuild_all}",
+        path_changed_names.len(),
+        summary_changed_names.len(),
+    );
+    if !path_changed_names.is_empty() {
+        eprintln!("debug[affected]: path_changed: {path_changed_names:?}");
+    }
+    if !summary_changed_names.is_empty() {
+        eprintln!("debug[affected]: summary_changed: {summary_changed_names:?}");
+    }
 
     let bin_to_crate = build_binary_to_crate_map(new_graph);
 

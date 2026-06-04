@@ -28,16 +28,17 @@ mark-changed = "all"
 globs = [".sqlx/**"]
 mark-changed = "all"
 
-# CI workflow files outside the workspace — not crate source.
-# (rust-images.yml is handled above as it drives image builds.)
-[[path-rule]]
-globs = ["../.github/**"]
-mark-changed = []
-
 # Proto files trigger the two build-script crates that read them.
 [[path-rule]]
 globs = ["../proto/**"]
 mark-changed = ["personhog-proto", "kafka-assigner-proto", "cymbal-proto"]
+
+# Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
+# etc.) — these are not crate source and should not trigger rust rebuilds.
+# Must come AFTER the specific ../proto and ../.github/rust-images.yml rules.
+[[path-rule]]
+globs = ["../**"]
+mark-changed = []
 
 # Migration directories are not cargo crates. Tell the determinator to
 # ignore them (don't try ancestor-walk package matching). The sqlx-migrate
