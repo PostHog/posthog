@@ -32,6 +32,8 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { composeSuggestedItems } from 'lib/components/TaxonomicFilter/utils/composeSuggestedItems'
+import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { MAX_TOP_MATCHES_PER_GROUP } from 'lib/components/TaxonomicFilter/utils/redistributeTopMatches'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -75,11 +77,20 @@ export interface UseGroupListInput {
     suggestedPinned?: TaxonomicDefinitionTypes[]
     suggestedRecentMatches?: TaxonomicDefinitionTypes[]
     suggestedPinnedMatches?: TaxonomicDefinitionTypes[]
+    /** SuggestedFilters only: aggregated cross-tab top matches to append. */
+    suggestedTopMatches?: TaxonomicDefinitionTypes[]
+    /** SuggestedFilters only: content-group top-match collectors still loading,
+     *  so show a loading state rather than "no results". */
+    suggestedLoading?: boolean
 }
 
 export interface UseGroupListResult {
     /** Combined items (local + remote + keyword shortcuts), with QuickFilterItems first when enabled. */
     items: TaxonomicDefinitionTypes[]
+    /** This group's contribution to the aggregated SuggestedFilters tab: keyword
+     *  shortcuts then promoted query matches, capped per group. Empty with no
+     *  query. Read by the SuggestedFilters top-match collector. */
+    topMatchesForQuery: TaxonomicDefinitionTypes[]
     /** items.length plus synthetic rows like the expand button. */
     rowCount: number
     /** Number of "real" results (excluding synthetic rows). */
@@ -127,6 +138,8 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         suggestedPinned,
         suggestedRecentMatches,
         suggestedPinnedMatches,
+        suggestedTopMatches,
+        suggestedLoading = false,
     } = input
 
     const [isExpanded, setIsExpanded] = useState(false)
@@ -366,6 +379,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                       contextPinned: suggestedPinned ?? [],
                       recentMatches: suggestedRecentMatches ?? [],
                       pinnedMatches: suggestedPinnedMatches ?? [],
+                      topMatches: suggestedTopMatches ?? [],
                   })
                 : null,
         [
@@ -376,10 +390,25 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             suggestedPinned,
             suggestedRecentMatches,
             suggestedPinnedMatches,
+            suggestedTopMatches,
         ]
     )
 
     const items = suggested ? suggested.items : mergedItems
+
+    // This group's slice for the aggregated SuggestedFilters tab. Mirrors the
+    // legacy per-group `topMatchesForQuery`: keyword shortcuts lead, then the
+    // promoted real matches, capped per group. Remote results only count once
+    // they're fresh for the current query (no stale-keystroke contributions).
+    const topMatchesForQuery = useMemo<TaxonomicDefinitionTypes[]>(() => {
+        if (!trimmedSearch) {
+            return []
+        }
+        const remoteIsFresh = remoteItems.searchQuery === searchQuery
+        const realResults = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results
+        const realMatches = promoteMatchingProperties(realResults, searchQuery).slice(0, MAX_TOP_MATCHES_PER_GROUP)
+        return [...keywordShortcuts, ...realMatches]
+    }, [trimmedSearch, hasRemoteDataSource, remoteItems, localItems, searchQuery, keywordShortcuts])
 
     const isExpandable = !!(
         group.endpoint &&
@@ -419,12 +448,18 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     // Empty / loading state checks read array length, not the API-reported
     // total — a remote tab can have count > 0 while still loading its first
-    // page, and we don't want to flash an empty state during that window.
+    // page, and we don't want to flash an empty state during that window. For
+    // the Suggested tab, also stay in the loading state while its cross-tab
+    // collectors are still resolving, so it doesn't flash "no results".
+    const effectiveLoading = isLoading || (isSuggested && suggestedLoading)
     const showEmptyState =
-        (items.length === 0 && !isLoading && (!!searchQuery || !hasRemoteDataSource) && !showNonCapturedEventOption) ||
+        (items.length === 0 &&
+            !effectiveLoading &&
+            (!!searchQuery || !hasRemoteDataSource) &&
+            !showNonCapturedEventOption) ||
         needsMoreSearchCharacters
 
-    const showLoadingState = isLoading && items.length === 0
+    const showLoadingState = effectiveLoading && items.length === 0
 
     // ---- Index / keyboard nav ----------------------------------------------
     const moveUp = (): void => {
@@ -454,6 +489,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
 
     return {
         items,
+        topMatchesForQuery,
         rowCount,
         totalResultCount,
         index,

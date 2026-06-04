@@ -2,6 +2,7 @@ import { ReactNode } from 'react'
 
 import { useTaxonomicFilter, UseTaxonomicFilterOptions } from '../hooks/useTaxonomicFilter'
 import { TaxonomicFilterContext } from './context'
+import { SuggestedTopMatchCollector } from './SuggestedTopMatchCollector'
 
 export interface TaxonomicFilterRootProps extends UseTaxonomicFilterOptions {
     children: ReactNode
@@ -21,6 +22,7 @@ export function TaxonomicFilterRoot({
         <TaxonomicFilterContext.Provider value={api} data-quill>
             <div className={className} {...(bindRootProps ? api.rootProps : {})}>
                 {children}
+                <SuggestedTopMatchCollector />
             </div>
         </TaxonomicFilterContext.Provider>
     )

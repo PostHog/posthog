@@ -322,6 +322,7 @@ describe('useTaxonomicFilter', () => {
         const fakeItem = { id: 42, name: 'pageview' }
         const fakeApi = {
             items: [fakeItem] as any,
+            topMatchesForQuery: [],
             rowCount: 1,
             totalResultCount: 1,
             index: 0,

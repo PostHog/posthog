@@ -125,6 +125,36 @@ describe('TaxonomicFilterHeadless integration', () => {
         )
     })
 
+    it('aggregates cross-tab top matches into the Suggested tab when searching', async () => {
+        recentTaxonomicFiltersLogic.mount()
+        act(() => recentTaxonomicFiltersLogic.actions.clearRecentFilters())
+        apiGet.mockImplementation((url: string) => {
+            if (url.includes('event_definitions')) {
+                return Promise.resolve({ results: [{ id: 1, name: 'click_event' }], count: 1 })
+            }
+            if (url.includes('property_definitions')) {
+                return Promise.resolve({ results: [{ id: 2, name: 'click_prop' }], count: 1 })
+            }
+            return Promise.resolve({ results: [], count: 0 })
+        })
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties]}
+                    onChange={onChangeMock}
+                >
+                    <TaxonomicFilterHeadless.Input />
+                    <TaxonomicFilterHeadless.Categories />
+                    <TaxonomicFilterHeadless.Panel />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+        await user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'click')
+        // Both groups' matches surface in the (default, active) Suggested tab.
+        await waitFor(() => expect(screen.getByText('click_event')).toBeInTheDocument())
+        expect(screen.getByText('click_prop')).toBeInTheDocument()
+    })
+
     it('mounts Root, Input, Categories and Panel without throwing', () => {
         apiGet.mockResolvedValue({ results: [{ id: 1, name: 'pageview' }], count: 1 })
         renderHeadless()

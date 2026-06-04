@@ -184,3 +184,19 @@ export const SuggestedWithRecents: Story = {
         },
     },
 }
+
+export const SuggestedAggregatedSearch: Story = {
+    render: () => (
+        <Container
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties]}
+            initialSearchQuery="n"
+        />
+    ),
+    parameters: {
+        docs: {
+            description: {
+                story: 'Searching from the Suggested tab surfaces the best matches from every content group at once — events and properties interleaved here — slot-distributed across groups and deduped against any recents/pinned. This is the cross-tab aggregation that makes the Suggested tab the one-stop search surface.',
+            },
+        },
+    },
+}

@@ -37,6 +37,7 @@ import {
     ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
+    SelectingKeyOnly,
     SimpleOption,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -45,6 +46,8 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
+import { dedupeTopMatches } from 'lib/components/TaxonomicFilter/utils/composeSuggestedItems'
+import { redistributeTopMatches, TopMatchItem } from 'lib/components/TaxonomicFilter/utils/redistributeTopMatches'
 import { resolveItemGroup } from 'lib/components/TaxonomicFilter/utils/resolveSourceGroup'
 import {
     filterPinnedForContext,
@@ -91,7 +94,7 @@ export interface UseTaxonomicFilterOptions {
     excludedOperators?: ExcludedOperators
     /** When the picker only selects a property key (no operator/value), recents
      *  are deduped by storage key. */
-    selectingKeyOnly?: boolean
+    selectingKeyOnly?: SelectingKeyOnly
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
     endpointFilters?: Record<string, any>
@@ -144,6 +147,13 @@ export interface TaxonomicFilterApi {
     // factory for per-tab consumers
     /** Build the input object for `useGroupList`, for a given group. */
     getGroupListInput: (group: TaxonomicFilterGroup) => UseGroupListInput
+
+    // SuggestedFilters cross-tab aggregation
+    /** Per-group top-match collectors call this to publish their slice and
+     *  whether they're still fetching for the current query. */
+    reportTopMatches: (groupType: TaxonomicFilterGroupType, items: TopMatchItem[], isLoading: boolean) => void
+    /** Redistributed + ordered top matches across all content groups. */
+    aggregatedTopMatches: TopMatchItem[]
 
     // value passthroughs
     value?: TaxonomicFilterValue
@@ -353,7 +363,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     const contextRecents = useMemo(
         () =>
             hasSuggestedTab
-                ? filterRecentsForContext(recentFilterItems, groupTypes, excludedOperators, selectingKeyOnly)
+                ? filterRecentsForContext(recentFilterItems, groupTypes, excludedOperators, !!selectingKeyOnly)
                 : [],
         [hasSuggestedTab, recentFilterItems, groupTypes, excludedOperators, selectingKeyOnly]
     )
@@ -370,6 +380,71 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         () => (trimmedQuery ? contextPinned.filter((i) => pinnedItemMatchesSearch(i, trimmedQuery, groups)) : []),
         [trimmedQuery, contextPinned, groups]
     )
+
+    // ---- Suggested tab: cross-tab top-match aggregation ---------------------
+    // Per-group collectors publish their slice into this registry; the Suggested
+    // tab redistributes + dedupes the union. Mirrors the legacy parent-logic
+    // `appendTopMatches` -> `redistributedTopMatchItems` -> `dedupedTopMatches`.
+    const [topMatchRegistry, setTopMatchRegistry] = useState<
+        Record<string, { items: TopMatchItem[]; isLoading: boolean }>
+    >({})
+    const reportTopMatches = useCallback(
+        (groupType: TaxonomicFilterGroupType, items: TopMatchItem[], isLoading: boolean) => {
+            setTopMatchRegistry((prev) => {
+                const existing = prev[groupType]
+                if (
+                    existing &&
+                    existing.isLoading === isLoading &&
+                    existing.items.length === items.length &&
+                    existing.items.every((it, i) => it === items[i])
+                ) {
+                    return prev
+                }
+                return { ...prev, [groupType]: { items, isLoading } }
+            })
+        },
+        []
+    )
+    // Reset on every query change so stale matches don't linger (mirrors the
+    // legacy `setSearchQuery: () => []` reducer on topMatchItems).
+    useEffect(() => {
+        setTopMatchRegistry({})
+    }, [trimmedQuery])
+
+    const nonMetaGroupTypes = useMemo(
+        () => groupTypes.filter((t) => !metaGroupTypes.has(t)),
+        [groupTypes, metaGroupTypes]
+    )
+    const aggregatedTopMatches = useMemo(() => {
+        const all: TopMatchItem[] = []
+        for (const groupType of nonMetaGroupTypes) {
+            const entry = topMatchRegistry[groupType]
+            if (entry?.items.length) {
+                all.push(...entry.items)
+            }
+        }
+        return redistributeTopMatches(all, nonMetaGroupTypes.length, nonMetaGroupTypes)
+    }, [topMatchRegistry, nonMetaGroupTypes])
+
+    const suggestedTopMatches = useMemo(
+        () =>
+            hasSuggestedTab && trimmedQuery
+                ? dedupeTopMatches(aggregatedTopMatches, suggestedRecentMatches, suggestedPinnedMatches, groups)
+                : [],
+        [hasSuggestedTab, trimmedQuery, aggregatedTopMatches, suggestedRecentMatches, suggestedPinnedMatches, groups]
+    )
+
+    // Suggested tab shows a loading state (not "no results") until every content
+    // group's probe has reported a settled, non-loading slice for this query.
+    const suggestedTopMatchesLoading = useMemo(() => {
+        if (!hasSuggestedTab || !trimmedQuery) {
+            return false
+        }
+        return nonMetaGroupTypes.some((t) => {
+            const entry = topMatchRegistry[t]
+            return !entry || entry.isLoading
+        })
+    }, [hasSuggestedTab, trimmedQuery, nonMetaGroupTypes, topMatchRegistry])
 
     // ---- active group (controlled by initial prop, then internal) -----------
     const defaultActiveGroup = useMemo<TaxonomicFilterGroupType>(() => {
@@ -538,6 +613,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                       suggestedPinned: contextPinned,
                       suggestedRecentMatches,
                       suggestedPinnedMatches,
+                      suggestedTopMatches,
+                      suggestedLoading: suggestedTopMatchesLoading,
                   }
                 : {}),
         }),
@@ -556,6 +633,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             contextPinned,
             suggestedRecentMatches,
             suggestedPinnedMatches,
+            suggestedTopMatches,
+            suggestedTopMatchesLoading,
         ]
     )
 
@@ -605,6 +684,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         selectSelected,
         registerActiveList,
         getGroupListInput,
+        reportTopMatches,
+        aggregatedTopMatches,
         value,
         rootProps: { onKeyDown },
         inputProps: {

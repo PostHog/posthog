@@ -1,9 +1,15 @@
-import { TaxonomicDefinitionTypes } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
+} from 'lib/components/TaxonomicFilter/types'
+import { TopMatchItem } from 'lib/components/TaxonomicFilter/utils/redistributeTopMatches'
 
-import { composeSuggestedItems } from './composeSuggestedItems'
+import { composeSuggestedItems, dedupeTopMatches } from './composeSuggestedItems'
 
 const named = (name: string): TaxonomicDefinitionTypes => ({ name }) as TaxonomicDefinitionTypes
 const names = (items: TaxonomicDefinitionTypes[]): string[] => items.map((i) => ('name' in i ? (i.name as string) : ''))
+const topMatch = (name: string, group: TaxonomicFilterGroupType): TopMatchItem => ({ name, group }) as TopMatchItem
 
 describe('composeSuggestedItems', () => {
     const recents = [named('r1'), named('r2'), named('r3'), named('r4')]
@@ -65,5 +71,53 @@ describe('composeSuggestedItems', () => {
             pinnedMatches: [named('pm')],
         })
         expect(count).toBe(expected)
+    })
+
+    it('appends top matches after the local options and counts them', () => {
+        const { items, count } = composeSuggestedItems({
+            searchQuery: 'q',
+            localResults: [named('local')],
+            localCount: 1,
+            contextRecents: [],
+            contextPinned: [],
+            recentMatches: [named('rm')],
+            pinnedMatches: [],
+            topMatches: [named('tm1'), named('tm2')],
+        })
+        expect(names(items)).toEqual(['rm', 'local', 'tm1', 'tm2'])
+        expect(count).toBe(1 + 0 + 1 + 2)
+    })
+})
+
+describe('dedupeTopMatches', () => {
+    const groups = [{ type: TaxonomicFilterGroupType.Events, getValue: (i: any) => i.name } as TaxonomicFilterGroup]
+    const recentRow = (sourceValue: string): TaxonomicDefinitionTypes =>
+        ({
+            name: sourceValue,
+            _recentContext: { sourceGroupType: TaxonomicFilterGroupType.Events, sourceValue },
+        }) as unknown as TaxonomicDefinitionTypes
+    const pinnedRow = (value: string): TaxonomicDefinitionTypes =>
+        ({
+            name: value,
+            _pinnedContext: { sourceGroupType: TaxonomicFilterGroupType.Events, value },
+        }) as unknown as TaxonomicDefinitionTypes
+
+    const top = [
+        topMatch('pageview', TaxonomicFilterGroupType.Events),
+        topMatch('click', TaxonomicFilterGroupType.Events),
+    ]
+
+    it('drops a top match that duplicates a shown recent', () => {
+        const result = dedupeTopMatches(top, [recentRow('pageview')], [], groups)
+        expect(result.map((i) => ('name' in i ? i.name : ''))).toEqual(['click'])
+    })
+
+    it('drops a top match that duplicates a shown pinned', () => {
+        const result = dedupeTopMatches(top, [], [pinnedRow('click')], groups)
+        expect(result.map((i) => ('name' in i ? i.name : ''))).toEqual(['pageview'])
+    })
+
+    it('returns all top matches when nothing is shown to dedupe against', () => {
+        expect(dedupeTopMatches(top, [], [], groups)).toHaveLength(2)
     })
 })

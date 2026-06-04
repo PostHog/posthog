@@ -1,5 +1,8 @@
-import { TaxonomicDefinitionTypes } from 'lib/components/TaxonomicFilter/types'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { hasPinnedContext } from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import { TaxonomicDefinitionTypes, TaxonomicFilterGroup } from 'lib/components/TaxonomicFilter/types'
 import { promoteMatchingProperties } from 'lib/components/TaxonomicFilter/utils/promoteProperties'
+import { TopMatchItem } from 'lib/components/TaxonomicFilter/utils/redistributeTopMatches'
 
 export const RECENT_PINNED_PREFIX_LIMIT = 3
 
@@ -16,6 +19,9 @@ export interface ComposeSuggestedItemsInput {
      *  when a query is present. */
     recentMatches: TaxonomicDefinitionTypes[]
     pinnedMatches: TaxonomicDefinitionTypes[]
+    /** Aggregated cross-tab top matches (already redistributed + deduped),
+     *  appended after the local options. Only present with a query. */
+    topMatches?: TaxonomicDefinitionTypes[]
 }
 
 export interface ComposedSuggestedItems {
@@ -39,13 +45,49 @@ export function composeSuggestedItems({
     contextPinned,
     recentMatches,
     pinnedMatches,
+    topMatches = [],
 }: ComposeSuggestedItemsInput): ComposedSuggestedItems {
     const hasQuery = !!searchQuery.trim()
     const recentSegment = hasQuery ? recentMatches : contextRecents.slice(0, RECENT_PINNED_PREFIX_LIMIT)
     const pinnedSegment = hasQuery ? pinnedMatches : contextPinned.slice(0, RECENT_PINNED_PREFIX_LIMIT)
-    const combined = [...recentSegment, ...pinnedSegment, ...localResults]
+    const combined = [...recentSegment, ...pinnedSegment, ...localResults, ...topMatches]
     return {
         items: hasQuery ? promoteMatchingProperties(combined, searchQuery) : combined,
-        count: recentSegment.length + pinnedSegment.length + localCount,
+        count: recentSegment.length + pinnedSegment.length + localCount + topMatches.length,
     }
+}
+
+/**
+ * Drop top-match rows that duplicate a recent/pinned row already shown, keyed
+ * by the row's source group + value (so "Recent · pageview" doesn't stack above
+ * "Events · pageview"). Mirrors the legacy `infiniteListLogic.dedupedTopMatches`.
+ */
+export function dedupeTopMatches(
+    topMatches: TopMatchItem[],
+    shownRecents: TaxonomicDefinitionTypes[],
+    shownPinned: TaxonomicDefinitionTypes[],
+    groups: TaxonomicFilterGroup[]
+): TopMatchItem[] {
+    if (topMatches.length === 0) {
+        return []
+    }
+    const dedupeKeys = new Set<string>()
+    for (const item of shownRecents) {
+        if (hasRecentContext(item) && item._recentContext.sourceValue != null) {
+            dedupeKeys.add(`${item._recentContext.sourceGroupType}::${item._recentContext.sourceValue}`)
+        }
+    }
+    for (const item of shownPinned) {
+        if (hasPinnedContext(item) && item._pinnedContext.value != null) {
+            dedupeKeys.add(`${item._pinnedContext.sourceGroupType}::${item._pinnedContext.value}`)
+        }
+    }
+    if (dedupeKeys.size === 0) {
+        return topMatches
+    }
+    const groupsByType = new Map(groups.map((g) => [g.type, g]))
+    return topMatches.filter((item) => {
+        const value = groupsByType.get(item.group)?.getValue?.(item) ?? null
+        return value == null || !dedupeKeys.has(`${item.group}::${value}`)
+    })
 }
