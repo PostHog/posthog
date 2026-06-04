@@ -537,7 +537,7 @@ export function MenuFilterCombobox({
                                             >
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent align="end">
+                                            <SelectContent align="end" alignItemWithTrigger={false}>
                                                 <SelectGroup>
                                                     {categoryOptions.map((o) => (
                                                         <SelectItem key={o.value} value={o.value}>

@@ -1,3 +1,4 @@
+import sys
 from functools import cached_property, lru_cache
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
@@ -7,7 +8,7 @@ from django.db.models.query import QuerySet
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
-from rest_framework_extensions.routers import ExtendedDefaultRouter
+from rest_framework_extensions.routers import ExtendedDefaultRouter, NestedRegistryItem
 from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.utils import get_token
@@ -50,6 +51,106 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
+
+
+class RouterRegistry:
+    """Named handles onto the shared API routers.
+
+    Passed to each product's ``register_routes(routers)`` so products register
+    their endpoints from their own folder without importing core router globals.
+    The shared parents (``projects``, ``environments``, ``organizations``) are
+    nested routers feeding a single OpenAPI schema, so a product can't own them
+    independently — it looks them up here by name and nests onto them.
+
+    Core-owned parents are the one invariant
+    ----------------------------------------
+    Core registers all four parents (root + ``projects``/``environments``/
+    ``organizations``) before discovering and invoking product
+    ``register_routes`` (see the auto-discovery loop in
+    ``posthog/api/__init__.py``). Products only ever nest onto those parents and
+    never onto each other, so discovery order does not affect the resolved route
+    set. ``add()`` rejects callers from under ``products.`` to keep "parents stay
+    core-owned" an enforced invariant rather than a convention — a product that
+    tried to publish a parent would reintroduce ordering coupling.
+    """
+
+    def __init__(self) -> None:
+        self._named: dict[str, NestedRegistryItem] = {}
+        self._root: Optional[DefaultRouterPlusPlus] = None
+
+    @staticmethod
+    def _reject_product_caller(method: str) -> None:
+        # frame 0 = here, 1 = the public method, 2 = its caller
+        caller_module = sys._getframe(2).f_globals.get("__name__", "")
+        if caller_module.startswith("products."):
+            raise RuntimeError(
+                f"Parent routers are core-owned; {caller_module} must not call RouterRegistry.{method}(). "
+                "Products nest onto existing parents via routers.projects/environments/organizations/root."
+            )
+
+    def add(self, name: str, item: NestedRegistryItem) -> NestedRegistryItem:
+        self._reject_product_caller("add")
+        if name in self._named:
+            raise ValueError(f"Router {name!r} is already registered")
+        self._named[name] = item
+        return item
+
+    def get(self, name: str) -> NestedRegistryItem:
+        try:
+            return self._named[name]
+        except KeyError:
+            raise KeyError(f"Unknown parent router {name!r}. Known: {sorted(self._named)}") from None
+
+    @property
+    def projects(self) -> NestedRegistryItem:
+        return self.get("projects")
+
+    @property
+    def environments(self) -> NestedRegistryItem:
+        return self.get("environments")
+
+    @property
+    def organizations(self) -> NestedRegistryItem:
+        return self.get("organizations")
+
+    def set_root(self, router: "DefaultRouterPlusPlus") -> "DefaultRouterPlusPlus":
+        self._root = router
+        return router
+
+    @property
+    def root(self) -> "DefaultRouterPlusPlus":
+        """The top-level (non-nested) router, for endpoints registered at /api/ root."""
+        if self._root is None:
+            raise KeyError("Root router not registered — call routers.set_root(router) first")
+        return self._root
+
+    def register_legacy_dual_route(
+        self,
+        prefix: str,
+        viewset: type[GenericViewSet],
+        basename: str,
+        parents_query_lookups: list[str],
+    ) -> tuple[NestedRegistryItem, NestedRegistryItem]:
+        """Register a team-nested viewset under BOTH /api/projects/ and /api/environments/.
+
+        The product-callable form of ``register_legacy_dual_route_team_nested_viewset``
+        in ``posthog/api/__init__.py`` (which delegates here). Only for preserving
+        already-shipped dual-route surfaces — NOT for new endpoints, which should
+        register directly under ``routers.projects``. Returns (project, environment).
+        """
+        if not parents_query_lookups:
+            raise ValueError("parents_query_lookups must be non-empty, with team_id as the first lookup")
+        if parents_query_lookups[0] != "team_id":
+            raise ValueError("Only endpoints with team_id as the first parent query lookup can be team-nested")
+        if basename.startswith("project_"):
+            stem = basename.removeprefix("project_")
+        elif basename.startswith("environment_"):
+            stem = basename.removeprefix("environment_")
+        else:
+            raise ValueError("basename must start with `project_` or `environment_`")
+        project_nested = self.projects.register(prefix, viewset, "project_" + stem, parents_query_lookups)
+        environment_nested = self.environments.register(prefix, viewset, "environment_" + stem, parents_query_lookups)
+        return project_nested, environment_nested
 
 
 # NOTE: Previously known as the StructuredViewSetMixin

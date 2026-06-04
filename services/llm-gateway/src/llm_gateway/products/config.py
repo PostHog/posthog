@@ -140,10 +140,10 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        allowed_application_ids=None,
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
-        billable=True,
+        billable=False,
     ),
     "subscriptions": ProductConfig(
         allowed_application_ids=None,
