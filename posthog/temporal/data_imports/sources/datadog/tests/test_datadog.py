@@ -189,33 +189,68 @@ class TestBuildInitialUrl:
 
 
 class TestComputeNextUrl:
+    HOST = "https://api.datadoghq.com"
+
     def test_cursor_uses_links_next(self) -> None:
         config = DATADOG_ENDPOINTS["logs"]
         nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v2/logs/events", {"links": {"next": "https://next"}}, 1000
+            config,
+            "https://api.datadoghq.com/api/v2/logs/events",
+            {"links": {"next": "https://api.datadoghq.com/api/v2/logs/events?cursor=abc"}},
+            1000,
+            self.HOST,
         )
-        assert nxt == "https://next"
+        assert nxt == "https://api.datadoghq.com/api/v2/logs/events?cursor=abc"
 
     def test_cursor_no_links_terminates(self) -> None:
         config = DATADOG_ENDPOINTS["logs"]
-        assert _compute_next_url(config, "https://api.datadoghq.com/api/v2/logs/events", {"data": []}, 0) is None
+        assert (
+            _compute_next_url(config, "https://api.datadoghq.com/api/v2/logs/events", {"data": []}, 0, self.HOST)
+            is None
+        )
+
+    @pytest.mark.parametrize(
+        "next_link",
+        [
+            "https://evil.example.com/steal",  # off-host
+            "http://api.datadoghq.com/api/v2/logs/events",  # non-https
+            "https://api.datadoghq.com.evil.com/api/v2/logs/events",  # look-alike host
+            "ftp://api.datadoghq.com/api/v2/logs/events",  # non-https scheme
+        ],
+    )
+    def test_cursor_rejects_offhost_next(self, next_link: str) -> None:
+        config = DATADOG_ENDPOINTS["logs"]
+        assert (
+            _compute_next_url(
+                config,
+                "https://api.datadoghq.com/api/v2/logs/events",
+                {"links": {"next": next_link}},
+                1000,
+                self.HOST,
+            )
+            is None
+        )
 
     def test_page_bumps_page_number(self) -> None:
         config = DATADOG_ENDPOINTS["monitors"]  # page_size=100
-        nxt = _compute_next_url(config, "https://api.datadoghq.com/api/v1/monitor?page=0&page_size=100", {}, 100)
+        nxt = _compute_next_url(
+            config, "https://api.datadoghq.com/api/v1/monitor?page=0&page_size=100", {}, 100, self.HOST
+        )
         assert nxt is not None
         query = parse_qs(urlparse(nxt).query)
         assert query["page"] == ["1"]
 
     def test_page_short_page_terminates(self) -> None:
         config = DATADOG_ENDPOINTS["monitors"]
-        nxt = _compute_next_url(config, "https://api.datadoghq.com/api/v1/monitor?page=0&page_size=100", {}, 42)
+        nxt = _compute_next_url(
+            config, "https://api.datadoghq.com/api/v1/monitor?page=0&page_size=100", {}, 42, self.HOST
+        )
         assert nxt is None
 
     def test_offset_advances_by_page_size(self) -> None:
         config = DATADOG_ENDPOINTS["incidents"]  # page_size=100
         nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v2/incidents?page[offset]=0&page[size]=100", {}, 100
+            config, "https://api.datadoghq.com/api/v2/incidents?page[offset]=0&page[size]=100", {}, 100, self.HOST
         )
         assert nxt is not None
         query = parse_qs(urlparse(nxt).query)
@@ -224,14 +259,17 @@ class TestComputeNextUrl:
     def test_offset_short_page_terminates(self) -> None:
         config = DATADOG_ENDPOINTS["incidents"]
         nxt = _compute_next_url(
-            config, "https://api.datadoghq.com/api/v2/incidents?page[offset]=0&page[size]=100", {}, 7
+            config, "https://api.datadoghq.com/api/v2/incidents?page[offset]=0&page[size]=100", {}, 7, self.HOST
         )
         assert nxt is None
 
     def test_none_pagination_terminates(self) -> None:
         config = DATADOG_ENDPOINTS["dashboards"]
         assert (
-            _compute_next_url(config, "https://api.datadoghq.com/api/v1/dashboard", {"dashboards": [1, 2]}, 2) is None
+            _compute_next_url(
+                config, "https://api.datadoghq.com/api/v1/dashboard", {"dashboards": [1, 2]}, 2, self.HOST
+            )
+            is None
         )
 
 
@@ -355,3 +393,16 @@ class TestGetRowsResume:
             "logs", pages, can_resume=True, resume_url="https://api.datadoghq.com/resume-here"
         )
         assert fetched[0] == "https://api.datadoghq.com/resume-here"
+
+    @pytest.mark.parametrize(
+        "resume_url",
+        [
+            "https://evil.example.com/steal",
+            "http://api.datadoghq.com/resume-here",
+            "https://api.datadoghq.com.evil.com/resume-here",
+        ],
+    )
+    def test_tampered_resume_url_is_rejected(self, resume_url: str) -> None:
+        pages = [{"data": [{"id": "9", "attributes": {}}], "links": {}}]
+        with pytest.raises(ValueError, match="unexpected URL"):
+            self._run("logs", pages, can_resume=True, resume_url=resume_url)

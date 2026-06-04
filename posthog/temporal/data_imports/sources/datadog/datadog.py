@@ -144,15 +144,28 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _is_same_host(url: str, host: str) -> bool:
+    """True only for ``https`` URLs whose netloc matches the resolved Datadog API host."""
+    parsed = urlparse(url)
+    return parsed.scheme == "https" and parsed.netloc == urlparse(host).netloc
+
+
 def _compute_next_url(
     config: DatadogEndpointConfig,
     current_url: str,
     response_json: Any,
     item_count: int,
+    host: str,
 ) -> str | None:
     if config.pagination == "cursor":
         links = response_json.get("links") if isinstance(response_json, dict) else None
-        return links.get("next") if isinstance(links, dict) else None
+        next_link = links.get("next") if isinstance(links, dict) else None
+        # Only follow pagination URLs that stay on the resolved Datadog API host, so a tampered or
+        # compromised API response can't point our authenticated request at an internal address
+        # (SSRF) and leak the DD-API-KEY / DD-APPLICATION-KEY headers.
+        if isinstance(next_link, str) and _is_same_host(next_link, host):
+            return next_link
+        return None
 
     # Numeric pagination: a short page means we've reached the end.
     if item_count < config.page_size:
@@ -195,6 +208,10 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
         url = resume_config.next_url
+        # Guard the persisted resume URL too — only ever saved from _compute_next_url (host-pinned),
+        # but re-check so a tampered Redis state can't redirect our authenticated request.
+        if not _is_same_host(url, host):
+            raise ValueError(f"Datadog resume state contains an unexpected URL: {url!r}")
         logger.debug(f"Datadog: resuming from URL: {url}")
     else:
         url = _build_initial_url(host, config, params)
@@ -229,7 +246,7 @@ def get_rows(
 
         yield items
 
-        next_url = _compute_next_url(config, url, data, len(items))
+        next_url = _compute_next_url(config, url, data, len(items), host)
         if not next_url:
             break
 
