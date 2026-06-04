@@ -12,8 +12,11 @@ import {
     withErrorTrackingProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
+import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { ErrorTrackingWidget } from './ErrorTrackingWidget'
+import { ErrorTrackingWidgetTileFilters } from './ErrorTrackingWidgetTileFilters'
 
 const ERROR_TRACKING_CATALOG = getDashboardWidgetCatalogEntry('error_tracking_list')!
 const DEFAULT_CONFIG = ERROR_TRACKING_CATALOG.defaultConfig as Record<string, unknown>
@@ -23,6 +26,8 @@ type ErrorTrackingWidgetTileStoryProps = DashboardWidgetComponentProps & {
     description?: string
     showDescription?: boolean
     body?: ReactNode
+    /** When true, tile filter bar matches view-only dashboard access (no edit permissions). */
+    tileFiltersReadOnly?: boolean
 }
 
 function ErrorTrackingWidgetTileStory({
@@ -30,10 +35,12 @@ function ErrorTrackingWidgetTileStory({
     description = 'Track the most common errors affecting your users.',
     showDescription = true,
     body,
+    tileFiltersReadOnly = false,
     ...widgetProps
 }: ErrorTrackingWidgetTileStoryProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(ERROR_TRACKING_CATALOG.groupId)
     const defaultTitle = ERROR_TRACKING_CATALOG.headerTitle ?? ERROR_TRACKING_CATALOG.label
+    const { isAvailable: showTileFilters } = useWidgetAvailability(ERROR_TRACKING_CATALOG.availability)
 
     return (
         <WidgetCard className="h-full">
@@ -51,6 +58,14 @@ function ErrorTrackingWidgetTileStory({
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(DashboardPlacement.Dashboard, false)}
                 moreButtonOverlay={mockMoreOverlay}
             />
+            {showTileFilters ? (
+                <ErrorTrackingWidgetTileFilters
+                    tileId={widgetProps.tileId}
+                    config={widgetProps.config}
+                    onUpdateConfig={tileFiltersReadOnly ? undefined : widgetProps.onUpdateConfig}
+                    disabledReason={tileFiltersReadOnly ? DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON : undefined}
+                />
+            ) : null}
             <WidgetCardBody>{body ?? <ErrorTrackingWidget {...widgetProps} />}</WidgetCardBody>
         </WidgetCard>
     )
@@ -133,7 +148,33 @@ export default meta
 
 type Story = StoryObj<typeof ErrorTrackingWidgetTileStory>
 
-export const Populated: Story = {
+export const TileFiltersReadOnly: Story = {
+    decorators: [withErrorTrackingProjectState(true)],
+    args: {
+        title: 'Top issues',
+        config: {
+            ...DEFAULT_CONFIG,
+            status: 'resolved',
+            dateRange: { date_from: '-30d' },
+        },
+        tileFiltersReadOnly: true,
+        loading: false,
+        result: {
+            results: sampleIssues,
+            hasMore: true,
+            limit: 10,
+        },
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Tile filter bar when the viewer lacks dashboard edit access — filters shown as read-only values.',
+            },
+        },
+    },
+}
+
+export const Default: Story = {
     decorators: [withErrorTrackingProjectState(true)],
     args: {
         title: 'Top issues',
