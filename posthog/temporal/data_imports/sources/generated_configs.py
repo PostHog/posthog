@@ -273,7 +273,9 @@ class CockroachDBSourceConfig(config.Config):
 
 @config.config
 class ConfluenceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
