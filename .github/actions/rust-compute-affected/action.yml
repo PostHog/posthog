@@ -8,7 +8,11 @@ inputs:
         description: github.event_name — controls how the base ref is resolved
         required: true
     pr-base-sha:
-        description: 'Base SHA for PR / merge-group events'
+        description: 'Base SHA for PR / merge-group events (fallback if pr-base-ref unavailable)'
+        required: false
+        default: ''
+    pr-base-ref:
+        description: 'Base branch name for PR events (e.g. master) — used to compute a fresh merge-base'
         required: false
         default: ''
     push-before-sha:
@@ -60,6 +64,7 @@ runs:
           env:
               EVENT_NAME: ${{ inputs.event-name }}
               PR_BASE_SHA: ${{ inputs.pr-base-sha }}
+              PR_BASE_REF: ${{ inputs.pr-base-ref }}
               PUSH_BEFORE_SHA: ${{ inputs.push-before-sha }}
               FORCE_REBUILD: ${{ inputs.rebuild-all }}
           working-directory: rust
@@ -70,6 +75,12 @@ runs:
               else
                   if [ "$EVENT_NAME" = "push" ]; then
                       base_ref="$PUSH_BEFORE_SHA"
+                  elif [ -n "$PR_BASE_REF" ]; then
+                      # Fetch the current tip of the base branch so we diff
+                      # against it rather than the potentially stale PR base SHA.
+                      git fetch --no-tags --depth=1 origin "$PR_BASE_REF"
+                      base_ref=$(git merge-base FETCH_HEAD HEAD)
+                      echo "Using merge-base of origin/$PR_BASE_REF and HEAD: $base_ref"
                   else
                       base_ref="$PR_BASE_SHA"
                   fi
