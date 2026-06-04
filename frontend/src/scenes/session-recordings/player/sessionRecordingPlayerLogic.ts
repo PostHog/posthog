@@ -1219,7 +1219,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         playerErrorSeen: ({ error }) => {
-            const fingerprint = encodeURIComponent(error.message + error.filename + error.lineno + error.colno)
+            // rrweb emits this from code we don't control, so `error` may not be a real Error.
+            const fingerprint = encodeURIComponent(`${error?.message}${error?.filename}${error?.lineno}${error?.colno}`)
             if (values.reportedReplayerErrors.has(fingerprint)) {
                 return
             }

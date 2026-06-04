@@ -127,26 +127,24 @@ describe('API helper', () => {
         await expect(api.get('/api/projects/089908')).resolves.not.toThrow()
         await expect(api.get('/api/projects/089908?x')).resolves.not.toThrow()
         await expect(api.get('/api/projects/xyz/dings/')).resolves.not.toThrow()
-        await expect(api.get('/api/projects/null/')).rejects.toStrictEqual({
+
+        // The thrown value must be a real ApiError (not a bare object) so downstream catch
+        // blocks can rely on `error.message` being present — bare objects break that assumption.
+        const expectedError = {
+            message: 'Cannot make request - project ID is unknown.',
             detail: 'Cannot make request - project ID is unknown.',
             status: 0,
-        })
-        await expect(api.get('/api/projects/null')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null?x')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null#x')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
-        await expect(api.get('/api/projects/null/dings')).rejects.toStrictEqual({
-            detail: 'Cannot make request - project ID is unknown.',
-            status: 0,
-        })
+        } satisfies Partial<ApiError>
+        for (const url of [
+            '/api/projects/null/',
+            '/api/projects/null',
+            '/api/projects/null?x',
+            '/api/projects/null#x',
+            '/api/projects/null/dings',
+        ]) {
+            await expect(api.get(url)).rejects.toBeInstanceOf(Error)
+            await expect(api.get(url)).rejects.toMatchObject(expectedError)
+        }
     })
 
     it('uses response message as the ApiError message when no detail or error is present', async () => {

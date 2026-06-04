@@ -142,7 +142,7 @@ export const userLogic = kea<userLogicType>([
                         return await api.get<UserType>('api/users/@me/')
                     } catch (error: any) {
                         console.error(error)
-                        actions.loadUserFailure(error.message)
+                        actions.loadUserFailure(error?.message ?? 'Failed to load user')
                     }
                     return null
                 },
@@ -156,7 +156,7 @@ export const userLogic = kea<userLogicType>([
                         return response
                     } catch (error: any) {
                         console.error(error)
-                        actions.updateUserFailure(error.message)
+                        actions.updateUserFailure(error?.message ?? 'Failed to update user')
                         return values.user
                     }
                 },
@@ -192,7 +192,7 @@ export const userLogic = kea<userLogicType>([
                         })
                     } catch (error: any) {
                         console.error(error)
-                        actions.updateUserFailure(error.message)
+                        actions.updateUserFailure(error?.message ?? 'Failed to update user')
                         return values.user
                     }
                 },

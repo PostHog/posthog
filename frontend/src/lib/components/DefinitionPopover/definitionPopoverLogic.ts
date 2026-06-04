@@ -114,7 +114,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                             cohortsModel.findMounted()?.actions.updateCohort(definition as CohortType)
                         }
                     } catch (error: any) {
-                        lemonToast.error(error.message)
+                        lemonToast.error(error?.message ?? 'Could not save definition')
                     }
                     breakpoint()
                     // Disregard save attempts for any other types of taxonomy groups

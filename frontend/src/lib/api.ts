@@ -2069,10 +2069,10 @@ const ensureProjectIdNotInvalid = (url: string): void => {
     if (projectIdMatch) {
         const projectId = projectIdMatch[2].trim()
         if (projectId === 'null' || projectId === 'undefined') {
-            throw {
-                status: 0,
-                detail: `Cannot make request - ${projectIdMatch[1]} ID is unknown.`,
-            }
+            const detail = `Cannot make request - ${projectIdMatch[1]} ID is unknown.`
+            // Throw a real ApiError (not a bare object) so every catch block can rely on
+            // `error.message` being present — bare objects break that assumption downstream.
+            throw new ApiError(detail, 0, undefined, { detail })
         }
     }
 }
