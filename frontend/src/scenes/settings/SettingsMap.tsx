@@ -1,4 +1,4 @@
-import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { LLMProviderKeysSettings } from '@posthog/products-ai-observability/frontend/settings/LLMProviderKeysSettings'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
 import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
@@ -67,6 +67,8 @@ import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
 import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentStatsMethod'
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
+import { DefaultSequentialTestingEnabled } from './environment/DefaultSequentialTestingEnabled'
+import { DefaultSequentialTuningParameter } from './environment/DefaultSequentialTuningParameter'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -93,12 +95,12 @@ import {
     LogsPiiScrubSettings,
     LogsRetentionSettings,
 } from './environment/LogsCaptureSettings'
+import { LogsDistinctIdAttributeKey } from './environment/LogsDistinctIdAttributeKey'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyticsSettingsWrapper'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
-import { PostHogCodeSlackIntegration } from './environment/PostHogCodeSlackIntegration'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
@@ -300,20 +302,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
-            },
-        ],
-    },
-    {
-        level: 'environment',
-        id: 'environment-posthog-code',
-        title: 'PostHog Code',
-        group: 'AI',
-        flag: 'TASKS',
-        settings: [
-            {
-                id: 'integration-posthog-code-slack',
-                title: 'Slack integration',
-                component: <PostHogCodeSlackIntegration />,
             },
         ],
     },
@@ -593,6 +581,22 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <DefaultCupedLookbackDays />,
                 keywords: ['cuped', 'lookback', 'pre-experiment', 'covariate', 'window'],
             },
+            {
+                id: 'environment-experiment-sequential-testing-enabled',
+                title: 'Default sequential testing',
+                description:
+                    'When enabled, frequentist experiments will use sequential testing by default, producing always-valid p-values that are robust to peeking. Confidence intervals are wider in exchange. Only applies to the frequentist statistical method. Can be overridden per experiment.',
+                component: <DefaultSequentialTestingEnabled />,
+                keywords: ['sequential', 'peeking', 'always-valid', 'p-value', 'frequentist'],
+            },
+            {
+                id: 'environment-experiment-sequential-tuning-parameter',
+                title: 'Default sequential testing tuning parameter',
+                description:
+                    'Roughly the sample size at which the always-valid confidence sequence is tightest. Set close to the expected total sample size of new experiments to minimize the width penalty. Can be overridden per experiment.',
+                component: <DefaultSequentialTuningParameter />,
+                keywords: ['sequential', 'tuning', 'parameter', 'rho', 'frequentist'],
+            },
         ],
     },
     {
@@ -711,6 +715,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsPiiScrubSettings />,
                 flag: 'LOGS_SETTINGS_PII_SCRUB',
                 keywords: ['pii', 'privacy', 'gdpr', 'redact', 'mask', 'scrub', 'sensitive'],
+            },
+            {
+                id: 'logs-distinct-id-attribute-key',
+                title: 'Link to person',
+                description: (
+                    <>
+                        The log attribute PostHog reads to identify which person a log belongs to. Matched against the
+                        person&apos;s distinct IDs to surface logs on their profile. Defaults to{' '}
+                        <code>posthogDistinctId</code> — the key the JavaScript and React Native SDKs auto-attach.
+                        Override only if your backend pipeline emits the person identifier under a different key.
+                    </>
+                ),
+                searchDescription:
+                    "The log attribute PostHog reads to identify which person a log belongs to. Matched against the person's distinct IDs to surface logs on their profile. Defaults to posthogDistinctId — the key the JavaScript and React Native SDKs auto-attach. Override only if your backend pipeline emits the person identifier under a different key.",
+                component: <LogsDistinctIdAttributeKey />,
+                flag: 'LOGS_SETTINGS',
+                keywords: ['log', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
             },
             {
                 id: 'logs-retention',
@@ -1380,7 +1401,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'integration-other',
                 title: 'Other integrations',
                 description: 'Browse and manage additional third-party integrations.',
-                component: <IntegrationsList omitKinds={['slack', 'slack-posthog-code', 'github', 'linear']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github', 'linear']} />,
                 keywords: ['integration', 'connect', 'third-party', 'app'],
             },
             {
@@ -1453,6 +1474,15 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'organization-details',
         title: 'General',
         settings: [
+            {
+                id: 'organization-admin-notice',
+                title: null,
+                component: (
+                    <LemonBanner type="info" className="my-4">
+                        You must be an organization admin or owner to change these settings.
+                    </LemonBanner>
+                ),
+            },
             {
                 id: 'organization-display-name',
                 title: 'Name & logo',

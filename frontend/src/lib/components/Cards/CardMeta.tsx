@@ -123,7 +123,7 @@ export function CardMeta({
                     {compact ? (
                         <>
                             <div className="CardMeta__top">
-                                <h5 className="CardMeta__heading">{topHeading}</h5>
+                                <div className="CardMeta__heading">{topHeading}</div>
                                 <div className="CardMeta__controls">
                                     {showEditingControls &&
                                         (moreTooltip ? (

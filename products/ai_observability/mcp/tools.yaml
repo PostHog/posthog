@@ -582,7 +582,6 @@ tools:
         title: Get review queue
         description: |
             Retrieve a review queue by ID. Returns its name, current pending_item_count, creator, and timestamps.
-        mcp_version: 1
     llma-review-queue-item-create:
         operation: llm_analytics_review_queue_items_create
         enabled: true
@@ -624,7 +623,6 @@ tools:
         description: >
             Retrieve a single pending trace review assignment by ID. Returns the owning queue, trace_id, creator, and
             timestamps for the pending review task.
-        mcp_version: 1
     llma-review-queue-item-list:
         operation: llm_analytics_review_queue_items_list
         enabled: true
@@ -640,7 +638,6 @@ tools:
         description: >
             List pending trace review assignments across review queues. Supports filtering by queue_id, trace_id,
             trace_id__in, search, and ordering so agents can find traces that are still queued for review.
-        mcp_version: 1
     llma-review-queue-item-update:
         operation: llm_analytics_review_queue_items_partial_update
         enabled: true
@@ -670,7 +667,6 @@ tools:
         description: >
             List review queues used for trace reviews. Returns queue names, pending_item_count, creator info, and
             timestamps. Supports queue-name search and ordering.
-        mcp_version: 1
     llma-review-queue-update:
         operation: llm_analytics_review_queues_partial_update
         enabled: true
@@ -732,7 +728,6 @@ tools:
             List active scorers for the current project. By default only active rows are returned — pass `archived=true`
             to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over
             name/description. Returns metadata plus the current config snapshot.
-        mcp_version: 1
     llma-score-definition-new-version:
         operation: llm_analytics_score_definitions_new_version_create
         enabled: true
@@ -904,7 +899,9 @@ tools:
         title: Get skill
         description: >
             Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows
-            the Agent Skills specification (agentskills.io).
+            the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the
+            URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g.
+            `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.
     llma-skill-list:
         operation: llm_skills_list
         enabled: true
@@ -918,7 +915,9 @@ tools:
         description: >
             List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use
             descriptions to determine which skill to fetch for a given task. Does not return skill body content (use
-            llma-skill-get to fetch full content).
+            llma-skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the
+            skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The
+            `id` (UUID) is not a valid route segment and will 404.
     llma-skill-resolve:
         operation: llm_skills_resolve_name_retrieve
         enabled: false
@@ -1079,7 +1078,6 @@ tools:
         description: >
             Retrieve a saved trace review by ID. Returns the trace_id, comment, scores, creator, reviewer, and
             timestamps.
-        mcp_version: 1
     llma-trace-review-list:
         operation: llm_analytics_trace_reviews_list
         enabled: true
@@ -1095,7 +1093,6 @@ tools:
         description: >
             List saved trace reviews. Supports filtering by trace_id, definition_id, search, and ordering. Returns
             comments, scores, reviewers, and timestamps.
-        mcp_version: 1
     llma-trace-review-update:
         operation: llm_analytics_trace_reviews_partial_update
         enabled: true
@@ -1112,4 +1109,16 @@ tools:
             clear only a matching pending queue item after the review is saved.
     llma-translate-create:
         operation: llm_analytics_translate_create
+        enabled: false
+    taggers-destroy:
+        operation: taggers_destroy
+        enabled: false
+    taggers-partial-update:
+        operation: taggers_partial_update
+        enabled: false
+    taggers-retrieve:
+        operation: taggers_retrieve
+        enabled: false
+    taggers-update:
+        operation: taggers_update
         enabled: false

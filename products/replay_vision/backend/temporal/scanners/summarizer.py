@@ -1,11 +1,11 @@
-"""Summarizer scanner: produces a title and a text summary, optionally with facet embeddings."""
+"""Summarizer scanner: produces a title, a text summary, and facet fields used for embedding-backed free-text search."""
 
 from typing import Any, ClassVar, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from products.replay_vision.backend.models.replay_scanner import ScannerType
-from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput
+from products.replay_vision.backend.temporal.scanners.base import BaseScanner, BaseScannerOutput, Segment
 
 SummaryLength = Literal["short", "medium", "long"]
 
@@ -17,15 +17,10 @@ _LENGTH_GUIDANCE: dict[SummaryLength, str] = {
 
 
 class SummarizerLlmResponse(BaseScannerOutput, frozen=True):
-    """LLM-facing schema (title + summary). Used when `emits_embeddings=False` to keep the schema lean."""
+    """LLM-facing schema: title + summary + facet fields that get embedded for downstream free-text search."""
 
     title: str = Field(max_length=120, description="Short title for the session (~80 chars). Plain text, no quotes.")
     summary: str = Field(description="Body text whose length follows the scanner's configured length.")
-
-
-class SummarizerWithFacetsLlmResponse(SummarizerLlmResponse, frozen=True):
-    """Extended LLM-facing schema with embedding facets. Used when `emits_embeddings=True`."""
-
     intent: str = Field(
         description=(
             "One sentence describing what the user was trying to accomplish at the start of the session "
@@ -61,9 +56,10 @@ class SummarizerWithFacetsLlmResponse(SummarizerLlmResponse, frozen=True):
 
 
 class SummarizerOutput(SummarizerLlmResponse, frozen=True):
-    """Persisted output: facet fields default to empty so flag-off summarizers round-trip cleanly."""
+    """Persisted output."""
 
     scanner_type: Literal[ScannerType.SUMMARIZER] = ScannerType.SUMMARIZER
+    summary_segments: list[Segment] = Field(default_factory=list)
     intent: str = ""
     outcome: str = ""
     friction_points: list[str] = Field(default_factory=list)
@@ -80,14 +76,10 @@ class SummarizerScanner(BaseScanner, frozen=True):
     citation_fields: ClassVar[tuple[str, ...]] = ("summary",)
     output_cls: ClassVar[type[BaseScannerOutput]] = SummarizerOutput
     length: SummaryLength = "medium"
-    emits_embeddings: bool = False
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
-        return SummarizerWithFacetsLlmResponse if self.emits_embeddings else SummarizerLlmResponse
+        return SummarizerLlmResponse
 
     def prompt_context(self) -> dict[str, Any]:
-        return {
-            "length_guidance": _LENGTH_GUIDANCE[self.length],
-            "emits_embeddings": self.emits_embeddings,
-        }
+        return {"length_guidance": _LENGTH_GUIDANCE[self.length]}

@@ -6,6 +6,7 @@ import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__
 
 import { actionsModel } from '~/models/actionsModel'
 
+import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../types'
 import { TaxonomicFilterHeadless } from './index'
 
@@ -16,7 +17,7 @@ const meta: Meta = {
         docs: {
             description: {
                 component:
-                    'Headless TaxonomicFilter built on Quill primitives. The compound `<Root>/<Input>/<Categories>/<Panel>` API is opt-in via the `TAXONOMIC_FILTER_HEADLESS` feature flag and replaces the kea-based `<TaxonomicFilter>` once parity is verified.',
+                    'Headless TaxonomicFilter built on Quill primitives. The compound `<Root>/<Input>/<Categories>/<Panel>` API is opt-in via the `TAXONOMIC_FILTER_MENU_REBUILD` feature flag and replaces the kea-based `<TaxonomicFilter>` once parity is verified.',
             },
         },
     },
@@ -34,6 +35,10 @@ interface ContainerArgs {
 }
 
 function Container({ taxonomicGroupTypes, initialSearchQuery, suggestedFiltersLabel }: ContainerArgs): JSX.Element {
+    useState(() => {
+        __clearTaxonomicResourceCache()
+        return null
+    })
     useMountedLogic(actionsModel)
     const [lastPick, setLastPick] = useState<{
         group: string

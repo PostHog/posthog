@@ -124,7 +124,10 @@ cohort_calculation_history: PostgresTable = PostgresTable(
 accounts: PostgresTable = PostgresTable(
     name="accounts",
     postgres_table_name="customer_analytics_account",
-    access_scope="customer_analytics",
+    # Object-level access control filters out ids directly off access_scope, so we use
+    # `account` here (where the per-object grants are stored) instead of the
+    # `customer_analytics` umbrella. Resource-level gating still works via RESOURCE_INHERITANCE_MAP.
+    access_scope="account",
     fields={
         "id": UUIDDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
@@ -1165,6 +1168,61 @@ sandbox_environments: PostgresTable = PostgresTable(
     },
 )
 
+business_knowledge_sources: PostgresTable = PostgresTable(
+    name="business_knowledge_sources",
+    postgres_table_name="posthog_business_knowledge_knowledgesource",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_type": StringDatabaseField(name="source_type"),
+        "status": StringDatabaseField(name="status"),
+        "error_message": StringDatabaseField(name="error_message"),
+        "source_url": StringDatabaseField(name="source_url"),
+        "crawl_mode": StringDatabaseField(name="crawl_mode"),
+        "original_filename": StringDatabaseField(name="original_filename"),
+        "file_content_type": StringDatabaseField(name="file_content_type"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_documents: PostgresTable = PostgresTable(
+    name="business_knowledge_documents",
+    postgres_table_name="posthog_business_knowledge_knowledgedocument",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "stable_id": StringDatabaseField(name="stable_id"),
+        "title": StringDatabaseField(name="title"),
+        "url": StringDatabaseField(name="url"),
+        "content_hash": StringDatabaseField(name="content_hash"),
+        "tombstoned_at": DateTimeDatabaseField(name="tombstoned_at", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
+business_knowledge_chunks: PostgresTable = PostgresTable(
+    name="business_knowledge_chunks",
+    postgres_table_name="posthog_business_knowledge_knowledgechunk",
+    access_scope="business_knowledge",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "document_id": StringDatabaseField(name="document_id"),
+        "heading_path": StringDatabaseField(name="heading_path"),
+        "ordinal": IntegerDatabaseField(name="ordinal"),
+        "content": StringDatabaseField(name="content"),
+        "char_count": IntegerDatabaseField(name="char_count"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 
 tags: PostgresTable = PostgresTable(
     name="tags",
@@ -1191,6 +1249,11 @@ class SystemTables(TableNode):
         "annotations": TableNode(name="annotations", table=annotations),
         "batch_export_backfills": TableNode(name="batch_export_backfills", table=batch_export_backfills),
         "batch_exports": TableNode(name="batch_exports", table=batch_exports),
+        "business_knowledge_chunks": TableNode(name="business_knowledge_chunks", table=business_knowledge_chunks),
+        "business_knowledge_documents": TableNode(
+            name="business_knowledge_documents", table=business_knowledge_documents
+        ),
+        "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),

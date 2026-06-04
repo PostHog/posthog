@@ -8,7 +8,6 @@
       conv.source AS source,
       multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
       sum(conv.conversion_0) AS conversion_0
-  
   FROM
       (
   SELECT
@@ -16,8 +15,7 @@
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           count() AS conversion_0
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -32,8 +30,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -58,8 +55,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -84,8 +80,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -100,17 +95,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -125,27 +116,21 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source) AS conv
-  
   GROUP BY
       multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign),
       conv.id,
       conv.source
-  
   LIMIT 100
   '''
 # ---
@@ -158,7 +143,6 @@
       conv.source AS source,
       conv.campaign AS match_key,
       sum(conv.conversion_0) AS conversion_0
-  
   FROM
       (
   SELECT
@@ -166,8 +150,7 @@
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           count() AS conversion_0
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -182,8 +165,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -208,8 +190,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -234,8 +215,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -250,17 +230,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -275,27 +251,21 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source) AS conv
-  
   GROUP BY
       conv.campaign,
       conv.id,
       conv.source
-  
   LIMIT 100
   '''
 # ---
@@ -308,7 +278,6 @@
       conv.source AS source,
       multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
       sum(conv.conversion_0) AS conversion_0
-  
   FROM
       (
   SELECT
@@ -316,8 +285,7 @@
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           count() AS conversion_0
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -332,8 +300,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -358,8 +325,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -384,8 +350,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -400,17 +365,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'conversion'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'conversion'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -425,27 +386,21 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source) AS conv
-  
   GROUP BY
       multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign),
       conv.id,
       conv.source
-  
   LIMIT 100
   '''
 # ---
@@ -458,7 +413,6 @@
       conv.source AS source,
       multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
       sum(conv.conversion_0) AS conversion_0
-  
   FROM
       (
   SELECT
@@ -466,8 +420,7 @@
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           count() AS conversion_0
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -482,8 +435,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -508,8 +460,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -534,8 +485,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -550,17 +500,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -575,27 +521,21 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source) AS conv
-  
   GROUP BY
       multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign),
       conv.id,
       conv.source
-  
   LIMIT 100
   '''
 # ---
@@ -610,7 +550,6 @@
       sum(conv.conversion_0) AS conversion_0,
       sum(conv.conversion_1) AS conversion_1,
       sum(conv.conversion_2) AS conversion_2
-  
   FROM
       (
   SELECT
@@ -620,8 +559,7 @@
           count() AS conversion_0,
           0 AS conversion_1,
           0 AS conversion_2
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -636,8 +574,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -662,8 +599,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -688,8 +624,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -704,17 +639,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -729,32 +660,26 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source
       UNION ALL
-      
-  SELECT
+      SELECT
           if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           0 AS conversion_0,
           count() AS conversion_1,
           0 AS conversion_2
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -769,8 +694,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -795,8 +719,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -821,8 +744,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -837,17 +759,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -862,32 +780,26 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source
       UNION ALL
-      
-  SELECT
+      SELECT
           if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           0 AS conversion_0,
           0 AS conversion_1,
           count() AS conversion_2
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -902,8 +814,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -928,8 +839,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -954,8 +864,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -970,17 +879,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'login'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'login'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -995,27 +900,21 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source) AS conv
-  
   GROUP BY
       conv.campaign,
       conv.id,
       conv.source
-  
   LIMIT 100
   '''
 # ---
@@ -1029,7 +928,6 @@
       conv.campaign AS match_key,
       sum(conv.conversion_0) AS conversion_0,
       sum(conv.conversion_1) AS conversion_1
-  
   FROM
       (
   SELECT
@@ -1038,8 +936,7 @@
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           count() AS conversion_0,
           0 AS conversion_1
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -1054,8 +951,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -1080,8 +976,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -1106,8 +1001,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -1122,17 +1016,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'sign_up'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'sign_up'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -1147,31 +1037,25 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source
       UNION ALL
-      
-  SELECT
+      SELECT
           if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
           if(notEmpty(campaign_id), campaign_id, '-') AS id,
           if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
           0 AS conversion_0,
           count() AS conversion_1
-      
-  FROM
+      FROM
           (
   SELECT
               person_id,
@@ -1186,8 +1070,7 @@
               if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
               '-' AS campaign_id,
               1 AS conversion_value
-          
-  FROM
+          FROM
               (
   SELECT
                   person_id,
@@ -1212,8 +1095,7 @@
                   if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
                   if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
                   if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
-              
-  FROM
+              FROM
                   (
   SELECT
                       c.person_id AS person_id,
@@ -1238,8 +1120,7 @@
                       t.utm_gclids AS utm_gclids,
                       t.utm_fbclids AS utm_fbclids,
                       t.utm_gad_sources AS utm_gad_sources
-                  
-  FROM
+                  FROM
                       (
   SELECT
                           events.person_id,
@@ -1254,17 +1135,13 @@
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gclid, '')), ''))) AS conversion_gclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$fbclid, '')), ''))) AS conversion_fbclids,
                           arrayFilter(x -> notEmpty(toString(x)), groupArray(if(equals(events.event, 'purchase'), toString(ifNull(events.properties.$gad_source, '')), ''))) AS conversion_gad_sources
-                      
-  FROM
+                      FROM
                           events
-                      
-  WHERE
+                      WHERE
                           and(equals(events.event, 'purchase'), greaterOrEquals(events.timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(events.timestamp, toDateTime('2023-01-31 23:59:59.999999')))
-                      
-  GROUP BY
+                      GROUP BY
                           events.person_id
-                      
-  HAVING
+                      HAVING
                           greater(length(conversion_timestamps), 0)) AS c
                       LEFT JOIN (
   SELECT
@@ -1279,27 +1156,21 @@
                           arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
                           arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
                           arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
-                      
-  FROM
+                      FROM
                           marketing_touchpoints_preaggregated
-                      
-  WHERE
+                      WHERE
                           and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420))
-                      
-  GROUP BY
+                      GROUP BY
                           person_id) AS t ON equals(c.person_id, t.person_id))
               ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
-      
-  GROUP BY
+      GROUP BY
           campaign,
           id,
           source) AS conv
-  
   GROUP BY
       conv.campaign,
       conv.id,
       conv.source
-  
   LIMIT 100
   '''
 # ---

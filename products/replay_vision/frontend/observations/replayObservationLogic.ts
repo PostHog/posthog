@@ -1,11 +1,13 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { observationProgressLogic } from './observationProgressLogic'
 import type { replayObservationLogicType } from './replayObservationLogicType'
+import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
 export interface ReplayObservationLogicProps {
     id: string
@@ -16,6 +18,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
     path(['products', 'replay_vision', 'frontend', 'observations', 'replayObservationLogic']),
     props({} as ReplayObservationLogicProps),
     key((props) => `${props.tabId}:${props.id}`),
+
+    // Mount the SSE progress stream alongside the page and listen for its completion to reload the row.
+    connect((props: ReplayObservationLogicProps) => ({
+        actions: [observationProgressLogic({ observationId: props.id }), ['streamCompleted']],
+    })),
 
     actions({
         loadObservation: true,
@@ -49,10 +56,20 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             try {
                 const response = await visionObservationsRetrieve(String(teamId), props.id)
                 actions.loadObservationSuccess(response)
+                // Link the breadcrumb to the parent scanner so "back" returns to the scanner, not the vision home.
+                replayObservationSceneLogic({ tabId: props.tabId }).actions.setScannerContext(
+                    response.scanner_id,
+                    response.scanner_snapshot?.name ?? null
+                )
             } catch (error) {
                 lemonToast.error(`Failed to load observation: ${String(error)}`)
                 actions.loadObservationFailure()
             }
+        },
+
+        // When the stream reports the observation has settled, reload once to render the final result.
+        streamCompleted: () => {
+            actions.loadObservation()
         },
     })),
 

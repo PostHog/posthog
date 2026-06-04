@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
@@ -14,12 +14,15 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
 
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
-import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, AccountRoleKey, accountsLogic } from './accountsLogic'
+import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
+
+// Shape the backend emits for the `name` column — see accounts_query_runner._calculate.
+type AccountNameCell = { name: string; external_id: string | null; id: string }
 
 const ROLE_LABELS: Record<AccountRoleKey, string> = {
     csm: 'CSM',
@@ -36,37 +39,26 @@ const COLUMN_WIDTHS = {
     account_owner: '220px',
 } as const
 
-// Maps logical column names used by the cell renderers to the actual column
-// names in the HogQL response. `id` and `external_id` come back under the
-// `context.columns.X` prefix so DataTable's existing hidden-flag path filters
-// them out of the visible columns — we still need them in the row tuple for
-// the row-expand id and the Account cell's external_id rendering. The pinned
-// columns are always present in the SELECT (see ACCOUNTS_HOGQL_PINNED_SELECT
-// in accountsLogic.ts).
-const COLUMN_KEY_OVERRIDES: Record<string, string> = {
-    id: 'context.columns.id',
-    external_id: 'context.columns.external_id',
-}
-
 function getCellAt(record: unknown, names: string[], column: string): unknown {
     if (!Array.isArray(record)) {
         return undefined
     }
-    const index = names.indexOf(COLUMN_KEY_OVERRIDES[column] ?? column)
+    const index = names.indexOf(column)
     return index >= 0 ? record[index] : undefined
 }
 
-// Pinned columns prepended to the SELECT in this order — see ACCOUNTS_HOGQL_PINNED_SELECT.
-const PINNED_COLUMN_NAMES = ['context.columns.id', 'context.columns.external_id']
-
-function useColumnNames(): string[] {
+function useGetCell(): (record: unknown, column: string) => unknown {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
-    return [...PINNED_COLUMN_NAMES, ...visibleColumnNames]
+    return (record, column) => getCellAt(record, visibleColumnNames, column)
 }
 
-function useGetCell(): (record: unknown, column: string) => unknown {
-    const names = useColumnNames()
-    return (record, column) => getCellAt(record, names, column)
+function getNameCell(record: unknown, visibleColumnNames: string[]): AccountNameCell | undefined {
+    const value = getCellAt(record, visibleColumnNames, ACCOUNTS_NAME_COLUMN)
+    if (!value || typeof value !== 'object') {
+        return undefined
+    }
+    const cell = value as Partial<AccountNameCell>
+    return typeof cell.id === 'string' && typeof cell.name === 'string' ? (cell as AccountNameCell) : undefined
 }
 
 function tupleToAssignment(value: unknown): AccountAssignment {
@@ -85,13 +77,14 @@ function tupleToAssignment(value: unknown): AccountAssignment {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
-    const getCell = useGetCell()
-    const name = String(getCell(record, 'name') ?? '')
-    const externalId = getCell(record, 'external_id')
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const cell = getNameCell(record, visibleColumnNames)
+    const name = cell?.name ?? ''
+    const externalId = cell?.external_id ?? ''
     return (
         <div className="flex flex-col min-w-40">
             <span className="font-medium">{name}</span>
-            {typeof externalId === 'string' && externalId ? (
+            {externalId ? (
                 <CopyToClipboardInline
                     explicitValue={externalId}
                     iconStyle={{ color: 'var(--color-accent)' }}
@@ -119,9 +112,10 @@ function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
 
 function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRoleKey }): JSX.Element {
     const { isRoleSaving, accountOverrides } = useValues(accountsLogic)
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     const { updateAccountRole } = useActions(accountsLogic)
     const getCell = useGetCell()
-    const accountId = String(getCell(record, 'id') ?? '')
+    const accountId = getNameCell(record, visibleColumnNames)?.id ?? ''
     const overrideProperties = accountId ? accountOverrides[accountId]?.properties : undefined
     const overrideRole = overrideProperties != null ? overrideProperties[role] : undefined
     const assignment: AccountAssignment =
@@ -160,8 +154,6 @@ function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRo
         </div>
     )
 }
-
-const HIDDEN_COLUMN: QueryContextColumn = { hidden: true }
 
 function SortableColumnHeader({ column, label }: { column: string; label: string }): JSX.Element {
     const { sortOrder } = useValues(accountsLogic)
@@ -234,10 +226,7 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
 function useContextColumns(): Record<string, QueryContextColumn> {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
     return useMemo(() => {
-        const columns: Record<string, QueryContextColumn> = {
-            id: HIDDEN_COLUMN,
-            external_id: HIDDEN_COLUMN,
-        }
+        const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
             const template = KNOWN_COLUMN_TEMPLATES[key]
             const label = template?.label ?? key
@@ -251,14 +240,21 @@ function useContextColumns(): Record<string, QueryContextColumn> {
     }, [visibleColumnNames])
 }
 
-const EXPANDABLE: QueryContext<DataTableNode>['expandable'] = {
-    noIndent: true,
-    // id is the first pinned column in ACCOUNTS_HOGQL_PINNED_SELECT, so it's
-    // always at position 0 in the row tuple regardless of user column choices.
-    expandedRowRender: ({ result }) => {
-        const accountId = Array.isArray(result) ? String(result[0] ?? '') : ''
-        return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
-    },
+function useExpandable(): QueryContext<DataTableNode>['expandable'] {
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    return useMemo(
+        () => ({
+            noIndent: true,
+            expandedRowClassName: '[&>td]:overflow-visible!',
+            expandedRowRender: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                return cell ? (
+                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
+                ) : null
+            },
+        }),
+        [visibleColumnNames]
+    )
 }
 
 const SKELETON_ROW_COUNT = 5
@@ -317,46 +313,31 @@ function AccountsHogQLSkeleton(): JSX.Element {
     )
 }
 
-function AccountsHogQLDataTable({ query }: { query: DataTableNode }): JSX.Element {
+export function AccountsHogQLTable(): JSX.Element {
+    const { hogqlQuery } = useValues(accountsLogic)
     const { responseLoading, response } = useValues(dataNodeLogic)
     const contextColumns = useContextColumns()
+    const expandable = useExpandable()
     if (responseLoading && !response) {
         return <AccountsHogQLSkeleton />
     }
     return (
-        <DataTable
-            uniqueKey="customer-analytics-accounts-hogql"
-            query={query}
-            setQuery={() => {
-                // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
-            }}
-            context={{
-                columns: contextColumns,
-                expandable: EXPANDABLE,
-                dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-            }}
-            readOnly
-        />
-    )
-}
-
-export function AccountsHogQLTable(): JSX.Element {
-    const { hogqlQuery } = useValues(accountsLogic)
-
-    return (
-        <BindLogic
-            logic={dataNodeLogic}
-            props={{
-                key: ACCOUNTS_HOGQL_DATA_NODE_KEY,
-                query: hogqlQuery.source,
-            }}
-        >
-            <div className="flex flex-col gap-2">
-                <div className="flex justify-end">
-                    <AccountsColumnConfigurator />
-                </div>
-                <AccountsHogQLDataTable query={hogqlQuery} />
-            </div>
-        </BindLogic>
+        <div className="@container">
+            <DataTable
+                uniqueKey="customer-analytics-accounts-hogql"
+                query={hogqlQuery}
+                setQuery={() => {
+                    // Filters are owned by accountsLogic; column/sort changes from the DataTable are ignored on purpose.
+                }}
+                context={{
+                    columns: contextColumns,
+                    expandable,
+                    dataNodeLogicKey: ACCOUNTS_HOGQL_DATA_NODE_KEY,
+                    emptyStateHeading: 'There are no matching accounts for this query',
+                    emptyStateDetail: 'Try adjusting the filters or refreshing',
+                }}
+                readOnly
+            />
+        </div>
     )
 }

@@ -13,9 +13,10 @@ from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import backfill_batch_export, create_batch_export_ok
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import BatchExport, BatchExportBackfill
 from posthog.models.person.util import create_person
 from posthog.models.team import Team
+
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill
 
 pytestmark = [
     pytest.mark.django_db,
@@ -398,7 +399,7 @@ def test_batch_export_earliest_backfill_rejected_without_feature_flag(
     batch_export = _create_batch_export_ok(client, team, "persons")
     batch_export_id = batch_export["id"]
 
-    with patch("posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=False):
+    with patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=False):
         response = backfill_batch_export(
             client,
             team.pk,
@@ -528,7 +529,7 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
     batch_export = _create_batch_export_ok(client, team, "persons")
     batch_export_id = batch_export["id"]
 
-    with patch("posthog.batch_exports.http.posthoganalytics.feature_enabled", return_value=True):
+    with patch("products.batch_exports.backend.api.batch_export.posthoganalytics.feature_enabled", return_value=True):
         response = backfill_batch_export(
             client,
             team.pk,

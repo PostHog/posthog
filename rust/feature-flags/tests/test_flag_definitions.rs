@@ -1335,17 +1335,17 @@ async fn test_invalid_project_api_key() {
         "Should return 401 for invalid token. Body: {body_text}"
     );
 
-    // Verify the response body format (if JSON)
-    if let Ok(body) = serde_json::from_str::<Value>(&body_text) {
-        assert_eq!(body["type"], "authentication_error");
-        assert_eq!(body["code"], "not_authenticated");
-    } else {
-        // If not JSON, verify the error message mentions invalid API key
-        assert!(
-            body_text.contains("API key is invalid") || body_text.contains("expired"),
-            "Body should mention invalid API key. Got: {body_text}"
-        );
-    }
+    // An invalid project token must return the structured DRF-style JSON envelope,
+    // matching the secret/personal API key paths.
+    let body: Value = serde_json::from_str(&body_text)
+        .unwrap_or_else(|_| panic!("Body should be JSON. Got: {body_text}"));
+    assert_eq!(body["type"], "authentication_error");
+    assert_eq!(body["code"], "authentication_failed");
+    assert_eq!(
+        body["detail"],
+        "The provided API key is invalid or has expired. Please check your API key and try again."
+    );
+    assert_eq!(body["attr"], Value::Null);
 }
 
 #[tokio::test]
@@ -2557,7 +2557,7 @@ async fn test_db_rate_limit_allowlist() {
         .unwrap();
 }
 
-/// Verifies the synchronous billing path writes (or, when `skip_writes=true`,
+/// Verifies the billing path writes (or, when `skip_writes=true`,
 /// suppresses) the FlagDefinitions counter for `/flags/definitions`. The
 /// `/flags` endpoint is covered by tests in `test_flags.rs`; this test is
 /// the equivalent for the FlagDefinitions code path so a regression that
@@ -2624,19 +2624,19 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
         response.text().await.unwrap()
     );
 
-    // Synchronous path writes inline before the response returns, so we can
-    // read back without polling.
-    let counter = redis.hget(billing_key, bucket_field).await;
-
     if skip_writes {
+        // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
+        // an erroneous `record()` behind a delayed first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let counter = redis.hget(billing_key, bucket_field).await;
         assert!(
             counter.is_err(),
-            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true"
+            "FlagDefinitions billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
         );
     } else {
+        let counter = common::poll_for_billing_counter(&redis, &billing_key, &bucket_field).await;
         assert_eq!(
-            counter.unwrap(),
-            "1",
+            counter, "1",
             "FlagDefinitions billing counter should be incremented once"
         );
     }

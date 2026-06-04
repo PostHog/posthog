@@ -1,9 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,25 +16,39 @@ import type { DataWarehouseViewLink } from '~/types'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
+import { AccountsEvents } from './constants'
 
-// Columns aliased into the `context.columns.X` namespace are always included in the
-// SELECT — the table cell renderers depend on them for row identity (id) and the
-// external_id display in the Account cell, but they're hidden from the visible
-// columns via QueryContextColumn.hidden = true.
-export const ACCOUNTS_HOGQL_PINNED_SELECT: string[] = [
-    'id AS `context.columns.id`',
-    'external_id AS `context.columns.external_id`',
-]
+// Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
+// row identity (id) and copy-able external_id ride along with the display name.
+export const ACCOUNTS_NAME_COLUMN = 'name'
 
-// User-configurable defaults — the shape the table ships with out of the box.
 export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
-    'name',
+    ACCOUNTS_NAME_COLUMN,
     'accounts.tags.names AS tag_names',
     'accounts.notebooks.count AS notebook_count',
     'csm',
     'account_executive',
     'account_owner',
 ]
+
+function ensureNameColumn(columns: string[]): string[] {
+    return columns.includes(ACCOUNTS_NAME_COLUMN) ? columns : [ACCOUNTS_NAME_COLUMN, ...columns]
+}
+
+export function diffColumnConfiguration(
+    previous: string[],
+    next: string[]
+): { changed: boolean; added: number; removed: number; reordered: boolean } {
+    const previousSet = new Set(previous)
+    const nextSet = new Set(next)
+    const added = next.filter((column) => !previousSet.has(column)).length
+    const removed = previous.filter((column) => !nextSet.has(column)).length
+    const reordered = !objectsEqual(
+        previous.filter((column) => nextSet.has(column)),
+        next.filter((column) => previousSet.has(column))
+    )
+    return { changed: added > 0 || removed > 0 || reordered, added, removed, reordered }
+}
 
 export const ACCOUNTS_COLUMN_CONFIG_KEY = 'customer_analytics_accounts_columns'
 
@@ -193,9 +209,10 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         selectColumns: [
             [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
             {
-                setSelectColumns: (_, { columns }) => columns,
+                setSelectColumns: (_, { columns }) => ensureNameColumn(columns),
                 selectColumn: (state, { column }) => (state.includes(column) ? state : [...state, column]),
-                unselectColumn: (state, { column }) => state.filter((c) => c !== column),
+                unselectColumn: (state, { column }) =>
+                    column === ACCOUNTS_NAME_COLUMN ? state : state.filter((c) => c !== column),
                 moveColumn: (state, { oldIndex, newIndex }) => {
                     if (oldIndex === newIndex || oldIndex < 0 || oldIndex >= state.length) {
                         return state
@@ -206,8 +223,6 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     return next
                 },
                 resetColumns: () => [...ACCOUNTS_HOGQL_DEFAULT_SELECT],
-                loadSavedColumnConfigurationSuccess: (state, { savedColumnConfiguration }) =>
-                    savedColumnConfiguration ? savedColumnConfiguration.columns : state,
             },
         ],
         columnConfiguratorVisible: [
@@ -260,9 +275,20 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        loadSavedColumnConfigurationSuccess: ({ savedColumnConfiguration }) => {
+            // A shared link's columns (in the URL hash) win over the per-user
+            // saved config, which loads asynchronously after mount. Read the
+            // live URL rather than tracking state, so this stays correct
+            // regardless of later column edits.
+            const urlHasColumns = !!router.values.hashParams?.view?.columns
+            if (savedColumnConfiguration && !urlHasColumns) {
+                actions.setSelectColumns(savedColumnConfiguration.columns)
+            }
+        },
         saveColumns: async () => {
             const teamId = values.currentTeamId || undefined
             const columns = values.selectColumns
+            const previousColumns = values.savedColumnConfiguration?.columns ?? ACCOUNTS_HOGQL_DEFAULT_SELECT
             try {
                 if (values.savedColumnConfiguration?.id) {
                     await api.columnConfigurations.update({
@@ -278,6 +304,16 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     actions.loadSavedColumnConfigurationSuccess({ id: response.id, columns: response.columns || [] })
                 }
                 lemonToast.success('Columns saved')
+                const diff = diffColumnConfiguration(previousColumns, columns)
+                if (diff.changed) {
+                    posthog.capture(AccountsEvents.ColumnsSaved, {
+                        column_count: columns.length,
+                        columns,
+                        added_count: diff.added,
+                        removed_count: diff.removed,
+                        reordered: diff.reordered,
+                    })
+                }
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsColumnConfigLogic.saveColumns' })
                 lemonToast.error('Failed to save columns')

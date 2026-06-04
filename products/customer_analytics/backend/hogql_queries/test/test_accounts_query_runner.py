@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from posthog.schema import AccountsQuery, AccountsQueryResponse
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.constants import AvailableFeature
 from posthog.models import Tag
@@ -31,8 +33,13 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
     def _ids(self, **query_kwargs) -> list[str]:
         runner, response = self._run_query(**query_kwargs)
-        id_index = runner.columns.index("id")
-        return [str(row[id_index]) for row in response.results]
+        name_idx = runner.columns.index("name")
+        return [row[name_idx]["id"] for row in response.results]
+
+    def _names(self, **query_kwargs) -> list[str]:
+        runner, response = self._run_query(**query_kwargs)
+        name_idx = runner.columns.index("name")
+        return [row[name_idx]["name"] for row in response.results]
 
     def test_team_isolation(self):
         mine_1 = create_account(team_id=self.team.id, name="Mine 1")
@@ -62,9 +69,7 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
         create_account(team_id=self.team.id, name="Globex", external_id="glx-99")
 
-        runner, response = self._run_query(search=search)
-        name_idx = runner.columns.index("name")
-        self.assertEqual(sorted(r[name_idx] for r in response.results), sorted(expected_names))
+        self.assertEqual(sorted(self._names(search=search)), sorted(expected_names))
 
     def test_blank_search_returns_all(self):
         create_account(team_id=self.team.id, name="A")
@@ -327,20 +332,14 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         expected_reverse = list(reversed(ids))
 
         page_one_runner, page_one_response = self._run_query(limit=2, offset=0)
+        name_idx = page_one_runner.columns.index("name")
+        self.assertEqual([row[name_idx]["id"] for row in page_one_response.results], expected_reverse[:2])
         self.assertTrue(page_one_response.hasMore)
-        id_idx = page_one_runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in page_one_response.results],
-            expected_reverse[:2],
-        )
 
         page_three_runner, page_three_response = self._run_query(limit=2, offset=4)
+        name_idx = page_three_runner.columns.index("name")
+        self.assertEqual([row[name_idx]["id"] for row in page_three_response.results], expected_reverse[4:])
         self.assertFalse(page_three_response.hasMore)
-        id_idx = page_three_runner.columns.index("id")
-        self.assertEqual(
-            [str(row[id_idx]) for row in page_three_response.results],
-            expected_reverse[4:],
-        )
 
     def test_empty_result_set(self):
         create_account(team_id=self.team.id, name="Acme")
@@ -349,10 +348,18 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertFalse(response.hasMore)
         self.assertEqual(response.offset, 0)
 
-    def test_external_id_is_in_default_columns(self):
-        create_account(team_id=self.team.id, name="A", external_id="ext-A")
-        runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
-        self.assertIn("external_id", runner.columns)
+    def test_name_column_carries_id_external_id_and_display_name(self):
+        account = create_account(team_id=self.team.id, name="A", external_id="ext-A")
+        runner, response = self._run_query()
+        name_idx = runner.columns.index("name")
+        self.assertEqual(
+            response.results[0][name_idx],
+            {"name": "A", "external_id": "ext-A", "id": str(account.id)},
+        )
+
+    def test_name_column_is_prepended_when_not_in_select(self):
+        runner = AccountsQueryRunner(query=AccountsQuery(select=["external_id"]), team=self.team)
+        self.assertEqual(runner.columns, ["name", "external_id"])
 
     def test_set_tags_on_object_helper_matches(self):
         # Mirror existing API test setup that uses set_tags_on_object.
@@ -371,6 +378,64 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         create_account(team_id=self.team.id, name="A")
         runner = AccountsQueryRunner(query=AccountsQuery(select=["id", "name", "id"]), team=self.team)
         self.assertEqual(runner.columns, ["id", "name"])
+
+    def test_metrics_mode_returns_aggregations_and_no_rows(self):
+        create_account(team_id=self.team.id, name="A")
+        create_account(team_id=self.team.id, name="B")
+        create_account(team_id=self.team.id, name="C")
+        _, response = self._run_query(metrics=["count()"], select=[])
+        self.assertEqual(response.results, [])
+        self.assertEqual(response.columns, [])
+        self.assertEqual(response.metricsResults, [3])
+
+    def test_combined_mode_returns_rows_and_metrics_in_one_response(self):
+        create_account(team_id=self.team.id, name="A")
+        create_account(team_id=self.team.id, name="B")
+        create_account(team_id=self.team.id, name="C")
+        runner, response = self._run_query(select=["name"], metrics=["count()"])
+        name_idx = runner.columns.index("name")
+        self.assertEqual(len(response.results), 3)
+        self.assertTrue(all(row[name_idx]["name"] for row in response.results))
+        self.assertEqual(response.metricsResults, [3])
+
+    def test_metrics_mode_reuses_table_where_clause(self):
+        create_account(team_id=self.team.id, name="Acme")
+        create_account(team_id=self.team.id, name="Other")
+        _, response = self._run_query(metrics=["count()"], select=[], search="acme")
+        self.assertEqual(response.metricsResults, [1])
+
+    def test_metrics_mode_respects_team_isolation(self):
+        create_account(team_id=self.team.id, name="Mine")
+        other_team = Team.objects.create(organization=self.organization)
+        create_account(team_id=other_team.id, name="Theirs")
+        _, response = self._run_query(metrics=["count()"], select=[])
+        self.assertEqual(response.metricsResults, [1])
+
+    def test_bad_metric_raises_an_error_naming_the_offending_expression(self):
+        create_account(team_id=self.team.id, name="A")
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            self._run_query(select=["name"], metrics=["count()", "sum(does_not_exist)"])
+        message = str(ctx.exception)
+        self.assertIn("sum(does_not_exist)", message)
+        # The healthy metric should not be blamed.
+        self.assertNotIn("`count()`", message)
+
+    def test_filter_expression_narrows_the_row_set(self):
+        create_account(team_id=self.team.id, name="A", _properties={"score": 80})
+        create_account(team_id=self.team.id, name="B", _properties={"score": 20})
+        create_account(team_id=self.team.id, name="C", _properties={"score": 10})
+        ids = self._ids(filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50")
+        self.assertEqual(len(ids), 2)
+
+    def test_filter_expression_combines_with_search(self):
+        create_account(team_id=self.team.id, name="Match", _properties={"score": 5})
+        create_account(team_id=self.team.id, name="WrongScore", _properties={"score": 99})
+        create_account(team_id=self.team.id, name="WrongName", _properties={"score": 5})
+        names = self._names(
+            search="match",
+            filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
+        )
+        self.assertEqual(names, ["Match"])
 
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)

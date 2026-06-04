@@ -45,6 +45,20 @@ ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
 DEFAULT_ORDERING = "-joined_at"
 
 
+def organization_members_base_queryset() -> QuerySet:
+    """Active, non-bot organization memberships with their user prefetched.
+
+    Shared base for organization-member listings (core admin view and the
+    customer-analytics account view) so the exclusion and active-user filter
+    stay in one place.
+    """
+    return (
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        .filter(user__is_active=True)
+        .select_related("user")
+    )
+
+
 class OrganizationMemberObjectPermissions(BasePermission):
     """Require organization admin level to change object, allowing everyone read AND delete."""
 
@@ -112,7 +126,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
-@extend_schema(tags=["core", "platform_features"])
+@extend_schema(extensions={"x-product": "platform_features"})
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -143,11 +157,7 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
-        .filter(
-            user__is_active=True,
-        )
-        .select_related("user")
+        organization_members_base_queryset()
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
