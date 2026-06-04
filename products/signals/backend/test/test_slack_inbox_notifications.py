@@ -93,16 +93,15 @@ def test_build_message_blocks_includes_recipient_and_posthog_code_button() -> No
 
     assert blocks[0]["text"]["text"] == "📬 Checkout errors spiked"
     section_text = blocks[1]["text"]["text"]
-    # Mention belongs in the mrkdwn section so Slack actually pings the user.
-    assert section_text.startswith("*‼️ P1 • Matched to <@U123> per code*")
+    assert section_text.startswith("*‼️ P1 · Error tracking*")
     assert "Error rate rose after deploy." in section_text
     assert "Ignored second line." not in section_text
     # A mention in plain_text would render as the raw token, never pinging anyone.
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     context_text = blocks[2]["elements"][0]["text"]
     assert "12 signals" in context_text
-    assert "Error tracking" in context_text
-    assert "Inbox" in context_text
+    assert "👤 Suggested reviewers: <@U123>" in context_text
+    assert "Inbox" not in context_text
     button = blocks[3]["elements"][0]
     assert button["text"]["text"] == "Open in PostHog Code"
     assert button["url"] == "posthog-code://inbox/report-uuid"
@@ -118,7 +117,21 @@ def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
         reviewer_mentions=["<@U1>", "<@U2>"],
     )
 
-    assert blocks[1]["text"]["text"] == "*❗ P2 • Matched to <@U1> <@U2> per code*"
+    assert blocks[1]["text"]["text"] == "*❗ P2*"
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: <@U1> <@U2>"
+
+
+def test_build_message_blocks_includes_repository_in_metadata_line() -> None:
+    report = SignalReport(id="report-uuid", title="Repo test")
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P2",
+        source_products=["error_tracking"],
+        reviewer_mentions=[],
+        repository="PostHog/posthog",
+    )
+
+    assert blocks[1]["text"]["text"] == "*❗ P2 · Error tracking · PostHog/posthog*"
 
 
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
@@ -139,9 +152,9 @@ def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -
 
     buttons = blocks[3]["elements"]
     assert len(buttons) == 2
-    assert buttons[0]["text"]["text"] == "Open in PostHog Code"
-    assert buttons[1]["text"]["text"] == "Review PR in GitHub"
-    assert buttons[1]["url"] == pr_url
+    assert buttons[0]["text"]["text"] == "Review PR"
+    assert buttons[0]["url"] == pr_url
+    assert buttons[1]["text"]["text"] == "Open in PostHog Code"
 
 
 def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
@@ -154,8 +167,29 @@ def test_build_message_blocks_omits_github_pr_button_without_pr_url() -> None:
         implementation_pr_url=None,
     )
 
-    assert blocks[1]["text"]["text"] == "*Matched to Marcus Twix per code*"
+    assert blocks[1]["text"]["text"] == "*No PR yet*"
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: Marcus Twix"
     assert len(blocks[3]["elements"]) == 1
+
+
+def test_build_message_blocks_appends_dismiss_button_last_with_action_id() -> None:
+    report = SignalReport(id="report-uuid", title="Dismissable")
+    dismiss_value = '{"integration_id": 2, "report_id": "report-uuid", "team_id": 1}'
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P2",
+        source_products=[],
+        reviewer_mentions=["<@U123>"],
+        implementation_pr_url="https://github.com/org/repo/pull/42",
+        dismiss_button_value=dismiss_value,
+    )
+
+    buttons = blocks[3]["elements"]
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog Code", "Dismiss"]
+    dismiss = buttons[-1]
+    assert dismiss["action_id"] == "signals_dismiss_report"
+    assert dismiss["value"] == dismiss_value
+    assert "url" not in dismiss
 
 
 @pytest.mark.parametrize(
@@ -177,7 +211,8 @@ def test_build_message_blocks_prefixes_priority_with_emoji(priority: str, expect
         reviewer_mentions=["<@U123>"],
     )
 
-    assert blocks[1]["text"]["text"] == f"*{expected_priority_label} • Matched to <@U123> per code*"
+    assert blocks[1]["text"]["text"] == f"*{expected_priority_label}*"
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested reviewers: <@U123>"
 
 
 def test_resolve_reviewer_mentions_uses_slack_mention_when_lookup_succeeds() -> None:
@@ -348,50 +383,13 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert "Inbox item (P1)" in call_kwargs["text"]
     blocks = call_kwargs["blocks"]
     assert blocks[0]["text"]["text"] == "📬 Test report"
-    assert blocks[1]["text"]["text"].startswith("*‼️ P1 • Matched to <@U_REVIEWER> per code*")
+    assert blocks[1]["text"]["text"].startswith("*‼️ P1 · Error tracking*")
+    assert "👤 Suggested reviewers: <@U_REVIEWER>" in blocks[2]["elements"][0]["text"]
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
 
 
 @pytest.mark.django_db
-<<<<<<< New base: feat(signals): route inbox notifications to reviewer or team channel
-@pytest.mark.parametrize(
-    ("priority", "actionability"),
-    [
-        (None, ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
-        (AutonomyPriority.P1, None),
-        ("XX", ActionabilityChoice.IMMEDIATELY_ACTIONABLE),
-        (AutonomyPriority.P1, ActionabilityChoice.NOT_ACTIONABLE),
-    ],
-)
-def test_dispatch_skips_until_immediately_actionable_with_valid_priority(
-    org_and_team: tuple[Organization, Team], priority: str | None, actionability: str | None
-) -> None:
-    org, team = org_and_team
-    user = _make_reviewer_user(org, "reviewer-missing-judgment@example.com", "missing-judgment-bot")
-    integration = _make_slack_integration(team, user)
-    SignalUserAutonomyConfig.objects.create(
-        user=user,
-        slack_notification_integration=integration,
-        slack_notification_channel="C123|#inbox",
-    )
-    report = _make_ready_report(
-        team,
-        priority=priority,
-        actionability=actionability,
-        suggested_logins=["missing-judgment-bot"],
-    )
-
-    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
-        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
-
-    assert sent == 0
-    assert slack_cls.call_count == 0
-
-
-@pytest.mark.django_db
-||||||| Common ancestor
-=======
 def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team):
     org, team = org_and_team
     reviewer = _make_reviewer_user(org, "team-reviewer@example.com", "team-bot")
@@ -413,7 +411,7 @@ def test_dispatch_posts_to_team_channel_without_per_user_config(org_and_team):
     assert sent == 1
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "CTEAM"
-    assert "<@U_TEAM>" in call_kwargs["blocks"][1]["text"]["text"]
+    assert "<@U_TEAM>" in call_kwargs["blocks"][2]["elements"][0]["text"]
 
 
 @pytest.mark.django_db
@@ -422,7 +420,7 @@ def test_dispatch_posts_nothing_without_suggested_reviewers(org_and_team):
     creator = _make_reviewer_user(org, "creator@example.com", "creator-bot")
     _make_slack_integration(team, creator)
     _set_team_channel(team, "CTEAM|#posthog-signals")
-    report = _make_ready_report(team)  # no suggested reviewers
+    report = _make_ready_report(team, priority=AutonomyPriority.P2)  # no suggested reviewers
 
     fake_client = MagicMock()
     with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
@@ -448,7 +446,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
         slack_notification_channel="CSHARED|#signals",
     )
     _set_team_channel(team, "CSHARED|#signals")
-    report = _make_ready_report(team, suggested_logins=["own-bot", "fallback-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["own-bot", "fallback-bot"])
 
     def _slack_id(_slack, email):
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
@@ -466,7 +464,7 @@ def test_dispatch_groups_own_and_fallback_reviewers_sharing_a_channel(org_and_te
 
     assert sent == 1
     assert fake_client.chat_postMessage.call_count == 1
-    body = fake_client.chat_postMessage.call_args.kwargs["blocks"][1]["text"]["text"]
+    body = fake_client.chat_postMessage.call_args.kwargs["blocks"][2]["elements"][0]["text"]
     assert "<@U_OWN>" in body and "<@U_FALLBACK>" in body
 
 
@@ -483,7 +481,7 @@ def test_dispatch_skips_team_channel_when_reviewer_has_own_channel(org_and_team)
         slack_notification_channel="CUSER|#me",
     )
     _set_team_channel(team, "CTEAM|#posthog-signals")
-    report = _make_ready_report(team, suggested_logins=["own-only-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["own-only-bot"])
 
     fake_client = MagicMock()
     with (
@@ -515,7 +513,7 @@ def test_dispatch_team_channel_tags_only_fallback_reviewers(org_and_team):
         slack_notification_channel="CUSER|#me",
     )
     _set_team_channel(team, "CTEAM|#posthog-signals")
-    report = _make_ready_report(team, suggested_logins=["own-bot", "fallback-bot"])
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["own-bot", "fallback-bot"])
 
     def _slack_id(_slack, email):
         return {"own@example.com": "U_OWN", "fallback@example.com": "U_FALLBACK"}.get(email.strip().lower())
@@ -533,7 +531,7 @@ def test_dispatch_team_channel_tags_only_fallback_reviewers(org_and_team):
 
     assert sent == 2
     by_channel = {
-        c.kwargs["channel"]: c.kwargs["blocks"][1]["text"]["text"]
+        c.kwargs["channel"]: c.kwargs["blocks"][2]["elements"][0]["text"]
         for c in fake_client.chat_postMessage.call_args_list
     }
     assert set(by_channel) == {"CUSER", "CTEAM"}
@@ -542,7 +540,6 @@ def test_dispatch_team_channel_tags_only_fallback_reviewers(org_and_team):
 
 
 @pytest.mark.django_db
->>>>>>> Current commit: feat(signals): route inbox notifications to reviewer or team channel
 def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_and_team):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer-pr@example.com", "pr-bot")
@@ -568,9 +565,49 @@ def test_dispatch_includes_github_pr_button_when_implementation_task_has_pr(org_
 
     assert sent == 1
     buttons = fake_client.chat_postMessage.call_args.kwargs["blocks"][3]["elements"]
-    assert len(buttons) == 2
-    assert buttons[1]["text"]["text"] == "Review PR in GitHub"
-    assert buttons[1]["url"] == "https://github.com/org/repo/pull/99"
+    assert [b["text"]["text"] for b in buttons] == ["Review PR", "Open in PostHog Code", "Dismiss"]
+    assert buttons[0]["url"] == "https://github.com/org/repo/pull/99"
+    assert buttons[-1]["action_id"] == "signals_dismiss_report"
+
+
+@pytest.mark.django_db
+def test_dispatch_dismiss_button_carries_routing_ids_and_repository(org_and_team):
+    org, team = org_and_team
+    user = _make_reviewer_user(org, "reviewer-dismiss@example.com", "dismiss-bot")
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user,
+        slack_notification_integration=integration,
+        slack_notification_channel="C123|#inbox",
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P2, suggested_logins=["dismiss-bot"])
+    SignalReportArtefact.objects.create(
+        team=team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
+        content=json.dumps({"repository": "PostHog/posthog", "reason": "owns the code"}),
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value=None,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
+    assert "PostHog/posthog" in blocks[1]["text"]["text"]
+    dismiss = blocks[3]["elements"][-1]
+    assert json.loads(dismiss["value"]) == {
+        "integration_id": integration.id,
+        "report_id": str(report.id),
+        "team_id": team.id,
+    }
 
 
 @pytest.mark.django_db
@@ -723,5 +760,5 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
     call_kwargs = fake_client.chat_postMessage.call_args.kwargs
     assert call_kwargs["channel"] == "C123"
     # The single message still tags both reviewers that resolved to the channel.
-    section_text = call_kwargs["blocks"][1]["text"]["text"]
-    assert "Matched to <@U_ONE>, <@U_TWO> per code" in section_text
+    context_text = call_kwargs["blocks"][2]["elements"][0]["text"]
+    assert "👤 Suggested reviewers: <@U_ONE> <@U_TWO>" in context_text

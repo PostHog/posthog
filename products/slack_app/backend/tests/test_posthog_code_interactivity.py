@@ -763,3 +763,96 @@ class TestInteractivityRegionRouting(TestCase):
         mock_proxy.assert_not_called()
         mock_sync_connect.assert_called_once()
         mock_sync_connect.return_value.start_workflow.assert_called_once()
+
+
+class TestSignalsDismissReport(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.signing_secret = "posthog-code-test-secret"
+
+        self.organization = Organization.objects.create(name="Dismiss Org")
+        self.team = Team.objects.create(organization=self.organization, name="Dismiss Team")
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def _make_ready_report(self):
+        from products.signals.backend.models import SignalReport
+
+        return SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Dismissable report",
+            summary="Summary",
+            signal_count=1,
+            total_weight=1.0,
+        )
+
+    def _dismiss_payload(self, report_id: str, *, team_id: int | None = None) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": "T12345"},
+            "user": {"id": "U777"},
+            "response_url": "https://hooks.slack.test/response",
+            "actions": [
+                {
+                    "action_id": "signals_dismiss_report",
+                    "value": json.dumps(
+                        {
+                            "integration_id": self.integration.id,
+                            "report_id": report_id,
+                            "team_id": team_id if team_id is not None else self.team.id,
+                        }
+                    ),
+                }
+            ],
+            "message": {"ts": "1234.9999", "blocks": []},
+        }
+
+    def _post_interactivity(self, payload: dict) -> Any:
+        body_str = f"payload={json.dumps(payload)}"
+        signature, ts = sign_slack_request(body_str.encode(), self.signing_secret)
+        return self.client.post(
+            "/slack/interactivity-callback/",
+            data=body_str,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_X_SLACK_SIGNATURE=signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+        )
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_dismiss_suppresses_report_and_writes_artefact(self, mock_config, mock_requests_post):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id)))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        assert SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()
+        # The original message is replaced with a dismissed acknowledgement.
+        assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_dismiss_ignores_report_from_another_team(self, mock_config, mock_requests_post):
+        from products.signals.backend.models import SignalReport
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        report = self._make_ready_report()
+
+        # team_id in the button value doesn't match the integration's team.
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), team_id=self.team.id + 9999))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
