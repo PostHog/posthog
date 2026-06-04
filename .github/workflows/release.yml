@@ -45,6 +45,16 @@ on:
                 required: true
                 default: dry-run
                 type: string
+            source:
+                description: Release source
+                required: false
+                default: manual
+                type: string
+            release_commit:
+                description: Release commit
+                required: false
+                default: ''
+                type: string
 
 jobs:
     # Run 'dist plan' (or host) to determine what tasks we need to do
@@ -53,15 +63,31 @@ jobs:
         timeout-minutes: 10
         outputs:
             val: ${{ steps.plan.outputs.manifest }}
-            tag: ${{ (inputs.tag != 'dry-run' && inputs.tag) || '' }}
-            tag-flag: ${{ inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}', inputs.tag) || '' }}
-            publishing: ${{ inputs.tag && inputs.tag != 'dry-run' }}
+            tag: ${{ (inputs.source == 'release-cli' && inputs.tag != 'dry-run' && inputs.tag) || '' }}
+            tag-flag: ${{ inputs.source == 'release-cli' && inputs.tag && inputs.tag != 'dry-run' && format('--tag={0}', inputs.tag) || '' }}
+            publishing: ${{ inputs.source == 'release-cli' && inputs.tag && inputs.tag != 'dry-run' }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   submodules: recursive
+            - name: Validate release dispatch
+              if: ${{ inputs.tag && inputs.tag != 'dry-run' }}
+              env:
+                  DISPATCH_ACTOR: ${{ github.actor }}
+                  RELEASE_COMMIT: ${{ inputs.release_commit }}
+                  RELEASE_SOURCE: ${{ inputs.source }}
+              run: |
+                  if [ "$RELEASE_SOURCE" != "release-cli" ] || [ "$DISPATCH_ACTOR" != "github-actions[bot]" ]; then
+                      echo "::error::Publishing dispatches must come from the Release CLI workflow"
+                      exit 1
+                  fi
+
+                  if [ -z "$RELEASE_COMMIT" ] || [ "$(git rev-parse HEAD)" != "$RELEASE_COMMIT" ]; then
+                      echo "::error::Release workflow is not running at the release commit"
+                      exit 1
+                  fi
             - name: Install dist
               # we specify bash to get pipefail; it guards against the `curl` command
               # failing. otherwise `sh` won't catch that `curl` returned non-0
@@ -79,7 +105,7 @@ jobs:
             # but also really annoying to build CI around when it needs secrets to work right.)
             - id: plan
               env:
-                  DIST_COMMAND: ${{ (inputs.tag && inputs.tag != 'dry-run' && format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }}
+                  DIST_COMMAND: ${{ (inputs.source == 'release-cli' && inputs.tag && inputs.tag != 'dry-run' && format('host --steps=create --tag={0}', inputs.tag)) || 'plan' }}
               run: |
                   dist $DIST_COMMAND --output-format=json > plan-dist-manifest.json
                   echo "dist ran successfully"

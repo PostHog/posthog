@@ -19,7 +19,8 @@ After the pull request merges to `master`, the `Release CLI` workflow:
 3. Runs `sampo release` from `./cli`
 4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
 5. Commits the release bump to `master`
-6. Dispatches the cargo-dist release workflow with the `posthog-cli/vX.Y.Z` tag
+6. Pushes the `posthog-cli/vX.Y.Z` tag at the release bump commit
+7. Dispatches the cargo-dist release workflow on that tag ref
 
 You can also trigger `Release CLI` manually from the Actions tab. Manual runs still require pending changesets.
 Do not run `sampo publish`; cargo-dist owns publishing for `posthog-cli`.
