@@ -136,8 +136,6 @@ export const Breakdown: Story = {
     render: () => renderTrendsPieChart(pieInsight({ display: 'ActionsPie', showValuesOnSeries: true }, 'pieBreakdown')),
 }
 
-// With "Show as % of total" enabled, slice labels render each slice's share of the total
-// (e.g. "52.3%") rather than its raw count.
 export const PercentStackBreakdown: Story = {
     render: () =>
         renderTrendsPieChart(

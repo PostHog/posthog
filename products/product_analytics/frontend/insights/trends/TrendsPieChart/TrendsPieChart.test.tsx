@@ -35,19 +35,30 @@ function sliceLabels(): string[] {
     )
 }
 
-// Napped broken down by hedgehog yields per-slice aggregated values
-// Spike 11, Thistle 4, Bramble 2, Prickles 2, Conker 0 (total 19).
-const pieByHedgehog = (extra?: Parameters<typeof buildTrendsQuery>[0]): ReturnType<typeof buildTrendsQuery> =>
+// Napped × hedgehog fixture: Spike 11, Thistle 4, Bramble 2, Prickles 2, Conker 0.
+// Conker drops out (0% < the 5% slice-label threshold); total of the rest is 19,
+// so percent mode renders 11/19, 4/19, 2/19, 2/19.
+const pieByHedgehog = (trendsFilter: Record<string, unknown> = {}): ReturnType<typeof buildTrendsQuery> =>
     buildTrendsQuery({
         series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
         breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
-        trendsFilter: { display: ChartDisplayType.ActionsPie, showValuesOnSeries: true },
-        ...extra,
+        trendsFilter: { display: ChartDisplayType.ActionsPie, showValuesOnSeries: true, ...trendsFilter },
     })
 
 describe('TrendsPieChart (ActionsPie)', () => {
-    it('shows raw slice values when percent stack view is off', async () => {
-        renderInsight({ query: pieByHedgehog(), featureFlags: HOG_CHARTS_FLAG })
+    it.each([
+        {
+            name: 'shows raw slice values when percent stack view is off',
+            query: pieByHedgehog(),
+            expectedLabels: ['11', '4', '2', '2'],
+        },
+        {
+            name: 'formats slice values as percentages in percent stack view',
+            query: pieByHedgehog({ showPercentStackView: true }),
+            expectedLabels: ['57.9%', '21.1%', '10.5%', '10.5%'],
+        },
+    ])('$name', async ({ query, expectedLabels }) => {
+        renderInsight({ query, featureFlags: HOG_CHARTS_FLAG })
         await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
 
         await waitFor(
@@ -56,33 +67,6 @@ describe('TrendsPieChart (ActionsPie)', () => {
             },
             { timeout: 5000 }
         )
-        const labels = sliceLabels()
-        expect(labels).toContain('11') // Spike's aggregated value
-        expect(labels.some((l) => l.includes('%'))).toBe(false)
-    })
-
-    it('formats slice values as percentages in percent stack view', async () => {
-        renderInsight({
-            query: pieByHedgehog({
-                trendsFilter: {
-                    display: ChartDisplayType.ActionsPie,
-                    showValuesOnSeries: true,
-                    showPercentStackView: true,
-                },
-            }),
-            featureFlags: HOG_CHARTS_FLAG,
-        })
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
-
-        await waitFor(
-            () => {
-                expect(sliceLabels().length).toBeGreaterThan(0)
-            },
-            { timeout: 5000 }
-        )
-        const labels = sliceLabels()
-        // Spike is 11/19 ≈ 57.9% of the visible total.
-        expect(labels).toContain('57.9%')
-        expect(labels.every((l) => l.includes('%'))).toBe(true)
+        expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
     })
 })
