@@ -77,7 +77,7 @@ set +e
 # Fail fast once instability is detected so the job doesn't burn the full timeout
 # on the remaining repeated runs.
 pnpm --filter=@posthog/playwright exec playwright test "${tests_to_run[@]}" \
-    --workers=1 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1
+    --workers=4 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1
 test_exit=$?
 set -e
 
