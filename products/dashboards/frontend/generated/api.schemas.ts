@@ -7775,11 +7775,6 @@ export interface _WidgetTileLayoutsOpenApiApi {
     xs?: _WidgetTileLayoutBoxOpenApiApi
 }
 
-/**
- * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-* `error_tracking_list` - error_tracking_list
- */
 export type ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType =
     (typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType]
 
@@ -7800,19 +7795,11 @@ export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
     layouts?: _WidgetTileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
-    /** Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-  * `error_tracking_list` - error_tracking_list */
     widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
     /** Configuration for the error tracking list widget. */
     config: ErrorTrackingListWidgetConfigApi
 }
 
-/**
- * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-* `session_replay_list` - session_replay_list
- */
 export type SessionReplayListWidgetAddRequestOpenApiApiWidgetType =
     (typeof SessionReplayListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetAddRequestOpenApiApiWidgetType]
 
@@ -7833,9 +7820,6 @@ export interface SessionReplayListWidgetAddRequestOpenApiApi {
     layouts?: _WidgetTileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
-    /** Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-  * `session_replay_list` - session_replay_list */
     widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
     /** Configuration for the session replay list widget. */
     config: SessionReplayListWidgetConfigApi
@@ -7850,7 +7834,7 @@ export type AddDashboardWidgetRequestApi =
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+     * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */

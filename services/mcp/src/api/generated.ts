@@ -3788,11 +3788,6 @@ export namespace Schemas {
       xs?: _WidgetTileLayoutBoxOpenApi;
     }
 
-    /**
-     * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-    * `error_tracking_list` - error_tracking_list
-     */
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -3933,19 +3928,11 @@ export namespace Schemas {
       layouts?: _WidgetTileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
-      /** Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-      * `error_tracking_list` - error_tracking_list */
       widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
       /** Configuration for the error tracking list widget. */
       config: ErrorTrackingListWidgetConfig;
     }
 
-    /**
-     * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-    * `session_replay_list` - session_replay_list
-     */
     export type SessionReplayListWidgetAddRequestOpenApiWidgetType = typeof SessionReplayListWidgetAddRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetType];
 
 
@@ -4013,9 +4000,6 @@ export namespace Schemas {
       layouts?: _WidgetTileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
-      /** Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-
-      * `session_replay_list` - session_replay_list */
       widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
       /** Configuration for the session replay list widget. */
       config: SessionReplayListWidgetConfig;
@@ -4028,7 +4012,7 @@ export namespace Schemas {
      */
     export interface AddDashboardWidgetsBatchRequestOpenApi {
       /**
-         * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */

@@ -25,8 +25,8 @@ _ERROR_TRACKING_WIDGET_STATUS_CHOICES = [
     "all",
 ]
 
-_WIDGET_TYPE_OPENAPI_HELP = (
-    "Widget type identifier. Supported values: "
+WIDGET_BATCH_ADD_OPENAPI_HELP = (
+    "Widget tiles to add atomically. Supported widget_type values: "
     + ", ".join(sorted(EXPECTED_WIDGET_TYPES))
     + ". Use dashboard-widget-catalog-list for config_schema_hints per type."
 )
@@ -181,20 +181,14 @@ class _AddDashboardWidgetTileFieldsOpenApiSerializer(serializers.Serializer):
 
 
 class ErrorTrackingListWidgetAddRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
-    widget_type = serializers.ChoiceField(
-        choices=[ERROR_TRACKING_LIST_WIDGET_TYPE],
-        help_text=_WIDGET_TYPE_OPENAPI_HELP,
-    )
+    widget_type = serializers.ChoiceField(choices=[ERROR_TRACKING_LIST_WIDGET_TYPE])
     config = ErrorTrackingListWidgetConfigSerializer(
         help_text="Configuration for the error tracking list widget.",
     )
 
 
 class SessionReplayListWidgetAddRequestOpenApiSerializer(_AddDashboardWidgetTileFieldsOpenApiSerializer):
-    widget_type = serializers.ChoiceField(
-        choices=[SESSION_REPLAY_LIST_WIDGET_TYPE],
-        help_text=_WIDGET_TYPE_OPENAPI_HELP,
-    )
+    widget_type = serializers.ChoiceField(choices=[SESSION_REPLAY_LIST_WIDGET_TYPE])
     config = SessionReplayListWidgetConfigSerializer(
         help_text="Configuration for the session replay list widget.",
     )

@@ -527,13 +527,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .boolean()
                             .optional()
                             .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod
-                            .enum(['error_tracking_list'])
-                            .describe('* `error_tracking_list` - error_tracking_list')
-                            .enum(['error_tracking_list'])
-                            .describe(
-                                'Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.\n\n* `error_tracking_list` - error_tracking_list'
-                            ),
+                        widget_type: zod.enum(['error_tracking_list']),
                         config: zod
                             .object({
                                 limit: zod
@@ -652,13 +646,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             .boolean()
                             .optional()
                             .describe('Whether to show the description on the dashboard tile.'),
-                        widget_type: zod
-                            .enum(['session_replay_list'])
-                            .describe('* `session_replay_list` - session_replay_list')
-                            .enum(['session_replay_list'])
-                            .describe(
-                                'Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.\n\n* `session_replay_list` - session_replay_list'
-                            ),
+                        widget_type: zod.enum(['session_replay_list']),
                         config: zod
                             .object({
                                 limit: zod
@@ -722,7 +710,9 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
-            .describe('Widget tiles to add atomically (1–10). Use a single-element list to add one widget.'),
+            .describe(
+                'Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).'
+            ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')
 

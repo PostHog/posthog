@@ -85,6 +85,7 @@ from products.dashboards.backend.api.dashboard_template_json_schema_parser impor
     DashboardTemplateCreationJSONSchemaParser,
 )
 from products.dashboards.backend.api.widget_openapi_serializers import (
+    WIDGET_BATCH_ADD_OPENAPI_HELP,
     AddDashboardWidgetRequestOpenApi,
     DashboardWidgetConfigField,
 )
@@ -575,9 +576,7 @@ class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
         child=AddDashboardWidgetRequestOpenApi,
         min_length=1,
         max_length=MAX_WIDGETS_BATCH_SIZE,
-        help_text=(
-            f"Widget tiles to add atomically (1–{MAX_WIDGETS_BATCH_SIZE}). Use a single-element list to add one widget."
-        ),
+        help_text=f"{WIDGET_BATCH_ADD_OPENAPI_HELP} (1–{MAX_WIDGETS_BATCH_SIZE} per request).",
     )
 
 
