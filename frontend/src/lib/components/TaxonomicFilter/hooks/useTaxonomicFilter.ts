@@ -63,6 +63,7 @@ import { AnyDataNode } from '~/queries/schema/schema-general'
 import { UseGroupListInput, UseGroupListResult } from './useGroupList'
 import { useTaxonomicGroupsContext } from './useTaxonomicGroupsContext'
 import { useRecentPinnedItems, useTaxonomicLocalOverrides } from './useTaxonomicLocalOverrides'
+import { useTaxonomicTelemetry } from './useTaxonomicTelemetry'
 
 export interface UseTaxonomicFilterOptions {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -132,7 +133,12 @@ export interface TaxonomicFilterApi {
     searchPlaceholder: string
 
     // selection
-    selectItem: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue | null, item: any) => void
+    selectItem: (
+        group: TaxonomicFilterGroup,
+        value: TaxonomicFilterValue | null,
+        item: any,
+        meta?: { position?: number }
+    ) => void
     /** Forwards Enter to the registered active list, falling back to onEnter(query). */
     selectSelected: () => void
 
@@ -164,6 +170,7 @@ export interface TaxonomicFilterApi {
         value: string
         onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
         onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void
+        onPaste: (e: React.ClipboardEvent<HTMLInputElement>) => void
         placeholder: string
     }
 }
@@ -467,13 +474,16 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         }
     }, [groupTypes, activeGroupType, defaultActiveGroup])
 
+    const telemetry = useTaxonomicTelemetry({ activeGroupType, searchQuery })
+
     const setActiveGroupType = useCallback(
         (t: TaxonomicFilterGroupType) => {
             if (groupTypes.includes(t)) {
+                telemetry.markInteraction()
                 setActiveGroupTypeInternal(t)
             }
         },
-        [groupTypes]
+        [groupTypes, telemetry]
     )
 
     const tabLeft = useCallback(() => {
@@ -482,18 +492,20 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             return
         }
         for (let i = idx - 1; i >= 0; i--) {
+            telemetry.markInteraction()
             setActiveGroupTypeInternal(groupTypes[i])
             return
         }
-    }, [groupTypes, activeGroupType])
+    }, [groupTypes, activeGroupType, telemetry])
 
     const tabRight = useCallback(() => {
         const idx = groupTypes.indexOf(activeGroupType)
         if (idx === -1 || idx >= groupTypes.length - 1) {
             return
         }
+        telemetry.markInteraction()
         setActiveGroupTypeInternal(groupTypes[idx + 1])
-    }, [groupTypes, activeGroupType])
+    }, [groupTypes, activeGroupType, telemetry])
 
     const activeGroup = useMemo(() => groups.find((g) => g.type === activeGroupType), [groups, activeGroupType])
 
@@ -531,47 +543,77 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
     }, [])
 
     const selectItem = useCallback(
-        (group: TaxonomicFilterGroup, valueIn: TaxonomicFilterValue | null, item: any) => {
-            // Mirror the legacy `taxonomicFilterLogic.selectItem` recent
-            // recording so menu commits show up in the dropdown's
-            // "Recent" entry. Quick-filter items are skipped (they're
-            // shortcuts, not filterable definitions); pinned/recent
-            // context wrappers get stripped before persisting.
-            if (valueIn != null && item && !isQuickFilterItem(item)) {
+        (
+            group: TaxonomicFilterGroup,
+            valueIn: TaxonomicFilterValue | null,
+            item: any,
+            meta?: { position?: number }
+        ) => {
+            if (item) {
                 const recentContext = hasRecentContext(item) ? item._recentContext : undefined
                 const pinnedContext = hasPinnedContext(item) ? item._pinnedContext : undefined
+                const wasQuickFilter = isQuickFilterItem(item)
                 const sourceGroupType = recentContext?.sourceGroupType ?? pinnedContext?.sourceGroupType ?? group.type
-                const sourceGroupName = recentContext?.sourceGroupName ?? pinnedContext?.sourceGroupName ?? group.name
-                const stripped = recentContext
-                    ? stripRecentContext(item)
-                    : pinnedContext
-                      ? stripPinnedContext(item)
-                      : item
-                const cleanItem = {
-                    name: stripped.name,
-                    ...(stripped.id ? { id: stripped.id } : {}),
-                }
-                const propertyFilterFromRecent = recentContext?.propertyFilter
-                // Defer one tick — keeps the recents write off the
-                // commit's render cycle so React doesn't re-render the
-                // closing popover with a stale list.
-                setTimeout(() => {
-                    if (recentTaxonomicFiltersLogic.isMounted()) {
-                        recentTaxonomicFiltersLogic.actions.recordRecentFilter({
-                            groupType: sourceGroupType,
-                            groupName: sourceGroupName,
-                            value: valueIn,
-                            item: cleanItem,
-                            teamId: teamLogic.values.currentTeamId ?? undefined,
-                            propertyFilter: propertyFilterFromRecent,
-                        })
+
+                telemetry.captureItemSelected({
+                    groupType: activeGroupType,
+                    sourceGroupType,
+                    wasFromRecents: !!recentContext,
+                    wasFromPinnedList: !!pinnedContext,
+                    wasQuickFilter,
+                    hadSearchInput: !!searchQuery,
+                    position: meta?.position,
+                    query: searchQuery,
+                    quickFilterProps: wasQuickFilter
+                        ? {
+                              filterName: item.name,
+                              propertyKey: item.propertyKey,
+                              operator: item.operator,
+                              filterValue: item.filterValue,
+                              propertyFilterType: item.propertyFilterType,
+                              eventName: item.eventName,
+                          }
+                        : undefined,
+                })
+
+                // Mirror the legacy recents recording so menu commits show up in
+                // the "Recent" entry. Quick-filter items are skipped (shortcuts,
+                // not filterable definitions); recent/pinned context wrappers are
+                // stripped before persisting.
+                if (valueIn != null && !wasQuickFilter) {
+                    const sourceGroupName =
+                        recentContext?.sourceGroupName ?? pinnedContext?.sourceGroupName ?? group.name
+                    const stripped = recentContext
+                        ? stripRecentContext(item)
+                        : pinnedContext
+                          ? stripPinnedContext(item)
+                          : item
+                    const cleanItem = {
+                        name: stripped.name,
+                        ...(stripped.id ? { id: stripped.id } : {}),
                     }
-                }, 0)
+                    const propertyFilterFromRecent = recentContext?.propertyFilter
+                    // Defer one tick — keeps the recents write off the commit's
+                    // render cycle so React doesn't re-render the closing popover
+                    // with a stale list.
+                    setTimeout(() => {
+                        if (recentTaxonomicFiltersLogic.isMounted()) {
+                            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                                groupType: sourceGroupType,
+                                groupName: sourceGroupName,
+                                value: valueIn,
+                                item: cleanItem,
+                                teamId: teamLogic.values.currentTeamId ?? undefined,
+                                propertyFilter: propertyFilterFromRecent,
+                            })
+                        }
+                    }, 0)
+                }
             }
             onChange?.(group, valueIn, item)
             setSearchQuery('')
         },
-        [onChange, setSearchQuery]
+        [onChange, setSearchQuery, telemetry, activeGroupType, searchQuery]
     )
 
     const selectSelected = useCallback(() => {
@@ -583,7 +625,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // the row's origin, not the meta tab it's shown under.
             const sourceGroup = resolveItemGroup(selected, groups, activeGroup)
             const itemValue = sourceGroup.getValue?.(selected) ?? null
-            selectItem(sourceGroup, itemValue, selected)
+            selectItem(sourceGroup, itemValue, selected, { position: list?.index })
         } else {
             onEnter?.(searchQuery)
         }
@@ -644,10 +686,12 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             const list = readActiveList()
             switch (e.key) {
                 case 'ArrowUp':
+                    telemetry.markInteraction()
                     list?.moveUp()
                     e.preventDefault()
                     break
                 case 'ArrowDown':
+                    telemetry.markInteraction()
                     list?.moveDown()
                     e.preventDefault()
                     break
@@ -665,7 +709,7 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
                     break
             }
         },
-        [selectSelected, setSearchQuery, tabLeft, tabRight, readActiveList]
+        [selectSelected, setSearchQuery, tabLeft, tabRight, readActiveList, telemetry]
     )
 
     return {
@@ -690,8 +734,17 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         rootProps: { onKeyDown },
         inputProps: {
             value: searchQuery,
-            onChange: (e) => setSearchQuery(e.target.value),
+            onChange: (e) => {
+                telemetry.markInteraction()
+                setSearchQuery(e.target.value)
+            },
             onKeyDown,
+            onPaste: (e) => {
+                const pasted = e.clipboardData?.getData('text') ?? ''
+                if (pasted.length > 0) {
+                    telemetry.recordPaste(pasted.length)
+                }
+            },
             placeholder: searchPlaceholder ? `Search ${searchPlaceholder}` : 'Search',
         },
     }

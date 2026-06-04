@@ -1,3 +1,4 @@
+import posthog from 'posthog-js'
 import { ReactNode, useEffect, useRef } from 'react'
 
 import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/quill'
@@ -66,7 +67,7 @@ function TaxonomicFilterActivePanel({
     loadingState,
     className,
 }: ActivePanelProps): JSX.Element {
-    const { groups, getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
+    const { groups, searchQuery, getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
     const list: UseGroupListResult = useGroupList(getGroupListInput(group))
 
     // Register this list as the keyboard target for as long as the panel
@@ -82,6 +83,27 @@ function TaxonomicFilterActivePanel({
         registerActiveList(() => listRef.current)
         return () => registerActiveList(null)
     }, [registerActiveList])
+
+    // `taxonomic filter empty result` — fired from the single active panel (not
+    // per useGroupList instance, which would multi-fire), once per group+query.
+    // The panel remounts on group change (key=group.type), resetting the dedupe
+    // set. "Type more" is not an empty result.
+    const emptyResultFiredRef = useRef<Set<string>>(new Set())
+    const trimmedQuery = searchQuery.trim()
+    useEffect(() => {
+        if (!list.showEmptyState || list.needsMoreSearchCharacters || !trimmedQuery) {
+            return
+        }
+        const key = `${group.type}::${trimmedQuery}`
+        if (emptyResultFiredRef.current.has(key)) {
+            return
+        }
+        emptyResultFiredRef.current.add(key)
+        posthog.capture('taxonomic filter empty result', {
+            groupType: group.type,
+            searchQuery: trimmedQuery,
+        })
+    }, [list.showEmptyState, list.needsMoreSearchCharacters, trimmedQuery, group.type])
 
     if (list.showLoadingState) {
         return (
@@ -125,7 +147,7 @@ function TaxonomicFilterActivePanel({
                 const onSelect = (): void => {
                     const sourceGroup = resolveItemGroup(item, groups, group)
                     const itemValue = sourceGroup.getValue?.(item) ?? null
-                    selectItem(sourceGroup, itemValue, item)
+                    selectItem(sourceGroup, itemValue, item, { position: index })
                 }
                 const onMouseEnter = (): void => list.setIndex(index)
                 if (renderRow) {

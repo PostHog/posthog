@@ -26,7 +26,13 @@ jest.mock('lib/api', () => ({
     },
 }))
 
+jest.mock('posthog-js', () => ({
+    __esModule: true,
+    default: { capture: jest.fn() },
+}))
+
 const apiGet = jest.requireMock('lib/api').default.get as jest.MockedFunction<any>
+const captureMock = jest.requireMock('posthog-js').default.capture as jest.Mock
 
 describe('TaxonomicFilterHeadless integration', () => {
     let onChangeMock: jest.Mock
@@ -35,6 +41,7 @@ describe('TaxonomicFilterHeadless integration', () => {
     beforeEach(() => {
         __clearTaxonomicResourceCache()
         apiGet.mockReset()
+        captureMock.mockClear()
         ;(performQuery as jest.Mock).mockResolvedValue({ tables: {}, joins: [] })
         useMocks({
             get: { '/api/projects/:team/event_definitions': { results: [], count: 0 } },
@@ -243,5 +250,42 @@ describe('TaxonomicFilterHeadless integration', () => {
         await user.click(screen.getByTestId('taxonomic-tab-wildcard'))
         await user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'no-match-zzz')
         await waitFor(() => expect(screen.getByTestId('empty')).toBeInTheDocument())
+    })
+
+    it('captures `taxonomic filter item selected` on click, resolved to the source group', async () => {
+        const item = { id: 7, name: 'pageview' }
+        apiGet.mockResolvedValue({ results: [item], count: 1 })
+        renderHeadless()
+        await waitFor(() => screen.getByText('pageview'))
+        await user.click(screen.getByText('pageview'))
+        expect(captureMock).toHaveBeenCalledWith(
+            'taxonomic filter item selected',
+            expect.objectContaining({
+                sourceGroupType: TaxonomicFilterGroupType.Events,
+                wasFromRecents: false,
+                wasFromPinnedList: false,
+                wasQuickFilter: false,
+                position: expect.any(Number),
+            })
+        )
+    })
+
+    it('captures `taxonomic filter empty result` once for a no-match search', async () => {
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        renderHeadless()
+        await user.click(screen.getByTestId('taxonomic-tab-wildcard'))
+        await user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'no-match-zzz')
+        await waitFor(() =>
+            expect(captureMock).toHaveBeenCalledWith('taxonomic filter empty result', {
+                groupType: TaxonomicFilterGroupType.Wildcards,
+                searchQuery: 'no-match-zzz',
+            })
+        )
+        // Deduped per group+query: the final query fires exactly once even
+        // across re-renders (intermediate keystroke queries fire separately).
+        const finalQueryCalls = captureMock.mock.calls.filter(
+            (c) => c[0] === 'taxonomic filter empty result' && c[1].searchQuery === 'no-match-zzz'
+        )
+        expect(finalQueryCalls).toHaveLength(1)
     })
 })
