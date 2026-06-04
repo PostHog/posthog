@@ -1,29 +1,20 @@
-import { type ReactElement, useMemo } from 'react'
+import { type ReactElement } from 'react'
 
-import { type ChartTheme, type Series as QuillSeries, TimeSeriesLineChart } from '@posthog/quill-charts'
+import {
+    type ChartTheme,
+    type Series as ChartSeries,
+    type YAxisFormat,
+    TimeSeriesLineChart,
+} from '@posthog/quill-charts'
 
-import { formatDate, formatNumber } from '../utils'
+import { formatDate } from '../utils'
 
-// Quill chart colors. Canvas can't read `var(--…)`, so we resolve the host CSS
-// variables to concrete strings and fall back to the same hexes base.css ships.
-const CHART_VARS = [
-    ['--posthog-chart-1', '#1d4aff'],
-    ['--posthog-chart-2', '#621da6'],
-    ['--posthog-chart-3', '#42827e'],
-    ['--posthog-chart-4', '#ce0e74'],
-    ['--posthog-chart-5', '#f14f58'],
-    ['--posthog-chart-6', '#7c440e'],
-    ['--posthog-chart-7', '#529a0a'],
-    ['--posthog-chart-8', '#0476fb'],
-] as const
+// Series palette mirroring base.css `--posthog-chart-*`. Canvas can't read CSS
+// custom properties, so we hand the chart concrete hexes. The chart picks one
+// per series by index; the legend uses the same array to stay in sync.
+const CHART_COLORS = ['#1d4aff', '#621da6', '#42827e', '#ce0e74', '#f14f58', '#7c440e', '#529a0a', '#0476fb']
 
-function resolveVar(name: string, fallback: string): string {
-    if (typeof window === 'undefined') {
-        return fallback
-    }
-    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-    return value || fallback
-}
+const THEME: ChartTheme = { colors: CHART_COLORS }
 
 export interface DataPoint {
     x: number
@@ -42,44 +33,38 @@ export interface LineChartProps {
     maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
+    /** Y-axis value format. Mirrors a trends insight's `aggregationAxisFormat`; defaults to `numeric`. */
+    yAxisFormat?: YAxisFormat | undefined
 }
 
-export function LineChart({ series, labels, showLegend = true, yAxisLabel }: LineChartProps): ReactElement {
-    const palette = useMemo(() => CHART_VARS.map(([name, fallback]) => resolveVar(name, fallback)), [])
-
-    const theme: ChartTheme = useMemo(
-        () => ({
-            colors: palette,
-            backgroundColor: resolveVar('--color-background-primary', '#fff'),
-            axisColor: resolveVar('--color-text-secondary', '#6b7280'),
-            gridColor: resolveVar('--color-border-primary', '#e5e7eb'),
-            tooltipBackground: resolveVar('--color-background-secondary', '#f9fafb'),
-            tooltipColor: resolveVar('--color-text-primary', '#101828'),
-        }),
-        [palette]
-    )
-
-    const quillSeries: QuillSeries[] = useMemo(
-        () =>
-            series.map((s, i) => ({
-                key: s.label || `series-${i}`,
-                label: s.label,
-                data: s.points.map((p) => p.y),
-                color: palette[i % palette.length],
-            })),
-        [series, palette]
-    )
+export function LineChart({
+    series,
+    labels,
+    showLegend = true,
+    yAxisLabel,
+    yAxisFormat = 'numeric',
+}: LineChartProps): ReactElement {
+    // Color omitted so the chart assigns one per series from THEME.colors by index.
+    const chartSeries: ChartSeries[] = series.map((s, i) => ({
+        key: s.label || `series-${i}`,
+        label: s.label,
+        data: s.points.map((p) => p.y),
+    }))
 
     return (
         <div>
             <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '400px' }}>
                 <TimeSeriesLineChart
-                    series={quillSeries}
+                    series={chartSeries}
                     labels={labels}
-                    theme={theme}
+                    theme={THEME}
                     config={{
                         xAxis: { tickFormatter: (value) => formatDate(value) },
-                        yAxis: { label: yAxisLabel, showGrid: true, tickFormatter: (value) => formatNumber(value) },
+                        yAxis: {
+                            ...(yAxisLabel ? { label: yAxisLabel } : {}),
+                            format: yAxisFormat,
+                            showGrid: true,
+                        },
                     }}
                 />
             </div>
@@ -102,7 +87,7 @@ export function LineChart({ series, labels, showLegend = true, yAxisLabel }: Lin
                                     width: '12px',
                                     height: '12px',
                                     borderRadius: '2px',
-                                    backgroundColor: palette[i % palette.length],
+                                    backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
                                 }}
                             />
                             <span style={{ color: 'var(--color-text-secondary, #6b7280)' }}>{s.label}</span>
