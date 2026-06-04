@@ -207,7 +207,22 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
 
     if (personError) {
-        return <NotFound object="person" meta={{ urlId }} />
+        return (
+            <div className="flex flex-col items-center justify-center w-full p-8">
+                <LemonBanner
+                    type="error"
+                    className="max-w-200 w-full"
+                    action={{
+                        children: 'Reload',
+                        onClick: () => window.location.reload(),
+                        'data-attr': 'person-load-error-reload',
+                    }}
+                >
+                    <p>We couldn't load this person.</p>
+                    <p className="text-muted mb-0">{personError}</p>
+                </LemonBanner>
+            </div>
+        )
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />

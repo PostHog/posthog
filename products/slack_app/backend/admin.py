@@ -84,20 +84,22 @@ class SlackUserProfileCacheAdmin(admin.ModelAdmin):
         "real_name",
         "is_admin",
         "is_owner",
+        "refreshed_at",
         "updated_at",
     )
     list_filter = (
         "is_admin",
         "is_owner",
+        ("refreshed_at", admin.DateFieldListFilter),
         ("updated_at", admin.DateFieldListFilter),
     )
     search_fields = ("slack_user_id", "email", "display_name", "real_name")
-    readonly_fields = ("id", "created_at", "updated_at")
+    readonly_fields = ("id", "created_at", "updated_at", "refreshed_at")
     autocomplete_fields = ("integration",)
-    ordering = ("-updated_at",)
+    ordering = ("-refreshed_at",)
 
     fieldsets = (
         (None, {"fields": ("id", "integration", "slack_user_id")}),
         ("Profile", {"fields": ("email", "display_name", "real_name", "is_admin", "is_owner")}),
-        ("Dates", {"fields": ("created_at", "updated_at")}),
+        ("Dates", {"fields": ("created_at", "updated_at", "refreshed_at")}),
     )

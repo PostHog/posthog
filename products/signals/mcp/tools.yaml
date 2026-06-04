@@ -143,9 +143,40 @@ tools:
     signals-reports-cursor-connection-retrieve:
         operation: signals_reports_cursor_connection_retrieve
         enabled: false
-    signals-reports-dispatch-to-cursor-create:
-        operation: signals_reports_dispatch_to_cursor_create
+    signals-reports-dispatch-create:
+        operation: signals_reports_dispatch_create
         enabled: false
+    signals-scout-config-list:
+        operation: signals_scout_config_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scout configs
+        description: >
+            List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
+            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
+            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
+            them.
+    signals-scout-config-update:
+        operation: signals_scout_config_update
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a scout config
+        description: >
+            Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or
+            `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
+            Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

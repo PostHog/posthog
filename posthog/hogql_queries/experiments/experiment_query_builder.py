@@ -22,6 +22,7 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.experiments.breakdown_injector import BreakdownInjector
 from posthog.hogql_queries.experiments.cuped_config import CupedQueryConfig
+from posthog.hogql_queries.experiments.experiment_cuped_query_builder import CupedQueryBuilder
 from posthog.hogql_queries.experiments.experiment_exposure_query_builder import ExposureQueryBuilder
 from posthog.hogql_queries.experiments.experiment_funnel_query_builder import FunnelQueryBuilder
 from posthog.hogql_queries.experiments.experiment_mean_query_builder import MeanQueryBuilder
@@ -191,6 +192,10 @@ class ExperimentQueryBuilder:
     def _ratio_query_builder(self) -> RatioQueryBuilder:
         """Construct a RatioQueryBuilder backed by the current builder state."""
         return RatioQueryBuilder(self)
+
+    def _cuped_query_builder(self) -> CupedQueryBuilder:
+        """Construct a CupedQueryBuilder backed by the current builder state."""
+        return CupedQueryBuilder(self)
 
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
         """
@@ -454,24 +459,12 @@ class ExperimentQueryBuilder:
         events_alias: str = "metric_events",
         exposure_alias: str = "exposures",
     ) -> ast.Expr:
-        return parse_expr(
-            f"""
-            {events_alias}.timestamp >= {exposure_alias}.first_exposure_time - toIntervalDay({{lookback_days}})
-            AND {events_alias}.timestamp < {exposure_alias}.first_exposure_time
-            """,
-            placeholders={"lookback_days": ast.Constant(value=self.cuped_config.lookback_days)},
-        )
+        return self._cuped_query_builder().build_cuped_pre_window_predicate(events_alias, exposure_alias)
 
     def _build_windowed_metric_value_expr(
         self, window_predicate: ast.Expr, events_alias: str = "metric_events"
     ) -> ast.Expr:
-        return parse_expr(
-            "if({window_predicate}, {metric_value}, NULL)",
-            placeholders={
-                "window_predicate": window_predicate,
-                "metric_value": ast.Field(chain=[events_alias, "value"]),
-            },
-        )
+        return self._cuped_query_builder().build_windowed_metric_value_expr(window_predicate, events_alias)
 
     def _build_funnel_covariate_value_expr(
         self,
@@ -480,34 +473,14 @@ class ExperimentQueryBuilder:
         last_step_index: int,
         exposure_alias: str,
     ) -> ast.Expr:
-        """
-        Per-entity binary covariate for funnel CUPED: 1 if the entity fired the
-        funnel's last step inside the pre-exposure window, else 0.
-
-        The covariate has to be binary to keep the same Bernoulli scale as the
-        post-window proportion metric, and aligns with the example pattern of
-        treating the conversion event as both the metric and the covariate.
-        """
-        return parse_expr(
-            f"coalesce(maxIf(1, {events_alias}.step_{last_step_index} = 1 AND {{pre_window}}), 0)",
-            placeholders={"pre_window": self._build_cuped_pre_window_predicate(events_alias, exposure_alias)},
+        return self._cuped_query_builder().build_funnel_covariate_value_expr(
+            events_alias=events_alias,
+            last_step_index=last_step_index,
+            exposure_alias=exposure_alias,
         )
 
     def _build_funnel_cuped_aggregation_aliases(self, last_step_index: int) -> list[ast.Expr]:
-        """
-        Outer-SELECT aliases that aggregate the per-entity covariate into the
-        sums consumed by `cuped_adjust`. The cross-product term multiplies the
-        user-level conversion indicator (value.1 = last_step_index) with the
-        binary covariate.
-        """
-        return [
-            parse_expr("sum(entity_metrics.covariate_value) AS covariate_sum"),
-            parse_expr("sum(power(entity_metrics.covariate_value, 2)) AS covariate_sum_squares"),
-            parse_expr(
-                "sum(if(entity_metrics.value.1 = {n}, 1, 0) * entity_metrics.covariate_value) AS covariate_sum_product",
-                placeholders={"n": ast.Constant(value=last_step_index)},
-            ),
-        ]
+        return self._cuped_query_builder().build_funnel_cuped_aggregation_aliases(last_step_index)
 
     def _inject_funnel_covariate_into_entity_metrics(
         self,
@@ -517,46 +490,15 @@ class ExperimentQueryBuilder:
         last_step_index: int,
         exposure_alias: str,
     ) -> None:
-        """
-        Adds `covariate_value` to the entity_metrics CTE, plus the aggregation
-        aliases (`covariate_sum`, `covariate_sum_squares`, `covariate_sum_product`)
-        to the outer SELECT.
-
-        Asserts the expected `entity_metrics` CTE shape: this method is called
-        right after the funnel SELECT is parsed in this same builder, so the
-        shape is an invariant — a violation means the SQL above changed without
-        updating CUPED, and we want a loud failure rather than zeroed covariates.
-        """
-        assert query.ctes is not None and "entity_metrics" in query.ctes
-        entity_metrics_cte = query.ctes["entity_metrics"]
-        assert isinstance(entity_metrics_cte, ast.CTE) and isinstance(entity_metrics_cte.expr, ast.SelectQuery)
-        entity_metrics_cte.expr.select.append(
-            ast.Alias(
-                alias="covariate_value",
-                expr=self._build_funnel_covariate_value_expr(
-                    events_alias=events_alias,
-                    last_step_index=last_step_index,
-                    exposure_alias=exposure_alias,
-                ),
-            )
+        self._cuped_query_builder().inject_funnel_covariate_into_entity_metrics(
+            query,
+            events_alias=events_alias,
+            last_step_index=last_step_index,
+            exposure_alias=exposure_alias,
         )
-        query.select.extend(self._build_funnel_cuped_aggregation_aliases(last_step_index))
 
     def _extend_date_from_for_funnel_cuped(self, date_from: ast.Expr) -> ast.Expr:
-        """
-        Roll the funnel's `date_from` back by `lookback_days` when CUPED is
-        enabled, so the same scan also feeds the CUPED pre-exposure window.
-        Returns the input unchanged when CUPED is off.
-        """
-        if not self.cuped_config.enabled:
-            return date_from
-        return parse_expr(
-            "{date_from} - toIntervalDay({lookback_days})",
-            placeholders={
-                "date_from": date_from,
-                "lookback_days": ast.Constant(value=self.cuped_config.lookback_days),
-            },
-        )
+        return self._cuped_query_builder().extend_date_from_for_funnel_cuped(date_from)
 
     def _build_funnel_optimized_temporal_setup(self, is_unordered_funnel: bool) -> tuple[str, str, str]:
         """
@@ -671,18 +613,6 @@ class ExperimentQueryBuilder:
         """
         return self._funnel_query_builder().build_variant_expr_for_funnel()
 
-    def _build_exposure_event_predicate(self) -> ast.Expr:
-        """
-        Builds the event predicate for exposure filtering (without timestamp conditions).
-
-        This handles:
-        - Custom exposure events via event_or_action_to_filter
-        - Special $feature_flag_called filtering (matching the flag key)
-
-        Used by both _build_exposure_predicate() and get_exposure_query_for_precomputation().
-        """
-        return self._exposure_query_builder().build_exposure_event_predicate()
-
     def _build_exposure_predicate(self) -> ast.Expr:
         """
         Builds the exposure predicate as an AST expression.
@@ -742,12 +672,6 @@ class ExperimentQueryBuilder:
         Builds the variant selection expression for mean metrics based on multiple variant handling.
         """
         return self._exposure_query_builder().build_variant_expr_for_mean()
-
-    def _build_funnel_step_columns(self) -> list[ast.Alias]:
-        """
-        Builds list of step column AST expressions: step_0, step_1, etc.
-        """
-        return self._funnel_query_builder().build_funnel_step_columns()
 
     def _build_funnel_steps_filter(self) -> ast.Expr:
         """

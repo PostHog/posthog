@@ -324,12 +324,14 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
-    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; we only have that ID
-    // when the workflow wired `JOB_CHECK_RUN_ID=${{ job.check_run_id }}` into the CLI env.
-    // Older runs and runs from forks without that env var can't be re-triggered.
-    const ciRetriggerUnavailableReason = !run.metadata?.github_check_run_id
-        ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
-        : undefined
+    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; the backend needs both the
+    // job ID and the workflow run ID (it binds the rerun to the originating run), wired in via
+    // `JOB_CHECK_RUN_ID` and `GITHUB_RUN_ID`. Older runs and forks without those env vars can't
+    // be re-triggered — don't offer the banner when the rerun would just error.
+    const ciRetriggerUnavailableReason =
+        !run.metadata?.github_check_run_id || !run.metadata?.github_run_id
+            ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
+            : undefined
 
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {

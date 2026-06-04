@@ -1,22 +1,17 @@
-import json
-
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.health_issue import HealthIssue
 
-from products.growth.backend.constants import SDK_TYPES, TEAM_SDK_CACHE_EXPIRY
+from products.growth.backend.constants import TEAM_SDK_CACHE_EXPIRY
 from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck, _cache_team_sdk_data
 
-
-def _make_github_data(latest_version: str, release_dates: dict | None = None) -> dict:
-    return {
-        "latestVersion": latest_version,
-        "releaseDates": release_dates or {},
-    }
+# A release date far enough in the past that any version behind latest is unambiguously outdated,
+# independent of the wall clock when the test runs.
+OLD_RELEASE = "2020-01-01T00:00:00Z"
 
 
 def _make_ch_row(
@@ -29,155 +24,162 @@ def _make_ch_row(
     return (team_id, lib, lib_version, max_timestamp, event_count)
 
 
-class TestSdkOutdatedCheck(TestCase):
+def _patch_check(github: dict | None, rows: list[tuple]):
+    """Patch the three external boundaries the check touches: GitHub version data, ClickHouse, Redis cache."""
+    return (
+        patch(
+            "products.growth.backend.temporal.health_checks.sdk_outdated._load_github_sdk_data",
+            return_value=github or {},
+        ),
+        patch(
+            "products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query",
+            return_value=rows,
+        ),
+        patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data"),
+    )
+
+
+class TestSdkOutdatedCheck(SimpleTestCase):
     def setUp(self):
         self.check = SdkOutdatedCheck()
 
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_detects_outdated_sdk_with_enriched_payload(
-        self, mock_get_client: MagicMock, mock_ch_query: MagicMock, mock_cache: MagicMock
-    ):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [
-            json.dumps(_make_github_data("1.200.0", {"1.198.0": "2026-03-01T00:00:00Z"})).encode()
+    def _run(self, github: dict | None, rows: list[tuple], team_ids: list[int]) -> dict:
+        p_github, p_ch, p_cache = _patch_check(github, rows)
+        with p_github, p_ch, p_cache as mock_cache:
+            self._mock_cache = mock_cache
+            return self.check.detect(team_ids)
+
+    def test_detects_outdated_sdk_with_enriched_payload(self):
+        github = {
+            "web": {"latestVersion": "2.0.0", "releaseDates": {}},
+            "posthog-node": {"latestVersion": "3.0.0", "releaseDates": {}},
+            "posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}},
+        }
+        rows = [
+            _make_ch_row(1, "web", "2.0.0"),
+            _make_ch_row(1, "posthog-node", "3.0.0"),
+            _make_ch_row(1, "posthog-python", "4.0.0", event_count=900),
         ]
 
-        mock_ch_query.return_value = [
-            _make_ch_row(1, "web", "1.198.0", "2026-03-20 12:00:00", 5000),
-            _make_ch_row(1, "web", "1.195.0", "2026-03-18 08:00:00", 1000),
-        ]
+        results = self._run(github, rows, [1])
 
-        results = self.check.detect([1])
-
+        # Two SDKs are current, one is a major version behind — only the outdated one raises an issue.
         assert 1 in results
         assert len(results[1]) == 1
 
         issue = results[1][0]
+        # 1 of 3 outdated is below the escalation threshold (ceil(3/2)=2), so this stays a warning.
         assert issue.severity == HealthIssue.Severity.WARNING
-        assert issue.payload["sdk_name"] == "web"
-        assert issue.payload["latest_version"] == "1.200.0"
-        assert len(issue.payload["usage"]) == 2
-        assert issue.payload["usage"][0]["lib_version"] == "1.198.0"
-        assert issue.payload["usage"][0]["count"] == 5000
+        assert issue.payload["sdk_name"] == "posthog-python"
+        assert issue.payload["latest_version"] == "5.0.0"
+        assert issue.payload["current_version"] == "4.0.0"
+        assert issue.payload["is_outdated"] is True
+        assert "reason" in issue.payload
+        assert isinstance(issue.payload["banners"], list)
+        assert len(issue.payload["usage"]) == 1
+        assert issue.payload["usage"][0]["lib_version"] == "4.0.0"
+        assert issue.payload["usage"][0]["is_outdated"] is True
         assert issue.payload["usage"][0]["is_latest"] is False
-        assert issue.payload["usage"][0]["release_date"] == "2026-03-01T00:00:00Z"
-        assert issue.payload["usage"][1]["lib_version"] == "1.195.0"
-        assert issue.payload["usage"][1]["release_date"] is None
+        assert "status_reason" in issue.payload["usage"][0]
         assert issue.hash_keys == ["sdk_name"]
 
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_skips_team_on_latest_version(
-        self, mock_get_client: MagicMock, mock_ch_query: MagicMock, mock_cache: MagicMock
-    ):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [json.dumps(_make_github_data("1.200.0")).encode()]
-
-        mock_ch_query.return_value = [
-            _make_ch_row(1, "web", "1.200.0", "2026-03-20 12:00:00", 5000),
+    def test_alert_reason_explains_significant_outdated_traffic(self):
+        # The most-used version already matches latest, but an older version still serves a
+        # significant share of traffic. The SDK is flagged, and the alert must explain *that*
+        # rather than the contradictory "on 1.142.0, latest is 1.142.0".
+        github = {"web": {"latestVersion": "1.142.0", "releaseDates": {"1.130.0": OLD_RELEASE}}}
+        rows = [
+            _make_ch_row(1, "web", "1.142.0", event_count=700),  # primary: latest, healthy
+            _make_ch_row(1, "web", "1.130.0", event_count=300),  # 30% traffic, behind, old
         ]
 
-        results = self.check.detect([1])
+        results = self._run(github, rows, [1])
 
+        issue = results[1][0]
+        assert issue.payload["current_version"] == "1.142.0"
+        assert issue.payload["latest_version"] == "1.142.0"
+        assert issue.payload["is_outdated"] is True
+
+        # The reason names both the healthy current version and the older version driving the alert.
+        reason = issue.payload["reason"]
+        assert "1.142.0" in reason
+        assert "1.130.0" in reason
+
+        # render_alert forwards the reason verbatim, so the alert is no longer self-contradictory.
+        content = SdkOutdatedCheck.render_alert(issue)
+        assert content.summary == reason
+        assert "1.130.0" in content.summary
+
+    def test_escalates_to_critical_when_majority_outdated(self):
+        github = {"posthog-python": {"latestVersion": "5.0.0", "releaseDates": {"4.0.0": OLD_RELEASE}}}
+        rows = [_make_ch_row(1, "posthog-python", "4.0.0")]
+
+        results = self._run(github, rows, [1])
+
+        # The team's only SDK is outdated (1 of 1 >= ceil(1/2)), so severity escalates to critical.
+        assert results[1][0].severity == HealthIssue.Severity.CRITICAL
+
+    def test_skips_team_on_latest_version(self):
+        github = {"web": {"latestVersion": "1.200.0", "releaseDates": {}}}
+        rows = [_make_ch_row(1, "web", "1.200.0")]
+
+        assert self._run(github, rows, [1]) == {}
+
+    def test_patch_behind_is_not_flagged(self):
+        # Proves the heuristics run: a crude current!=latest rule would flag this, but a patch
+        # difference is never outdated.
+        github = {"web": {"latestVersion": "2.0.5", "releaseDates": {}}}
+        rows = [_make_ch_row(1, "web", "2.0.3")]
+
+        assert self._run(github, rows, [1]) == {}
+
+    def test_returns_empty_when_no_github_data(self):
+        p_github, p_ch, p_cache = _patch_check({}, [])
+        with p_github, p_ch as mock_ch, p_cache:
+            results = self.check.detect([1])
         assert results == {}
+        mock_ch.assert_not_called()
 
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_returns_empty_when_no_github_data(self, mock_get_client: MagicMock, mock_ch_query: MagicMock):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [None] * len(SDK_TYPES)
+    def test_skips_team_with_no_clickhouse_data(self):
+        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
+        assert self._run(github, [], [1]) == {}
 
-        results = self.check.detect([1])
-
-        assert results == {}
-        mock_ch_query.assert_not_called()
-
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_skips_team_with_no_clickhouse_data(
-        self, mock_get_client: MagicMock, mock_ch_query: MagicMock, mock_cache: MagicMock
-    ):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [json.dumps(_make_github_data("1.200.0")).encode()]
-
-        mock_ch_query.return_value = []
-
-        results = self.check.detect([1])
-
-        assert results == {}
-
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_multiple_teams_in_batch(self, mock_get_client: MagicMock, mock_ch_query: MagicMock, mock_cache: MagicMock):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [json.dumps(_make_github_data("2.0.0")).encode()]
-
-        mock_ch_query.return_value = [
-            _make_ch_row(1, "web", "1.5.0", "2026-03-20 12:00:00", 3000),
-            _make_ch_row(2, "web", "2.0.0", "2026-03-20 12:00:00", 1000),
-            _make_ch_row(3, "web", "1.0.0", "2026-03-19 08:00:00", 500),
+    def test_multiple_teams_in_batch(self):
+        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
+        rows = [
+            _make_ch_row(1, "web", "1.0.0"),  # major behind -> outdated
+            _make_ch_row(2, "web", "2.0.0"),  # latest -> healthy
+            _make_ch_row(3, "web", "1.0.0"),  # major behind -> outdated
         ]
 
-        results = self.check.detect([1, 2, 3])
+        results = self._run(github, rows, [1, 2, 3])
 
-        # Team 1 and 3 are outdated, team 2 is on latest
         assert 1 in results
         assert 2 not in results
         assert 3 in results
+        # One result per outdated SDK assessment — guards against regressing to one-per-release.
         assert len(results[1]) == 1
         assert len(results[3]) == 1
         assert results[1][0].payload["sdk_name"] == "web"
         assert results[3][0].payload["sdk_name"] == "web"
 
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_caches_team_data_in_redis(
-        self, mock_get_client: MagicMock, mock_ch_query: MagicMock, mock_cache: MagicMock
-    ):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [json.dumps(_make_github_data("2.0.0")).encode()]
+    def test_ignores_unknown_sdk_types(self):
+        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
+        rows = [_make_ch_row(1, "unknown-sdk", "1.0.0", event_count=100)]
 
-        mock_ch_query.return_value = [
-            _make_ch_row(1, "web", "1.5.0", "2026-03-20 12:00:00", 3000),
-        ]
+        assert self._run(github, rows, [1]) == {}
 
-        self.check.detect([1])
+    def test_caches_team_data_in_redis(self):
+        github = {"web": {"latestVersion": "2.0.0", "releaseDates": {}}}
+        rows = [_make_ch_row(1, "web", "1.5.0")]
 
-        mock_cache.assert_called_once()
-        cached_data = mock_cache.call_args[0][0]
+        self._run(github, rows, [1])
+
+        self._mock_cache.assert_called_once()
+        cached_data = self._mock_cache.call_args[0][0]
         assert 1 in cached_data
         assert "web" in cached_data[1]
         assert cached_data[1]["web"][0]["lib_version"] == "1.5.0"
-
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated._cache_team_sdk_data")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.execute_clickhouse_health_team_query")
-    @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
-    def test_ignores_unknown_sdk_types(
-        self, mock_get_client: MagicMock, mock_ch_query: MagicMock, mock_cache: MagicMock
-    ):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        mock_redis.mget.return_value = [json.dumps(_make_github_data("2.0.0")).encode()]
-
-        mock_ch_query.return_value = [
-            _make_ch_row(1, "unknown-sdk", "1.0.0", "2026-03-20 12:00:00", 100),
-        ]
-
-        results = self.check.detect([1])
-
-        assert results == {}
 
     @patch("products.growth.backend.temporal.health_checks.sdk_outdated.get_client")
     def test_cache_team_sdk_data_uses_team_sdk_cache_expiry(self, mock_get_client: MagicMock):
@@ -194,6 +196,26 @@ class TestSdkOutdatedCheck(TestCase):
 
 
 class TestSdkOutdatedRenderAlert(SimpleTestCase):
+    def test_render_alert_prefers_reason_when_present(self) -> None:
+        reason = (
+            "Latest in-use version 1.200.0 matches latest 1.200.0. "
+            "Outdated versions still handling >= 20% of traffic: 1.150.0."
+        )
+        issue = HealthIssue(
+            team_id=1,
+            kind="sdk_outdated",
+            severity=HealthIssue.Severity.WARNING,
+            payload={
+                "sdk_name": "web",
+                "latest_version": "1.200.0",
+                "current_version": "1.200.0",
+                "reason": reason,
+            },
+            unique_hash="h",
+        )
+        content = SdkOutdatedCheck.render_alert(issue)
+        assert content.summary == reason
+
     @parameterized.expand(
         [
             ("safe_version", "1.198.0", "web is on 1.198.0, latest is 1.200.0"),
@@ -203,7 +225,9 @@ class TestSdkOutdatedRenderAlert(SimpleTestCase):
             ("empty_string", "", "web is behind 1.200.0"),
         ]
     )
-    def test_render_alert_rejects_unsafe_lib_version(self, _name: str, raw_version: str, expected_summary: str) -> None:
+    def test_render_alert_rejects_unsafe_current_version(
+        self, _name: str, raw_version: str, expected_summary: str
+    ) -> None:
         issue = HealthIssue(
             team_id=1,
             kind="sdk_outdated",
@@ -211,7 +235,7 @@ class TestSdkOutdatedRenderAlert(SimpleTestCase):
             payload={
                 "sdk_name": "web",
                 "latest_version": "1.200.0",
-                "usage": [{"lib_version": raw_version, "count": 100, "max_timestamp": "2026-03-20"}],
+                "current_version": raw_version,
             },
             unique_hash="h",
         )

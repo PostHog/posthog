@@ -17,11 +17,11 @@
             "type": "string"
         },
         "details": {
-            "description": "Any additional context that doesn't fit the other fields.",
+            "description": "Any additional context about the MCP server that doesn't fit the other fields. Keep it to clear, concise bullet points.",
             "type": "string"
         },
         "friction_points": {
-            "description": "Concrete points of friction, confusion, or surprise — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text where possible.",
+            "description": "Clear, concise bullet points describing friction with the MCP server itself — what slowed you down or made you guess. Quote the exact tool name, parameter, or error text. Keep it about the MCP, not the user's task or data.",
             "type": "string"
         },
         "sentiment": {

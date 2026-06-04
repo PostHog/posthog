@@ -19,6 +19,7 @@ import {
     signalsConfigCreate,
     signalsConfigList,
     signalsReportsCursorConnectionCreate,
+    signalsReportsCursorConnectionDestroy,
     signalsReportsCursorConnectionRetrieve,
     signalsReportsDispatchCreate,
 } from 'products/signals/frontend/generated/api'
@@ -125,6 +126,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     await signalsReportsCursorConnectionRetrieve(String(getCurrentTeamId())),
                 connectCursor: async ({ apiKey }: { apiKey: string }) =>
                     await signalsReportsCursorConnectionCreate(String(getCurrentTeamId()), { api_key: apiKey }),
+                disconnectCursor: async () =>
+                    await signalsReportsCursorConnectionDestroy(String(getCurrentTeamId())),
             },
         ],
         teamConfig: [
@@ -414,6 +417,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         connectCursorFailure: () => {
             lemonToast.error('Failed to connect Cursor — check the API key')
+        },
+        disconnectCursorSuccess: () => {
+            lemonToast.success('Cursor disconnected')
+        },
+        disconnectCursorFailure: () => {
+            lemonToast.error('Failed to disconnect Cursor')
         },
         saveTeamDefaultAgentSuccess: () => {
             lemonToast.success('Default coding agent updated')

@@ -27,6 +27,7 @@ import {
     LemonInput,
     LemonMenuOverlay,
     LemonModal,
+    LemonSelect,
     LemonSkeleton,
     LemonTabs,
     LemonTag,
@@ -551,6 +552,7 @@ function ReportDetailPane(): JSX.Element {
         canDispatch,
         isDispatchingSelectedReport,
         defaultCodingAgent,
+        cursorConnected,
         cursorConnectionWarning,
         showConnectModal,
         cursorApiKeyDraft,
@@ -561,6 +563,7 @@ function ReportDetailPane(): JSX.Element {
         reingestReport,
         requestDispatch,
         saveTeamDefaultAgent,
+        disconnectCursor,
         setActiveDetailTab,
         setShowConnectModal,
         setCursorApiKeyDraft,
@@ -694,6 +697,15 @@ function ReportDetailPane(): JSX.Element {
                                                                     agent: otherAgent(defaultCodingAgent),
                                                                 }),
                                                         },
+                                                        ...(cursorConnected
+                                                            ? [
+                                                                  {
+                                                                      label: 'Disconnect Cursor',
+                                                                      status: 'danger' as const,
+                                                                      onClick: () => disconnectCursor(),
+                                                                  },
+                                                              ]
+                                                            : []),
                                                     ]}
                                                 />
                                             ),
@@ -849,8 +861,8 @@ function ReportDetailPane(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { isRunningSessionAnalysis, canDispatch, defaultCodingAgent } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis, saveTeamDefaultAgent } = useActions(inboxSceneLogic)
     const { enabledSourcesCount } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
     const { isDev } = useValues(preflightLogic)
@@ -886,6 +898,23 @@ export function InboxScene(): JSX.Element {
                 resourceType={{ type: 'inbox' }}
                 actions={
                     <div className="flex items-center gap-2">
+                        {canDispatch && (
+                            <Tooltip title="The coding agent that acts on signal reports — the default for each report's button and for the automatic autonomy path. Per-report overrides live on the report itself.">
+                                <span className="flex items-center gap-1.5">
+                                    <span className="text-xs text-secondary whitespace-nowrap">Coding agent</span>
+                                    <LemonSelect
+                                        size="small"
+                                        value={defaultCodingAgent}
+                                        onChange={(agent) => saveTeamDefaultAgent({ agent })}
+                                        options={[
+                                            { value: CodingAgentEnumApi.PosthogCode, label: 'PostHog Code' },
+                                            { value: CodingAgentEnumApi.Cursor, label: 'Cursor' },
+                                        ]}
+                                        data-attr="default-coding-agent-select"
+                                    />
+                                </span>
+                            </Tooltip>
+                        )}
                         {isDev && (
                             <Tooltip title="Analyze the last 7 days of sessions">
                                 <LemonButton

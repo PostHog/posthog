@@ -116,14 +116,17 @@ def _resolve_autostart_assignee(
     if not candidate_user_ids:
         return None
 
-    # Single query: fetch users who have an autonomy config, joined eagerly
+    # organization__team uses the singular related_query_name for each hop, not the
+    # related_name accessor (organizations/teams), which filter() won't resolve.
     users_with_config = {
         u.id: u
         for u in User.objects.filter(
             id__in=candidate_user_ids,
             signal_autonomy_config__isnull=False,
-            teams__id=team_id,
-        ).select_related("signal_autonomy_config")
+            organization__team=team_id,
+        )
+        .select_related("signal_autonomy_config")
+        .distinct()
     }
 
     # Walk in reviewer order (most relevant first)

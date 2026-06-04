@@ -19,6 +19,7 @@ import type {
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
     PaginatedSignalTeamConfigListApi,
+    PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
     PauseUntilRequestApi,
@@ -29,6 +30,7 @@ import type {
     SignalDispatchResponseApi,
     SignalReportApi,
     SignalReportStateRequestApi,
+    SignalScoutConfigApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
     SignalSourceConfigApi,
@@ -290,10 +292,11 @@ export const getSignalsReportsCursorConnectionRetrieveUrl = (projectId: string) 
 }
 
 /**
- * Get or set this team's Cursor connection (the key a settings UI configures, stored per team).
+ * Get, set, or clear this team's Cursor connection (the key a settings UI configures, stored per team).
 
-On GET (and after a POST) the connection is probed against Cursor so the UI can surface the
-Pro-plan and GitHub-not-connected walls at connect time rather than on first dispatch.
+POST sets/overwrites the key; DELETE disconnects (removes the team's Cursor integration). On GET
+(and after a POST) the connection is probed against Cursor so the UI can surface the Pro-plan and
+GitHub-not-connected walls at connect time rather than on first dispatch.
  */
 export const signalsReportsCursorConnectionRetrieve = async (
     projectId: string,
@@ -310,10 +313,11 @@ export const getSignalsReportsCursorConnectionCreateUrl = (projectId: string) =>
 }
 
 /**
- * Get or set this team's Cursor connection (the key a settings UI configures, stored per team).
+ * Get, set, or clear this team's Cursor connection (the key a settings UI configures, stored per team).
 
-On GET (and after a POST) the connection is probed against Cursor so the UI can surface the
-Pro-plan and GitHub-not-connected walls at connect time rather than on first dispatch.
+POST sets/overwrites the key; DELETE disconnects (removes the team's Cursor integration). On GET
+(and after a POST) the connection is probed against Cursor so the UI can surface the Pro-plan and
+GitHub-not-connected walls at connect time rather than on first dispatch.
  */
 export const signalsReportsCursorConnectionCreate = async (
     projectId: string,
@@ -325,6 +329,67 @@ export const signalsReportsCursorConnectionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(cursorConnectionRequestApi),
+    })
+}
+
+export const getSignalsReportsCursorConnectionDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/cursor_connection/`
+}
+
+/**
+ * Get, set, or clear this team's Cursor connection (the key a settings UI configures, stored per team).
+
+POST sets/overwrites the key; DELETE disconnects (removes the team's Cursor integration). On GET
+(and after a POST) the connection is probed against Cursor so the UI can surface the Pro-plan and
+GitHub-not-connected walls at connect time rather than on first dispatch.
+ */
+export const signalsReportsCursorConnectionDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<CursorConnectionStatusApi> => {
+    return apiMutator<CursorConnectionStatusApi>(getSignalsReportsCursorConnectionDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsScoutConfigListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/`
+}
+
+/**
+ * List the per-(team, skill) scout configs for this project — schedule (`run_interval_minutes`), `enabled`, and `emit` posture per scout.
+ * @summary List scout configs
+ */
+export const signalsScoutConfigList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi[]> => {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutConfigUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/${id}/`
+}
+
+/**
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * @summary Update a scout config
+ */
+export const signalsScoutConfigUpdate = async (
+    projectId: string,
+    id: string,
+    patchedSignalScoutConfigApi?: NonReadonly<PatchedSignalScoutConfigApi>,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi> => {
+    return apiMutator<SignalScoutConfigApi>(getSignalsScoutConfigUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSignalScoutConfigApi),
     })
 }
 
