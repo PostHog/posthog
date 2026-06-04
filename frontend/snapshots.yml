@@ -3749,7 +3749,7 @@ snapshots:
     lemon-ui-visual-image-diff-viewer--small-image--light:
         hash: v1.k794b7964.ed31587820d0216f2281ec8e610da8cb9fe8cb45f9c13e0280f17771cf84994a.spusB2C8AKwu5Tv0KOr8pkjDxgEZw5jcOlEikYAzKWI
     mcp-apps-actions--list--light:
-        hash: v1.k794b7964.82f7861ba5ff8494affd6cd7959f634b68ebcf4048e02742ab2e63114b8e7d5d.3JK0MyqLJbmteOokxBrWk26ekP28_-xPhphUX5ZWHbs
+        hash: v1.k794b7964.96ff0e9c7c9e0fdcc4576950311b685a1027d39c670a59ebe5119f6aee820dbb.rQkip0f1OKHkt8FT2p953iGZxe2SMW-fSueCnWN1XIw
     mcp-apps-actions--multi-step--light:
         hash: v1.k794b7964.d337199f83a8416e91c20175f60dfe52b0a445270b34efea8c2c2ee14620d7a1.ARITfWNtggFg_eKCPLLur4JoSqx0Zx2nYvMg8TvoK3g
     mcp-apps-actions--simple--light:
@@ -3759,15 +3759,15 @@ snapshots:
     mcp-apps-ai-observability--empty--light:
         hash: v1.k794b7964.142f371a27cf39712117a43bdfbd712d2a8a14966fd593b03096e7f26251a3cc.i-3gjDyAAdVus9xh-3EgnJSLzPOYYpqbmLmcNb6Sz-w
     mcp-apps-ai-observability--multi-model--light:
-        hash: v1.k794b7964.030156bd11d5dded235d7284de83295777f784ae26a63c46793477930849cb53.c167sc-YOMMFX8QcEa4SwRv5p3Xq_ZbO88gzL7Dhh0w
+        hash: v1.k794b7964.bd74a05ef6957675b900871ba6aca20b04f8ad9ee2ddb05849d9482d78abb400.mY68t21eDHQSYpXFgsyOoesxnWPZ2cqmJR-hHRs9ulo
     mcp-apps-ai-observability--single-model--light:
-        hash: v1.k794b7964.5339950c1d1a3551551956952482132289ef96ca9ddce909b204574aad2e2d94.NC3WSlDWGSOaK9TqG71D5vpe8qaJ1DOTNL4tiOKw59s
+        hash: v1.k794b7964.ff510efb5620f51ec10f951f5f8ebdbb3f903e512b677251b412d0dc227ad047.57AE7qogywNRSSIKGMJXy8E8YvD8aAV_2zJa1nKkeZ8
     mcp-apps-cohorts--calculating--light:
         hash: v1.k794b7964.ccc89a2389eb15f76a817d88dd26ff03f20210f23eed40183436261a92504399.pXD51hUgUtFpzTJd-iaVQJ5d1SRr2Ifr_1geD9qwPwY
     mcp-apps-cohorts--dynamic--light:
         hash: v1.k794b7964.d76eb7a46408f957fbe3110f8f2cae3476af6966e8bbcf2aa4b45ff5ed6428b0.8GHvx1vMpvHvssDcbkZoHMWvnUQCS_idgnNbkKmXT7o
     mcp-apps-cohorts--list--light:
-        hash: v1.k794b7964.a0efa7516179adae5d452882c823f9bb7a7025ac85b44ad88e9363db0509e625.Odc1LkZz8bYzVsp4yXyFx5hmYjvbr_qt_1a5QP3PF-E
+        hash: v1.k794b7964.7e6363d616aabde2fa6db252c233d4b7e651dd3ed0be35e55d51264b4e994438.7k8-ggET0l7Q1xUgeTCbh-Gy0s8rDpdVjFHER1HvBcA
     mcp-apps-cohorts--static--light:
         hash: v1.k794b7964.7a0889e7d21c79da2f04c4a187ab6d2b63158edd0e8737cda5a6254197eb3822.Qz8oGpJlwUIi5k43JRBxSAAJo-2fB-qceXOSk8SqTWI
     mcp-apps-error-tracking--active--light:
@@ -3777,7 +3777,7 @@ snapshots:
     mcp-apps-error-tracking--error-details--light:
         hash: v1.k794b7964.dce336af2844f1f3d4dafd4978b65b0c669a3802a260ce0e7b702506b9f21901.4AKvAX9KwpZJnwyVHUcG2SLWESoFGX9mbVyO4u0rTvI
     mcp-apps-error-tracking--list--light:
-        hash: v1.k794b7964.ff6bdd15021c49457e8acce3c0faf262083ce1bcc85ff42db512217d879e9f11.JIBszf8Cqq-NaucWrgUThxdIbGGaRdHvR8J2TZ_gHUk
+        hash: v1.k794b7964.d63364a23688f1cbfbd4125311af21c5c944218f15855ebd5f1f3a42c57124de.urMEJeE8zDtt0lQb-cQh0ID1l6N3_4MONXn7Buvtinc
     mcp-apps-error-tracking--python-stack-trace--light:
         hash: v1.k794b7964.ac1c7fd3446c53d71ad4ad2b376368a1356d153b7fe5bd6f3fed5dbe031c0e5b.BdRSKxB_BpJepiFZBk4AHGCz5rK7AoKM-CdQb7GtMvQ
     mcp-apps-error-tracking--resolved--light:
@@ -3787,23 +3787,23 @@ snapshots:
     mcp-apps-error-tracking--with-external-links--light:
         hash: v1.k794b7964.1c438b81ddecf6cd51016c53d57b3a80c7a60aab20f69a4629f52d9366452c72.alkUqUY-JcNO_PquFIaJSqBh0hBs4BbMf4NNbwjkHI4
     mcp-apps-experiments--completed--light:
-        hash: v1.k794b7964.78b37c98364d247eb0022ff0bc93d35978692a48dc01b854bee053545dc041d0._d7lI_cjvMj1fEjMzkxwR1TUgZ98lTB6BSRsw9PIY2U
+        hash: v1.k794b7964.bfd4a7b3ac2f1a3a9a9a29f9602fba1eb910c2cf9b33e75f0d6df0b92eb11eae.244SoUGyqjlf_ukxREHG27uMYSlsrRt_AeImgQWGNW8
     mcp-apps-experiments--draft--light:
-        hash: v1.k794b7964.bdd8f8b8270a49d917cf9e001393c549732f580591e229748abe4828654a684f.NAYmO0kKxl8e_k_kZIf2-zZKYXcw-qZVE-KIGf1dURY
+        hash: v1.k794b7964.e23d9123ba65760e4c85a44532cdcb8c155db210594a455afe2c7f65a4989a63.MW_QgBxff7Npf9-yA38VTqloshv16DphYiys77sauYQ
     mcp-apps-experiments--list--light:
-        hash: v1.k794b7964.23c5012530cd7c6bb653c6f8c93ec00218b644d8684f857458df5be5b47282b1.Ocz-SZL4Uop35C4vtSntIQdTaq1LL20GF5fObULLUd8
+        hash: v1.k794b7964.8ebcbb30f2731f69b120ef09175e17d2a61aa82e545cc00ad079cdb02ea76eeb.NqKbMtNmtz3e8VpRXB7i_XVXlIjdsPyx1vltHelq8OQ
     mcp-apps-experiments--results--light:
-        hash: v1.k794b7964.97f43f854b02cb1874fe8d58428bef06b933a737ef1d08db3ffb5953980767a0.htpIFEpQ5n-JlF_NIaDem-J3z0jXVAUqgJ2_pyeucJE
+        hash: v1.k794b7964.81a12df77704d578c8d6f7d811d905f93107c8eb4fe946d627ba7873a84e3c0c.fqY3wqHh4u1avDKnzu7OGc3E2vaHoUmkXp5dNt0qXwg
     mcp-apps-experiments--running--light:
-        hash: v1.k794b7964.77b7cd8e141d118be37c920103cbed14932befcca30be72b7a7a86fa34ba7a55.3z6hsJD4tRpwPGOnz7fqrGvr15bLooj-tWjANQ0Lao8
+        hash: v1.k794b7964.f034a24590fa0d531fc0546ad458c2bd741a48e414112e9275dbb8226275fc1e.vHfrxPwVqECykBZdnEGIxRWz_ZJ1ZfvQKBcaNc-bang
     mcp-apps-feature-flags--boolean-flag--light:
         hash: v1.k794b7964.f3ee0e724e30f350166b5a87d46cd36ba9f982735aa9d7e322aeaf28bc4c9b1c.KzlRVALZdoWS2mlKcnTJRTOo4SmFvIZzKhj6SodWt3I
     mcp-apps-feature-flags--flag-list--light:
-        hash: v1.k794b7964.9169ef220e9dc21258434b51860b574b57dffcfd176dec81e683fb85f2e7dc9f.B5UsY6R__-gekpto59BByenvHwiiQllSSYmoxoM7-jQ
+        hash: v1.k794b7964.c48895aafa7996c129094b6b0bba6a1d60decc29ac6c94a0c871e8ad01db2a96.l4UNTX6NOhKO2BoLmc_GKN67WtUHmCis0oTHb-m0_t4
     mcp-apps-feature-flags--inactive-flag--light:
         hash: v1.k794b7964.0ea041efd8df37c742028aa46ff65a4036840f462fe1f3cde4da318552f57e61.tD2LfrilewqSsRK4Gtu2nKFDPoyUaDERRF5vN6ht1oM
     mcp-apps-feature-flags--multivariate-flag--light:
-        hash: v1.k794b7964.130f69940d170035603556e480392821d65b4af34b1ac070626858c432407d1c.uv75AyxQaGoAs6ewIGxD3Q7rUOqBx9TX12-x51AdG5c
+        hash: v1.k794b7964.790d580b2ac65c61fd760376aa71cde4f9de9ef48048c3c9f8c6f4b652c2ca7d.HFZ1pVLSBmrHAU4f4gdB5JfRgGUEYUTZMOuwFpOr6Ig
     mcp-apps-feature-flags--testing-matched--light:
         hash: v1.k794b7964.09249f0d06bf5ef94eaddfcd5a97b97943ed42cae7097741dd3989418ec11f50.ROO2zs_uTFgPB7eI8fwi2GIwSo_HHTlhAal5XWBmz7Y
     mcp-apps-feature-flags--testing-no-match--light:
@@ -3815,9 +3815,9 @@ snapshots:
     mcp-apps-surveys--draft-multi-question--light:
         hash: v1.k794b7964.3bc65ee531d96f097f879099aea773797b4a0f7388522b5558d16832ff25e20c.yCVcDShukwPldlWmDSxnB6id2U6W1znLrneypeCl9RI
     mcp-apps-surveys--list--light:
-        hash: v1.k794b7964.ed3fc11ee9ce7ed561bcde45531a148ef8b802b869758e0e882af724abc98476.1wfrzgnqsJt-YAeMHlxjYCt5mqHIlSPr0_2Oztegt8E
+        hash: v1.k794b7964.d74c2774a1e3a73e7d34e0332ef1bcbb3b61a5442b89797447e23f5d56b033c2.qta1-W4_vRyunnAG5t1wzZKyzWUqS54HvnKvfvznYnA
     mcp-apps-surveys--stats--light:
-        hash: v1.k794b7964.102966b2477b498f5ad8304361fda477a436e7be3d5bce2c08f6f599428c30f3.BI5_1eeyBXPdCm8veCN9kCKZV8OxFbuwUB7ECsMPpqY
+        hash: v1.k794b7964.da67b48f277665016d143ea09d4471ca6f01f3b8a6d22e7fe0f3dc51b075e92a.l81wzNlVna0bTrWF2HHg1RkJaB7vXRpAIdMbNylhzCw
     mcp-apps-workflows--active--light:
         hash: v1.k794b7964.ad71858e2dc5a45e3d81bb38d46ad3bbe2dea9c152b625fbbf93117a27e624ca.Z4AVu3aic8bdKuv98SD1V1ZqQXsxPwGX2mZl3cL31bs
     mcp-apps-workflows--archived--light:
@@ -3825,7 +3825,7 @@ snapshots:
     mcp-apps-workflows--draft-state--light:
         hash: v1.k794b7964.4cbfe20c626f0f7912dbd47b41a152c9c30f92d12a3f599476fb10043d7f7e70.9NI9FaMch59lt8xO3Xhp9ruHKLyDcvupNp20dZrR8_Y
     mcp-apps-workflows--list--light:
-        hash: v1.k794b7964.c4043d1c44dcd9e17eef505f2f91aae17a7d83703d280e8754f5f9a40fa22546.-7TXGLnsueaOAY8CowatQemnRvtpyYzPaI4_C1aVH88
+        hash: v1.k794b7964.aa8890b9b9c20fd7e5bfbe8858de357738b93bf229942971b73fc3b079c9ffb4.UizlIi3nxAIDkWlK_Iya7uTfSMZX8vD3fivDElOQSxU
     posthog-3000-keyboard-shortcut--default--dark:
         hash: v1.k794b7964.b12fb176b653ae2b44b5fc9018e1640fdbc178d331f7b0c1c1570d41684d4728.6uwnkkSL_PbJSBMxl99DnAjdxYAb1ebsqepneGY2NuE
     posthog-3000-keyboard-shortcut--default--light:
