@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -33,15 +33,26 @@ class WrikeResumeConfig:
 
 
 def _normalize_host(host: str) -> str:
-    return host.strip().lower().removeprefix("https://").removeprefix("http://").rstrip("/")
+    """Extract the bare hostname the credential would actually be sent to.
+
+    The user-supplied value is parsed as a URL and reduced to its hostname, so a value
+    carrying a path, query, port, or credentials (e.g. `evil.com?.wrike.com` or
+    `internal.service/x.wrike.com`) can't smuggle a non-Wrike netloc past `is_host_valid`'s
+    suffix check — `requests` would otherwise connect to `evil.com`/`internal.service`.
+    Both validation and URL construction go through this, so the validated host and the
+    connection target are always the same value."""
+    candidate = host.strip().lower()
+    if "://" not in candidate:
+        candidate = f"//{candidate}"
+    return urlsplit(candidate).hostname or ""
 
 
 def is_host_valid(host: str) -> bool:
     """Only allow Wrike-owned hosts as the credential target (anti-SSRF)."""
     if not host:
         return False
-    normalized = _normalize_host(host)
-    return normalized == WRIKE_HOST_SUFFIX or normalized.endswith(f".{WRIKE_HOST_SUFFIX}")
+    hostname = _normalize_host(host)
+    return hostname == WRIKE_HOST_SUFFIX or hostname.endswith(f".{WRIKE_HOST_SUFFIX}")
 
 
 def _base_url(host: str) -> str:

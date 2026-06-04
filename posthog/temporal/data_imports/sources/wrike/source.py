@@ -90,7 +90,7 @@ Set **Host** to the domain shown in your browser when you're logged into Wrike (
                 supports_append=False,
                 incremental_fields=[],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)

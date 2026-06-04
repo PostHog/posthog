@@ -38,16 +38,35 @@ class TestIsHostValid:
             ("app-eu.wrike.com", True),
             ("https://www.wrike.com/", True),
             ("WWW.WRIKE.COM", True),
+            ("www.wrike.com:443", True),
             ("evil.com", False),
             ("wrike.com.evil.com", False),
             ("notwrike.com", False),
             ("localhost", False),
             ("169.254.169.254", False),
             ("", False),
+            # SSRF bypass attempts: a path/query/credentials must not smuggle a non-Wrike
+            # netloc past the suffix check.
+            ("evil.com?.wrike.com", False),
+            ("evil.com/.wrike.com", False),
+            ("internal.service/path.wrike.com", False),
+            ("evil.com#.wrike.com", False),
+            ("user:pass@evil.com", False),
+            ("user@evil.com:443", False),
         ],
     )
     def test_is_host_valid(self, host: str, expected: bool) -> None:
         assert is_host_valid(host) is expected
+
+    @pytest.mark.parametrize(
+        "host",
+        ["evil.com?.wrike.com", "internal.service/path.wrike.com", "user:pass@evil.com.attacker.net"],
+    )
+    def test_build_url_target_never_diverges_from_validation(self, host: str) -> None:
+        # The connection target is built from the same normalized hostname is_host_valid checks,
+        # so a host that fails validation can never resolve to a Wrike URL.
+        assert is_host_valid(host) is False
+        assert "wrike.com/api/v4" not in _build_url(host, "/tasks", {})
 
 
 class TestBuildUrl:
