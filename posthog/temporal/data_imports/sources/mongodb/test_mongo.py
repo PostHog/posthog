@@ -362,10 +362,15 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             f"MongoDB error {error_msg!r} should remain retryable"
         )
 
-    def test_auth_failure_has_friendly_message(self):
-        assert self.non_retryable["AuthenticationFailed"] is not None
-        assert "password" in self.non_retryable["AuthenticationFailed"].lower()
-
-    def test_unreachable_cluster_has_friendly_message(self):
-        assert self.non_retryable["No servers found yet"] is not None
-        assert "allowlist" in self.non_retryable["No servers found yet"].lower()
+    @parameterized.expand(
+        [
+            ("code_name", "AuthenticationFailed", "password"),
+            ("message", "Authentication failed", "password"),
+            ("unreachable_no_servers", "No servers found yet", "allowlist"),
+            ("unreachable_no_replica_set", "No replica set members found yet", "allowlist"),
+        ]
+    )
+    def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
+        message = self.non_retryable[pattern]
+        assert message is not None
+        assert expected_substring in message.lower()
