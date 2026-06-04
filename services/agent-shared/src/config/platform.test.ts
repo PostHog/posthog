@@ -55,9 +55,11 @@ describe('loadConfigFromEnv', () => {
     it('reads child + platform vars from the same env', () => {
         const cfg = loadConfigFromEnv(SubSchema, SUB_MAP, {
             PORT: '4040',
+            // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
             REDIS_URL: 'redis://r:6379',
         })
         expect(cfg.port).toBe(4040)
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         expect(cfg.redisUrl).toBe('redis://r:6379')
     })
 

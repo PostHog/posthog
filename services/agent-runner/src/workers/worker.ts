@@ -301,12 +301,20 @@ export class Worker {
                         tools: loads,
                         nonces,
                         sessionTimeoutMs: rev.spec.limits.max_wall_seconds * 1000,
+                        limits: {
+                            // wallMs duplicates sessionTimeoutMs above; pools that
+                            // honor SandboxLimits.wallMs (e.g. InProcess for tests)
+                            // also see it here.
+                            wallMs: rev.spec.limits.max_wall_seconds * 1000,
+                            memoryMb: rev.spec.limits.max_memory_mb,
+                            cpuCores: rev.spec.limits.max_cpu_cores,
+                        },
                     })
                     if (sandboxInstanceId) {
-                        // In-process pool doesn't carry a provider-side id — use the
-                        // sandbox's sessionId so the row's `provider_sandbox_id` is
-                        // never empty.
-                        await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.sessionId)
+                        // Real provider id (Modal sandbox id, Docker container hash,
+                        // or sessionId fallback for in-process) so the janitor
+                        // reaper can look up + terminate orphans out-of-process.
+                        await this.deps.sandboxInstances!.markReady(sandboxInstanceId, sandbox.providerSandboxId)
                     }
                 } catch (err) {
                     if (sandboxInstanceId) {

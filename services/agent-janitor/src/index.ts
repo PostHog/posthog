@@ -22,9 +22,13 @@ import { migrate } from '@posthog/agent-migrations'
 import {
     createAgentPool,
     createLogger,
+    createModalSandboxTerminator,
     installProcessHandlers,
     MemoryStore,
+    MultiBackendSandboxTerminator,
+    PgApprovalStore,
     PgRevisionStore,
+    PgSandboxInstanceStore,
     PgSessionQueue,
     S3BundleStore,
     S3MemoryStore,
@@ -78,14 +82,29 @@ async function main(): Promise<void> {
 
     const queue = new PgSessionQueue(agentDb)
     const revisions = new PgRevisionStore(posthogDb)
+    // Approvals: backs both the /approvals/* HTTP surface (decide / list /
+    // get for the authoring UI + MCP) and the sweep's expireQueued path.
+    // Without it both 503 / silently no-op.
+    const approvals = new PgApprovalStore(agentDb)
+    // Sandbox-instance log + terminator for the reaper sweep. The
+    // terminator's Modal client is constructed lazily inside the multi-
+    // backend wrapper — janitors that never see a Modal row pay zero gRPC
+    // startup cost. Requires MODAL_TOKEN_ID + MODAL_TOKEN_SECRET in env
+    // (same secret_env entries the runner reads).
+    const sandboxInstances = new PgSandboxInstanceStore(agentDb)
+    const sandboxTerminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
 
     const sweep = {
         queue,
+        approvals,
+        sandboxInstances,
+        sandboxTerminator,
         stuckRunningThresholdMs: config.stuckRunningMs,
         stuckWaitingThresholdMs: config.stuckWaitingMs,
         idleCompletedThresholdMs: config.idleCompletedMs,
         idempotencyKeyTtlMs: config.idempotencyKeyTtlMs,
         maxRetries: config.maxRetries,
+        sandboxStaleThresholdMs: config.sandboxStaleMs,
         // Pull idle completed candidates past the floor TTL; the sweep then
         // checks per-agent `spec.resume.max_completed_age_ms` before closing.
         listIdleCompletedCandidates: () => queue.listIdleCompleted(config.idleCompletedMs),
@@ -129,6 +148,7 @@ async function main(): Promise<void> {
     const app = buildJanitorApp({
         queue,
         sweep,
+        approvals,
         revisions,
         bundles,
         memoryStore,

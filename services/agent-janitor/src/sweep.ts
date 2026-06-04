@@ -17,7 +17,18 @@
  * lister to exercise the policy logic without PG.
  */
 
-import { AgentSession, ApprovalStore, ConversationMessage, ResumeConfig, SessionQueue } from '@posthog/agent-shared'
+import {
+    AgentSession,
+    ApprovalStore,
+    ConversationMessage,
+    createLogger,
+    ResumeConfig,
+    SandboxInstanceStore,
+    SandboxTerminator,
+    SessionQueue,
+} from '@posthog/agent-shared'
+
+const sandboxReaperLog = createLogger('sandbox-reaper')
 
 export interface SweepDeps {
     queue: SessionQueue
@@ -60,6 +71,26 @@ export interface SweepDeps {
      * pending_inputs, and wakes the session.
      */
     approvals?: ApprovalStore
+    /**
+     * Sandbox-instance log + an out-of-process terminator. When both are
+     * wired, the sweep finds `agent_sandbox_instance` rows in
+     * `provisioning`/`ready`/`terminating` whose `last_used_at` is older
+     * than `sandboxStaleThresholdMs`, terminates the underlying sandbox
+     * via the provider SDK (Modal for prod), and marks the row
+     * `terminated`. Without this, a crashed runner pod leaks Modal
+     * compute until Modal's own per-sandbox timeout fires.
+     */
+    sandboxInstances?: SandboxInstanceStore
+    sandboxTerminator?: SandboxTerminator
+    /**
+     * `last_used_at` age past which a `provisioning`/`ready` sandbox row
+     * is considered orphaned and the underlying compute reaped. Default
+     * 10 minutes — 2x the stuck-running threshold so a healthy
+     * re-queue + resume doesn't race the reaper.
+     */
+    sandboxStaleThresholdMs?: number
+    /** Max sandbox rows to reap per sweep tick. Default 25. */
+    sandboxReapLimit?: number
     now?: () => Date
 }
 
@@ -73,6 +104,10 @@ export interface SweepResult {
     expired_approvals: number
     /** Sessions whose `idempotency_key` was nulled by the retention sweep. */
     cleared_idempotency_keys: number
+    /** Orphaned sandbox rows whose underlying compute was terminated this sweep. */
+    reaped_sandboxes: number
+    /** Sandbox rows the terminator reported as still-failing — left for next tick. */
+    sandbox_reap_failures: number
 }
 
 export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
@@ -152,12 +187,55 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         clearedIdempotencyKeys = await deps.queue.clearStaleIdempotencyKeys(new Date(now.getTime() - idemTtl))
     }
 
+    // Policy 5: reap orphaned sandbox-instance rows. A `provisioning` /
+    // `ready` row whose `last_used_at` is older than the threshold means
+    // the runner pod that acquired it is gone — terminate the underlying
+    // compute via the provider SDK and flip the row to `terminated`. The
+    // terminator is idempotent (already-gone sandboxes count as success),
+    // so the sweep eventually converges even if Modal beat us to it.
+    const sandboxStaleTtl = deps.sandboxStaleThresholdMs ?? 10 * 60_000
+    const sandboxReapLimit = deps.sandboxReapLimit ?? 25
+    let reapedSandboxes = 0
+    let sandboxReapFailures = 0
+    if (deps.sandboxInstances && deps.sandboxTerminator) {
+        const stale = await deps.sandboxInstances.findStale(sandboxStaleTtl, sandboxReapLimit)
+        for (const row of stale) {
+            const result = await deps.sandboxTerminator.terminate(row.provider_kind, row.provider_sandbox_id)
+            if (result.ok) {
+                await deps.sandboxInstances.markTerminated(row.id)
+                reapedSandboxes++
+                sandboxReaperLog.info(
+                    {
+                        instance_id: row.id,
+                        provider_kind: row.provider_kind,
+                        provider_sandbox_id: row.provider_sandbox_id,
+                        reason: result.reason,
+                    },
+                    'sandbox.reaped'
+                )
+            } else {
+                sandboxReapFailures++
+                sandboxReaperLog.warn(
+                    {
+                        instance_id: row.id,
+                        provider_kind: row.provider_kind,
+                        provider_sandbox_id: row.provider_sandbox_id,
+                        reason: result.reason,
+                    },
+                    'sandbox.reap.failed'
+                )
+            }
+        }
+    }
+
     return {
         requeued,
         poisoned,
         closed,
         expired_approvals: expiredApprovals,
         cleared_idempotency_keys: clearedIdempotencyKeys,
+        reaped_sandboxes: reapedSandboxes,
+        sandbox_reap_failures: sandboxReapFailures,
     }
 }
 

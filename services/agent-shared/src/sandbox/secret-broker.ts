@@ -1,6 +1,8 @@
 /**
  * Per-session nonce broker. Custom tools receive opaque nonces, never raw
- * secret values. At egress, the proxy substitutes nonces back to values.
+ * secret values. The sandbox runtime substitutes nonces back to values when
+ * the tool actually reaches out — handled inside the Modal/Docker boundary
+ * in prod, and via `ctx.secrets.value(name)` in the in-process pool.
  *
  * Lifetime is session-scoped: nonces expire when the sandbox is released.
  */

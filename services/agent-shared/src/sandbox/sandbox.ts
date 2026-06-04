@@ -23,9 +23,8 @@ export interface AcquireOpts {
     sessionId: string
     teamId: number
     tools: SandboxToolLoad[]
-    /** Per-invocation `{ secretName -> nonce }` map — substituted at egress. */
+    /** Per-invocation `{ secretName -> nonce }` map — substituted at the sandbox boundary. */
     nonces: Record<string, string>
-    egressProxyUrl?: string
     sessionTimeoutMs?: number
     limits?: SandboxLimits
 }
@@ -41,13 +40,12 @@ export interface SandboxToolLoad {
 export interface SandboxLimits {
     wallMs: number
     memoryMb: number
-    egress: EgressPolicy
-}
-
-export interface EgressPolicy {
-    allowedHosts: string[]
-    /** Insecure escape hatch — honored only by InProcess. Docker/Modal ignore. */
-    allowAll?: boolean
+    /**
+     * Optional CPU reservation in (fractional) cores. Honored by Modal as a
+     * soft reservation; Docker uses `--cpus`. InProcess ignores. When unset
+     * each backend falls back to its own default (Modal ≈ 0.25 cores).
+     */
+    cpuCores?: number
 }
 
 export interface InvokeRequest {
@@ -61,6 +59,14 @@ export type InvokeResponse = { ok: true; result: unknown } | { ok: false; error:
 
 export interface Sandbox {
     readonly sessionId: string
+    /**
+     * Provider-side identifier suitable for out-of-process termination —
+     * Modal's `ap-...` sandbox id, Docker's container hash, etc. Persisted to
+     * `agent_sandbox_instance.provider_sandbox_id` so the janitor can reap
+     * orphans when the owning runner pod dies. InProcess sandboxes use the
+     * sessionId (there is no separate provider handle).
+     */
+    readonly providerSandboxId: string
     invoke(req: InvokeRequest): Promise<InvokeResponse>
     /** True if the sandbox is still alive. */
     isAlive(): Promise<boolean>
@@ -69,5 +75,4 @@ export interface Sandbox {
 export const DEFAULT_LIMITS: SandboxLimits = {
     wallMs: 30_000,
     memoryMb: 512,
-    egress: { allowedHosts: [] },
 }

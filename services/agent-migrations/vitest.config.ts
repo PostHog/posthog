@@ -5,7 +5,7 @@ export default defineConfig({
     css: { postcss: { plugins: [] } },
     test: {
         include: ['src/**/*.test.ts'],
-        testTimeout: 15_000,
+        passWithNoTests: true,
         globals: true,
     },
 })

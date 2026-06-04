@@ -83,6 +83,12 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter='@posthog/agent-console...' install --frozen-lockfile
 
+            # `@posthog/quill` ships `main: ./dist/index.cjs`; without this
+            # step tsc can't resolve the import. Same step as the build job
+            # and the Dockerfile.
+            - name: Build quill workspace dep
+              run: pnpm --dir packages/quill -r --filter '@posthog/quill-*' --filter '@posthog/quill' build
+
             - name: Typecheck (also checks packages/agent-chat via workspace dep)
               run: pnpm --filter=@posthog/agent-console --filter=@posthog/agent-chat typescript:check
 

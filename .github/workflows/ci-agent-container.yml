@@ -87,13 +87,26 @@ jobs:
                       dockerfile: services/agents/Dockerfile
                       context: .
                       depot_project: 6gmww256q5
+                      push_to_ecr: 'true'
                     - image: posthog-agent-console
                       dockerfile: services/agent-console/Dockerfile
                       context: .
                       depot_project: 5gr3vfft7g
-                    # posthog-agent-sandbox-host is intentionally excluded for
-                    # now — prod sandbox topology (Modal vs in-cluster) is not
-                    # decided yet; revisit once that's settled.
+                      push_to_ecr: 'true'
+                    # Canonical sandbox-host image used by BOTH the Modal pool
+                    # (production) and the Docker pool (local dev). Bakes
+                    # /sandbox/dispatch.js + /sandbox/host.js into a thin
+                    # node:24.13.0-alpine. The chart wires the resulting reference
+                    # into both pools via SANDBOX_HOST_IMAGE. GHCR-only —
+                    # ECR push is skipped because Modal pulls from GHCR and
+                    # the chart doesn't deploy this image as a service (no
+                    # ECR repo to provision). Reuses the posthog-agents
+                    # depot project for cache locality.
+                    - image: posthog-agent-sandbox-host
+                      dockerfile: services/agent-sandbox-host/Dockerfile
+                      context: services/agent-sandbox-host
+                      depot_project: 6gmww256q5
+                      push_to_ecr: 'false'
 
         steps:
             - name: Check out
@@ -117,6 +130,7 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  push-to-ecr: ${{ matrix.push_to_ecr }}
 
             - name: Build and push container image
               id: build
@@ -136,15 +150,24 @@ jobs:
             - name: Container image digest
               env:
                   IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
-                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
                   IMAGE_NAME: ${{ matrix.image }}
+                  PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
               run: |
+                  # For images that skipped ECR (e.g. sandbox-host, GHCR-only),
+                  # report the GHCR reference instead so the step summary stays
+                  # useful and the smoke-test step downstream has a pullable ref.
+                  if [ "$PUSH_TO_ECR" = "true" ]; then
+                      IMAGE_BASE="$ECR_REGISTRY/$IMAGE_NAME"
+                  else
+                      IMAGE_BASE="ghcr.io/posthog/$IMAGE_NAME"
+                  fi
                   echo "Image digest: $IMAGE_DIGEST"
-                  echo "Full image reference: $IMAGE_REGISTRY/$IMAGE_NAME:${{ github.sha }}@$IMAGE_DIGEST"
+                  echo "Full image reference: $IMAGE_BASE:${{ github.sha }}@$IMAGE_DIGEST"
                   {
                     echo "## ${IMAGE_NAME} built :rocket:"
                     echo ""
-                    echo "**Image reference:** \`$IMAGE_REGISTRY/$IMAGE_NAME:${{ github.sha }}@$IMAGE_DIGEST\`"
+                    echo "**Image reference:** \`$IMAGE_BASE:${{ github.sha }}@$IMAGE_DIGEST\`"
                     echo ""
                     echo "**Image SHA:** \`${{ github.sha }}@$IMAGE_DIGEST\`"
                   } >> "$GITHUB_STEP_SUMMARY"
@@ -170,12 +193,19 @@ jobs:
             # fail here instead of in dev.
             - name: Smoke test image
               env:
-                  IMAGE_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
+                  ECR_REGISTRY: ${{ steps.docker-meta.outputs.ecr-registry }}
                   IMAGE_NAME: ${{ matrix.image }}
                   IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+                  PUSH_TO_ECR: ${{ matrix.push_to_ecr }}
               run: |
                   set -euo pipefail
-                  IMAGE_REF="${IMAGE_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  # Mirror the digest-step logic: GHCR-only images smoke-test
+                  # against their GHCR ref since there's no ECR copy.
+                  if [ "$PUSH_TO_ECR" = "true" ]; then
+                      IMAGE_REF="${ECR_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  else
+                      IMAGE_REF="ghcr.io/posthog/${IMAGE_NAME}@${IMAGE_DIGEST}"
+                  fi
                   echo "::group::Pull image"
                   docker pull "$IMAGE_REF"
                   echo "::endgroup::"
@@ -194,6 +224,16 @@ jobs:
                       posthog-agent-console)
                           echo "::group::Smoke test agent-console"
                           .github/scripts/smoke-test-agent-console.sh "$IMAGE_REF"
+                          echo "::endgroup::"
+                          ;;
+                      posthog-agent-sandbox-host)
+                          # End-to-end smoke against the built image: lay out
+                          # a fake tool + nonces, exec the dispatcher, assert
+                          # the response shape for happy / bad-action /
+                          # missing-tool. Catches "image works in isolation"
+                          # regressions before either sandbox pool sees them.
+                          echo "::group::Smoke test agent-sandbox-host"
+                          services/agent-sandbox-host/scripts/smoke-test-image.sh "$IMAGE_REF"
                           echo "::endgroup::"
                           ;;
                       *)
@@ -227,13 +267,15 @@ jobs:
         # state.yaml by image name and the runtime apps (agent-ingress /
         # agent-runner / agent-janitor) all read from the same `posthog-agents`
         # row — same shape as ai-gateway / ai-gateway-billing on the chart side.
-        # agent-sandbox-host is intentionally excluded; see the build matrix.
+        # agent-sandbox-host gets its own row that the agent-runner chart
+        # consumes as the SANDBOX_HOST_IMAGE env var.
         strategy:
             fail-fast: false
             matrix:
                 image:
                     - posthog-agents
                     - posthog-agent-console
+                    - posthog-agent-sandbox-host
 
         steps:
             - name: Check out

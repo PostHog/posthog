@@ -1,4 +1,12 @@
-import { AgentSession, EMPTY_USAGE_TOTAL, MemorySessionQueue } from '@posthog/agent-shared'
+import {
+    AgentSession,
+    EMPTY_USAGE_TOTAL,
+    MemorySandboxInstanceStore,
+    MemorySessionQueue,
+    SandboxKind,
+    SandboxTerminator,
+    TerminationResult,
+} from '@posthog/agent-shared'
 
 import { sweepOnce } from './sweep'
 
@@ -157,18 +165,42 @@ describe('sweepOnce', () => {
         }
 
         let r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
+        expect(r).toEqual({
+            requeued: 1,
+            poisoned: 0,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
+        })
         expect((await queue.get('p'))!.retry_count).toBe(1)
 
         await setStale()
         r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
+        expect(r).toEqual({
+            requeued: 1,
+            poisoned: 0,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
+        })
         expect((await queue.get('p'))!.retry_count).toBe(2)
 
         // Third reap: retry_count would go to 3, exceeds maxRetries=2 → poisoned.
         await setStale()
         r = await sweepOnce(opts)
-        expect(r).toEqual({ requeued: 0, poisoned: 1, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
+        expect(r).toEqual({
+            requeued: 0,
+            poisoned: 1,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
+        })
         expect((await queue.get('p'))!.state).toBe('failed')
         expect((await queue.get('p'))!.retry_count).toBe(3)
     })
@@ -216,6 +248,156 @@ describe('sweepOnce', () => {
             const r = await sweepOnce({ queue, idempotencyKeyTtlMs: 0 })
             expect(r.cleared_idempotency_keys).toBe(0)
             expect((await queue.get('s'))!.idempotency_key).toBe('k')
+        })
+    })
+
+    describe('sandbox reaper', () => {
+        // Recording terminator — captures calls and replies per a scripted map.
+        function recordingTerminator(
+            replies: Partial<Record<SandboxKind, TerminationResult>> = {}
+        ): SandboxTerminator & { calls: Array<{ kind: SandboxKind; id: string }> } {
+            const calls: Array<{ kind: SandboxKind; id: string }> = []
+            return {
+                calls,
+                async terminate(kind: SandboxKind, providerSandboxId: string): Promise<TerminationResult> {
+                    calls.push({ kind, id: providerSandboxId })
+                    return replies[kind] ?? { ok: true }
+                },
+            }
+        }
+
+        async function seedReady(
+            store: MemorySandboxInstanceStore,
+            opts: { id: string; providerKind: SandboxKind; providerSandboxId: string; ageMs: number }
+        ): Promise<void> {
+            const row = await store.create({
+                team_id: 1,
+                application_id: 'app',
+                revision_id: 'rev',
+                session_id: opts.id,
+                provider_kind: opts.providerKind,
+            })
+            await store.markReady(row.id, opts.providerSandboxId)
+            // The MemorySandboxInstanceStore stamps last_used_at to NOW on
+            // markReady; rewind it to simulate a stale row.
+            const internal = await store.get(row.id)
+            if (internal) {
+                internal.last_used_at = new Date(Date.now() - opts.ageMs).toISOString()
+            }
+        }
+
+        it('terminates stale Modal rows + marks them terminated', async () => {
+            const queue = new MemorySessionQueue()
+            const sandboxInstances = new MemorySandboxInstanceStore()
+            const terminator = recordingTerminator()
+            await seedReady(sandboxInstances, {
+                id: 's1',
+                providerKind: 'modal',
+                providerSandboxId: 'ap-modal-1',
+                ageMs: 20 * 60_000, // 20m old, past default 10m threshold
+            })
+
+            const r = await sweepOnce({
+                queue,
+                sandboxInstances,
+                sandboxTerminator: terminator,
+            })
+
+            expect(r.reaped_sandboxes).toBe(1)
+            expect(r.sandbox_reap_failures).toBe(0)
+            expect(terminator.calls).toEqual([{ kind: 'modal', id: 'ap-modal-1' }])
+            const stale = await sandboxInstances.findStale(60_000)
+            expect(stale).toHaveLength(0)
+        })
+
+        it('does NOT reap fresh rows whose last_used_at is within threshold', async () => {
+            const queue = new MemorySessionQueue()
+            const sandboxInstances = new MemorySandboxInstanceStore()
+            const terminator = recordingTerminator()
+            await seedReady(sandboxInstances, {
+                id: 's-fresh',
+                providerKind: 'modal',
+                providerSandboxId: 'ap-modal-fresh',
+                ageMs: 5_000, // 5s old
+            })
+
+            const r = await sweepOnce({
+                queue,
+                sandboxInstances,
+                sandboxTerminator: terminator,
+            })
+
+            expect(r.reaped_sandboxes).toBe(0)
+            expect(r.sandbox_reap_failures).toBe(0)
+            expect(terminator.calls).toEqual([])
+        })
+
+        it('leaves rows whose terminator failed so the next tick retries them', async () => {
+            const queue = new MemorySessionQueue()
+            const sandboxInstances = new MemorySandboxInstanceStore()
+            const terminator = recordingTerminator({
+                modal: { ok: false, reason: 'transient network blip' },
+            })
+            await seedReady(sandboxInstances, {
+                id: 's-failing',
+                providerKind: 'modal',
+                providerSandboxId: 'ap-modal-failing',
+                ageMs: 20 * 60_000,
+            })
+
+            const r = await sweepOnce({
+                queue,
+                sandboxInstances,
+                sandboxTerminator: terminator,
+            })
+
+            expect(r.reaped_sandboxes).toBe(0)
+            expect(r.sandbox_reap_failures).toBe(1)
+            // The row is still in `ready`/visible to findStale so the next
+            // sweep tick will retry termination.
+            const stillStale = await sandboxInstances.findStale(60_000)
+            expect(stillStale.map((row) => row.provider_sandbox_id)).toContain('ap-modal-failing')
+        })
+
+        it('no-op when the sweep is missing either sandboxInstances or the terminator', async () => {
+            const queue = new MemorySessionQueue()
+            const sandboxInstances = new MemorySandboxInstanceStore()
+            await seedReady(sandboxInstances, {
+                id: 's',
+                providerKind: 'modal',
+                providerSandboxId: 'ap-1',
+                ageMs: 20 * 60_000,
+            })
+            // Wired only the store — no terminator → reaper skipped entirely.
+            const r1 = await sweepOnce({ queue, sandboxInstances })
+            expect(r1.reaped_sandboxes).toBe(0)
+            expect(r1.sandbox_reap_failures).toBe(0)
+            // Symmetric: terminator without store → also skipped.
+            const r2 = await sweepOnce({ queue, sandboxTerminator: recordingTerminator() })
+            expect(r2.reaped_sandboxes).toBe(0)
+        })
+
+        it('honours a custom sandboxStaleThresholdMs', async () => {
+            const queue = new MemorySessionQueue()
+            const sandboxInstances = new MemorySandboxInstanceStore()
+            const terminator = recordingTerminator()
+            // 30s old — under the default 10m, but over a 10s custom threshold.
+            await seedReady(sandboxInstances, {
+                id: 's',
+                providerKind: 'modal',
+                providerSandboxId: 'ap-1',
+                ageMs: 30_000,
+            })
+
+            const r = await sweepOnce({
+                queue,
+                sandboxInstances,
+                sandboxTerminator: terminator,
+                sandboxStaleThresholdMs: 10_000,
+            })
+
+            expect(r.reaped_sandboxes).toBe(1)
+            expect(terminator.calls).toEqual([{ kind: 'modal', id: 'ap-1' }])
         })
     })
 })

@@ -144,8 +144,6 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
 export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsCreateBodySpecAuthModesItemTwoScopesDefault = []
 
-export const agentApplicationsRevisionsCreateBodySpecAuthModesDefault = [{ type: `public` }]
-
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
     bundle_uri: zod.string().default(agentApplicationsRevisionsCreateBodyBundleUriDefault),
@@ -351,7 +349,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             }),
                         ])
                     )
-                    .default(agentApplicationsRevisionsCreateBodySpecAuthModesDefault),
+                    .optional(),
             }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })
@@ -408,8 +406,6 @@ export const agentApplicationsRevisionsUpdateBodySpecLimitsDefault = {
 }
 export const agentApplicationsRevisionsUpdateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsUpdateBodySpecAuthModesItemTwoScopesDefault = []
-
-export const agentApplicationsRevisionsUpdateBodySpecAuthModesDefault = [{ type: `public` }]
 
 export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -616,7 +612,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             }),
                         ])
                     )
-                    .default(agentApplicationsRevisionsUpdateBodySpecAuthModesDefault),
+                    .optional(),
             }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })
@@ -696,8 +692,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
 }
 export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModesItemTwoScopesDefault = []
-
-export const agentApplicationsRevisionsPartialUpdateBodySpecAuthModesDefault = [{ type: `public` }]
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     parent_revision: zod.uuid().nullish(),
@@ -910,7 +904,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             }),
                         ])
                     )
-                    .default(agentApplicationsRevisionsPartialUpdateBodySpecAuthModesDefault),
+                    .optional(),
             }),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
         })

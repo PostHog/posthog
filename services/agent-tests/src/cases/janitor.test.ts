@@ -70,6 +70,8 @@ describe('janitor: real e2e', () => {
             closed: 0,
             expired_approvals: 0,
             cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
         })
     })
 
@@ -107,17 +109,41 @@ describe('janitor: real e2e', () => {
 
         await goStale()
         const r1 = await sweep(2)
-        expect(r1).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
+        expect(r1).toEqual({
+            requeued: 1,
+            poisoned: 0,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
+        })
         expect((await c.queue.get(sid))!.retry_count).toBe(1)
 
         await goStale()
         const r2 = await sweep(2)
-        expect(r2).toEqual({ requeued: 1, poisoned: 0, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
+        expect(r2).toEqual({
+            requeued: 1,
+            poisoned: 0,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
+        })
         expect((await c.queue.get(sid))!.retry_count).toBe(2)
 
         await goStale()
         const r3 = await sweep(2)
-        expect(r3).toEqual({ requeued: 0, poisoned: 1, closed: 0, expired_approvals: 0, cleared_idempotency_keys: 0 })
+        expect(r3).toEqual({
+            requeued: 0,
+            poisoned: 1,
+            closed: 0,
+            expired_approvals: 0,
+            cleared_idempotency_keys: 0,
+            reaped_sandboxes: 0,
+            sandbox_reap_failures: 0,
+        })
         expect((await c.queue.get(sid))!.state).toBe('failed')
     })
 })

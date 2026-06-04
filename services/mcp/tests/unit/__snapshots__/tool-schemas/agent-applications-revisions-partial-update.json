@@ -28,11 +28,6 @@
                 "auth": {
                     "properties": {
                         "modes": {
-                            "default": [
-                                {
-                                    "type": "public"
-                                }
-                            ],
                             "items": {
                                 "anyOf": [
                                     {

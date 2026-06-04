@@ -65,6 +65,8 @@ def _req(method: str, path: str, body: dict | None = None) -> tuple[int, dict]:
         },
     )
     try:
+        # Example seed script — API base is a trusted dev/CI env var, not user input.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(req) as r:
             payload = r.read().decode() or "{}"
             return r.status, json.loads(payload)

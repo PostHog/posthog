@@ -111,7 +111,7 @@ jobs:
                     --error \
                     --metrics=off \
                     --verbose \
-                    frontend/ nodejs/ services/mcp/ services/oauth-proxy/ services/stripe-app/
+                    frontend/ nodejs/ services/agent-console/ services/agent-ingress/ services/agent-janitor/ services/agent-migrations/ services/agent-runner/ services/agent-sandbox-host/ services/agent-shared/ services/agent-tests/ services/agent-tools/ services/agents/ services/mcp/ services/oauth-proxy/ services/stripe-app/
 
     semgrep-products-frontend:
         runs-on: ubuntu-latest

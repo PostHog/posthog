@@ -68,8 +68,11 @@ export const PlatformConfigSchema = z.object({
         .string()
         .url()
         .optional()
+        // Dev fallback only — prod entrypoints fail closed without an explicit REDIS_URL.
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+        .transform((v): string | undefined => v ?? (isDev() ? 'redis://localhost:6379' : undefined))
         .describe(
-            'When set, lifecycle events publish via RedisSessionEventBus so cross-host /listen SSE works. Without it, events stay in-process.'
+            'SessionEventBus backing for cross-host /listen SSE — runner publishes lifecycle events here, ingress subscribes. Required in prod (entrypoints fail closed without it); defaults to a local dev Redis URL when NODE_ENV != production. Provisioned by terraform/modules/agent-platform/valkey_serverless and surfaced into the chart via the posthog-app `valkey:` map (REDIS_WRITER_URL → REDIS_URL).'
         ),
     encryptionSaltKeys: z
         .string()

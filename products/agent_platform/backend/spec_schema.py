@@ -293,10 +293,13 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         },
         "entrypoint": {"default": "agent.md", "type": "string"},
         "auth": {
-            # Nested object default removed — Orval's codegen stringifies
-            # `[{"type": "public"}]` as `[object Object]` in the generated
-            # zod file. The `modes` field has its own leaf default below,
-            # which is what actually applies in practice.
+            # No defaults at this level or below — Orval emits the default
+            # value as a plain TS literal whose inferred type widens
+            # `{type: 'public'}` to `{type: string}`, which then fails to
+            # satisfy the generated discriminated-union zod schema. The
+            # runtime default still applies via the node-side
+            # `AuthConfigSchema.default({ modes: [{ type: 'public' }] })`
+            # in services/agent-shared/src/spec/spec.ts.
             "type": "object",
             "properties": {
                 "modes": {
@@ -304,7 +307,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     # request wins. See `AuthModeSchema` in
                     # services/agent-shared/src/spec/spec.ts for the full
                     # contract and the credential-broker design.
-                    "default": [{"type": "public"}],
                     "type": "array",
                     "items": {
                         "oneOf": [

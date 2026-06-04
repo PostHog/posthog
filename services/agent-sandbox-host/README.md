@@ -1,35 +1,67 @@
 # agent-sandbox-host
 
-In-container Node host for the v2 Docker sandbox. Two scripts:
+Canonical sandbox-host image consumed by **both** sandbox pools in
+`@posthog/agent-shared`:
 
-- `src/host.js` — long-running process. Writes `/workdir/host.alive` on boot
-  so the runner-side `DockerSandbox` knows the container is ready. Idles
-  after that; `docker exec` is the integration surface for dispatches.
-- `src/dispatch.js` — per-invoke handler. Reads `/workdir/request.json`,
-  loads `/workdir/tools/<id>/compiled.js`, runs the named action with the
-  supplied args + a minimal `ctx`, writes `/workdir/response.json`.
+| Pool                | How it uses this image                                                                                                                                                                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DockerSandboxPool` | `docker run -v <workdir>:/workdir <image> node /sandbox/host.js`. host.js writes `/workdir/host.alive` so the runner knows the container is ready; dispatches via `docker exec node /sandbox/dispatch.js …`.                            |
+| `ModalSandboxPool`  | `client.sandboxes.create(app, image)` with no foreground command — Modal idles by default. Tools + dispatch script are laid out via `sandbox.filesystem.writeText`; dispatches via `sandbox.exec(['node', '/sandbox/dispatch.js', …])`. |
+
+## Layout
+
+- `src/host.js` — long-running process for the Docker pool. Writes
+  `/workdir/host.alive` on boot, idles on a heartbeat. **Modal never runs
+  this** — its sandbox idles by default.
+- `src/dispatch.js` — per-invoke handler. Reads `/workdir/request.json` (or
+  whichever path the caller supplies), loads
+  `/workdir/tools/<id>/compiled.js`, runs the named action with the supplied
+  args + a minimal `ctx`, writes `/workdir/response.json`.
+- `src/dispatch.test.js` — node:test unit suite for the dispatcher. Runs
+  in-process, no docker required.
+- `scripts/smoke-test-image.sh` — **containerized** end-to-end smoke test
+  for the built image (see "Smoke test" below).
 
 ## Building the image
 
 ```bash
 cd services/agent-sandbox-host
-docker build -t posthog/agent-sandbox-host:v1 .
+docker build -t posthog/agent-sandbox-host:dev .
 ```
 
-`services/agent-shared-v2/src/sandbox-docker.ts` defaults to that image
-tag; override with `new DockerSandboxPool({ image })` for staging tags.
+In CI the image is published to GHCR as
+`ghcr.io/posthog/posthog-agent-sandbox-host:<sha>` and
+`ghcr.io/posthog/posthog-agent-sandbox-host:master`. The agent-platform
+chart wires the SHA-tagged reference into both pools via the
+`SANDBOX_HOST_IMAGE` env var (consumed by `selectSandboxPool()`); production
+should always use the SHA tag because Modal caches images by reference
+indefinitely.
 
-## Publishing
+## Smoke test (containerized)
 
-The CI step (not yet wired) tags the build with both `:v<N>` and `:latest`
-and pushes to `ghcr.io/posthog/agent-sandbox-host`. Until that exists,
-local-only builds with the default tag are sufficient for dev / CI
-end-to-end testing.
+`scripts/smoke-test-image.sh <image-tag>` builds a self-contained workdir
+with a trivial echo tool, mounts it into the image, executes the
+dispatcher inside the container, and asserts the response shape. It's the
+"this image actually works in isolation" check — runs in CI after the
+build and before the push.
 
-## Running the tests
+```bash
+# Build then smoke-test in one shot:
+docker build -t posthog/agent-sandbox-host:dev .
+./scripts/smoke-test-image.sh posthog/agent-sandbox-host:dev
+```
 
-The host package uses node's built-in `test` runner so the container image
-stays dependency-free.
+The end-to-end variants (real Modal sandbox / real Docker container with
+real tool injection) live in
+[`services/agent-shared/src/sandbox/sandbox-modal.test.ts`](../agent-shared/src/sandbox/sandbox-modal.test.ts)
+and [`services/agent-shared/src/sandbox/sandbox-docker.test.ts`](../agent-shared/src/sandbox/sandbox-docker.test.ts).
+Both are opt-in (Modal needs `MODAL_TOKEN_ID` / `MODAL_TOKEN_SECRET` in env;
+Docker needs a local docker daemon).
+
+## Running the unit tests
+
+The dispatcher's pure-function logic (tool loading, action lookup,
+timeouts, nonce ref) runs against node:test without the image:
 
 ```bash
 cd services/agent-sandbox-host
@@ -38,7 +70,7 @@ node --test src/dispatch.test.js
 
 ## Wire format
 
-### Request (`/workdir/request.json`)
+Request (`/workdir/request.json`):
 
 ```json
 {
@@ -49,7 +81,7 @@ node --test src/dispatch.test.js
 }
 ```
 
-### Response (`/workdir/response.json`)
+Response (`/workdir/response.json`):
 
 ```json
 { "ok": true, "result": { "greeted": "world" } }
@@ -61,7 +93,7 @@ or
 { "ok": false, "error": { "code": "tool_not_found", "message": "..." } }
 ```
 
-### Tool contract (`/workdir/tools/<id>/compiled.js`)
+Tool contract (`/workdir/tools/<id>/compiled.js`):
 
 ```js
 module.exports = {

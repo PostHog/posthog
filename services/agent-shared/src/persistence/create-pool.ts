@@ -31,6 +31,9 @@ export function createAgentPool(
 ): Pool {
     return new Pool({
         connectionString,
+        // Deliberate — see the file header: Aurora's RDS CA isn't in Node's trust
+        // store and we don't bundle it; matches the in-cluster pgbouncer behavior.
+        // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
         ssl: isLocalHost(connectionString) ? false : { rejectUnauthorized: false },
         ...options,
     })

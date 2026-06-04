@@ -43,10 +43,12 @@ describe('loadAgentIngressConfig', () => {
         const cfg = loadAgentIngressConfig({
             POSTHOG_DB_URL: 'postgres://x/y',
             AGENT_DB_URL: 'postgres://x/z',
+            // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
             REDIS_URL: 'redis://localhost:6379',
         })
         expect(cfg.posthogDbUrl).toBe('postgres://x/y')
         expect(cfg.agentDbUrl).toBe('postgres://x/z')
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         expect(cfg.redisUrl).toBe('redis://localhost:6379')
     })
 
