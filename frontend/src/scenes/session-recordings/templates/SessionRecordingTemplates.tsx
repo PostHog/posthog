@@ -6,7 +6,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
-import { ReplayActiveScreensTable } from 'scenes/session-recordings/components/ReplayActiveScreensTable'
 
 import { actionsModel } from '~/models/actionsModel'
 import {
@@ -186,9 +185,6 @@ const SessionRecordingTemplates = (): JSX.Element => {
     return (
         <div>
             <p>To get the most out of session replay, you just need to know where to start. </p>
-            <div className="flex flex-col gap-2 w-full">
-                <ReplayActiveScreensTable />
-            </div>
             <h2 className="mt-4">Filter templates</h2>
             <p>
                 Use our templates to find a focus area, then watch the filtered replays to see where users struggle,
