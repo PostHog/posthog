@@ -85,6 +85,7 @@ the row lists both.
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
 | okta             | HTTP                        | requests                                                        | ✅                          |
 | notion           | HTTP                        | requests                                                        | ✅                          |
+| omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
@@ -196,7 +197,6 @@ doesn't conflict with concurrent PRs.
 - mixpanel
 - monday
 - netsuite
-- omnisend
 - onedrive
 - oracle
 - outreach
