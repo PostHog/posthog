@@ -10408,6 +10408,18 @@ export namespace Schemas {
       available: boolean;
     }
 
+    /**
+     * * `abandoned` - Abandoned
+    * `off-topic` - Off-topic
+     */
+    export type ClassificationsEnum = typeof ClassificationsEnum[keyof typeof ClassificationsEnum];
+
+
+    export const ClassificationsEnum = {
+      Abandoned: 'abandoned',
+      OffTopic: 'off-topic',
+    } as const;
+
     export interface TagCount {
       /** The tag value. */
       tag: string;
@@ -10423,18 +10435,6 @@ export namespace Schemas {
       /** Succeeded observations that emitted at least one tag. */
       total_with_tags: number;
     }
-
-    /**
-     * * `abandoned` - Abandoned
-    * `off-topic` - Off-topic
-     */
-    export type ClassificationsEnum = typeof ClassificationsEnum[keyof typeof ClassificationsEnum];
-
-
-    export const ClassificationsEnum = {
-      Abandoned: 'abandoned',
-      OffTopic: 'off-topic',
-    } as const;
 
     /**
      * * `claude` - claude
