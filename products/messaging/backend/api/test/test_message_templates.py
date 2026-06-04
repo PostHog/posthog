@@ -333,3 +333,5 @@ class TestMessageTemplatesAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK
+        self.message_template.refresh_from_db()
+        assert self.message_template.content["email"]["html"] == ""
