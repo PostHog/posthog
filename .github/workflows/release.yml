@@ -115,13 +115,12 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   submodules: recursive
-            - name: Install Rust non-interactively if not already installed
+            - name: Install Rust
               if: ${{ matrix.container }}
-              run: |
-                  if ! command -v cargo > /dev/null 2>&1; then
-                    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-                    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-                  fi
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
             - name: Install dist
               shell: bash
               run: |

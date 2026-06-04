@@ -15,7 +15,7 @@ Use `minor` or `major` instead of `patch` when appropriate. Commit the generated
 After the pull request merges to `master`, the `Release CLI` workflow:
 
 1. Checks for pending CLI changesets
-2. Waits for approval in the GitHub `Release` environment
+2. Waits for approval in the GitHub `Release SDK` environment
 3. Runs `sampo release` from `./cli`
 4. Updates `cli/Cargo.toml`, `cli/Cargo.lock`, and `cli/CHANGELOG.md`
 5. Commits the release bump to `master`
