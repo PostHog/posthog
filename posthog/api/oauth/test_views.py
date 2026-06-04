@@ -2360,11 +2360,18 @@ class TestOAuthAPI(APIBaseTest):
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
 
-    def test_authorize_rejection_captures_invalid_scope_event(self):
-        self._set_ceiling("experiment:read")
+    @parameterized.expand(
+        [
+            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+        ]
+    )
+    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+        self._set_ceiling(*ceiling)
         with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
-            response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
+            response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error=invalid_scope", response.get("Location") or "")
         rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
         self.assertEqual(len(rejected), 1)
         props = rejected[0].kwargs["properties"]
