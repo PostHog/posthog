@@ -28,20 +28,33 @@ User = get_user_model()
 # Server-owned run.metadata keys — never accept these from client input.
 # Allowing clients to set these would let them target arbitrary GitHub
 # comments for PATCH, or spoof baseline commit SHAs in the audit trail.
+# These are all written by the server itself, never by the CI runner.
+# `github_check_run_id` is deliberately NOT reserved: the CI runner is its
+# only source (from `JOB_CHECK_RUN_ID=${{ job.check_run_id }}`), and the
+# rerun it enables is fenced by `_rerun_github_job` — the job must run on the
+# run's commit and belong to the recorded workflow run (`github_run_id`).
 _RESERVED_RUN_METADATA_KEYS = frozenset(
     {
         "github_comment_id",
         "baseline_commit_sha",
         "baseline_healed_from_merge_base",
-        "github_check_run_id",
     }
 )
+
+# GitHub identifiers arrive as JSON, so a client can send them as numbers.
+# Store them as strings so rerun logic (which calls `.isdigit()`) and
+# workflow-run comparisons stay type-stable.
+_STRING_RUN_METADATA_KEYS = frozenset({"github_check_run_id", "github_run_id"})
 
 
 def _sanitize_run_metadata(metadata: dict | None) -> dict:
     if not metadata:
         return {}
-    return {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+    cleaned = {k: v for k, v in metadata.items() if k not in _RESERVED_RUN_METADATA_KEYS}
+    for key in _STRING_RUN_METADATA_KEYS:
+        if cleaned.get(key) is not None:
+            cleaned[key] = str(cleaned[key])
+    return cleaned
 
 
 # Re-export exceptions for callers

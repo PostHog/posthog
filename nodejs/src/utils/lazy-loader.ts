@@ -194,7 +194,12 @@ export class LazyLoader<T> {
 
                     // If we haven't triggered a hard refresh, we check for a background refresh
                     if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
-                        void this.load([key])
+                        void this.load([key]).catch((err) => {
+                            logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
+                                key,
+                                error: String(err),
+                            })
+                        })
                         lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
                         continue
                     }

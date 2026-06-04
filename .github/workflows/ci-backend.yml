@@ -86,6 +86,10 @@ jobs:
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             timing_scripts: ${{ steps.filter.outputs.timing_scripts }}
+            # True only when every backend-relevant changed file is a data
+            # warehouse import source — lets build_django_matrix drop the
+            # Core/CorePOE/compat segments. Defaults false (full matrix).
+            data_import_sources_only: ${{ steps.sources.outputs.data_import_sources_only || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -258,6 +262,44 @@ jobs:
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
 
+            # Detect PRs whose backend changes are confined to data warehouse
+            # import sources that NO Django Core/CorePOE-collected code imports.
+            # Such a PR is exercised only by the Temporal segment (Core/CorePOE
+            # --ignore=posthog/temporal), so those segments add no coverage.
+            # The `coupled` sources are reverse-imported at runtime by Core tests
+            # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
+            # postgres) — a PR touching them must run the full matrix or it would
+            # silently skip those tests. `coupled` is kept complete by the guard
+            # test posthog/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
+            # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
+            # PR events only; push and merge_group always run everything.
+            - name: Determine if only data warehouse sources changed
+              id: sources
+              if: github.event_name == 'pull_request'
+              env:
+                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
+              run: |
+                  prefix="posthog/temporal/data_imports/sources/"
+                  # Space-separated, double-quoted, single line — parsed by the guard test.
+                  coupled="common postgres salesforce stripe"
+                  only_sources=false
+                  if [ -n "$BACKEND_FILES" ]; then
+                      only_sources=true
+                      for f in $BACKEND_FILES; do
+                          case "$f" in
+                              "$prefix"*) ;;
+                              *) only_sources=false; break ;;
+                          esac
+                          rest=${f#"$prefix"}    # path within sources/
+                          top=${rest%%/*}        # vendor dir (or top-level filename)
+                          case " $coupled " in
+                              *" $top "*) only_sources=false; break ;;
+                          esac
+                      done
+                  fi
+                  echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
+                  echo "Only data warehouse import sources changed: $only_sources"
+
     detect-snapshot-mode:
         name: Detect snapshot mode
         runs-on: ubuntu-latest
@@ -339,6 +381,16 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                   fi
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Setup pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
@@ -350,6 +402,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-backend.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile --filter=@posthog/root
@@ -575,6 +628,16 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
                     temporal elasticsearch objectstorage-azure
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Setup pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
@@ -586,6 +649,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-backend.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install pnpm dependencies
               run: pnpm install --frozen-lockfile --filter=@posthog/root
@@ -730,10 +794,21 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -801,6 +876,8 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  # Reuse the app token already minted above instead of a second mint.
+                  token: ${{ steps.app-token.outputs.token || github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -872,10 +949,21 @@ jobs:
               run: |
                   bin/ci-wait-for-docker launch --background --down db redis7 clickhouse
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -1468,10 +1556,21 @@ jobs:
               run: |
                   bin/ci-wait-for-docker launch --background --down db clickhouse
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -1503,6 +1602,7 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-backend.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -1641,6 +1741,7 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
@@ -1760,12 +1861,19 @@ jobs:
                       ')
                   fi
 
-                  include=$(jq -cn \
-                    --argjson core "$core" \
-                    --argjson core_persons_on_events "$core_persons_on_events" \
-                    --argjson temporal "$temporal" \
-                    --argjson compat "$compat" \
-                    '$core + $core_persons_on_events + $temporal + $compat')
+                  if [ "$DATA_IMPORT_SOURCES_ONLY" = "true" ]; then
+                    # Only data warehouse import sources changed — the Temporal
+                    # segment already covers posthog/temporal, so skip Core/CorePOE/compat.
+                    echo "Only data warehouse import sources changed — running Temporal segment only"
+                    include="$temporal"
+                  else
+                    include=$(jq -cn \
+                      --argjson core "$core" \
+                      --argjson core_persons_on_events "$core_persons_on_events" \
+                      --argjson temporal "$temporal" \
+                      --argjson compat "$compat" \
+                      '$core + $core_persons_on_events + $temporal + $compat')
+                  fi
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
@@ -1787,7 +1895,8 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        timeout-minutes: 30
+        # 45 for slow Temporal shards on master; keep <= deploy gate wait (container-images-cd.yml)
+        timeout-minutes: 45
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Runner type is performance-critical — consult #team-devex before changing
@@ -1850,10 +1959,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: ${{ matrix.python-version }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv-tests
@@ -2550,10 +2670,21 @@ jobs:
               run: |
                   bin/ci-wait-for-docker launch --background --down
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv-async
