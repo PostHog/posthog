@@ -3309,6 +3309,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
@@ -3378,6 +3379,7 @@ class TestExternalDataSource(APIBaseTest):
                     ],
                     "detected_primary_keys": ["id"],
                     "permission_error": None,
+                    "rls_warning": None,
                 }
             ]
 
