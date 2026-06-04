@@ -181,8 +181,15 @@ def prepare_ast_for_printing(
         # the property swapper runs, so the swapper only coerces the tail it still owns (group props, PoE
         # virtual-table person props). Properties this pass lowers are no longer PropertyTypes, so the printer
         # never has to chase them to a physical column.
-        with context.timings.measure("lower_properties"):
-            node = lower_properties(node, context)
+        #
+        # Skip entirely for legacy non-HogQL queries (events-explorer property filters via base_filter.py, data
+        # deletion predicates). Those splice the printed SQL into a query whose table scope is fixed and require
+        # *unqualified* materialized columns (no `events.`/`sharded_events.` prefix); the printer's
+        # within_non_hogql_query handling emits that form, but the synthetic fields this pass builds are always
+        # table-qualified. Leaving the AST untouched here makes those queries print exactly as on master.
+        if not context.within_non_hogql_query:
+            with context.timings.measure("lower_properties"):
+                node = lower_properties(node, context)
 
         with context.timings.measure("swap_properties"):
             node = PropertySwapper(

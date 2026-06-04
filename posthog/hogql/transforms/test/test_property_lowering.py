@@ -7,6 +7,7 @@ from posthog.schema import MaterializationMode, PropertyGroupsMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
@@ -269,3 +270,72 @@ class TestPropertyLoweringCast(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
         assert result.results[0][0] == 2
+
+
+class TestNonHogQLQueryUnaffected(ClickhouseTestMixin, BaseTest):
+    """`within_non_hogql_query` predicates (events-explorer filters, data-deletion) must bypass lowering entirely.
+
+    Those fragments are spliced into queries with a fixed table scope and require *unqualified* materialized
+    columns (no `events.`/`sharded_events.` prefix). The lowering pass builds table-qualified synthetic fields, so
+    it is gated off for these queries and they print via the printer exactly as on master.
+    """
+
+    def _compile(self, predicate: str, modifiers: HogQLQueryModifiers | None = None) -> str:
+        context = HogQLContext(
+            team_id=self.team.pk,
+            within_non_hogql_query=True,
+            enable_select_queries=True,
+            modifiers=modifiers or HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+        )
+        return translate_hogql(predicate, context, dialect="clickhouse")
+
+    def test_within_non_hogql_query_materialized_read_is_unqualified(self):
+        with materialized("events", "test_prop", is_nullable=False):
+            sql = self._compile("properties.test_prop")
+            assert sql == "nullIf(nullIf(mat_test_prop, ''), 'null')"
+            assert "events." not in sql
+
+    def test_within_non_hogql_query_nullable_materialized_read_is_unqualified(self):
+        with materialized("events", "test_prop", is_nullable=True):
+            sql = self._compile("properties.test_prop")
+            assert sql == "mat_test_prop"
+            assert "events." not in sql
+
+    @parameterized.expand(
+        [
+            ("eq", "properties.test_prop = 'x'"),
+            ("neq", "properties.test_prop != 'x'"),
+            ("in", "properties.test_prop IN ('a', 'b')"),
+            ("lt", "properties.test_prop < 'm'"),
+            ("ilike", "properties.test_prop ilike '%x%'"),
+            ("like", "properties.test_prop like '%x%'"),
+            ("isnull", "properties.test_prop is null"),
+        ]
+    )
+    def test_within_non_hogql_query_comparisons_reference_unqualified_column(self, _name: str, predicate: str):
+        # The printer's comparison optimizers (not the lowering pass) handle these; the column stays unqualified.
+        with materialized("events", "test_prop", is_nullable=False):
+            sql = self._compile(predicate)
+            assert "mat_test_prop" in sql
+            assert "events.`mat_test_prop`" not in sql and "events.mat_test_prop" not in sql
+
+    def test_lower_property_type_returns_none_within_non_hogql_query(self):
+        # Belt-and-suspenders: lower_property_type itself refuses to lower in this mode.
+        with materialized("events", "test_prop", is_nullable=False):
+            context = HogQLContext(
+                team_id=self.team.pk,
+                database=Database.create_for(team=self.team),
+                within_non_hogql_query=True,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO),
+            )
+            resolved = resolve_types(
+                parse_select("SELECT properties.test_prop FROM events"), context, dialect="clickhouse"
+            )
+            assert isinstance(resolved, ast.SelectQuery)
+            build_property_swapper(resolved, context)
+            item = resolved.select[0]
+            if isinstance(item, ast.Alias):
+                item = item.expr
+            assert isinstance(item, ast.Field) and isinstance(item.type, ast.PropertyType)
+            assert lower_property_type(item.type, context) is None

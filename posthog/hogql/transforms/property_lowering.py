@@ -140,6 +140,13 @@ def lower_property_type(property_type: ast.PropertyType, context: HogQLContext) 
     AST node reproduces. The lowered form (`if(has(g,k), g[k], null)`, parameterized constants) prints
     differently but evaluates identically.
     """
+    # Legacy non-HogQL queries require *unqualified* materialized columns (the printer's within_non_hogql_query
+    # path drops the table prefix); the synthetic fields here are always table-qualified, so never lower them.
+    # The pass is already gated off for these in prepare_ast_for_printing — this is belt-and-suspenders for any
+    # other caller (e.g. resolve_lazy_tables' group-property swap path) that reaches lower_property_type directly.
+    if context.within_non_hogql_query:
+        return None
+
     # Already repointed into a joined subquery: the printer reads it as a plain aliased column.
     if property_type.joined_subquery is not None:
         return None
@@ -947,12 +954,10 @@ class LowerProperties(CloningVisitor):
 
 
 def lower_properties(node: _T_AST, context: HogQLContext) -> _T_AST:
-    """Lower every materializable `properties.$x` access in a resolved ClickHouse AST to concrete column AST."""
-    # Legacy non-HogQL queries (data-deletion predicates, legacy insight fragments) splice this SQL into a query
-    # whose table scope is fixed, so the printer must emit *unqualified* materialized columns (no `events.` prefix)
-    # — see BasePrinter._get_all_materialized_property_sources' `table_prefix=None` branch. The synthetic fields this
-    # pass builds are always table-qualified, so leave these queries entirely to the printer's value-read +
-    # comparison-optimizer path (which handles the unqualified case correctly).
-    if context.within_non_hogql_query:
-        return node
+    """Lower every materializable `properties.$x` access in a resolved ClickHouse AST to concrete column AST.
+
+    The caller (prepare_ast_for_printing) skips this entirely for `within_non_hogql_query` contexts — those
+    require unqualified materialized columns the synthetic fields here can't produce, so they stay on the
+    printer's path. `lower_property_type` also early-returns for that mode as a second line of defense.
+    """
     return cast(_T_AST, LowerProperties(context).visit(node))
