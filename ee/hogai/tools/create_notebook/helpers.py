@@ -3,6 +3,7 @@ from enum import Enum
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact
@@ -84,10 +85,13 @@ async def save_notebook_to_db(
         for ref_id, result in zip(ref_ids, results):
             if result is None or result.content.query is None:
                 continue
-            if isinstance(result, ModelArtifactResult) and not user_access_control.check_access_level_for_object(
-                result.model, "viewer"
-            ):
-                continue
+            # Skip saved object the user can't access
+            if isinstance(result, ModelArtifactResult):
+                has_access = await database_sync_to_async(user_access_control.check_access_level_for_object)(
+                    result.model, "viewer"
+                )
+                if not has_access:
+                    continue
             query = result.content.query.model_dump(mode="json", exclude_none=True)
             kind = query.get("kind", "")
             if kind == "DataVisualizationNode":
