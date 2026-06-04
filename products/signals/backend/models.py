@@ -84,6 +84,13 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+class CodingAgent(models.TextChoices):
+    # Modeled as an extensible enum: "PostHog Code" internally runs Claude/Codex, and other
+    # external agents may be added later. Routing treats the agent backend as a list, not a binary.
+    POSTHOG_CODE = "posthog_code", "PostHog Code"
+    CURSOR = "cursor", "Cursor"
+
+
 class SignalTeamConfig(UUIDModel):
     team = models.OneToOneField(
         "posthog.Team",
@@ -91,6 +98,7 @@ class SignalTeamConfig(UUIDModel):
         related_name="signal_team_config",
     )
     default_autostart_priority = models.CharField(max_length=2, choices=AutonomyPriority, default=AutonomyPriority.P0)
+    default_coding_agent = models.CharField(max_length=32, choices=CodingAgent, default=CodingAgent.POSTHOG_CODE)
     default_slack_notification_channel = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
