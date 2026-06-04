@@ -65,13 +65,16 @@ export function AccountBillingExpansion({
                 />
                 {note ? <span className="text-xs text-secondary">{note}</span> : null}
             </div>
-            <Query
-                uniqueKey={`account-billing-${accountId}-${kind}`}
-                query={query}
-                variablesOverride={variableOverrides ?? null}
-                readOnly
-                embedded
-            />
+            {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
+            <div className="h-80 flex flex-col overflow-hidden">
+                <Query
+                    uniqueKey={`account-billing-${accountId}-${kind}`}
+                    query={query}
+                    variablesOverride={variableOverrides ?? null}
+                    readOnly
+                    embedded
+                />
+            </div>
         </div>
     )
 }
