@@ -117,28 +117,22 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             key: 'type',
             width: '7rem',
             render: (_value: unknown, sub: SubscriptionApi) => {
-                if (sub.resource_type === 'ai_prompt') {
-                    return (
-                        <LemonTag type="default" size="small" icon={<IconAI />}>
-                            AI report
-                        </LemonTag>
-                    )
+                const typeTag =
+                    sub.resource_type === 'ai_prompt'
+                        ? { icon: <IconAI />, label: 'AI report' }
+                        : sub.insight
+                          ? { icon: <IconGraph />, label: 'Insight' }
+                          : sub.dashboard
+                            ? { icon: <IconDashboard />, label: 'Dashboard' }
+                            : null
+                if (!typeTag) {
+                    return <span className="text-secondary">—</span>
                 }
-                if (sub.insight) {
-                    return (
-                        <LemonTag type="default" size="small" icon={<IconGraph />}>
-                            Insight
-                        </LemonTag>
-                    )
-                }
-                if (sub.dashboard) {
-                    return (
-                        <LemonTag type="default" size="small" icon={<IconDashboard />}>
-                            Dashboard
-                        </LemonTag>
-                    )
-                }
-                return <span className="text-secondary">—</span>
+                return (
+                    <LemonTag type="default" size="small" icon={typeTag.icon}>
+                        {typeTag.label}
+                    </LemonTag>
+                )
             },
         },
         {

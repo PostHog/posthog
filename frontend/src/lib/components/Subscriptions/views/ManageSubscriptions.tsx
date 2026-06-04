@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -94,13 +94,19 @@ export function SubscriptionListItem({
                 <div>
                     <div className={`font-medium ${enabled ? 'text-link' : 'text-muted'}`}>{subscription.title}</div>
                     {subscription.resource_type === 'ai_prompt' && subscription.prompt ? (
-                        <div className="text-sm text-text-3000 italic">
-                            {`"${
-                                subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS
-                                    ? `${subscription.prompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…`
-                                    : subscription.prompt
-                            }"`}
-                        </div>
+                        <Tooltip
+                            title={
+                                subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS ? subscription.prompt : undefined
+                            }
+                        >
+                            <div className="text-sm text-text-3000 italic">
+                                {`"${
+                                    subscription.prompt.length > PROMPT_PREVIEW_MAX_CHARS
+                                        ? `${subscription.prompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…`
+                                        : subscription.prompt
+                                }"`}
+                            </div>
+                        </Tooltip>
                     ) : null}
                     <div className="text-sm text-text-3000">
                         {capitalizeFirstLetter(subscription.summary)}

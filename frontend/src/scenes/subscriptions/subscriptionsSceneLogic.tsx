@@ -62,13 +62,9 @@ export interface SubscriptionsQueryFromUrl {
 
 function parseSubscriptionsSearchParams(searchParams: Record<string, unknown>): SubscriptionsQueryFromUrl {
     const rawTab = searchParams['tab']
-    const tab: SubscriptionsTab =
-        rawTab === SubscriptionsTab.Mine ||
-        rawTab === SubscriptionsTab.Dashboard ||
-        rawTab === SubscriptionsTab.Insight ||
-        rawTab === SubscriptionsTab.AI
-            ? rawTab
-            : SubscriptionsTab.All
+    const tab: SubscriptionsTab = (Object.values(SubscriptionsTab) as string[]).includes(rawTab as string)
+        ? (rawTab as SubscriptionsTab)
+        : SubscriptionsTab.All
 
     const search = urlSearchParamToString(searchParams['search'])
 
