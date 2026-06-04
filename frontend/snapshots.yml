@@ -5870,6 +5870,10 @@ snapshots:
         hash: v1.k794b7964.f1ad5aaa8dabaefd9ac8900920c56eb029656d9bd570bf4edd25fb6c135d9e44.pfgonEC2aj4XbTFzo4VbAFE68EwPYux9GdsZ_fk_y78
     scenes-app-saved-insights--list-view--light:
         hash: v1.k794b7964.84949542f060e8a4bb51b32c447be267827eefe820cb4fb64043bf816c8c5ffa.2A1ZaEwm2EE1w8Vq_2S87UR7FQ5Cv5UqYLE9xPF7CO4
+    scenes-app-saved-insights--search-results--dark:
+        hash: v1.k794b7964.497c4c623ad39c00e7222da92d036c2d3244dcc2a646b544e901f0cb76fc6769.R5MvpFQDADYd-3yCZYToSZIkYXvTD2M88dv__O_rLKY
+    scenes-app-saved-insights--search-results--light:
+        hash: v1.k794b7964.2987eff3c77b7e9c3cd868a266843d2bdf810831df871c8633dbea916bf20ee0.8ckgttcb_kZYo5kDcebDA61TOfupN5W1Mqx6oTuKfmA
     scenes-app-sessionattributionexplorer--session-attribution-explorer--dark:
         hash: v1.k794b7964.de73dd95fc63c967333c2d0caae609d6fb4d5c1dcd976397ca9541194ae9dfb1.Q4eLDuHYUsFUb8pTFD4Z10fXX_a0s_tSqKejQyNPTMM
     scenes-app-sessionattributionexplorer--session-attribution-explorer--light:
