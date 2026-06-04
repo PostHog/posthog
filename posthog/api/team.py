@@ -1530,6 +1530,24 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             )
 
 
+class EvaluationContextSuggestionRequestSerializer(serializers.Serializer):
+    context_name = serializers.CharField(
+        max_length=255,
+        help_text=(
+            "Name of the evaluation context to hide from (POST) or restore to (DELETE) "
+            "the flag editor's suggestion list. Case-insensitive and whitespace-trimmed."
+        ),
+    )
+
+
+class EvaluationContextSuggestionResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the suggestion visibility change was applied.")
+    name = serializers.CharField(help_text="Normalized name of the affected evaluation context.")
+    hidden_from_suggestions = serializers.BooleanField(
+        help_text="Whether the context is now hidden from the flag editor's suggestion list."
+    )
+
+
 class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Projects for the current organization.
@@ -1833,12 +1851,20 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             defaults = TeamDefaultEvaluationContext.objects.filter(team=team).select_related("evaluation_context")
             defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
             all_contexts = list(
-                EvaluationContext.objects.filter(team=team).values_list("name", flat=True).order_by("name")
+                EvaluationContext.objects.filter(team=team, hidden_from_suggestions=False)
+                .values_list("name", flat=True)
+                .order_by("name")
+            )
+            hidden_contexts = list(
+                EvaluationContext.objects.filter(team=team, hidden_from_suggestions=True)
+                .values_list("name", flat=True)
+                .order_by("name")
             )
             return response.Response(
                 {
                     "default_evaluation_contexts": defaults_data,
                     "available_contexts": all_contexts,
+                    "hidden_contexts": hidden_contexts,
                     "enabled": team.default_evaluation_contexts_enabled,
                 }
             )
@@ -1901,6 +1927,53 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                     return response.Response({"success": True})
                 except EvaluationContext.DoesNotExist:
                     return response.Response({"error": "Evaluation context not found"}, status=404)
+
+    @extend_schema(
+        methods=["POST", "DELETE"],
+        request=EvaluationContextSuggestionRequestSerializer,
+        responses={200: EvaluationContextSuggestionResponseSerializer},
+        extensions={"x-product": "feature_flags"},
+    )
+    @action(
+        methods=["POST", "DELETE"],
+        detail=True,
+        permission_classes=[IsAuthenticated],
+    )
+    def evaluation_context_suggestions(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Hide an evaluation context name from the flag editor's suggestion list, or restore it.
+
+        POST hides the name; DELETE restores it. The underlying context row and any flags already
+        using it are never modified — this only controls what gets suggested.
+        """
+        team = self.get_object()
+
+        context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
+        if not isinstance(context_name, str):
+            return response.Response({"error": "context_name must be a string"}, status=400)
+        context_name = normalize_context_name(context_name)
+        if not context_name:
+            return response.Response({"error": "context_name is required"}, status=400)
+
+        hidden = request.method == "POST"
+
+        with transaction.atomic():
+            try:
+                ctx = EvaluationContext.objects.select_for_update().get(name=context_name, team=team)
+            except EvaluationContext.DoesNotExist:
+                return response.Response({"error": "Evaluation context not found"}, status=404)
+
+            if ctx.hidden_from_suggestions != hidden:
+                ctx.hidden_from_suggestions = hidden
+                ctx.save(update_fields=["hidden_from_suggestions"])
+                report_user_action(
+                    cast(User, request.user),
+                    "evaluation context suggestion hidden" if hidden else "evaluation context suggestion restored",
+                    {"team_id": team.id, "context_name": context_name},
+                    team=team,
+                    request=request,
+                )
+
+        return response.Response({"success": True, "name": context_name, "hidden_from_suggestions": hidden})
 
     @action(
         methods=["GET"],

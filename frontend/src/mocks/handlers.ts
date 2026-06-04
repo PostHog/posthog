@@ -236,6 +236,7 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/default_evaluation_contexts/': {
             default_evaluation_contexts: [],
             available_contexts: [],
+            hidden_contexts: [],
             enabled: false,
         },
         '/api/environments/:team_id/file_system/unfiled/': { count: 0 },

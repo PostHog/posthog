@@ -3,7 +3,13 @@ from unittest.mock import patch
 
 from rest_framework import status
 
-from products.feature_flags.backend.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
+from posthog.models import Team
+
+from products.feature_flags.backend.models.evaluation_context import (
+    EvaluationContext,
+    FeatureFlagEvaluationContext,
+    TeamDefaultEvaluationContext,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -205,3 +211,78 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         flag = FeatureFlag.objects.get(key="test-flag-no-defaults", team=self.team)
         self.assertEqual(flag.tagged_items.count(), 0)
         self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
+
+
+class TestEvaluationContextSuggestions(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.url = "/api/environments/@current/evaluation_context_suggestions/"
+        self.get_url = "/api/environments/@current/default_evaluation_contexts/"
+
+    def _create_context(self, name: str) -> EvaluationContext:
+        ctx, _ = EvaluationContext.objects.get_or_create(name=name, team=self.team)
+        return ctx
+
+    def test_hide_context_removes_it_from_suggestions(self):
+        self._create_context("production")
+        self._create_context("staging")
+
+        response = self.client.post(self.url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "name": "production", "hidden_from_suggestions": True})
+
+        data = self.client.get(self.get_url).json()
+        self.assertEqual(data["available_contexts"], ["staging"])
+        self.assertEqual(data["hidden_contexts"], ["production"])
+
+    def test_restore_hidden_context(self):
+        ctx = self._create_context("production")
+        ctx.hidden_from_suggestions = True
+        ctx.save()
+
+        response = self.client.delete(self.url + "?context_name=production")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True, "name": "production", "hidden_from_suggestions": False})
+
+        ctx.refresh_from_db()
+        self.assertFalse(ctx.hidden_from_suggestions)
+
+        data = self.client.get(self.get_url).json()
+        self.assertEqual(data["available_contexts"], ["production"])
+        self.assertEqual(data["hidden_contexts"], [])
+
+    def test_hiding_preserves_row_and_flag_links(self):
+        ctx = self._create_context("production")
+        flag = FeatureFlag.objects.create(key="my-flag", name="My Flag", team=self.team, created_by=self.user)
+        link = FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        response = self.client.post(self.url, {"context_name": "production"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertTrue(EvaluationContext.objects.filter(id=ctx.id).exists())
+        self.assertTrue(FeatureFlagEvaluationContext.objects.filter(id=link.id).exists())
+        ctx.refresh_from_db()
+        self.assertTrue(ctx.hidden_from_suggestions)
+
+    def test_hide_normalizes_name(self):
+        self._create_context("production")
+
+        response = self.client.post(self.url, {"context_name": "  PRODUCTION  "}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(EvaluationContext.objects.get(name="production", team=self.team).hidden_from_suggestions)
+
+    def test_hide_nonexistent_context_returns_404(self):
+        response = self.client.post(self.url, {"context_name": "ghost"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_hide_requires_context_name(self):
+        response = self.client.post(self.url, {"context_name": "   "}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_hide_context_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        EvaluationContext.objects.create(name="secret", team=other_team)
+
+        response = self.client.post(self.url, {"context_name": "secret"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertFalse(EvaluationContext.objects.get(name="secret", team=other_team).hidden_from_suggestions)

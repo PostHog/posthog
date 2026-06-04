@@ -150,6 +150,7 @@ export type SettingId =
     | 'feature-flag-confirmation'
     | 'feature-flag-default-evaluation-contexts'
     | 'feature-flag-default-release-conditions'
+    | 'feature-flag-evaluation-context-suggestions'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flag-secure-api-key'
     | 'feature-flags-interface'
