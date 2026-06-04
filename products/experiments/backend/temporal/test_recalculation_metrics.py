@@ -1,10 +1,20 @@
+from django.conf import settings
+
 from temporalio.worker import ActivityInboundInterceptor
+
+from posthog.temporal.common.interceptor import is_task_queue_supported
 
 from products.experiments.backend.temporal.recalculation_metrics import (
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
     ExperimentsRecalculationMetricsInterceptor,
 )
+
+
+def test_registered_on_general_purpose_queue():
+    # Pins the interceptor's `task_queue` ClassVar — without it, `is_task_queue_supported` filters the
+    # interceptor out of every worker and the metrics emit nothing.
+    assert is_task_queue_supported(settings.GENERAL_PURPOSE_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor)
 
 
 def test_metric_names_defined():

@@ -8,6 +8,8 @@ This interceptor additionally emits success/failure counters that back Grafana d
 
 import typing
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -79,6 +81,11 @@ class _WorkflowInboundInterceptor(WorkflowInboundInterceptor):
 
 class ExperimentsRecalculationMetricsInterceptor(Interceptor):
     """Interceptor emitting Prometheus metrics for the experiment metrics recalculation workflow."""
+
+    # Required by `is_task_queue_supported` in `posthog/temporal/common/interceptor.py` — without this attribute
+    # the interceptor is filtered out of every worker and the metrics never emit. The recalc workflow + activities
+    # are registered on this queue in `posthog/management/commands/start_temporal_worker.py`.
+    task_queue = settings.GENERAL_PURPOSE_TASK_QUEUE
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _ActivityInboundInterceptor(super().intercept_activity(next))
