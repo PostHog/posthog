@@ -1,4 +1,4 @@
-from .dag import DAG, DEFAULT_DAG_NAME
+from .dag import DAG, DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME
 from .data_modeling_job import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus
 from .datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from .datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -13,6 +13,7 @@ from .node import Node, NodeType
 __all__ = [
     "DAG",
     "DEFAULT_DAG_NAME",
+    "REVENUE_ANALYTICS_DAG_NAME",
     "CycleDetectionError",
     "DAGMismatchError",
     "DataModelingEdgeManager",

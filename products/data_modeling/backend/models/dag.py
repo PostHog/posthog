@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 DEFAULT_DAG_NAME = "Default"
+REVENUE_ANALYTICS_DAG_NAME = "PostHog Revenue Analytics"
 
 
 class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -27,6 +28,11 @@ class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     @classmethod
     def get_or_create_default(cls, team: Team) -> DAG:
         dag, _ = cls.objects.get_or_create(team=team, name=DEFAULT_DAG_NAME)
+        return dag
+
+    @classmethod
+    def get_or_create_revenue_analytics(cls, team: Team) -> DAG:
+        dag, _ = cls.objects.get_or_create(team=team, name=REVENUE_ANALYTICS_DAG_NAME)
         return dag
 
     @property

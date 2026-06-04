@@ -161,6 +161,32 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
                 self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
 
+        # Managed views get their own DAG (Revenue Analytics runs on a single 12h schedule), kept
+        # separate from the team's Default DAG so each DAG has exactly one sync frequency. Maintained
+        # on every sync — create, update, and resync — not just first creation. saved_queries_to_schedule
+        # is in expected_views order (dependencies first), so edges resolve in a single pass.
+        from products.data_modeling.backend.models.dag import DAG
+        from products.data_modeling.backend.models.node import Node
+        from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        for saved_query in saved_queries_to_schedule:
+            try:
+                sync_saved_query_to_dag(saved_query, dag=managed_dag)
+                # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
+                # unless something there still depends on it (don't orphan a dependent).
+                for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
+                    if not stale.outgoing_edges.exists():
+                        stale.delete()
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                logger.warning(
+                    "failed_to_sync_managed_view_to_dag",
+                    team_id=self.team_id,
+                    view_name=saved_query.name,
+                    error=str(e),
+                )
+
         for saved_query in saved_queries_to_schedule:
             try:
                 saved_query.schedule_materialization()
