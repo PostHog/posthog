@@ -22,8 +22,8 @@ describe('Workflows', { concurrent: false }, () => {
     const getTool = GENERATED_TOOLS['workflows-get']!()
     const createTool = GENERATED_TOOLS['workflows-create']!()
     const updateTool = GENERATED_TOOLS['workflows-update']!()
-    const logsTool = GENERATED_TOOLS['hog-flows-logs-retrieve']!()
-    const metricsTool = GENERATED_TOOLS['hog-flows-metrics-retrieve']!()
+    const logsTool = GENERATED_TOOLS['workflows-logs']!()
+    const metricsTool = GENERATED_TOOLS['workflows-metrics']!()
     const enableTool = workflowsEnable()
     const disableTool = workflowsDisable()
     const archiveTool = workflowsArchive()
@@ -176,7 +176,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    describe('hog-flows-logs-retrieve tool', () => {
+    describe('workflows-logs tool', () => {
         it('should return log entries for a workflow', async () => {
             const listResult = await listTool.handler(context, {})
             const { results: workflows } = parseToolResponse(listResult)
@@ -216,7 +216,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    describe('hog-flows-metrics-retrieve tool', () => {
+    describe('workflows-metrics tool', () => {
         it('should return metrics for a workflow', async () => {
             const listResult = await listTool.handler(context, {})
             const { results: workflows } = parseToolResponse(listResult)
@@ -379,7 +379,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    // workflows-run hits the invocations endpoint, which forwards to the CDP plugin
+    // workflows-test-run hits the invocations endpoint, which forwards to the CDP plugin
     // server (CDP_API_URL). That container isn't started in MCP CI (only the `temporal`
     // compose profile is enabled), so the happy-path returns 500 from a DNS failure.
     // Coverage for the endpoint lives in posthog/api/test/test_hog_flow.py
@@ -484,7 +484,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
 
         // The happy path (matching count → POST batch_jobs) forwards to the CDP plugin server
-        // (CDP_API_URL), which isn't running in MCP CI — see the workflows-run note above. Fire-path
+        // (CDP_API_URL), which isn't running in MCP CI — see the workflows-test-run note above. Fire-path
         // coverage lives in the backend test and the unit handler test
         // (tests/unit/workflows-batch-handlers.test.ts).
     })

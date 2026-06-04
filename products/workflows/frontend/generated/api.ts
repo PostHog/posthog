@@ -20,10 +20,13 @@ import type {
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
+    HogInvocationResultApi,
+    HogInvocationResultDetailApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
@@ -341,6 +344,57 @@ export const hogFlowsBatchJobsCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(hogFlowBatchJobApi),
     })
+}
+
+export const getHogFlowsInvocationResultsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/invocation_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/invocation_results/`
+}
+
+export const hogFlowsInvocationResultsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsRetrieveParams,
+    options?: RequestInit
+): Promise<HogInvocationResultApi[]> => {
+    return apiMutator<HogInvocationResultApi[]>(getHogFlowsInvocationResultsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsInvocationResultRetrieveUrl = (projectId: string, id: string, invocationId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
+}
+
+export const hogFlowsInvocationResultRetrieve = async (
+    projectId: string,
+    id: string,
+    invocationId: string,
+    options?: RequestInit
+): Promise<HogInvocationResultDetailApi> => {
+    return apiMutator<HogInvocationResultDetailApi>(
+        getHogFlowsInvocationResultRetrieveUrl(projectId, id, invocationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {

@@ -5,6 +5,9 @@ import type { Schemas } from '@/api/generated'
 import {
     HogFlowsBatchJobsListParams,
     HogFlowsCreateBody,
+    HogFlowsInvocationResultRetrieveParams,
+    HogFlowsInvocationResultsRetrieveParams,
+    HogFlowsInvocationResultsRetrieveQueryParams,
     HogFlowsInvocationsCreateBody,
     HogFlowsInvocationsCreateParams,
     HogFlowsListQueryParams,
@@ -21,57 +24,6 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-
-const HogFlowsLogsRetrieveSchema = HogFlowsLogsRetrieveParams.omit({ project_id: true }).extend(
-    HogFlowsLogsRetrieveQueryParams.shape
-)
-
-const hogFlowsLogsRetrieve = (): ToolBase<typeof HogFlowsLogsRetrieveSchema, unknown> => ({
-    name: 'hog-flows-logs-retrieve',
-    schema: HogFlowsLogsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFlowsLogsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/logs/`,
-            query: {
-                after: params.after,
-                before: params.before,
-                instance_id: params.instance_id,
-                level: params.level,
-                limit: params.limit,
-                search: params.search,
-            },
-        })
-        return result
-    },
-})
-
-const HogFlowsMetricsRetrieveSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
-    HogFlowsMetricsRetrieveQueryParams.shape
-)
-
-const hogFlowsMetricsRetrieve = (): ToolBase<typeof HogFlowsMetricsRetrieveSchema, Schemas.AppMetricsResponse> => ({
-    name: 'hog-flows-metrics-retrieve',
-    schema: HogFlowsMetricsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof HogFlowsMetricsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.AppMetricsResponse>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/metrics/`,
-            query: {
-                after: params.after,
-                before: params.before,
-                breakdown_by: params.breakdown_by,
-                instance_id: params.instance_id,
-                interval: params.interval,
-                kind: params.kind,
-                name: params.name,
-            },
-        })
-        return result
-    },
-})
 
 const WorkflowsCreateSchema = HogFlowsCreateBody
 
@@ -134,6 +86,24 @@ const workflowsGet = (): ToolBase<typeof WorkflowsGetSchema, WithPostHogUrl<Sche
         },
     })
 
+const WorkflowsGetInvocationSchema = HogFlowsInvocationResultRetrieveParams.omit({ project_id: true })
+
+const workflowsGetInvocation = (): ToolBase<
+    typeof WorkflowsGetInvocationSchema,
+    Schemas.HogInvocationResultDetail
+> => ({
+    name: 'workflows-get-invocation',
+    schema: WorkflowsGetInvocationSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsGetInvocationSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogInvocationResultDetail>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/invocation_results/${encodeURIComponent(String(params.invocation_id))}/`,
+        })
+        return result
+    },
+})
+
 const WorkflowsListSchema = HogFlowsListQueryParams
 
 const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Schemas.PaginatedHogFlowMinimalList>> =>
@@ -177,14 +147,92 @@ const workflowsListBatchJobs = (): ToolBase<
     },
 })
 
-const WorkflowsRunSchema = HogFlowsInvocationsCreateParams.omit({ project_id: true }).extend(
+const WorkflowsListInvocationsSchema = HogFlowsInvocationResultsRetrieveParams.omit({ project_id: true }).extend(
+    HogFlowsInvocationResultsRetrieveQueryParams.shape
+)
+
+const workflowsListInvocations = (): ToolBase<
+    typeof WorkflowsListInvocationsSchema,
+    WithPostHogUrl<Schemas.HogInvocationResult[]>
+> => ({
+    name: 'workflows-list-invocations',
+    schema: WorkflowsListInvocationsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsListInvocationsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogInvocationResult[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/invocation_results/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                distinct_id: params.distinct_id,
+                limit: params.limit,
+                status: params.status,
+            },
+        })
+        return await withPostHogUrl(context, result, '/pipeline/destinations')
+    },
+})
+
+const WorkflowsLogsSchema = HogFlowsLogsRetrieveParams.omit({ project_id: true }).extend(
+    HogFlowsLogsRetrieveQueryParams.shape
+)
+
+const workflowsLogs = (): ToolBase<typeof WorkflowsLogsSchema, unknown> => ({
+    name: 'workflows-logs',
+    schema: WorkflowsLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
+const WorkflowsMetricsSchema = HogFlowsMetricsRetrieveParams.omit({ project_id: true }).extend(
+    HogFlowsMetricsRetrieveQueryParams.shape
+)
+
+const workflowsMetrics = (): ToolBase<typeof WorkflowsMetricsSchema, Schemas.AppMetricsResponse> => ({
+    name: 'workflows-metrics',
+    schema: WorkflowsMetricsSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsMetricsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AppMetricsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/metrics/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                breakdown_by: params.breakdown_by,
+                instance_id: params.instance_id,
+                interval: params.interval,
+                kind: params.kind,
+                name: params.name,
+            },
+        })
+        return result
+    },
+})
+
+const WorkflowsTestRunSchema = HogFlowsInvocationsCreateParams.omit({ project_id: true }).extend(
     HogFlowsInvocationsCreateBody.shape
 )
 
-const workflowsRun = (): ToolBase<typeof WorkflowsRunSchema, unknown> => ({
-    name: 'workflows-run',
-    schema: WorkflowsRunSchema,
-    handler: async (context: Context, params: z.infer<typeof WorkflowsRunSchema>) => {
+const workflowsTestRun = (): ToolBase<typeof WorkflowsTestRunSchema, unknown> => ({
+    name: 'workflows-test-run',
+    schema: WorkflowsTestRunSchema,
+    handler: async (context: Context, params: z.infer<typeof WorkflowsTestRunSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.globals !== undefined) {
@@ -281,13 +329,15 @@ const workflowsUpdateSchedule = (): ToolBase<typeof WorkflowsUpdateScheduleSchem
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'hog-flows-logs-retrieve': hogFlowsLogsRetrieve,
-    'hog-flows-metrics-retrieve': hogFlowsMetricsRetrieve,
     'workflows-create': workflowsCreate,
     'workflows-get': workflowsGet,
+    'workflows-get-invocation': workflowsGetInvocation,
     'workflows-list': workflowsList,
     'workflows-list-batch-jobs': workflowsListBatchJobs,
-    'workflows-run': workflowsRun,
+    'workflows-list-invocations': workflowsListInvocations,
+    'workflows-logs': workflowsLogs,
+    'workflows-metrics': workflowsMetrics,
+    'workflows-test-run': workflowsTestRun,
     'workflows-update': workflowsUpdate,
     'workflows-update-schedule': workflowsUpdateSchedule,
 }
