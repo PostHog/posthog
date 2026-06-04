@@ -179,7 +179,8 @@ def get_rows(
             # Save AFTER yielding so a crash re-yields the last page (merge dedupes on the primary
             # key) rather than skipping it.
             resumable_source_manager.save_state(SendGridResumeConfig(next_url=next_url))
-            offset += config.page_size
+            if config.pagination == "offset":
+                offset += config.page_size
             url = next_url
     finally:
         session.close()
@@ -222,7 +223,12 @@ def get_status_code(api_key: str, path: str) -> Optional[int]:
     transport error."""
     try:
         session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
+    except Exception:
+        return None
+    try:
         response = session.get(f"{SENDGRID_BASE_URL}{path}", params={"limit": 1}, timeout=10)
         return response.status_code
     except Exception:
         return None
+    finally:
+        session.close()

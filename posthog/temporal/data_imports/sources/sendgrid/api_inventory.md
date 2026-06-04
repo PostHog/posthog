@@ -16,16 +16,16 @@ on the primary key — wasted API calls, not corrupted data.
 
 ## Endpoints
 
-| Schema                | Path                            | Pagination     | Data shape          | Primary key | Incremental                         |
-| --------------------- | ------------------------------- | -------------- | ------------------- | ----------- | ----------------------------------- |
-| `bounces`             | `/suppression/bounces`          | limit/offset   | bare array          | `email`     | `created` (epoch) via `start_time`  |
-| `blocks`              | `/suppression/blocks`           | limit/offset   | bare array          | `email`     | `created` (epoch) via `start_time`  |
-| `invalid_emails`      | `/suppression/invalid_emails`   | limit/offset   | bare array          | `email`     | `created` (epoch) via `start_time`  |
-| `spam_reports`        | `/suppression/spam_reports`     | limit/offset   | bare array          | `email`     | `created` (epoch) via `start_time`  |
-| `global_unsubscribes` | `/suppression/unsubscribes`     | limit/offset   | bare array          | `email`     | `created` (epoch) via `start_time`  |
-| `unsubscribe_groups`  | `/asm/groups`                   | none (single)  | bare array          | `id`        | full refresh                        |
-| `marketing_lists`     | `/marketing/lists`              | `_metadata`    | `{"result": [...]}` | `id`        | full refresh                        |
-| `templates`           | `/templates`                    | `_metadata`    | `{"result": [...]}` | `id`        | full refresh                        |
+| Schema                | Path                          | Pagination    | Data shape          | Primary key | Incremental                        |
+| --------------------- | ----------------------------- | ------------- | ------------------- | ----------- | ---------------------------------- |
+| `bounces`             | `/suppression/bounces`        | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
+| `blocks`              | `/suppression/blocks`         | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
+| `invalid_emails`      | `/suppression/invalid_emails` | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
+| `spam_reports`        | `/suppression/spam_reports`   | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
+| `global_unsubscribes` | `/suppression/unsubscribes`   | limit/offset  | bare array          | `email`     | `created` (epoch) via `start_time` |
+| `unsubscribe_groups`  | `/asm/groups`                 | none (single) | bare array          | `id`        | full refresh                       |
+| `marketing_lists`     | `/marketing/lists`            | `_metadata`   | `{"result": [...]}` | `id`        | full refresh                       |
+| `templates`           | `/templates`                  | `_metadata`   | `{"result": [...]}` | `id`        | full refresh                       |
 
 Notes:
 

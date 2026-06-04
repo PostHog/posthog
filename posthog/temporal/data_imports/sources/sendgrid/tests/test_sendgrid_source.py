@@ -103,9 +103,7 @@ class TestSendGridSource:
     def test_validate_credentials(
         self, status: int | None, schema_name: str | None, expected_ok: bool, expected_has_msg: bool
     ) -> None:
-        with patch(
-            "posthog.temporal.data_imports.sources.sendgrid.source.get_status_code", return_value=status
-        ):
+        with patch("posthog.temporal.data_imports.sources.sendgrid.source.get_status_code", return_value=status):
             ok, msg = SendGridSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert ok is expected_ok
         assert (msg is not None) is expected_has_msg
