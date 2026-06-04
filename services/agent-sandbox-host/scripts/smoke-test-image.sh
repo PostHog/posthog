@@ -50,6 +50,11 @@ run_scenario() {
     echo '{ "type": "object" }' > "$workdir/tools/echo/schema.json"
     echo '{ "TEST_SECRET": "nonce_smoke_abc" }' > "$workdir/nonces.json"
     printf '%s' "$request_json" > "$workdir/request.json"
+    # Bind-mounted dirs keep the host's UID/GID; the in-container `sandbox`
+    # user can't write `host.alive` / `response.json` without help. macOS
+    # Docker hides this via VirtioFS UID translation; Linux runners fail
+    # closed. World-writable is fine — the test owns this dir end to end.
+    chmod -R a+rwX "$workdir"
 
     local cid
     cid="$(docker run -d --rm --network=none \
