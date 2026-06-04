@@ -1,9 +1,11 @@
 import uuid
 from typing import Any
 
+from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.http import StreamingHttpResponse
 
 import structlog
 import django_filters
@@ -18,8 +20,10 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.renderers import ServerSentEventRenderer
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
+from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
@@ -500,3 +504,23 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
         raise NotFound()
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["GET"], url_path="progress")
+    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+        """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
+
+        `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
+        can't read. The stream self-terminates once the observation reaches a terminal state.
+        """
+        # The generator is `async def` — WSGI can't consume an async iterator, so fail loudly there.
+        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
+            raise RuntimeError("observation progress stream requires ASGI.")
+        observation = self.get_object()
+        response = StreamingHttpResponse(
+            stream_observation_progress(observation),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response
