@@ -120,12 +120,17 @@ SLACK_MESSAGE_TEXT_LIMIT = 3500
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
 
 
-def _split_text_for_slack(text: str, limit: int = SLACK_MESSAGE_TEXT_LIMIT) -> list[str]:
-    """Split text into Slack-sized chunks, preferring paragraph and line boundaries.
+def _split_markdown_for_slack(text: str, limit: int = SLACK_MESSAGE_TEXT_LIMIT) -> list[str]:
+    """Split raw markdown into Slack-sized chunks at safe structural boundaries.
 
-    Fenced code blocks that cross a chunk boundary are closed at the end of one
-    chunk and reopened (with the same language hint) at the start of the next so
-    each posted chunk renders as valid mrkdwn on its own.
+    Splits prefer paragraph (``\\n\\n``) and line (``\\n``) boundaries, then a hard
+    character break as a last resort. Fenced code blocks that cross a chunk
+    boundary are closed at the end of one chunk and reopened (with the same
+    language hint) at the start of the next so each chunk is a self-contained
+    markdown document. Callers convert each chunk to Slack mrkdwn independently;
+    that ordering means a hard char break inside an inline span like ``**bold**``
+    or ``[text](url)`` leaves the broken halves as literal text rather than
+    producing dangling unbalanced markers in the rendered output.
     """
     if len(text) <= limit:
         return [text]
@@ -254,8 +259,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
 
-    text = _markdown_to_slack_mrkdwn(text)
-    chunks = _split_text_for_slack(text)
+    # Split the raw markdown first, then convert each chunk independently. Converting
+    # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
+    # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
+    # markers that would garble the rendering of surrounding text.
+    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text)]
 
     context = SlackThreadContext(
         integration_id=mapping.integration_id,

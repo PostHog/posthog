@@ -18,7 +18,7 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
     _markdown_to_slack_mrkdwn,
-    _split_text_for_slack,
+    _split_markdown_for_slack,
     relay_slack_message,
 )
 
@@ -160,12 +160,12 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
 
 class TestSplitTextForSlack(TestCase):
     def test_short_text_returns_single_chunk(self):
-        assert _split_text_for_slack("hello world") == ["hello world"]
+        assert _split_markdown_for_slack("hello world") == ["hello world"]
 
     def test_each_chunk_under_limit(self):
         paragraph = ("word " * 200).strip()
         text = "\n\n".join([paragraph] * 10)
-        chunks = _split_text_for_slack(text)
+        chunks = _split_markdown_for_slack(text)
         assert len(chunks) > 1
         for chunk in chunks:
             assert len(chunk) <= SLACK_MESSAGE_TEXT_LIMIT
@@ -173,7 +173,7 @@ class TestSplitTextForSlack(TestCase):
     def test_split_prefers_paragraph_boundary(self):
         paragraph = ("alpha " * 400).strip()  # ~2400 chars per paragraph
         text = f"{paragraph}\n\n{paragraph}"
-        chunks = _split_text_for_slack(text)
+        chunks = _split_markdown_for_slack(text)
         assert len(chunks) == 2
         assert chunks[0] == paragraph
         assert chunks[1] == paragraph
@@ -181,7 +181,7 @@ class TestSplitTextForSlack(TestCase):
     def test_split_falls_back_to_line_within_paragraph(self):
         line = ("alpha " * 100).strip()  # ~600 chars
         text = "\n".join([line] * 10)  # single paragraph, ~6000 chars
-        chunks = _split_text_for_slack(text)
+        chunks = _split_markdown_for_slack(text)
         assert len(chunks) >= 2
         for chunk in chunks:
             for chunk_line in chunk.split("\n"):
@@ -189,7 +189,7 @@ class TestSplitTextForSlack(TestCase):
 
     def test_hard_breaks_single_long_line(self):
         line = "x" * (SLACK_MESSAGE_TEXT_LIMIT + 500)
-        chunks = _split_text_for_slack(line)
+        chunks = _split_markdown_for_slack(line)
         assert len(chunks) == 2
         assert all(len(chunk) <= SLACK_MESSAGE_TEXT_LIMIT for chunk in chunks)
         assert "".join(chunks) == line
@@ -198,7 +198,7 @@ class TestSplitTextForSlack(TestCase):
         body_lines = [f"line {i:04d}" for i in range(800)]
         body = "\n".join(body_lines)
         text = f"```python\n{body}\n```"
-        chunks = _split_text_for_slack(text)
+        chunks = _split_markdown_for_slack(text)
         assert len(chunks) >= 2
         for chunk in chunks:
             assert chunk.startswith("```python\n")
@@ -211,10 +211,44 @@ class TestSplitTextForSlack(TestCase):
         suffix = "\n\ntrailing paragraph"
         code = "```js\n" + "console.log('hi');\n" * 10 + "```"
         text = prefix + code + suffix
-        chunks = _split_text_for_slack(text)
+        chunks = _split_markdown_for_slack(text)
         joined = "\n\n".join(chunks)
         assert "```js\n" in joined
         assert joined.count("```") % 2 == 0
+
+    def test_paragraph_split_preserves_markdown_for_per_chunk_conversion(self):
+        # Each chunk must stay a valid markdown document on its own so that the
+        # per-chunk mrkdwn conversion produces correctly-rendered output.
+        paragraph_a = "This **bold** and [link](https://example.com) " * 50
+        paragraph_b = "Another **bold** and [link](https://example.com) " * 50
+        text = f"{paragraph_a.strip()}\n\n{paragraph_b.strip()}"
+        chunks = _split_markdown_for_slack(text)
+        assert len(chunks) == 2
+        for chunk in chunks:
+            converted = _markdown_to_slack_mrkdwn(chunk)
+            assert "*bold*" in converted
+            assert "<https://example.com|link>" in converted
+            assert "**" not in converted  # inline bold markers must be fully converted
+
+    def test_hard_char_break_leaves_broken_inline_span_as_literal(self):
+        # A single line longer than the limit forces a hard char break. Doing it
+        # before conversion means a halved ``**bold**`` simply fails to match the
+        # converter regex on either side, so both chunks keep the literal ``**``
+        # rather than ending up with a dangling unbalanced ``*`` in Slack mrkdwn.
+        prefix = "x" * (SLACK_MESSAGE_TEXT_LIMIT - 4)
+        line = prefix + "**bold**" + "y" * 100
+        chunks = _split_markdown_for_slack(line)
+        assert len(chunks) == 2
+        converted_first = _markdown_to_slack_mrkdwn(chunks[0])
+        converted_second = _markdown_to_slack_mrkdwn(chunks[1])
+        # Neither chunk should contain a valid Slack-mrkdwn ``*bold*`` because
+        # the span was halved; both should preserve the raw asterisks instead.
+        assert "*bold*" not in converted_first
+        assert "*bold*" not in converted_second
+        # And, critically, no chunk leaks a lone unbalanced ``*`` that would
+        # turn the rest of the message italic.
+        for chunk in (converted_first, converted_second):
+            assert chunk.count("*") % 2 == 0
 
 
 class TestRelaySlackMessageChunking(TestCase):
