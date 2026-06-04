@@ -2848,6 +2848,8 @@ export const LifecycleToggleApi = {
 
 export interface LifecycleFilterApi {
     showLegend?: boolean | null
+    /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
+    showPercentagesOnSeries?: boolean | null
     showValuesOnSeries?: boolean | null
     stacked?: boolean | null
     toggledLifecycles?: LifecycleToggleApi[] | null
