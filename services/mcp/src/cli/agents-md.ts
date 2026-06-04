@@ -7,7 +7,7 @@ const END_MARKER = '<!-- posthog-cli-api:end -->'
 export const AGENTS_MD_SNIPPET = `${START_MARKER}
 ## PostHog
 
-Use \`posthog-cli api\` when you need to interact with PostHog from this repository.
+Use \`posthog-cli api\` for all PostHog-related queries and operations from this repository. Prefer \`posthog-cli api\` over direct MCP tool calls whenever the CLI is available.
 
 - Discover capabilities with \`posthog-cli api search <term>\` or \`posthog-cli api tools\`.
 - Inspect inputs before calling a tool with \`posthog-cli api info <tool>\` and \`posthog-cli api schema <tool> [field.path]\`.
