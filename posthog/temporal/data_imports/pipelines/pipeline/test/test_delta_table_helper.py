@@ -11,8 +11,40 @@ import pyarrow.compute as pc
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import DeltaTableHelper
+from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+    _realign_decimal_buffers,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
+
+
+def _decimal_array(values: list, *, precision: int = 10, scale: int = 2, misaligned: bool) -> pa.Array:
+    """Build a Decimal128 array. When `misaligned`, its data buffer is 8-byte but NOT
+    16-byte aligned — the exact FFI case delta-rs (arrow-rs) aborts the worker on.
+
+    pyarrow's allocator always returns 64-byte-aligned memory, so the only way to
+    reproduce the bad case is to over-allocate and slice off 8 bytes, mimicking what
+    arrives across the Arrow C Data Interface from polars / external producers.
+    """
+    aligned = pa.array(values, type=pa.decimal128(precision, scale))
+    if not misaligned:
+        return aligned
+
+    data_buffer = aligned.buffers()[1]
+    assert data_buffer is not None
+    padded = pa.allocate_buffer(data_buffer.size + 16, resizable=False)
+    memoryview(padded)[8 : 8 + data_buffer.size] = memoryview(data_buffer)
+    misaligned_buffer = padded.slice(8, data_buffer.size)
+    assert misaligned_buffer.address % 16 == 8
+    return pa.Array.from_buffers(pa.decimal128(precision, scale), len(values), [None, misaligned_buffer])
+
+
+def _table_is_misaligned(table: pa.Table) -> bool:
+    return any(
+        pa.types.is_decimal(table.field(i).type)
+        and any(b is not None and b.address % 16 for chunk in table.column(i).chunks for b in chunk.buffers())
+        for i in range(table.num_columns)
+    )
 
 
 def _make_logger():
@@ -333,3 +365,106 @@ class TestLegacyDltTableReconciliation:
         final = result.to_pyarrow_table()
         assert final.num_rows == 3
         assert set(final.column("id").to_pylist()) == {1, 2, 3}
+
+
+class TestRealignDecimalBuffers:
+    """delta-rs aborts the worker on 8-byte-aligned Decimal128 buffers; we realign them
+    to pyarrow's 64-byte allocator before any Delta write. See delta-io/delta-rs#3884."""
+
+    def test_misaligned_decimal_is_realigned(self) -> None:
+        table = pa.table({"amount": _decimal_array([1, 2, 3, 4], misaligned=True), "id": pa.array([1, 2, 3, 4])})
+        assert _table_is_misaligned(table) is True
+
+        result = _realign_decimal_buffers(table)
+
+        assert _table_is_misaligned(result) is False
+        # Values and schema are preserved exactly
+        assert result.column("amount").to_pylist() == table.column("amount").to_pylist()
+        assert result.column("id").to_pylist() == [1, 2, 3, 4]
+        assert result.schema == table.schema
+
+    def test_already_aligned_table_is_returned_unchanged(self) -> None:
+        table = pa.table({"amount": _decimal_array([1, 2, 3], misaligned=False), "id": pa.array([1, 2, 3])})
+        assert _table_is_misaligned(table) is False
+
+        result = _realign_decimal_buffers(table)
+
+        # No misalignment found → identity return (no needless copy)
+        assert result is table
+
+    def test_table_without_decimal_columns_is_untouched(self) -> None:
+        table = pa.table({"id": pa.array([1, 2, 3]), "name": pa.array(["a", "b", "c"])})
+
+        result = _realign_decimal_buffers(table)
+
+        assert result is table
+
+    def test_only_misaligned_columns_are_rebuilt(self) -> None:
+        aligned_dec = _decimal_array([10, 20], misaligned=False)
+        misaligned_dec = _decimal_array([30, 40], misaligned=True)
+        table = pa.table({"good": aligned_dec, "bad": misaligned_dec, "id": pa.array([1, 2])})
+
+        result = _realign_decimal_buffers(table)
+
+        assert _table_is_misaligned(result) is False
+        assert result.column("good").to_pylist() == [10, 20]
+        assert result.column("bad").to_pylist() == [30, 40]
+        # The already-aligned column keeps its original buffer (rebuilt only what was broken)
+        assert result.column("good").chunk(0).buffers()[1].address == aligned_dec.buffers()[1].address
+
+    def test_multi_chunk_misaligned_column(self) -> None:
+        chunked = pa.chunked_array([_decimal_array([1, 2], misaligned=True), _decimal_array([3, 4], misaligned=True)])
+        table = pa.table({"amount": chunked, "id": pa.array([1, 2, 3, 4])})
+        assert _table_is_misaligned(table) is True
+
+        result = _realign_decimal_buffers(table)
+
+        assert _table_is_misaligned(result) is False
+        assert result.column("amount").to_pylist() == [1, 2, 3, 4]
+
+    def test_empty_decimal_table(self) -> None:
+        table = pa.table({"amount": pa.array([], type=pa.decimal128(10, 2)), "id": pa.array([], type=pa.int64())})
+
+        result = _realign_decimal_buffers(table)
+
+        assert result.num_rows == 0
+        assert result.schema == table.schema
+
+
+class TestWriteMisalignedDecimalEndToEnd:
+    """Writes a misaligned-decimal batch through the real delta-rs write path. Without the
+    realignment guard, delta-rs would abort the process; with it, the write succeeds."""
+
+    @pytest.mark.parametrize(
+        "write_type,should_overwrite",
+        [("full_refresh", True), ("append", False), ("incremental", False)],
+    )
+    @pytest.mark.asyncio
+    async def test_write_misaligned_decimal_to_local_delta(
+        self, write_type: str, should_overwrite: bool, tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        # Seed the table so incremental/append have an existing target to write into.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table({"id": pa.array([1, 2]), "amount": _decimal_array([5, 6], misaligned=False)}),
+        )
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": pa.array([3, 4]), "amount": _decimal_array([7, 8], misaligned=True)})
+        assert _table_is_misaligned(batch) is True
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type=write_type,  # type: ignore[arg-type]
+            should_overwrite_table=should_overwrite,
+            primary_keys=["id"] if write_type == "incremental" else None,
+        )
+
+        final = result.to_pyarrow_table()
+        amounts = set(final.column("amount").to_pylist())
+        if should_overwrite:
+            assert set(final.column("id").to_pylist()) == {3, 4}
+        else:
+            assert {3, 4}.issubset(set(final.column("id").to_pylist()))
+            assert {7, 8}.issubset(amounts)
