@@ -272,47 +272,9 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
-# READ BEFORE EDITING:
-# --------------------
-# Do NOT add any new table to this, add them to the `posthog` table node.
-# This is so that we don't pollute the global namespace any further than it already is
-POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
-    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
-    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
-    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
-    "session_replay_features": TableNode(name="session_replay_features", table=SessionReplayFeaturesTable()),
-    "metrics": TableNode(name="metrics", table=MetricsTable()),
-    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
-    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
-    "error_tracking_fingerprint_issue_state": TableNode(
-        name="error_tracking_fingerprint_issue_state",
-        table=ErrorTrackingFingerprintIssueStateTable(),
-    ),
-    "web_overview_preaggregated": TableNode(name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()),
-    "conversion_goal_attributed_preaggregated": TableNode(
-        name="conversion_goal_attributed_preaggregated",
-        table=ConversionGoalAttributedPreaggregatedTable(),
-    ),
-    "web_stats_paths_preaggregated": TableNode(
-        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
-    ),
-    "web_stats_preaggregated": TableNode(name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()),
-    "web_vitals_paths_preaggregated": TableNode(
-        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
-    ),
-    "web_stats_frustration_preaggregated": TableNode(
-        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
-    ),
-    "web_goals_preaggregated": TableNode(name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()),
-}
-
-
-# Freeze the shared singletons so any in-place edit raises (see _FrozenFields); editing requires a
-# private copy via Database.get_table(), which clones on first access.
-for _frozen_node in (
-    *ROOT_TABLES__DO_NOT_ADD_ANY_MORE.values(),
-    *POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE.values(),
-):
+# Freeze the shared root-table singletons so any in-place edit raises (see _FrozenFields); editing
+# requires a private copy via Database.get_table(), which clones on first access.
+for _frozen_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.values():
     if _frozen_node.table is not None:
         freeze_table_tree(_frozen_node.table)
 
@@ -338,7 +300,41 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                 children={
                     **_shared_catalog_nodes(ROOT_TABLES__DO_NOT_ADD_ANY_MORE),
                     # Add new tables here
-                    **_shared_catalog_nodes(POSTHOG_NAMESPACE_EXTRA_TABLES__DO_NOT_ADD_ANY_MORE),
+                    "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
+                    "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
+                    "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
+                    "session_replay_features": TableNode(
+                        name="session_replay_features", table=SessionReplayFeaturesTable()
+                    ),
+                    "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+                    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
+                    "error_tracking_fingerprint_issue_state": TableNode(
+                        name="error_tracking_fingerprint_issue_state",
+                        table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "web_overview_preaggregated": TableNode(
+                        name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
+                    ),
+                    "conversion_goal_attributed_preaggregated": TableNode(
+                        name="conversion_goal_attributed_preaggregated",
+                        table=ConversionGoalAttributedPreaggregatedTable(),
+                    ),
+                    "web_stats_paths_preaggregated": TableNode(
+                        name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
+                    ),
+                    "web_stats_preaggregated": TableNode(
+                        name="web_stats_preaggregated", table=WebStatsPreaggregatedTable()
+                    ),
+                    "web_vitals_paths_preaggregated": TableNode(
+                        name="web_vitals_paths_preaggregated", table=WebVitalsPathsPreaggregatedTable()
+                    ),
+                    "web_stats_frustration_preaggregated": TableNode(
+                        name="web_stats_frustration_preaggregated", table=WebStatsFrustrationPreaggregatedTable()
+                    ),
+                    "web_goals_preaggregated": TableNode(
+                        name="web_goals_preaggregated", table=WebGoalsPreaggregatedTable()
+                    ),
                 },
             ),
             "system": SystemTables(),
