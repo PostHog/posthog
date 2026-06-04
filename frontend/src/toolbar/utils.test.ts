@@ -1,4 +1,4 @@
-import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, slashDotDataAttrUnescape, toolbarStylesUrl } from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -94,6 +94,67 @@ describe('utils', () => {
                 const result = slashDotDataAttrUnescape(input)
                 expect(result).toBe(expected)
             })
+        })
+    })
+
+    describe('toolbarStylesUrl', () => {
+        // 1780595730000 floors to 1780595700000 at 5-minute granularity.
+        const nowMs = 1780595730000
+        const cacheBuster = 1780595700000
+
+        const testCases: Array<{
+            name: string
+            publicPath: string
+            scriptSrc: string | null
+            apiHost: string
+            expected: string
+        }> = [
+            {
+                name: 'baked-in public path wins and skips the cache-buster',
+                publicPath: 'https://us-assets.i.posthog.com/static/1.358.0/',
+                scriptSrc: 'https://www.example.com/proxy/static/toolbar.js?t=1',
+                apiHost: 'https://www.example.com',
+                expected: 'https://us-assets.i.posthog.com/static/1.358.0/toolbar.css',
+            },
+            {
+                name: 'derives from the script src behind a reverse proxy',
+                publicPath: '',
+                scriptSrc: 'https://www.mappedin.com/mappedin-ingest/static/toolbar.js?t=1780595700000',
+                apiHost: 'https://www.mappedin.com',
+                expected: `https://www.mappedin.com/mappedin-ingest/static/toolbar.css?t=${cacheBuster}`,
+            },
+            {
+                name: 'script src takes precedence over apiHost when both resolve',
+                publicPath: '',
+                scriptSrc: 'https://www.example.com/ingest/static/toolbar.js',
+                apiHost: 'https://www.example.com',
+                expected: `https://www.example.com/ingest/static/toolbar.css?t=${cacheBuster}`,
+            },
+            {
+                name: 'falls back to apiHost/static when no script src is available',
+                publicPath: '',
+                scriptSrc: null,
+                apiHost: 'https://www.example.com',
+                expected: `https://www.example.com/static/toolbar.css?t=${cacheBuster}`,
+            },
+            {
+                name: 'falls back to apiHost when the script src is not a valid URL',
+                publicPath: '',
+                scriptSrc: 'not-a-url',
+                apiHost: 'https://www.example.com',
+                expected: `https://www.example.com/static/toolbar.css?t=${cacheBuster}`,
+            },
+            {
+                name: 'preserves an apiHost path prefix in the fallback',
+                publicPath: '',
+                scriptSrc: null,
+                apiHost: 'https://www.example.com/ingest',
+                expected: `https://www.example.com/ingest/static/toolbar.css?t=${cacheBuster}`,
+            },
+        ]
+
+        it.each(testCases)('$name', ({ publicPath, scriptSrc, apiHost, expected }) => {
+            expect(toolbarStylesUrl(publicPath, scriptSrc, apiHost, nowMs)).toBe(expected)
         })
     })
 })

@@ -25,6 +25,56 @@ export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
 export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
 
+/**
+ * Derive the directory (with trailing slash) that a script was loaded from,
+ * dropping the filename, query and fragment. Returns null if `scriptSrc` is not
+ * a parseable absolute URL.
+ *
+ * `https://example.com/ingest/static/toolbar.js?t=123` → `https://example.com/ingest/static/`
+ */
+function scriptDir(scriptSrc: string): string | null {
+    try {
+        const url = new URL(scriptSrc)
+        url.search = ''
+        url.hash = ''
+        url.pathname = url.pathname.replace(/[^/]*$/, '')
+        return url.toString()
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Build the URL for the toolbar's stylesheet. Order of preference:
+ *
+ *  1. `publicPath` — baked in at build time for posthog-js's versioned CDN
+ *     bundle (`__POSTHOG_TOOLBAR_PUBLIC_PATH__`). The version is the cache key,
+ *     so no cache-buster is appended.
+ *  2. The directory toolbar.js was actually loaded from (`scriptSrc`). toolbar.css
+ *     is served next to toolbar.js, so this tracks reverse-proxy path prefixes
+ *     (e.g. `https://example.com/ingest/static/`) that `apiHost` does not —
+ *     `apiHost` resolves to the bare origin, whose `/static/toolbar.css` 404s
+ *     behind a proxy.
+ *  3. `${apiHost}/static/` — the original behaviour, used when the script src is
+ *     unavailable (e.g. an old posthog-js that loads the bundle without a
+ *     resolvable <script src>).
+ *
+ * For (2) and (3) a 5-minute cache-buster is appended since the unversioned
+ * toolbar.css can change between deploys.
+ */
+export function toolbarStylesUrl(publicPath: string, scriptSrc: string | null, apiHost: string, nowMs: number): string {
+    if (publicPath) {
+        return `${publicPath}toolbar.css`
+    }
+    const fiveMinutesInMillis = 5 * 60 * 1000
+    const cacheBuster = Math.floor(nowMs / fiveMinutesInMillis) * fiveMinutesInMillis
+    const base = scriptSrc ? scriptDir(scriptSrc) : null
+    if (base) {
+        return `${base}toolbar.css?t=${cacheBuster}`
+    }
+    return `${apiHost}/static/toolbar.css?t=${cacheBuster}`
+}
+
 export interface ToolbarAuthParams {
     code: string
     clientId: string

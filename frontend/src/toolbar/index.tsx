@@ -82,6 +82,22 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 const win = window as any
 win['posthogToolbarController'] = posthogToolbarController
 
+// Capture the URL toolbar.js was loaded from while `document.currentScript` is
+// still valid (it only is during this synchronous IIFE execution). posthog-js
+// injects a <script> tag pointing at the — possibly reverse-proxied — location
+// of toolbar.js, and toolbar.css is served right next to it. Stashing the src
+// here lets the CSS loader in ToolbarApp resolve through the same proxy instead
+// of reconstructing the URL from apiHost (which points at the bare origin and
+// 404s behind a proxy).
+try {
+    const toolbarScriptSrc = (document.currentScript as HTMLScriptElement | null)?.src
+    if (toolbarScriptSrc) {
+        win['__posthog_toolbar_script_src'] = toolbarScriptSrc
+    }
+} catch {
+    // document.currentScript can be unavailable in exotic embedding contexts.
+}
+
 win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
     // Store the start time so we can measure total load duration in initInstrumentation
     ;(window as any).__posthog_toolbar_load_start = performance.now()

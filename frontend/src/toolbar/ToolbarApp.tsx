@@ -12,7 +12,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
-import { TOOLBAR_ID } from './utils'
+import { TOOLBAR_ID, toolbarStylesUrl } from './utils'
 import { webVitalsToolbarLogic } from './web-vitals/webVitalsToolbarLogic'
 
 type HTMLElementWithShadowRoot = HTMLElement & { shadowRoot: ShadowRoot }
@@ -39,22 +39,16 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   styleLink.rel = 'stylesheet'
                   styleLink.type = 'text/css'
 
-                  // When __POSTHOG_TOOLBAR_PUBLIC_PATH__ is baked in at build
-                  // time (posthog-js versioned bundle), load the CSS from the
-                  // same versioned URL as the JS bundle. The version is the
-                  // cache key, so no cache-busting query param is needed.
-                  //
-                  // Otherwise (i.e. posthog/posthog's own deploys), fall back to
-                  // serving toolbar.css from the API host alongside toolbar.js,
-                  // with a 5-minute cache-buster on the unversioned URL.
-                  if (__POSTHOG_TOOLBAR_PUBLIC_PATH__) {
-                      styleLink.href = `${__POSTHOG_TOOLBAR_PUBLIC_PATH__}toolbar.css`
-                  } else {
-                      const fiveMinutesInMillis = 5 * 60 * 1000
-                      const timestampToNearestFiveMinutes =
-                          Math.floor(Date.now() / fiveMinutesInMillis) * fiveMinutesInMillis
-                      styleLink.href = `${apiHost}/static/toolbar.css?t=${timestampToNearestFiveMinutes}`
-                  }
+                  // toolbar.css is loaded from the same place toolbar.js came
+                  // from (a baked-in CDN path, else the bundle's own <script>
+                  // src) so it tracks reverse-proxy prefixes, falling back to
+                  // apiHost only when neither is available. See toolbarStylesUrl.
+                  styleLink.href = toolbarStylesUrl(
+                      __POSTHOG_TOOLBAR_PUBLIC_PATH__,
+                      (window as any).__posthog_toolbar_script_src ?? null,
+                      apiHost,
+                      Date.now()
+                  )
 
                   styleLink.onload = () => setDidLoadStyles(true)
                   // Without onerror the toolbar silently stays invisible when the
