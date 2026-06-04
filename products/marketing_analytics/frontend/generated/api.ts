@@ -25,7 +25,7 @@ import type {
 } from './api.schemas'
 
 export const getMarketingAnalyticsConversionGoalsRetrieveUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/marketing_analytics/conversion_goals/`
+    return `/api/projects/${projectId}/marketing_analytics/conversion_goals/`
 }
 
 /**
@@ -57,8 +57,8 @@ export const getMarketingAnalyticsDataSourcesRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/marketing_analytics/data_sources/?${stringifiedParams}`
-        : `/api/environments/${projectId}/marketing_analytics/data_sources/`
+        ? `/api/projects/${projectId}/marketing_analytics/data_sources/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/data_sources/`
 }
 
 /**
@@ -91,8 +91,8 @@ export const getMarketingAnalyticsDiagnoseRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/marketing_analytics/diagnose/?${stringifiedParams}`
-        : `/api/environments/${projectId}/marketing_analytics/diagnose/`
+        ? `/api/projects/${projectId}/marketing_analytics/diagnose/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/diagnose/`
 }
 
 /**
@@ -125,8 +125,8 @@ export const getMarketingAnalyticsExplainConversionGoalRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/marketing_analytics/explain_conversion_goal/?${stringifiedParams}`
-        : `/api/environments/${projectId}/marketing_analytics/explain_conversion_goal/`
+        ? `/api/projects/${projectId}/marketing_analytics/explain_conversion_goal/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/explain_conversion_goal/`
 }
 
 /**
@@ -159,8 +159,8 @@ export const getMarketingAnalyticsSuggestConversionGoalsRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/marketing_analytics/suggest_conversion_goals/?${stringifiedParams}`
-        : `/api/environments/${projectId}/marketing_analytics/suggest_conversion_goals/`
+        ? `/api/projects/${projectId}/marketing_analytics/suggest_conversion_goals/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/suggest_conversion_goals/`
 }
 
 /**
@@ -196,8 +196,8 @@ export const getMarketingAnalyticsSuggestUtmMappingsRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/marketing_analytics/suggest_utm_mappings/?${stringifiedParams}`
-        : `/api/environments/${projectId}/marketing_analytics/suggest_utm_mappings/`
+        ? `/api/projects/${projectId}/marketing_analytics/suggest_utm_mappings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/marketing_analytics/suggest_utm_mappings/`
 }
 
 /**

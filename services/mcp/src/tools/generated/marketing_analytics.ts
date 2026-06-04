@@ -25,7 +25,7 @@ const marketingAnalyticsConversionGoalsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ConversionGoalsListResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/conversion_goals/`,
         })
         return result
     },
@@ -43,7 +43,7 @@ const marketingAnalyticsDataSourcesRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataSourceHealthResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/data_sources/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/data_sources/`,
             query: {
                 source_type: params.source_type,
             },
@@ -64,7 +64,7 @@ const marketingAnalyticsDiagnoseRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MarketingDiagnosticResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/diagnose/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/diagnose/`,
             query: {
                 attribution_lookback_days: params.attribution_lookback_days,
                 include_conversion_goals: params.include_conversion_goals,
@@ -90,7 +90,7 @@ const marketingAnalyticsExplainConversionGoalRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GoalExplanation>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/explain_conversion_goal/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/explain_conversion_goal/`,
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,
@@ -113,7 +113,7 @@ const marketingAnalyticsSuggestConversionGoals = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.EventSuggestionsResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/suggest_conversion_goals/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/suggest_conversion_goals/`,
             query: {
                 min_count: params.min_count,
                 top_n: params.top_n,
@@ -135,7 +135,7 @@ const marketingAnalyticsSuggestUtmMappingsRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UtmMappingSuggestionsResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/suggest_utm_mappings/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/suggest_utm_mappings/`,
             query: {
                 lookback_days: params.lookback_days,
                 min_event_count: params.min_event_count,
@@ -157,7 +157,7 @@ const marketingAnalyticsUtmAuditRetrieve = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UtmAuditResponse>({
             method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/marketing_analytics/utm_audit/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/marketing_analytics/utm_audit/`,
             query: {
                 date_from: params.date_from,
                 date_to: params.date_to,

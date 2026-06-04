@@ -3891,7 +3891,6 @@
         "summary": "List conversion goals",
         "title": "List conversion goals",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3907,7 +3906,6 @@
         "summary": "List marketing data sources health",
         "title": "List marketing data sources health",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3923,7 +3921,6 @@
         "summary": "Diagnose marketing analytics setup",
         "title": "Diagnose marketing analytics setup",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3939,7 +3936,6 @@
         "summary": "Explain a conversion goal",
         "title": "Explain a conversion goal",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3955,7 +3951,6 @@
         "summary": "Suggest conversion goal candidates",
         "title": "Suggest conversion goal candidates",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3971,7 +3966,6 @@
         "summary": "Suggest utm_source → integration mappings",
         "title": "Suggest utm_source → integration mappings",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -3987,7 +3981,6 @@
         "summary": "Audit UTM tagging quality",
         "title": "Audit UTM tagging quality",
         "required_scopes": ["marketing_analytics:read"],
-        "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

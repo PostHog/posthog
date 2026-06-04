@@ -11427,102 +11427,6 @@ export namespace Schemas {
       readonly slack_workspace_domain: string | null;
     }
 
-    export type ConversionGoalFilter1Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter1SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter1 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      /** The event or `null` for all events. */
-      event?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      kind?: 'EventsNode';
-      limit?: number | null;
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Columns to order by */
-      orderBy?: string[] | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter1Response;
-      schema_map: ConversionGoalFilter1SchemaMap;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ConversionGoalFilter2Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter2SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter2 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      id: number;
-      kind?: 'ActionsNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter2Response;
-      schema_map: ConversionGoalFilter2SchemaMap;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type ConversionGoalFilter3Response = { [key: string]: unknown } | null;
-
-    export type ConversionGoalFilter3SchemaMap = {[key: string]: string | unknown};
-
-    export interface ConversionGoalFilter3 {
-      conversion_goal_id: string;
-      conversion_goal_name: string;
-      custom_name?: string | null;
-      distinct_id_field: string;
-      dw_source_type?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      id: string;
-      id_field: string;
-      kind?: 'DataWarehouseNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'unique_group' | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
-      math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
-      response?: ConversionGoalFilter3Response;
-      schema_map: ConversionGoalFilter3SchemaMap;
-      table_name: string;
-      timestamp_field: string;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
     export interface ConversionGoalSummary {
       /** Unique id of the goal (event name, action id, or DW goal id) */
       id: string;
@@ -43957,6 +43861,71 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsMarketingAnalyticsDataSourcesRetrieveParams = {
+    /**
+     * Optional. Restrict to one integration (e.g. 'GoogleAds').
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type EnvironmentsMarketingAnalyticsDiagnoseRetrieveParams = {
+    /**
+     * Lookback window for attribution health
+     */
+    attribution_lookback_days?: number;
+    /**
+     * Whether to include the conversion-goal summary in the diagnostic
+     */
+    include_conversion_goals?: boolean;
+    /**
+     * Optional integration filter
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type EnvironmentsMarketingAnalyticsExplainConversionGoalRetrieveParams = {
+    /**
+     * ISO start; defaults to 30 days ago
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * ISO end; defaults to now
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Id of the conversion goal to explain (from list_conversion_goals).
+     * @minLength 1
+     */
+    goal_id: string;
+    };
+
+    export type EnvironmentsMarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
+    /**
+     * Minimum 30d event count to be a candidate
+     */
+    min_count?: number;
+    /**
+     * Max candidates to return
+     */
+    top_n?: number;
+    };
+
+    export type EnvironmentsMarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
+    /**
+     * Days of history to inspect; defaults to 90
+     * @nullable
+     */
+    lookback_days?: number | null;
+    /**
+     * Only suggest for raw values with >= this many events
+     */
+    min_event_count?: number;
+    };
+
     export type EnvironmentsMarketingAnalyticsUtmAuditRetrieveParams = {
     /**
      * Start date for the audit period
@@ -45024,751 +44993,6 @@ export namespace Schemas {
     };
 
     export type CoreMemoryListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CustomerJourneysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type CustomerProfileConfigsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DataModelingDagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DataModelingEdgesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DataModelingNodesListParams = {
-    /**
-     * A page number within the paginated result set.
-     */
-    page?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingAssignmentRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingExternalReferencesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingFingerprintsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
-    /**
-     * Code snippet to search for in repository files.
-     * @minLength 1
-     */
-    code_sample: string;
-    /**
-     * File name to match in search results.
-     * @minLength 1
-     */
-    file_name: string;
-    /**
-     * Repository owner or namespace.
-     * @minLength 1
-     */
-    owner: string;
-    /**
-     * Repository name.
-     * @minLength 1
-     */
-    repository: string;
-    };
-
-    export type ErrorTrackingIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingRecommendationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingSpikeEventsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingStackFramesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type ErrorTrackingSuppressionRulesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type EvaluationRunsCreate200 = { [key: string]: unknown };
-
-    export type EvaluationsListParams = {
-    /**
-     * Filter by enabled status
-     */
-    enabled?: boolean;
-    /**
-     * Multiple values may be separated by commas.
-     */
-    id__in?: string[];
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Ordering
-
-    * `created_at` - Created At
-    * `-created_at` - Created At (descending)
-    * `updated_at` - Updated At
-    * `-updated_at` - Updated At (descending)
-    * `name` - Name
-    * `-name` - Name (descending)
-     */
-    order_by?: string[];
-    /**
-     * Search in name or description
-     */
-    search?: string;
-    };
-
-    export type FixHogqlListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type HealthIssuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsClusteringJobsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsEvaluationReportsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsEvaluationReportsRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsEvaluationSummaryCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate404 = { [key: string]: unknown };
-
-    export type LlmAnalyticsEvaluationSummaryCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsModelsRetrieveParams = {
-    /**
-     * Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.
-     */
-    key_id?: string;
-    /**
-     * LLM provider to list models for. Must be one of the supported providers.
-     */
-    provider: LlmAnalyticsModelsRetrieveProvider;
-    };
-
-    export type LlmAnalyticsModelsRetrieveProvider = typeof LlmAnalyticsModelsRetrieveProvider[keyof typeof LlmAnalyticsModelsRetrieveProvider];
-
-
-    export const LlmAnalyticsModelsRetrieveProvider = {
-      Anthropic: 'anthropic',
-      AzureOpenai: 'azure_openai',
-      Fireworks: 'fireworks',
-      Gemini: 'gemini',
-      Openai: 'openai',
-      Openrouter: 'openrouter',
-      TogetherAi: 'together_ai',
-    } as const;
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
-
-    export type LlmAnalyticsProviderKeysListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LlmAnalyticsReviewQueueItemsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `created_at` or `updated_at`.
-     */
-    order_by?: string;
-    /**
-     * Filter by a specific review queue ID.
-     */
-    queue_id?: string;
-    /**
-     * Search pending trace IDs.
-     */
-    search?: string;
-    /**
-     * Filter by an exact trace ID.
-     */
-    trace_id?: string;
-    /**
-     * Filter by multiple trace IDs separated by commas.
-     */
-    trace_id__in?: string;
-    };
-
-    export type LlmAnalyticsReviewQueuesListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    name?: string;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `name`, `updated_at`, or `created_at`.
-     */
-    order_by?: string;
-    /**
-     * Search review queue names.
-     */
-    search?: string;
-    };
-
-    export type LlmAnalyticsScoreDefinitionsListParams = {
-    /**
-     * Filter by archived state.
-     */
-    archived?: boolean;
-    /**
-     * Filter by scorer kind.
-     */
-    kind?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Sort by name, kind, created_at, updated_at, or current_version.
-     */
-    order_by?: string;
-    /**
-     * Search scorers by name or description.
-     */
-    search?: string;
-    };
-
-    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationBatchCheckCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSummarizationBatchCheckCreate403 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown };
-
-    export type LlmAnalyticsTraceReviewsListParams = {
-    /**
-     * Filter by a stable scorer definition ID.
-     */
-    definition_id?: string;
-    /**
-     * Filter by multiple scorer definition IDs separated by commas.
-     */
-    definition_id__in?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Order by `updated_at` or `created_at`.
-     */
-    order_by?: string;
-    /**
-     * Search trace IDs and comments.
-     */
-    search?: string;
-    /**
-     * Filter by an exact trace ID.
-     */
-    trace_id?: string;
-    /**
-     * Filter by multiple trace IDs separated by commas.
-     */
-    trace_id__in?: string;
-    };
-
-    export type LlmAnalyticsTranslateCreate200 = { [key: string]: unknown };
-
-    export type LlmPromptsListParams = {
-    /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-    * `full` - full
-    * `preview` - preview
-    * `none` - none
-     * @minLength 1
-     */
-    content?: LlmPromptsListContent;
-    /**
-     * Filter prompts by the ID of the user who created them.
-     */
-    created_by_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional substring filter applied to prompt names and prompt content.
-     */
-    search?: string;
-    };
-
-    export type LlmPromptsListContent = typeof LlmPromptsListContent[keyof typeof LlmPromptsListContent];
-
-
-    export const LlmPromptsListContent = {
-      Full: 'full',
-      Preview: 'preview',
-      None: 'none',
-    } as const;
-
-    export type LlmPromptsNameRetrieveParams = {
-    /**
-     * Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.
-
-    * `full` - full
-    * `preview` - preview
-    * `none` - none
-     * @minLength 1
-     */
-    content?: LlmPromptsNameRetrieveContent;
-    /**
-     * Specific prompt version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type LlmPromptsNameRetrieveContent = typeof LlmPromptsNameRetrieveContent[keyof typeof LlmPromptsNameRetrieveContent];
-
-
-    export const LlmPromptsNameRetrieveContent = {
-      Full: 'full',
-      Preview: 'preview',
-      None: 'none',
-    } as const;
-
-    export type LlmPromptsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number;
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Specific prompt version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    /**
-     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
-     */
-    version_id?: string;
-    };
-
-    export type LlmSkillsListParams = {
-    /**
-     * Filter skills by the ID of the user who created them.
-     */
-    created_by_id?: number;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Optional substring filter applied to skill names and descriptions.
-     */
-    search?: string;
-    };
-
-    export type LlmSkillsNameRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type LlmSkillsNameFilesRetrieveParams = {
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    };
-
-    export type LlmSkillsNameFilesDestroyParams = {
-    /**
-     * Latest version you are editing from. If provided, the request fails with 409 when another write has landed in the meantime.
-     * @minimum 1
-     */
-    base_version?: number;
-    };
-
-    export type LlmSkillsResolveNameRetrieveParams = {
-    /**
-     * Return versions older than this version number. Mutually exclusive with offset.
-     * @minimum 1
-     */
-    before_version?: number;
-    /**
-     * Maximum number of versions to return per page (1-100).
-     * @minimum 1
-     * @maximum 100
-     */
-    limit?: number;
-    /**
-     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * Specific skill version to fetch. If omitted, the latest version is returned.
-     * @minimum 1
-     */
-    version?: number;
-    /**
-     * Exact skill version UUID to resolve.
-     */
-    version_id?: string;
-    };
-
-    export type LogsViewsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type MarketingAnalyticsDataSourcesRetrieveParams = {
-    /**
-     * Optional. Restrict to one integration (e.g. 'GoogleAds').
-     * @nullable
-     */
-    source_type?: string | null;
-    };
-
-    export type MarketingAnalyticsDiagnoseRetrieveParams = {
-    /**
-     * Lookback window for attribution health
-     */
-    attribution_lookback_days?: number;
-    /**
-     * Whether to include the conversion-goal summary in the diagnostic
-     */
-    include_conversion_goals?: boolean;
-    /**
-     * Optional integration filter
-     * @nullable
-     */
-    source_type?: string | null;
-    };
-
-    export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
-    /**
-     * ISO start; defaults to 30 days ago
-     * @nullable
-     */
-    date_from?: string | null;
-    /**
-     * ISO end; defaults to now
-     * @nullable
-     */
-    date_to?: string | null;
-    /**
-     * Id of the conversion goal to explain (from list_conversion_goals).
-     * @minLength 1
-     */
-    goal_id: string;
-    };
-
-    export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
-    /**
-     * Minimum 30d event count to be a candidate
-     */
-    min_count?: number;
-    /**
-     * Max candidates to return
-     */
-    top_n?: number;
-    };
-
-    export type MarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
-    /**
-     * Days of history to inspect; defaults to 90
-     * @nullable
-     */
-    lookback_days?: number | null;
-    /**
-     * Only suggest for raw values with >= this many events
-     */
-    min_event_count?: number;
-    };
-
-    export type MarketingAnalyticsUtmAuditRetrieveParams = {
-    /**
-     * Start date for the audit period
-     * @minLength 1
-     */
-    date_from?: string;
-    /**
-     * End date for the audit period
-     * @nullable
-     */
-    date_to?: string | null;
-    };
-
-    export type MaterializedColumnSlotsListParams = {
     /**
      * Number of results to return per page.
      */
@@ -50369,6 +49593,71 @@ export namespace Schemas {
       Paused: 'paused',
       Running: 'running',
     } as const;
+
+    export type MarketingAnalyticsDataSourcesRetrieveParams = {
+    /**
+     * Optional. Restrict to one integration (e.g. 'GoogleAds').
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type MarketingAnalyticsDiagnoseRetrieveParams = {
+    /**
+     * Lookback window for attribution health
+     */
+    attribution_lookback_days?: number;
+    /**
+     * Whether to include the conversion-goal summary in the diagnostic
+     */
+    include_conversion_goals?: boolean;
+    /**
+     * Optional integration filter
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
+    /**
+     * ISO start; defaults to 30 days ago
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * ISO end; defaults to now
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Id of the conversion goal to explain (from list_conversion_goals).
+     * @minLength 1
+     */
+    goal_id: string;
+    };
+
+    export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
+    /**
+     * Minimum 30d event count to be a candidate
+     */
+    min_count?: number;
+    /**
+     * Max candidates to return
+     */
+    top_n?: number;
+    };
+
+    export type MarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
+    /**
+     * Days of history to inspect; defaults to 90
+     * @nullable
+     */
+    lookback_days?: number | null;
+    /**
+     * Only suggest for raw values with >= this many events
+     */
+    min_event_count?: number;
+    };
 
     export type MarketingAnalyticsUtmAuditRetrieveParams = {
     /**
