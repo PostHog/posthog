@@ -32,15 +32,23 @@ function slackEvent(opts: {
     /** Slack delivers `app_mention` for @-mentions; defaults to `message` for
      *  legacy "any channel message" subscribers. The ingress accepts both. */
     eventType?: 'message' | 'app_mention'
+    /** Per-event uuid Slack stamps on every callback; identical across
+     *  retries of the same event, unique per real event. Used by the ingress
+     *  as the idempotency key. Defaults to a value derived from `ts` so each
+     *  distinct `ts` is treated as a separate event; tests simulating a retry
+     *  pass the same event_id twice with the same ts. */
+    event_id?: string
 }): Record<string, unknown> {
+    const ts = opts.ts ?? '1.0'
     return {
         type: 'event_callback',
+        event_id: opts.event_id ?? `Ev_test_${ts}`,
         event: {
             type: opts.eventType ?? 'message',
             channel: opts.channel ?? 'C01',
             user: opts.user ?? 'U01',
             text: opts.text ?? 'hi',
-            ts: opts.ts ?? '1.0',
+            ts,
             thread_ts: opts.thread_ts,
             bot_id: opts.bot_id,
         },
@@ -139,6 +147,42 @@ describe('slack trigger: real e2e', () => {
         expect(userMsg?.content).toMatch(/^user: U-engineer$/m)
         // Raw text follows the header block.
         expect(userMsg?.content).toContain('<@U-bot> any ideas?')
+    })
+
+    it('Slack retry with the same event_id is idempotent — does not double-reply', async () => {
+        // Slack retries the events callback up to 3 times if it doesn't see a
+        // 200 within 3 seconds. Pre-fix, the externalKey-based resume path
+        // would append a duplicate seed to pending_inputs on each retry and
+        // the runner would reply N times to the same mention. Using the
+        // top-level `event_id` as the idempotency key short-circuits retries
+        // before they touch pending_inputs.
+        c.setScript([fauxText('once and only once')])
+        await c.deployAgent({ slug: 'no-dupes', spec: {} })
+        const payload = slackEvent({
+            eventType: 'app_mention',
+            event_id: 'Ev_retry_canary',
+            text: '<@U-bot> say hi',
+        })
+        const first = await request(c.ingress).post('/agents/no-dupes/slack/events').send(payload)
+        expect(first.status).toBe(200)
+        // Same payload — simulates Slack's retry. Should resolve to the same
+        // session, NOT append to pending_inputs.
+        const retry = await request(c.ingress).post('/agents/no-dupes/slack/events').send(payload)
+        expect(retry.status).toBe(200)
+        expect(retry.body.session_id).toBe(first.body.session_id)
+
+        await c.drain()
+        const session = await c.queue.get(first.body.session_id)
+        const userMsgs = session!.conversation.filter((m) => m.role === 'user')
+        // Exactly one user turn — retry was deduped.
+        expect(userMsgs).toHaveLength(1)
+        // And no leftover pending_inputs that would have caused a second turn.
+        expect(session!.pending_inputs).toHaveLength(0)
+        // Assistant should have replied exactly once.
+        const assistantTexts = session!.conversation.filter(
+            (m): m is { role: 'assistant'; content: string } => m.role === 'assistant'
+        )
+        expect(assistantTexts).toHaveLength(1)
     })
 
     it('thread_ts falls back to ts when the mention is a top-level channel message', async () => {

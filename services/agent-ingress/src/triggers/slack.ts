@@ -52,7 +52,12 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 res.status(401).json({ error: 'invalid_signature' })
                 return
             }
-            const body = req.body as { type?: string; challenge?: string; event?: SlackEvent }
+            const body = req.body as {
+                type?: string
+                challenge?: string
+                event?: SlackEvent
+                event_id?: string
+            }
             if (body.type === 'url_verification') {
                 res.json({ challenge: body.challenge })
                 return
@@ -148,6 +153,15 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
+                    // Slack retries the events callback up to 3 times if it
+                    // doesn't see a 200 within 3 seconds. Without an
+                    // idempotency key, every retry appends a duplicate seed
+                    // to `pending_inputs` and the runner replies N times to
+                    // the same mention. `event_id` is Slack's per-event uuid
+                    // — identical across retries, unique per real event —
+                    // so it's the right key. Falls back to ts when an older
+                    // payload shape doesn't carry event_id.
+                    idempotencyKey: body.event_id ? `slack:event:${body.event_id}` : `slack:ts:${event.ts}`,
                     seed: {
                         role: 'user',
                         content: slackContext,
