@@ -265,7 +265,7 @@ jobs:
                   else
                       echo "Building affected crates: $crates"
                       cargo build $crates --locked --release
-                      find target/release/ -maxdepth 1 -executable -type f | xargs strip
+                      find target/release/ -maxdepth 1 -executable -type f -exec strip {} +
                   fi
 
     test:
