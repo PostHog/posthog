@@ -27,7 +27,14 @@ import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { DashboardTile, DashboardType, InsightColor, InsightShortId, QueryBasedInsightModel } from '~/types'
+import {
+    DashboardPlacement,
+    DashboardTile,
+    DashboardType,
+    InsightColor,
+    InsightShortId,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import _dashboardJson from './__mocks__/dashboard.json'
 
@@ -1600,6 +1607,42 @@ describe('dashboardLogic', () => {
                 results: [],
                 hasMore: false,
             })
+        })
+
+        it('does not fetch run_widgets on public placement', async () => {
+            logic = dashboardLogic({
+                id: 5,
+                placement: DashboardPlacement.Public,
+                dashboard: {
+                    ...dashboards[5],
+                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
+                } as DashboardType<QueryBasedInsightModel>,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => {
+                logic.actions.refreshDashboardWidgets({ tileIds: [WIDGET_TILE.id], forceRefresh: true })
+            }).toFinishAllListeners()
+
+            expect(fetchRunWidgetsMock).not.toHaveBeenCalled()
+        })
+
+        it('enables widget tiles on public dashboards when tile metadata is present', async () => {
+            logic = dashboardLogic({
+                id: 5,
+                placement: DashboardPlacement.Public,
+                dashboard: {
+                    ...dashboards[5],
+                    tiles: [...dashboards[5].tiles, WIDGET_TILE],
+                } as DashboardType<QueryBasedInsightModel>,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.dashboardWidgetsEnabled).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets fails', async () => {

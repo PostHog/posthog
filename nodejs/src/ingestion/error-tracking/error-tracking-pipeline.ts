@@ -5,8 +5,8 @@ import { ErrorTrackingSettings, ErrorTrackingSettingsManager } from '~/utils/err
 import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
-import { GroupTypeManager } from '~/worker/ingestion/group-type-manager'
-import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { ReadOnlyGroupTypeManager } from '~/worker/ingestion/readonly-group-type-manager'
 
 import {
     AppMetricsOutput,
@@ -69,10 +69,10 @@ export interface ErrorTrackingPipelineConfig {
     groupId: string
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
-    personRepository: PersonRepository
+    personRepository: PersonReadRepository
     hogTransformer: ErrorTrackingHogTransformer | null
     cymbalClient: CymbalClient
-    groupTypeManager: GroupTypeManager
+    groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
     overflowEnabled: boolean
