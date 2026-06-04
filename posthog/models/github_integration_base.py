@@ -6,6 +6,7 @@ operations that are shared between :class:`GitHubIntegration` (team-scoped) and
 """
 
 import time
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -95,7 +96,7 @@ class GitHubIntegrationBase:
     # --- App-level JWT authentication ---
 
     @classmethod
-    def client_request(cls, endpoint: str, method: str = "GET") -> requests.Response:
+    def client_request(cls, endpoint: str, method: str = "GET", timeout: float | None = None) -> requests.Response:
         """Make a request to the GitHub App API using a JWT."""
         from rest_framework.exceptions import ValidationError
 
@@ -133,7 +134,102 @@ class GitHubIntegrationBase:
                 "Authorization": f"Bearer {jwt_token}",
                 "X-GitHub-Api-Version": "2022-11-28",
             },
+            timeout=timeout,
         )
+
+    # --- App installation lifecycle (uninstall) ---
+
+    @staticmethod
+    def installation_reference_count(
+        installation_id: str,
+        *,
+        exclude_team_integration_id: int | None = None,
+        exclude_user_integration_id: uuid.UUID | None = None,
+    ) -> int:
+        """Count PostHog rows that reference a GitHub App installation.
+
+        One installation can be shared by many team ``Integration`` rows and many
+        personal ``UserIntegration`` rows. Callers pass the id of the row currently
+        being deleted via the ``exclude_*`` params so it is not counted against itself.
+        """
+        # Local imports: both model modules import this module at load time.
+        from posthog.models.integration import Integration
+        from posthog.models.user_integration import UserIntegration
+
+        team_qs = Integration.objects.filter(kind="github", integration_id=installation_id)
+        if exclude_team_integration_id is not None:
+            team_qs = team_qs.exclude(id=exclude_team_integration_id)
+
+        user_qs = UserIntegration.objects.filter(kind="github", integration_id=installation_id)
+        if exclude_user_integration_id is not None:
+            user_qs = user_qs.exclude(id=exclude_user_integration_id)
+
+        return team_qs.count() + user_qs.count()
+
+    @classmethod
+    def uninstall_app_installation(cls, installation_id: str) -> bool:
+        """Tell GitHub to uninstall the App via ``DELETE /app/installations/{id}``.
+
+        Best-effort: never raises. Treats 204 (removed) and 404 (already gone) as
+        success. Returns ``False`` on any other outcome or when the App is not configured.
+        """
+        if not installation_id:
+            return False
+        if not settings.GITHUB_APP_CLIENT_ID or not settings.GITHUB_APP_PRIVATE_KEY:
+            logger.warning("GitHubIntegration: uninstall skipped, GitHub App not configured")
+            return False
+
+        try:
+            response = cls.client_request(f"installations/{installation_id}", method="DELETE", timeout=10)
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: uninstall_app_installation request failed",
+                installation_id=installation_id,
+                exc_info=True,
+            )
+            return False
+
+        if response.status_code in (204, 404):
+            logger.info(
+                "GitHubIntegration: uninstalled App installation",
+                installation_id=installation_id,
+                status_code=response.status_code,
+            )
+            return True
+
+        logger.warning(
+            "GitHubIntegration: uninstall_app_installation unexpected status",
+            installation_id=installation_id,
+            status_code=response.status_code,
+        )
+        return False
+
+    @classmethod
+    def uninstall_if_last_reference(
+        cls,
+        installation_id: str,
+        *,
+        exclude_team_integration_id: int | None = None,
+        exclude_user_integration_id: uuid.UUID | None = None,
+    ) -> bool:
+        """Uninstall the App on GitHub only when no other PostHog row references it."""
+        if not installation_id:
+            return False
+
+        remaining = cls.installation_reference_count(
+            installation_id,
+            exclude_team_integration_id=exclude_team_integration_id,
+            exclude_user_integration_id=exclude_user_integration_id,
+        )
+        if remaining > 0:
+            logger.info(
+                "GitHubIntegration: skipping uninstall, other references remain",
+                installation_id=installation_id,
+                remaining=remaining,
+            )
+            return False
+
+        return cls.uninstall_app_installation(installation_id)
 
     @staticmethod
     def verify_user_installation_access(installation_id: str, user_access_token: str) -> bool:

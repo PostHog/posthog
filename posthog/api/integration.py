@@ -63,6 +63,7 @@ from posthog.models.integration import (
     TwilioIntegration,
     defer_repository_cache_fields,
 )
+from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -627,6 +628,14 @@ class IntegrationViewSet(
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
+            except Exception as e:
+                capture_exception(e)
+
+        if instance.kind == "github" and instance.integration_id:
+            try:
+                GitHubIntegration.uninstall_app_installation(instance.integration_id)
+                # App is gone on GitHub → associated personal integrations are now dead.
+                UserIntegration.objects.filter(kind="github", integration_id=instance.integration_id).delete()
             except Exception as e:
                 capture_exception(e)
 
