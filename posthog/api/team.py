@@ -2160,10 +2160,10 @@ def validate_team_attrs(
         admin_fields_touched = (TEAM_CONFIG_ADMIN_FIELDS_SET - {"is_demo"}) & attrs.keys()
         if admin_fields_touched:
             membership = OrganizationMembership.objects.filter(
-                user=view.request.user, organization_id=view.organization_id
+                user=cast(User, view.request.user), organization_id=view.organization_id
             ).first()
-            level = membership.level if membership else None
-            if level is None or level < OrganizationMembership.Level.ADMIN:
+            member_level = membership.level if membership else None
+            if member_level is None or member_level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(
                     "Only organization admins can set these settings on project creation: "
                     + ", ".join(sorted(admin_fields_touched))
