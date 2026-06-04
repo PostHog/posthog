@@ -404,8 +404,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         DisplayIDModel), against the already team-scoped ``queryset``.
 
         Lives here rather than in ``safely_get_object`` so it applies even when a viewset overrides
-        ``safely_get_object`` for its own identifiers (e.g. Conversations tickets keep a separate
-        ticket_number lookup and don't need to know about display IDs at all).
+        ``safely_get_object`` for its own identifiers (e.g. a viewset with an additional human-friendly
+        lookup keeps that override and doesn't need to know about display IDs at all).
 
         Returns the resolved object, or ``None`` when the model has no prefix or the identifier
         isn't one the resolver handles — so the normal ``safely_get_object`` / default lookup still

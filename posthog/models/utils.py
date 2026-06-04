@@ -187,8 +187,10 @@ class UUIDModel(DisplayIDModel):
     Base Django Model with default autoincremented ID field replaced with UUID7.
 
     Inherits DisplayIDModel, so any subclass that sets `display_id_prefix` gets a Stripe-style
-    `display_id` (e.g. `tkt_2aUyqj...`) encoding its UUID `id` for free — no field, no migration.
-    Subclasses without a prefix are unaffected (`display_id` is None).
+    display ID (e.g. `task_2aUyqj...`) encoding its UUID `id` for free — no field, no migration.
+    The API serializes it as the `id` by default; set `display_id_as_pk = False` to keep a
+    raw-UUID `id` and expose it as a separate `display_id` field instead. Subclasses without a
+    prefix are unaffected (`display_id` is None).
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid7, editable=False)
@@ -206,7 +208,9 @@ class UUIDTModel(DisplayIDModel):
     Base Django Model with default autoincremented ID field replaced with UUIDT.
 
     Inherits DisplayIDModel, so any subclass that sets `display_id_prefix` gets a Stripe-style
-    `display_id` encoding its UUID `id` for free. Subclasses without a prefix are unaffected.
+    display ID encoding its UUID `id` for free (serialized as the `id` by default; set
+    `display_id_as_pk = False` to expose it as a separate `display_id` field). Subclasses
+    without a prefix are unaffected.
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)

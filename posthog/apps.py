@@ -33,12 +33,12 @@ class PostHogConfig(AppConfig):
         import django_display_ids.contrib.drf_spectacular  # noqa: F401
 
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
-        from posthog.api.display_id import patch_model_serializer_display_id_pk
+        from posthog.api.display_id import patch_model_serializer_display_id
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
-        # Serialize the primary key as a display ID for any model that sets display_id_prefix,
-        # so adopting Stripe-style IDs needs only the model attribute — no serializer changes.
-        patch_model_serializer_display_id_pk()
+        # Serialize a display ID for any model that sets display_id_prefix, so adopting
+        # Stripe-style IDs needs only the model attribute — no serializer changes.
+        patch_model_serializer_display_id()
 
         connect_signal_handlers()
 
