@@ -8,13 +8,16 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from requests.adapters import HTTPAdapter
+from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from posthog.api.capture_v1 import (
+    CAPTURE_V1_OPTION_CONFLICT,
     CaptureV1InternalError,
     CaptureV1Result,
     _build_v1_headers,
     _normalize_options_and_properties,
     _parse_retry_after,
+    _resolve_scalar,
     capture_v1_batch_internal,
     capture_v1_internal,
     prepare_capture_v1_batch,
@@ -200,6 +203,51 @@ class TestNormalizeOptionsAndProperties(SimpleTestCase):
         _normalize_options_and_properties(ev, process_person_profile=False, event_source="test")
         assert "$session_id" in original_props
 
+    @parameterized.expand(
+        [
+            (
+                "option_conflict",
+                {"options": {"cookieless_mode": False}, "properties": {"$cookieless_mode": True}},
+                "cookieless_mode",
+            ),
+            ("session_id_conflict", {"session_id": "a", "properties": {"$session_id": "b"}}, "session_id"),
+            ("window_id_conflict", {"window_id": "a", "properties": {"$window_id": "b"}}, "window_id"),
+        ]
+    )
+    def test_conflict_increments_metric(self, _name: str, ev: dict[str, Any], field: str) -> None:
+        before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="metric_test", field=field)._value.get()
+        _normalize_options_and_properties(ev, process_person_profile=True, event_source="metric_test")
+        after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="metric_test", field=field)._value.get()
+        assert after == before + 1
+
+    def test_ppp_false_overrides_explicit_true_with_conflict(self) -> None:
+        ev: dict[str, Any] = {
+            "options": {"process_person_profile": True},
+            "properties": {},
+        }
+        before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
+        options, _, _, _ = _normalize_options_and_properties(ev, process_person_profile=False, event_source="ppp_test")
+        after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="ppp_test", field="process_person_profile")._value.get()
+        assert options["process_person_profile"] is False
+        assert after == before + 1
+
+
+class TestResolveScalar(SimpleTestCase):
+    def test_explicit_wins(self) -> None:
+        assert _resolve_scalar("a", "b", field="f", event_source="t") == "a"
+
+    def test_legacy_fallback(self) -> None:
+        assert _resolve_scalar(None, "b", field="f", event_source="t") == "b"
+
+    def test_both_none(self) -> None:
+        assert _resolve_scalar(None, None, field="f", event_source="t") is None
+
+    def test_no_conflict_when_equal(self) -> None:
+        before = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="eq_test", field="f")._value.get()
+        _resolve_scalar("same", "same", field="f", event_source="eq_test")
+        after = CAPTURE_V1_OPTION_CONFLICT.labels(event_source="eq_test", field="f")._value.get()
+        assert after == before
+
 
 class TestPrepareCaptureV1Batch(SimpleTestCase):
     def test_envelope_shape(self) -> None:
@@ -259,16 +307,14 @@ class TestPrepareCaptureV1Batch(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("empty_token", "", "tok_required"),
-            ("no_events", None, "at_least_one"),
+            ("empty_token", "", [{"event": "e", "distinct_id": "u"}], "api token is required"),
+            ("no_events", "tok", [], "at least one event is required"),
         ]
     )
-    def test_validation_errors(self, _name: str, token: str | None, fragment: str) -> None:
-        events = [_make_event()] if token is not None else []
-        tok = token if token is not None else "tok"
+    def test_validation_errors(self, _name: str, token: str, events: list[dict[str, Any]], fragment: str) -> None:
         with self.assertRaises(CaptureV1InternalError) as ctx:
-            prepare_capture_v1_batch(events if events else [], token=tok if tok else "", event_source="src")
-        assert any(w in str(ctx.exception).lower() for w in fragment.lower().split("_"))
+            prepare_capture_v1_batch(events, token=token, event_source="src")
+        assert fragment in str(ctx.exception).lower()
 
     def test_missing_event_name_raises(self) -> None:
         events = [{"distinct_id": "u1", "properties": {}}]
@@ -430,14 +476,13 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
 
     @parameterized.expand(
         [
-            # non-retryable
             ("400_validation", 400, {"error": "invalid_request", "error_description": "bad"}),
             ("401_auth", 401, {"error": "unauthorized", "error_description": "bad token"}),
             ("402_billing", 402, {"error": "billing_limit", "error_description": "quota"}),
+            ("408_timeout", 408, {"error": "request_timeout", "error_description": "timeout"}),
             ("413_too_large", 413, {"error": "too_large", "error_description": "payload"}),
             ("415_media", 415, {"error": "unsupported_media", "error_description": "type"}),
-            # retryable (Retry-After emitted by capture-rs)
-            ("408_timeout", 408, {"error": "request_timeout", "error_description": "timeout"}),
+            ("429_rate_limit", 429, {"error": "rate_limited", "error_description": "slow down"}),
             ("500_internal", 500, {"error": "internal_error", "error_description": "boom"}),
             ("502_bad_gateway", 502, {"error": "bad_gateway", "error_description": "upstream"}),
             ("503_unavailable", 503, {"error": "service_unavailable", "error_description": "down"}),
@@ -652,7 +697,7 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
         assert not result.retried
 
     @patch("posthog.api.capture_v1.internal_requests_session")
-    def test_empty_results_map(self, mock_session_fn: MagicMock) -> None:
+    def test_empty_results_map_marks_unaccounted(self, mock_session_fn: MagicMock) -> None:
         uid = str(uuid4())
         events = [_make_event(event_uuid=uid)]
         InstallV1Spy(mock_session_fn, [MockResponse(body={"results": {}})])
@@ -660,9 +705,9 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
         result = capture_v1_batch_internal(events=events, token="tok", event_source="empty")
 
         assert result.status_code == 200
+        assert uid in result.unaccounted
         assert not result.ok
-        assert not result.dropped
-        assert not result.retried
+        assert not result.succeeded()
 
     @patch("posthog.api.capture_v1.internal_requests_session")
     def test_non_json_200_body(self, mock_session_fn: MagicMock) -> None:
@@ -761,6 +806,49 @@ class TestCaptureV1BatchInternal(SimpleTestCase):
         assert result.results[u_drop]["result"] == "drop"
         assert result.results[u_retry]["result"] == "ok"
 
+    @parameterized.expand(
+        [
+            ("unaccounted_uuid", {}, "unaccounted", False),
+            ("unknown_status", {"result": "new_fancy_status"}, "unaccounted", False),
+            ("drop", {"result": "drop"}, "dropped", False),
+            ("warning", {"result": "warning"}, "warnings", True),
+        ]
+    )
+    @patch("posthog.api.capture_v1.internal_requests_session")
+    def test_terminal_categorization(
+        self,
+        _name: str,
+        entry: dict[str, Any],
+        expected_bucket: str,
+        expect_succeeded: bool,
+        mock_session_fn: MagicMock,
+    ) -> None:
+        uid = str(uuid4())
+        events = [_make_event(event_uuid=uid)]
+        results = {uid: entry} if entry else {}
+        InstallV1Spy(mock_session_fn, [MockResponse(body={"results": results})])
+
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="cat")
+
+        assert uid in getattr(result, expected_bucket)
+        assert result.succeeded() == expect_succeeded
+
+    @patch("posthog.api.capture_v1.internal_requests_session")
+    def test_transport_exception_returns_structured_error(self, mock_session_fn: MagicMock) -> None:
+        events = [_make_event()]
+        mock_session = MagicMock()
+        mock_session.post.side_effect = RequestsConnectionError("connection refused")
+        mock_session.mount = MagicMock()
+        mock_session_fn.return_value.__enter__.return_value = mock_session
+
+        result = capture_v1_batch_internal(events=events, token="tok", event_source="transport")
+
+        assert result.status_code == 0
+        assert result.error is not None
+        assert result.error["error"] == "transport_error"
+        assert "connection refused" in result.error["error_description"]
+        assert not result.succeeded()
+
 
 class TestParseRetryAfter(SimpleTestCase):
     @parameterized.expand(
@@ -827,36 +915,47 @@ class TestCaptureV1Result(SimpleTestCase):
         r = CaptureV1Result(status_code=200, ok=["a", "b"])
         assert r.succeeded()
 
-    def test_succeeded_false_on_error(self) -> None:
-        r = CaptureV1Result(status_code=400, error={"error": "bad"})
+    @parameterized.expand(
+        [
+            ("error", {"error": {"error": "bad"}}, {}),
+            ("dropped", {}, {"dropped": ["a"]}),
+            ("retried", {}, {"retried": ["a"]}),
+            ("unaccounted", {}, {"unaccounted": ["a"]}),
+        ]
+    )
+    def test_succeeded_false(self, _name: str, kwargs: dict[str, Any], list_kwargs: dict[str, Any]) -> None:
+        r = CaptureV1Result(status_code=200, **kwargs, **list_kwargs)
         assert not r.succeeded()
 
-    def test_succeeded_false_on_drops(self) -> None:
-        r = CaptureV1Result(status_code=200, dropped=["a"])
-        assert not r.succeeded()
-
-    def test_succeeded_false_on_retried(self) -> None:
-        r = CaptureV1Result(status_code=200, retried=["a"])
-        assert not r.succeeded()
-
-    def test_terminal_failures(self) -> None:
+    def test_terminal_failures_includes_all_buckets(self) -> None:
         r = CaptureV1Result(
             status_code=200,
-            results={"a": {"result": "drop"}, "b": {"result": "retry"}},
+            results={
+                "a": {"result": "drop"},
+                "b": {"result": "retry"},
+                "c": {"result": "unaccounted"},
+            },
             dropped=["a"],
             retried=["b"],
+            unaccounted=["c"],
         )
         failures = r.terminal_failures()
-        assert "a" in failures
-        assert "b" in failures
+        assert set(failures.keys()) == {"a", "b", "c"}
 
     def test_raise_for_status_on_error(self) -> None:
         r = CaptureV1Result(status_code=503, error={"error": "server_error", "error_description": "down"})
         with self.assertRaises(CaptureV1InternalError):
             r.raise_for_status()
 
-    def test_raise_for_status_on_partial_failure(self) -> None:
-        r = CaptureV1Result(status_code=200, dropped=["a"])
+    @parameterized.expand(
+        [
+            ("dropped", {"dropped": ["a"]}),
+            ("retried", {"retried": ["a"]}),
+            ("unaccounted", {"unaccounted": ["a"]}),
+        ]
+    )
+    def test_raise_for_status_on_partial_failure(self, _name: str, kwargs: dict[str, Any]) -> None:
+        r = CaptureV1Result(status_code=200, **kwargs)
         with self.assertRaises(CaptureV1InternalError):
             r.raise_for_status()
 

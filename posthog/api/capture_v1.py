@@ -20,6 +20,7 @@ from uuid import uuid4
 import structlog
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter, Retry
+from requests.exceptions import RequestException
 
 from posthog.api.capture import SESSION_RECORDING_EVENT_NAMES
 from posthog.security.outbound_proxy import internal_requests_session
@@ -37,10 +38,9 @@ logger = structlog.get_logger(__name__)
 # --------------------------------------------------------------------------- #
 
 SDK_INFO = "posthog-capture-v1-internal/1.0"
-USER_AGENT = SDK_INFO
 
-# v1 Options struct fields (types.rs lines 59-65) and their legacy property
-# counterparts (DESIGN.md 1092-1097).  Mapping is {option_key: $property_key}.
+# v1 Options struct fields and their legacy property counterparts.
+# Mapping is {option_key: $property_key}.
 _OPTIONS_TO_LEGACY_PROPERTY: dict[str, str] = {
     "cookieless_mode": "$cookieless_mode",
     "disable_skew_correction": "$ignore_sent_at",
@@ -54,11 +54,7 @@ _EXTRA_LEGACY_ALIASES: dict[str, str] = {
     "disable_skew_correction": "disable_skew_adjustment",
 }
 
-# Top-level event fields that capture-rs also splices into properties.
-_EVENT_FIELD_TO_LEGACY_PROPERTY: dict[str, str] = {
-    "session_id": "$session_id",
-    "window_id": "$window_id",
-}
+_KNOWN_RESULT_STATUSES = frozenset({"ok", "drop", "warning", "retry"})
 
 # --------------------------------------------------------------------------- #
 # Metrics
@@ -116,19 +112,15 @@ class CaptureV1Result:
     dropped: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     retried: list[str] = field(default_factory=list)
+    unaccounted: list[str] = field(default_factory=list)
 
     def succeeded(self) -> bool:
-        return self.error is None and not self.dropped and not self.retried
+        return self.error is None and not self.dropped and not self.retried and not self.unaccounted
 
     def terminal_failures(self) -> dict[str, dict[str, Any]]:
-        out: dict[str, dict[str, Any]] = {}
-        for uid in self.dropped:
-            if uid in self.results:
-                out[uid] = self.results[uid]
-        for uid in self.retried:
-            if uid in self.results:
-                out[uid] = self.results[uid]
-        return out
+        return {
+            uid: self.results[uid] for uid in (*self.dropped, *self.retried, *self.unaccounted) if uid in self.results
+        }
 
     def raise_for_status(self) -> None:
         if self.error:
@@ -136,9 +128,11 @@ class CaptureV1Result:
                 f"capture v1 whole-request failure ({self.status_code}): "
                 f"{self.error.get('error', 'unknown')}: {self.error.get('error_description', '')}"
             )
-        if self.dropped or self.retried:
+        failures = len(self.dropped) + len(self.retried) + len(self.unaccounted)
+        if failures:
             raise CaptureV1InternalError(
-                f"capture v1 partial failure: {len(self.dropped)} dropped, {len(self.retried)} exhausted retries"
+                f"capture v1 partial failure: {len(self.dropped)} dropped, "
+                f"{len(self.retried)} exhausted retries, {len(self.unaccounted)} unaccounted"
             )
 
 
@@ -151,7 +145,7 @@ def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "User-Agent": USER_AGENT,
+        "User-Agent": SDK_INFO,
         "PostHog-Sdk-Info": SDK_INFO,
         "PostHog-Attempt": str(attempt),
         "PostHog-Request-Id": str(uuid4()),
@@ -162,6 +156,28 @@ def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
 # --------------------------------------------------------------------------- #
 # Options / properties normalizer
 # --------------------------------------------------------------------------- #
+
+
+def _resolve_scalar(
+    explicit: Any,
+    legacy: Any,
+    *,
+    field: str,
+    event_source: str,
+) -> Any:
+    """Return *explicit* if set, else *legacy*; log + count when both are set and disagree."""
+    if explicit is not None:
+        if legacy is not None and legacy != explicit:
+            logger.warning(
+                "capture_v1_internal option conflict",
+                event_source=event_source,
+                field=field,
+                explicit=explicit,
+                legacy=legacy,
+            )
+            CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field=field).inc()
+        return explicit
+    return legacy
 
 
 def _normalize_options_and_properties(
@@ -178,74 +194,53 @@ def _normalize_options_and_properties(
     raw_options: dict[str, Any] = event_dict.get("options") or {}
     props: dict[str, Any] = dict(event_dict.get("properties") or {})
 
-    # Validate option keys early.
     unknown = set(raw_options.keys()) - _VALID_OPTION_KEYS
     if unknown:
         raise CaptureV1InternalError(f"capture_v1_internal ({event_source}): unknown option key(s): {sorted(unknown)}")
 
     options: dict[str, Any] = {}
 
-    # --- resolve each typed option slot ---
     for opt_key, legacy_prop in _OPTIONS_TO_LEGACY_PROPERTY.items():
         explicit = raw_options.get(opt_key)
         legacy = props.pop(legacy_prop, None)
 
-        # Also strip any extra aliases.
         alias = _EXTRA_LEGACY_ALIASES.get(opt_key)
         if alias:
             alias_val = props.pop(alias, None)
             if legacy is None:
                 legacy = alias_val
 
-        if explicit is not None:
-            if legacy is not None and legacy != explicit:
-                logger.warning(
-                    "capture_v1_internal option conflict",
-                    event_source=event_source,
-                    field=opt_key,
-                    explicit=explicit,
-                    legacy=legacy,
-                )
-                CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field=opt_key).inc()
-            options[opt_key] = explicit
-        elif legacy is not None:
-            options[opt_key] = legacy
+        resolved = _resolve_scalar(explicit, legacy, field=opt_key, event_source=event_source)
+        if resolved is not None:
+            options[opt_key] = resolved
 
-    # --- resolve session_id / window_id ---
-    session_id: Optional[str] = event_dict.get("session_id")
-    legacy_sid = props.pop("$session_id", None)
-    if session_id is not None:
-        if legacy_sid is not None and legacy_sid != session_id:
-            logger.warning(
-                "capture_v1_internal option conflict",
-                event_source=event_source,
-                field="session_id",
-                explicit=session_id,
-                legacy=legacy_sid,
-            )
-            CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="session_id").inc()
-    elif legacy_sid is not None:
-        session_id = legacy_sid
+    session_id: Optional[str] = _resolve_scalar(
+        event_dict.get("session_id"),
+        props.pop("$session_id", None),
+        field="session_id",
+        event_source=event_source,
+    )
+    window_id: Optional[str] = _resolve_scalar(
+        event_dict.get("window_id"),
+        props.pop("$window_id", None),
+        field="window_id",
+        event_source=event_source,
+    )
 
-    window_id: Optional[str] = event_dict.get("window_id")
-    legacy_wid = props.pop("$window_id", None)
-    if window_id is not None:
-        if legacy_wid is not None and legacy_wid != window_id:
-            logger.warning(
-                "capture_v1_internal option conflict",
-                event_source=event_source,
-                field="window_id",
-                explicit=window_id,
-                legacy=legacy_wid,
-            )
-            CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="window_id").inc()
-    elif legacy_wid is not None:
-        window_id = legacy_wid
-
-    # --- apply process_person_profile override (v0 parity) ---
+    # Function-level override: when the caller says no person processing,
+    # force it even if the event-level option disagrees (but log the conflict).
     if not process_person_profile:
+        existing = options.get("process_person_profile")
+        if existing is not None and existing is not False:
+            logger.warning(
+                "capture_v1_internal option conflict",
+                event_source=event_source,
+                field="process_person_profile",
+                explicit=f"function_param={process_person_profile}",
+                legacy=existing,
+            )
+            CAPTURE_V1_OPTION_CONFLICT.labels(event_source=event_source, field="process_person_profile").inc()
         options["process_person_profile"] = False
-    # When True, leave unset so capture-rs default applies.
 
     return options, session_id, window_id, props
 
@@ -381,7 +376,7 @@ def capture_v1_batch_internal(
             url,
             HTTPAdapter(
                 max_retries=Retry(
-                    total=3,
+                    total=max_retries,
                     backoff_factor=0.1,
                     status_forcelist=[500, 502, 503, 504],
                     allowed_methods={"POST"},
@@ -398,7 +393,14 @@ def capture_v1_batch_internal(
                 "batch": pending_batch,
             }
 
-            resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
+            try:
+                resp = session.post(url, json=submit_payload, headers=headers, timeout=timeout)
+            except RequestException as exc:
+                CAPTURE_V1_REQUEST_FAILED.labels(event_source=event_source, status_code="transport").inc()
+                return CaptureV1Result(
+                    status_code=0,
+                    error={"error": "transport_error", "error_description": str(exc)},
+                )
 
             if resp.status_code != 200:
                 CAPTURE_V1_REQUEST_FAILED.labels(
@@ -435,15 +437,16 @@ def capture_v1_batch_internal(
                 entry = results_map.get(uid)
                 if entry is None:
                     continue
-                result_status = entry.get("result", "ok")
-                CAPTURE_V1_EVENT_RESULT.labels(event_source=event_source, result=result_status).inc()
-                if result_status == "retry":
+                clamped = entry.get("result", "ok")
+                if clamped not in _KNOWN_RESULT_STATUSES:
+                    clamped = "unknown"
+                CAPTURE_V1_EVENT_RESULT.labels(event_source=event_source, result=clamped).inc()
+                if entry.get("result") == "retry":
                     retry_uuids.append(uid)
                 else:
                     aggregated[uid] = entry
 
             if not retry_uuids or attempt >= max_retries:
-                # Remaining retries become terminal.
                 for uid in retry_uuids:
                     entry = results_map.get(uid, {"result": "retry"})
                     aggregated[uid] = entry
@@ -458,7 +461,11 @@ def capture_v1_batch_internal(
             pending_batch = [uuid_to_event[uid] for uid in retry_uuids]
             attempt += 1
 
-    # --- build result ---
+    # Sweep for uuids never acknowledged by capture-rs.
+    for uid in uuid_to_event:
+        if uid not in aggregated:
+            aggregated[uid] = {"result": "unaccounted"}
+
     result = CaptureV1Result(status_code=200, results=aggregated)
     for uid, entry in aggregated.items():
         status = entry.get("result", "ok")
@@ -470,6 +477,8 @@ def capture_v1_batch_internal(
             result.warnings.append(uid)
         elif status == "retry":
             result.retried.append(uid)
+        else:
+            result.unaccounted.append(uid)
 
     return result
 
