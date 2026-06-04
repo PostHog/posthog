@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request shape for a FileDownload batch export on demand.",
     "properties": {
         "data_interval_end": {
             "format": "date-time",
