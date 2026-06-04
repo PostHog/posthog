@@ -199,6 +199,25 @@ async def test_is_s3_read_access_denied(error_code, status_code, expected):
     assert denied is expected
 
 
+async def test_is_s3_read_access_denied_swallows_unexpected_error():
+    """An unexpected probe failure (e.g. a connection error) is treated as 'not confirmed' (False)."""
+    head_object = mock.AsyncMock(side_effect=botocore.exceptions.EndpointConnectionError(endpoint_url="https://s3"))
+
+    with mock.patch(
+        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.aioboto3.Session"
+    ) as mock_session_class:
+        mock_session_class.return_value = _mock_s3_session_with_head_object(head_object)
+
+        denied = await is_s3_read_access_denied(
+            bucket="test-bucket",
+            region_name="us-east-1",
+            credentials=AWSCredentials(aws_access_key_id="key", aws_secret_access_key="secret"),
+            keys=["some/manifest.json"],
+        )
+
+    assert denied is False
+
+
 class _FakeDiag:
     def __init__(self, primary: str | None = None, detail: str | None = None):
         self.message_primary = primary
@@ -240,25 +259,6 @@ async def test_check_and_raise_redshift_copy_error_credentials(denied):
                 await call
         else:
             await call  # should not raise
-
-
-async def test_check_and_raise_redshift_copy_error_swallows_probe_failure():
-    """If the S3 probe itself fails, we don't mask the original COPY error (caller re-raises it)."""
-    credentials = AWSCredentials(aws_access_key_id="key", aws_secret_access_key="secret")
-
-    with mock.patch(
-        "products.batch_exports.backend.temporal.destinations.redshift_batch_export.is_s3_read_access_denied",
-        new=mock.AsyncMock(side_effect=botocore.exceptions.EndpointConnectionError(endpoint_url="https://s3")),
-    ):
-        # Should not raise — the unexpected probe failure is swallowed so the caller re-raises.
-        await check_and_raise_redshift_copy_error(
-            _FakeInternalError("COPY failed"),
-            authorization=credentials,
-            bucket="test-bucket",
-            region_name="us-east-1",
-            manifest_key="prefix/manifest.json",
-            files_uploaded=["prefix/file-0.parquet.zst"],
-        )
 
 
 @pytest.mark.parametrize(

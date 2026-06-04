@@ -1167,28 +1167,33 @@ async def is_s3_read_access_denied(
     credentials: AWSCredentials,
     keys: collections.abc.Sequence[str],
 ) -> bool:
-    """Return True if reading any of `keys` is denied with the given credentials.
+    """Return True only if a HEAD positively confirms read access is denied for any of `keys`.
 
     We `head_object` each key with the same credentials Redshift uses for the COPY. A 403 / Access
     Denied / Forbidden confirms a read-permission problem (including the SSE-KMS 'kms:Decrypt' case,
-    which also fails the HEAD). Non-permission errors (e.g. a 404) are treated as not-denied so we
-    don't mask an unrelated failure.
+    which also fails the HEAD). Anything else returns False — a successful HEAD, a non-permission
+    error (e.g. a 404), or an unexpected probe failure (e.g. a connection error). This is best-effort
+    by design: callers should only escalate to a hard error on a confirmed denial, and never mask an
+    original failure just because the probe itself couldn't run.
     """
-    session = aioboto3.Session()
-    async with session.client(
-        "s3",
-        region_name=region_name,
-        aws_access_key_id=credentials.aws_access_key_id,
-        aws_secret_access_key=credentials.aws_secret_access_key,
-    ) as client:
-        for key in keys:
-            try:
-                await client.head_object(Bucket=bucket, Key=key)
-            except botocore.exceptions.ClientError as err:
-                status = err.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-                code = err.response.get("Error", {}).get("Code")
-                if status == 403 or code in ("403", "AccessDenied", "Forbidden"):
-                    return True
+    try:
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            region_name=region_name,
+            aws_access_key_id=credentials.aws_access_key_id,
+            aws_secret_access_key=credentials.aws_secret_access_key,
+        ) as client:
+            for key in keys:
+                try:
+                    await client.head_object(Bucket=bucket, Key=key)
+                except botocore.exceptions.ClientError as err:
+                    status = err.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    code = err.response.get("Error", {}).get("Code")
+                    if status == 403 or code in ("403", "AccessDenied", "Forbidden"):
+                        return True
+    except Exception:
+        LOGGER.warning("S3 read-access probe failed; treating as not confirmed", exc_info=True)
     return False
 
 
@@ -1216,15 +1221,9 @@ async def check_and_raise_redshift_copy_error(
     """
     if isinstance(authorization, AWSCredentials):
         probe_keys = [manifest_key, *files_uploaded[:1]]
-        try:
-            access_denied = await is_s3_read_access_denied(
-                bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
-            )
-        except Exception:
-            # The probe itself failed (e.g. a connection error); let the caller re-raise the
-            # original COPY error rather than masking it with an unrelated probe failure.
-            return
-        if access_denied:
+        if await is_s3_read_access_denied(
+            bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
+        ):
             raise InsufficientS3PermissionsError(bucket) from err
         return
 
