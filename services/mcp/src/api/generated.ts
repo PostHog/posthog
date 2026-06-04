@@ -10420,6 +10420,22 @@ export namespace Schemas {
       OffTopic: 'off-topic',
     } as const;
 
+    export interface TagCount {
+      /** The tag value. */
+      tag: string;
+      /** Number of succeeded observations carrying this tag. */
+      count: number;
+    }
+
+    export interface ClassifierStats {
+      /** Top fixed-vocabulary tags by emission count. */
+      fixed_ranked: TagCount[];
+      /** Top freeform tags by emission count. */
+      freeform_ranked: TagCount[];
+      /** Succeeded observations that emitted at least one tag. */
+      total_with_tags: number;
+    }
+
     /**
      * * `claude` - claude
      */
@@ -11406,6 +11422,15 @@ export namespace Schemas {
       filter: unknown;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface CoverageStats {
+      /** Distinct sessions observed within the last `recent_days` days. */
+      recent_sessions: number;
+      /** Distinct sessions observed overall. */
+      total_sessions: number;
+      /** Window size in days used for `recent_sessions`. */
+      recent_days: number;
     }
 
     /**
@@ -22026,6 +22051,15 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface MonitorStats {
+      /** Succeeded observations whose verdict was `yes`. */
+      yes_total: number;
+      /** Succeeded observations whose verdict was `no`. */
+      no_total: number;
+      /** Succeeded observations whose verdict was `inconclusive`. */
+      inconclusive_total: number;
+    }
+
     export interface MoveTileTile {
       /** Dashboard tile ID to move. */
       id: number;
@@ -22291,6 +22325,70 @@ export namespace Schemas {
       exported_asset_id?: string | null;
       /** @nullable */
       event_definition_id?: string | null;
+    }
+
+    export interface ObservationStatusCounts {
+      /** Total observations in the filtered set. */
+      total: number;
+      /** Observations with `status=succeeded`. */
+      succeeded: number;
+      /** Observations with `status=failed`. */
+      failed: number;
+      /** Observations with `status=ineligible`. */
+      ineligible: number;
+      /** Observations not yet in a terminal status. */
+      in_flight: number;
+      /**
+         * Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. Null when no observations have completed.
+         * @nullable
+         */
+      success_rate: number | null;
+    }
+
+    export interface ScorerSummary {
+      /** Minimum observed score. */
+      min: number;
+      /** 25th-percentile score. */
+      p25: number;
+      /** Median score. */
+      median: number;
+      /** Mean score. */
+      mean: number;
+      /** 75th-percentile score. */
+      p75: number;
+      /** Maximum observed score. */
+      max: number;
+      /** Number of scored observations summarized. */
+      count: number;
+    }
+
+    export interface ScorerHistogram {
+      /** Bucket labels (one per histogram bar) spanning the scanner's configured scale. */
+      labels: string[];
+      /** Observation count per bucket; same length as `labels`. */
+      counts: number[];
+    }
+
+    export interface ScorerStats {
+      /** Score quantile summary; null when no observations have been scored. */
+      summary: ScorerSummary | null;
+      /** Score histogram; null when no observations have been scored. */
+      histogram: ScorerHistogram | null;
+    }
+
+    export interface ObservationStats {
+      /** Counts of observations by terminal status. */
+      status_counts: ObservationStatusCounts;
+      /** Session-level scanner coverage. */
+      coverage: CoverageStats;
+      /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
+      available_tags: string[];
+      /** Monitor-type aggregates; null when the scanner is not a monitor. */
+      monitor: MonitorStats | null;
+      /** Classifier-type aggregates; null when the scanner is not a classifier. */
+      classifier: ClassifierStats | null;
+      /** Scorer-type aggregates; null when the scanner is not a scorer. */
+      scorer: ScorerStats | null;
     }
 
     /**
@@ -43817,7 +43915,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -43878,7 +43976,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -43886,42 +43984,45 @@ export namespace Schemas {
      */
     session_id?: string;
     /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
+     * Filter by observation status. Accepts a comma-separated list.
      */
-    status?: EnvironmentsVisionScannersObservationsListStatus;
+    status?: string;
     /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
-    triggered_by?: EnvironmentsVisionScannersObservationsListTriggeredBy;
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
-    export type EnvironmentsVisionScannersObservationsListStatus = typeof EnvironmentsVisionScannersObservationsListStatus[keyof typeof EnvironmentsVisionScannersObservationsListStatus];
-
-
-    export const EnvironmentsVisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type EnvironmentsVisionScannersObservationsListTriggeredBy = typeof EnvironmentsVisionScannersObservationsListTriggeredBy[keyof typeof EnvironmentsVisionScannersObservationsListTriggeredBy];
-
-
-    export const EnvironmentsVisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
+    export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
 
     export type EnvironmentsWarehouseSavedQueriesListParams = {
     /**
@@ -49925,7 +50026,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -49986,7 +50087,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -49994,42 +50095,45 @@ export namespace Schemas {
      */
     session_id?: string;
     /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
+     * Filter by observation status. Accepts a comma-separated list.
      */
-    status?: VisionScannersObservationsListStatus;
+    status?: string;
     /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
-    triggered_by?: VisionScannersObservationsListTriggeredBy;
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
-    export type VisionScannersObservationsListStatus = typeof VisionScannersObservationsListStatus[keyof typeof VisionScannersObservationsListStatus];
-
-
-    export const VisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type VisionScannersObservationsListTriggeredBy = typeof VisionScannersObservationsListTriggeredBy[keyof typeof VisionScannersObservationsListTriggeredBy];
-
-
-    export const VisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
+    export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
 
     export type VisualReviewReposListParams = {
     /**
