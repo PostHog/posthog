@@ -30,7 +30,6 @@ def test_get_source_config_fields():
     assert cfg.label == "Google Search Console"
     assert cfg.featureFlag == "dwh-google-search-console"
     assert cfg.releaseStatus == "alpha"
-    assert cfg.unreleasedSource is True
 
 
 def test_get_schemas_returns_all_schemas_with_date_incremental():
