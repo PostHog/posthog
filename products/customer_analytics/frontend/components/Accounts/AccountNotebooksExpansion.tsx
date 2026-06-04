@@ -1,7 +1,17 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonSkeleton,
+    LemonTable,
+    LemonTableColumns,
+    LemonTabs,
+    Link,
+    ProfilePicture,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -12,6 +22,9 @@ import type { AccountNotebookApi } from 'products/customer_analytics/frontend/ge
 
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
+import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
+import { AccountsEvents } from './constants'
+import { EditAccountLinksButton } from './EditAccountLinksButton'
 
 const PREVIEW_MAX_CHARS = 200
 
@@ -36,7 +49,10 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     const { links, accountLoading } = useValues(accountLinksLogic({ accountId }))
     return (
         <div className="flex flex-col gap-1">
-            <h4 className="secondary uppercase text-secondary mb-1">Useful links</h4>
+            <div className="flex items-center gap-1 mb-1">
+                <h4 className="secondary uppercase text-secondary mb-0">Useful links</h4>
+                <EditAccountLinksButton accountId={accountId} />
+            </div>
             {accountLoading ? (
                 <>
                     <LemonSkeleton className="h-7 w-32" />
@@ -54,6 +70,12 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                         to={link.to ?? undefined}
                         targetBlank={link.targetBlank}
                         disabledReason={link.disabledReason ?? undefined}
+                        onClick={() =>
+                            posthog.capture(AccountsEvents.LinkClicked, {
+                                link_key: link.key,
+                                has_destination: !!link.to,
+                            })
+                        }
                     >
                         {link.label}
                     </LemonButton>
@@ -63,9 +85,16 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
-export function AccountNotebooksExpansion({ accountId }: { accountId: string }): JSX.Element {
+export function AccountNotebooksExpansion({
+    accountId,
+    externalId,
+}: {
+    accountId: string
+    externalId: string
+}): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksLoading } = useValues(logic)
+    const [activeTab, setActiveTab] = useState<'notes' | 'users'>('notes')
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -75,7 +104,15 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
                 const preview = getPreview(notebook)
                 return (
                     <div className="flex flex-col gap-1 py-1 max-w-2xl">
-                        <Link to={urls.notebook(notebook.short_id)} className="font-medium">
+                        <Link
+                            to={urls.notebook(notebook.short_id)}
+                            className="font-medium"
+                            onClick={() =>
+                                posthog.capture(AccountsEvents.NoteClicked, {
+                                    notebook_short_id: notebook.short_id,
+                                })
+                            }
+                        >
                             {notebook.title || 'Untitled note'}
                         </Link>
                         {preview ? (
@@ -123,18 +160,39 @@ export function AccountNotebooksExpansion({ accountId }: { accountId: string }):
                     <UsefulLinks accountId={accountId} />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <LemonTable<AccountNotebookApi>
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(tab) => {
+                            setActiveTab(tab)
+                            posthog.capture(AccountsEvents.TabViewed, { tab })
+                        }}
                         size="small"
-                        embedded
-                        dataSource={notebooks ?? []}
-                        rowKey="short_id"
-                        loading={notebooksLoading}
-                        columns={columns}
-                        emptyState={
-                            notebooks === null
-                                ? 'Failed to load account notes.'
-                                : 'No notes linked to this account yet.'
-                        }
+                        tabs={[
+                            {
+                                key: 'notes',
+                                label: 'Notes',
+                                content: (
+                                    <LemonTable<AccountNotebookApi>
+                                        size="small"
+                                        embedded
+                                        dataSource={notebooks ?? []}
+                                        rowKey="short_id"
+                                        loading={notebooksLoading}
+                                        columns={columns}
+                                        emptyState={
+                                            notebooks === null
+                                                ? 'Failed to load account notes.'
+                                                : 'No notes linked to this account yet.'
+                                        }
+                                    />
+                                ),
+                            },
+                            {
+                                key: 'users',
+                                label: 'Users',
+                                content: <AccountRelatedUsersExpansion externalId={externalId} />,
+                            },
+                        ]}
                     />
                 </div>
             </div>
