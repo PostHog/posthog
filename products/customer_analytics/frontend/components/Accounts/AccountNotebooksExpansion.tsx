@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
@@ -68,6 +69,12 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                         to={link.to ?? undefined}
                         targetBlank={link.targetBlank}
                         disabledReason={link.disabledReason ?? undefined}
+                        onClick={() =>
+                            posthog.capture('customer analytics account link clicked', {
+                                link_key: link.key,
+                                has_destination: !!link.to,
+                            })
+                        }
                     >
                         {link.label}
                     </LemonButton>
@@ -96,7 +103,15 @@ export function AccountNotebooksExpansion({
                 const preview = getPreview(notebook)
                 return (
                     <div className="flex flex-col gap-1 py-1 max-w-2xl">
-                        <Link to={urls.notebook(notebook.short_id)} className="font-medium">
+                        <Link
+                            to={urls.notebook(notebook.short_id)}
+                            className="font-medium"
+                            onClick={() =>
+                                posthog.capture('customer analytics account note clicked', {
+                                    notebook_short_id: notebook.short_id,
+                                })
+                            }
+                        >
                             {notebook.title || 'Untitled note'}
                         </Link>
                         {preview ? (
