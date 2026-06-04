@@ -110,9 +110,16 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
 
             <div className="flex items-baseline justify-between gap-3">
                 {projected !== null ? (
-                    <div className="text-base font-semibold tabular-nums">
-                        {projected.toLocaleString()}{' '}
-                        <span className="text-sm font-normal text-muted">observations/month</span>
+                    <div className="text-base font-semibold tabular-nums flex items-baseline gap-2">
+                        <span>
+                            {projected.toLocaleString()}{' '}
+                            <span className="text-sm font-normal text-muted">observations/month</span>
+                        </span>
+                        {scannerEstimateLoading && (
+                            <Tooltip title="Recomputing with the latest filters and sampling rate.">
+                                <Spinner className="text-muted text-sm" />
+                            </Tooltip>
+                        )}
                     </div>
                 ) : (
                     <div className="text-sm text-muted">—</div>
