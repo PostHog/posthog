@@ -60,8 +60,10 @@ def _list_params(config: AsanaEndpointConfig) -> dict[str, Any]:
     wait=wait_exponential_jitter(initial=1, max=60),
     reraise=True,
 )
-def _fetch_page(url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict[str, Any]:
-    response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+def _fetch_page(
+    url: str, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
+) -> dict[str, Any]:
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # Asana rate-limits at 150 req/min (free) / 1500 (paid) and returns 429 with a Retry-After
     # header; exponential backoff is sufficient and avoids parsing the header here.
@@ -75,31 +77,37 @@ def _fetch_page(url: str, headers: dict[str, str], logger: FilteringBoundLogger)
     return response.json()
 
 
-def _iter_items(start_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
+def _iter_items(
+    start_url: str, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
+) -> Iterator[dict[str, Any]]:
     """Fully paginate a single list request, yielding individual records (used for discovery)."""
     url: Optional[str] = start_url
     while url is not None:
-        data = _fetch_page(url, headers, logger)
+        data = _fetch_page(url, headers, logger, session)
         yield from data.get("data") or []
         next_page = data.get("next_page")
         url = next_page.get("uri") if isinstance(next_page, dict) else None
 
 
-def _list_workspaces(headers: dict[str, str], logger: FilteringBoundLogger) -> list[dict[str, Any]]:
+def _list_workspaces(
+    headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
+) -> list[dict[str, Any]]:
     url = _with_query("/workspaces", {"limit": PAGE_SIZE, "opt_fields": "is_organization"})
-    return list(_iter_items(url, headers, logger))
+    return list(_iter_items(url, headers, logger, session))
 
 
-def _list_projects(headers: dict[str, str], logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
-    for workspace in _list_workspaces(headers, logger):
-        gid = workspace.get("gid")
-        if not gid:
-            continue
-        yield from _iter_items(_with_query(f"/projects?workspace={gid}", {"limit": PAGE_SIZE}), headers, logger)
+def _list_projects(
+    headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
+) -> Iterator[dict[str, Any]]:
+    for workspace in _list_workspaces(headers, logger, session):
+        gid = workspace["gid"]
+        yield from _iter_items(
+            _with_query(f"/projects?workspace={gid}", {"limit": PAGE_SIZE}), headers, logger, session
+        )
 
 
 def _build_initial_urls(
-    config: AsanaEndpointConfig, headers: dict[str, str], logger: FilteringBoundLogger
+    config: AsanaEndpointConfig, headers: dict[str, str], logger: FilteringBoundLogger, session: requests.Session
 ) -> list[str]:
     """Resolve the set of request URLs for an endpoint, fanning out over parents as needed."""
     params = _list_params(config)
@@ -109,24 +117,18 @@ def _build_initial_urls(
 
     if config.fan_out in ("workspace", "organization"):
         urls = []
-        for workspace in _list_workspaces(headers, logger):
-            gid = workspace.get("gid")
-            if not gid:
-                continue
+        for workspace in _list_workspaces(headers, logger, session):
             if config.fan_out == "organization" and not workspace.get("is_organization"):
                 # `/organizations/{gid}/teams` is only valid for organization workspaces.
                 continue
-            urls.append(_with_query(config.path_template.format(gid=gid), params))
+            urls.append(_with_query(config.path_template.format(gid=workspace["gid"]), params))
         return urls
 
     if config.fan_out == "project":
-        urls = []
-        for project in _list_projects(headers, logger):
-            gid = project.get("gid")
-            if not gid:
-                continue
-            urls.append(_with_query(config.path_template.format(gid=gid), params))
-        return urls
+        return [
+            _with_query(config.path_template.format(gid=project["gid"]), params)
+            for project in _list_projects(headers, logger, session)
+        ]
 
     raise ValueError(f"Unknown fan_out mode: {config.fan_out}")
 
@@ -152,6 +154,8 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = ASANA_ENDPOINTS[endpoint]
     headers = _get_headers(access_token)
+    # One session for the whole run so pagination and fan-out reuse pooled connections.
+    session = make_tracked_session()
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -159,11 +163,11 @@ def get_rows(
         current = resume_config.current_url
         logger.debug(f"Asana: resuming {endpoint} from URL: {current}")
     else:
-        remaining = _build_initial_urls(config, headers, logger)
+        remaining = _build_initial_urls(config, headers, logger, session)
         current = remaining.pop(0) if remaining else None
 
     while current is not None:
-        data = _fetch_page(current, headers, logger)
+        data = _fetch_page(current, headers, logger, session)
         items = data.get("data") or []
 
         next_page = data.get("next_page")

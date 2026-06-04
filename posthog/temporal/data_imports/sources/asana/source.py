@@ -69,8 +69,8 @@ Grant these read scopes so every table can sync:
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url": "Your Asana token is invalid or expired. Please generate a new personal access token and reconnect.",
-            "403 Client Error: Forbidden for url": "Your Asana token is missing the required read scopes. Please grant the scopes listed in the connection form and reconnect.",
+            "401 Client Error: Unauthorized for url: https://app.asana.com": "Your Asana token is invalid or expired. Please generate a new personal access token and reconnect.",
+            "403 Client Error: Forbidden for url: https://app.asana.com": "Your Asana token is missing the required read scopes. Please grant the scopes listed in the connection form and reconnect.",
         }
 
     def get_schemas(

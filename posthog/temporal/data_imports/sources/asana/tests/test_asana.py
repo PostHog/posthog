@@ -74,7 +74,7 @@ class TestValidateCredentials:
 
 class TestBuildInitialUrls:
     def test_top_level_endpoint_yields_single_url(self):
-        urls = _build_initial_urls(ASANA_ENDPOINTS["workspaces"], {}, mock.MagicMock())
+        urls = _build_initial_urls(ASANA_ENDPOINTS["workspaces"], {}, mock.MagicMock(), mock.MagicMock())
         assert urls == [
             f"{ASANA_BASE_URL}/workspaces?limit=100&opt_fields=name%2Cemail_domains%2Cis_organization%2Cresource_type"
         ]
@@ -82,7 +82,7 @@ class TestBuildInitialUrls:
     @mock.patch("posthog.temporal.data_imports.sources.asana.asana._list_workspaces")
     def test_workspace_fan_out_one_url_per_workspace(self, mock_list_workspaces):
         mock_list_workspaces.return_value = [{"gid": "1"}, {"gid": "2"}]
-        urls = _build_initial_urls(ASANA_ENDPOINTS["projects"], {}, mock.MagicMock())
+        urls = _build_initial_urls(ASANA_ENDPOINTS["projects"], {}, mock.MagicMock(), mock.MagicMock())
         assert len(urls) == 2
         assert all(url.startswith(f"{ASANA_BASE_URL}/projects?workspace=") for url in urls)
         assert "workspace=1" in urls[0]
@@ -94,21 +94,15 @@ class TestBuildInitialUrls:
             {"gid": "1", "is_organization": True},
             {"gid": "2", "is_organization": False},
         ]
-        urls = _build_initial_urls(ASANA_ENDPOINTS["teams"], {}, mock.MagicMock())
+        urls = _build_initial_urls(ASANA_ENDPOINTS["teams"], {}, mock.MagicMock(), mock.MagicMock())
         assert len(urls) == 1
         assert urls[0].startswith(f"{ASANA_BASE_URL}/organizations/1/teams")
 
     @mock.patch("posthog.temporal.data_imports.sources.asana.asana._list_projects")
     def test_project_fan_out_one_url_per_project(self, mock_list_projects):
         mock_list_projects.return_value = iter([{"gid": "p1"}, {"gid": "p2"}])
-        urls = _build_initial_urls(ASANA_ENDPOINTS["tasks"], {}, mock.MagicMock())
+        urls = _build_initial_urls(ASANA_ENDPOINTS["tasks"], {}, mock.MagicMock(), mock.MagicMock())
         assert [u.split("project=")[1].split("&")[0] for u in urls] == ["p1", "p2"]
-
-    @mock.patch("posthog.temporal.data_imports.sources.asana.asana._list_workspaces")
-    def test_workspace_without_gid_is_skipped(self, mock_list_workspaces):
-        mock_list_workspaces.return_value = [{"gid": "1"}, {"name": "no gid"}]
-        urls = _build_initial_urls(ASANA_ENDPOINTS["tags"], {}, mock.MagicMock())
-        assert len(urls) == 1
 
 
 class TestGetRows:
