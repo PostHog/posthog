@@ -14,6 +14,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
+    SignalSourceConfig,
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -235,9 +236,16 @@ def _make_ready_report(
     priority: str | None = None,
     actionability: str | None = ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
     suggested_logins: list[str] | None = None,
+    source_products: list[str] | None = None,
 ) -> SignalReport:
     report = SignalReport.objects.create(
-        team=team, status=SignalReport.Status.READY, title=title, summary=summary, signal_count=3, total_weight=1.0
+        team=team,
+        status=SignalReport.Status.READY,
+        title=title,
+        summary=summary,
+        signal_count=3,
+        total_weight=1.0,
+        source_products=source_products or [],
     )
     if actionability:
         SignalReportArtefact.objects.create(
@@ -335,6 +343,73 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team):
     assert blocks[0]["text"]["text"] == "📬 Test report"
     assert blocks[1]["text"]["text"].startswith("*‼️ P1 • Matched to <@U_REVIEWER> per code*")
     assert blocks[3]["elements"][0]["url"] == f"posthog-code://inbox/{report.id}"
+
+
+def _setup_reviewer_with_slack(org: Organization, team: Team, email: str, login: str) -> User:
+    user = _make_reviewer_user(org, email, login)
+    integration = _make_slack_integration(team, user)
+    SignalUserAutonomyConfig.objects.create(
+        user=user, slack_notification_integration=integration, slack_notification_channel="C123|#inbox"
+    )
+    return user
+
+
+SCOUT = SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("can_see", "expected_sent"), [(True, 1), (False, 0)])
+def test_dispatch_scout_only_report_follows_inbox_flag(org_and_team, can_see, expected_sent):
+    org, team = org_and_team
+    _setup_reviewer_with_slack(org, team, "scout-reviewer@example.com", "scout-bot")
+    report = _make_ready_report(
+        team, priority=AutonomyPriority.P1, suggested_logins=["scout-bot"], source_products=[SCOUT]
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value="U_REVIEWER",
+        ),
+        patch(
+            "products.signals.backend.slack_inbox_notifications.user_can_see_signals_scout_reports",
+            return_value=can_see,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id, source_products=[SCOUT])
+
+    assert sent == expected_sent
+    assert fake_client.chat_postMessage.call_count == expected_sent
+
+
+@pytest.mark.django_db
+def test_dispatch_cross_source_report_sends_even_when_scout_flag_off(org_and_team):
+    # A scout + non-scout report keeps its already-rolled-out source, so it still notifies.
+    org, team = org_and_team
+    _setup_reviewer_with_slack(org, team, "cross-reviewer@example.com", "cross-bot")
+    report = _make_ready_report(
+        team, priority=AutonomyPriority.P1, suggested_logins=["cross-bot"], source_products=["error_tracking", SCOUT]
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
+            return_value="U_REVIEWER",
+        ),
+        patch(
+            "products.signals.backend.slack_inbox_notifications.user_can_see_signals_scout_reports",
+            return_value=False,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id, source_products=["error_tracking", SCOUT])
+
+    assert sent == 1
 
 
 @pytest.mark.django_db
