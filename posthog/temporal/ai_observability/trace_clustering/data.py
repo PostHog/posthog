@@ -347,7 +347,7 @@ def fetch_item_metrics(
     if not is_generation:
         placeholders["trace_id_prop"] = ast.Field(chain=["properties", "$ai_trace_id"])
 
-    with tags_context(product=Product.LLM_ANALYTICS):
+    with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY):
         result = execute_hogql_query(
             query_type="ClusterItemMetrics",
             query=query,
