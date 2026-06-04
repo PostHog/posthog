@@ -15,6 +15,7 @@ class SloOperation(StrEnum):
     AI_SUBSCRIPTION_PROMPT_GENERATION = "ai_subscription_prompt_generation"
     ALERT_CHECK = "alert_check"
     QUERY_SERVICE = "query_service"
+    DASHBOARD_WIDGET_DELIVERY = "dashboard_widget_delivery"
 
 
 class SloOutcome(StrEnum):
