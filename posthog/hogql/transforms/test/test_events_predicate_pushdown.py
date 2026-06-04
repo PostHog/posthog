@@ -1186,6 +1186,50 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         assert sorted(on or []) == sorted(off or []), f"{_name}: pushdown changed results: on={on} off={off}"
         assert len(on or []) == expected_count, f"{_name}: expected {expected_count} rows, got {on}"
 
+    # `events.person.properties.email` is a DIRECT events column (read from `person_properties`) under the
+    # "properties on events" POE modes — so it's pushable — but a lazy persons join under "properties joined"
+    # / disabled, where it declines. The pushdown runs before the person-property PropertySwapper, so the
+    # pushed PropertyType is rewritten inside the subquery; the collector pre-exposes `person_properties`.
+    # Either way results must stay equivalent on vs off.
+    _POE_PERSON_PROPERTY_SHAPES = [
+        ("properties_on_events_no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+        ("properties_on_events_override", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+        ("properties_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, False),
+        ("poe_disabled", PersonsOnEventsMode.DISABLED, False),
+    ]
+
+    @parameterized.expand(_POE_PERSON_PROPERTY_SHAPES)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_exec_poe_person_property_filter(self, _name, poe_mode, expect_push):
+        _create_person(team=self.team, distinct_ids=["pp_in"], properties={"email": "a@x.com"}, is_identified=True)
+        _create_person(team=self.team, distinct_ids=["pp_out"], properties={"email": "b@x.com"}, is_identified=True)
+        self._create_session("2024-01-02T00:00:00", "pp_in", "pro", "2024-01-02T10:00:00", "2024-01-02T10:05:00")
+        self._create_session("2024-01-03T00:00:00", "pp_out", "pro", "2024-01-03T09:00:00")
+        flush_persons_and_events()
+        select = (
+            "SELECT event, session.$session_duration FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND person.properties.email = 'a@x.com' LIMIT 50"
+        )
+
+        def mods(push: bool) -> HogQLQueryModifiers:
+            return HogQLQueryModifiers(pushDownPredicates=push, personsOnEventsMode=poe_mode)
+
+        printed, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=mods(True)),
+            "clickhouse",
+        )
+        pushed = ") AS events LEFT JOIN" in printed
+        assert pushed is expect_push, f"{_name}: expected pushed={expect_push}:\n{printed}"
+        if pushed:
+            subquery = printed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
+            assert "person_properties" in subquery, f"{_name}: subquery should read person_properties:\n{subquery}"
+            assert "LIMIT" in subquery, f"{_name}: pushed subquery should carry an inner LIMIT:\n{subquery}"
+        on = execute_hogql_query(select, team=self.team, modifiers=mods(True)).results
+        off = execute_hogql_query(select, team=self.team, modifiers=mods(False)).results
+        assert sorted(on or []) == sorted(off or []), f"{_name}: pushdown changed results: on={on} off={off}"
+        assert len(on or []) == 2, f"{_name}: expected 2 rows (pp_in's events), got {on}"
+
     def test_exec_array_join_predicate_not_pushed_stays_equivalent(self):
         # arrayJoin in a predicate is residual (it can't be pushed into the events subquery), so the whole
         # pushdown declines: with a residual predicate left on the outer query an inner LIMIT would be unsafe,
