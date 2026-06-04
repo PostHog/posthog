@@ -341,7 +341,7 @@ describe('EmailService', () => {
             expect(result.error).toBeUndefined()
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            // ph_id is signed when ENCRYPTION_SALT_KEYS is configured; match structure only.
+            // The SES tag carries the short unsigned code (no dot); the signed code rides in the header.
             expect(sentCommand.input).toMatchObject({
                 ConfigurationSetName: 'posthog-messaging',
                 Content: {
@@ -354,7 +354,7 @@ describe('EmailService', () => {
                     },
                 },
                 Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9._-]+$/) }],
+                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
