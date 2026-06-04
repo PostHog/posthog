@@ -94,6 +94,16 @@ class Subscription(ModelActivityMixin, models.Model):
         SubscriptionFrequency.YEARLY: YEARLY,
     }
 
+    # Look-back window (in days) an AI report should analyse for each cadence. Unknown
+    # frequencies fall back to the weekly window.
+    _AI_REPORT_WINDOW_DAYS: dict[str, int] = {
+        SubscriptionFrequency.DAILY: 1,
+        SubscriptionFrequency.WEEKLY: 7,
+        SubscriptionFrequency.MONTHLY: 30,
+        SubscriptionFrequency.YEARLY: 365,
+    }
+    DEFAULT_AI_REPORT_WINDOW_DAYS = 7
+
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
@@ -249,6 +259,11 @@ class Subscription(ModelActivityMixin, models.Model):
             return f"Your plan is limited to {SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER} subscriptions."
 
         return None
+
+    @property
+    def ai_report_window_days(self) -> int:
+        """Days of history an AI report for this subscription should analyse, derived from its cadence."""
+        return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
 
     @property
     def url(self) -> str | None:
