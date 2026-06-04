@@ -181,12 +181,32 @@ class TestEmail(BaseTest):
             )
             message.add_recipient("test@posthog.com")
 
-            # The error should be caught and logged, not raised
-            message.send(send_async=False)
+            # The error should be caught and logged, not raised — but send() must
+            # report the failure so callers don't record a delivery that never happened.
+            delivered = message.send(send_async=False)
+            self.assertFalse(delivered)
 
             # Verify the message wasn't marked as sent
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
             self.assertIsNone(record)
+
+    @patch("posthog.email.requests.post")
+    def test_send_via_http_reports_success(self, mock_post) -> None:
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+        mock_post.return_value = mock_response
+
+        with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            message = EmailMessage(
+                campaign_key="test_campaign_ok", subject="Test subject", template_name="2fa_enabled", use_http=True
+            )
+            message.add_recipient("test@posthog.com")
+
+            self.assertTrue(message.send(send_async=False))
+            record = MessagingRecord.objects.filter(campaign_key="test_campaign_ok").first()
+            self.assertIsNotNone(record)
+            self.assertIsNotNone(record.sent_at)  # type: ignore[union-attr]
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection

@@ -459,12 +459,22 @@ def send_email_verification(user_id: int, token: str, next_url: str | None = Non
         },
     )
     message.add_user_recipient(user, email_override=user.pending_email)
-    message.send(send_async=False)
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="verification email sent",
-        groups={"organization": str(user.current_organization.id)},  # type: ignore
-    )
+    delivered = message.send(send_async=False)
+    if delivered:
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="verification email sent",
+            groups={"organization": str(user.current_organization.id)},  # type: ignore
+        )
+    else:
+        # Delivery failed silently in the send path — surface it so "never received"
+        # reports are diagnosable instead of looking identical to a successful send.
+        logger.error("verification_email_send_failed", user_id=user_id)
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="verification email send failed",
+            groups={"organization": str(user.current_organization.id)},  # type: ignore
+        )
 
 
 @shared_task(**EMAIL_TASK_KWARGS)

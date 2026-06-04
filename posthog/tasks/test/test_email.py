@@ -391,6 +391,23 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    @patch("posthoganalytics.capture")
+    def test_send_email_verification_captures_failure_when_delivery_fails(
+        self, mock_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        # A swallowed delivery failure surfaces a distinct event instead of the
+        # success one, so "never received" reports are diagnosable.
+        MockEmailMessage.return_value.send.return_value = False
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "delivery-fails@posthog.com")
+        token = email_verification_token_generator.make_token(user)
+        send_email_verification(user.id, token)
+
+        mock_capture.assert_called_once_with(
+            event="verification email send failed",
+            distinct_id=user.distinct_id,
+            groups={"organization": str(user.current_organization_id)},
+        )
+
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")

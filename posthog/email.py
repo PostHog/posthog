@@ -140,8 +140,8 @@ def _send_via_http(
     campaign_key: str,
     template_name: str,
     properties: dict,
-) -> None:
-    """Sends emails using Customer.io API"""
+) -> bool:
+    """Sends emails using Customer.io API. Returns whether delivery succeeded."""
     customerio_api_key = settings.CUSTOMER_IO_API_KEY
 
     if not customerio_api_key:
@@ -198,6 +198,9 @@ def _send_via_http(
     except Exception as err:
         print("Could not send email via http:", err, file=sys.stderr)
         capture_exception(err)
+        return False
+
+    return True
 
 
 def _send_via_smtp(
@@ -208,10 +211,11 @@ def _send_via_smtp(
     html_body: str,
     headers: dict,
     reply_to: Optional[str] = None,
-) -> None:
-    """Sends emails using SMTP"""
+) -> bool:
+    """Sends emails using SMTP. Returns whether delivery succeeded."""
     messages: list = []
     records: list = []
+    delivered = True
 
     with transaction.atomic():
         for dest in to:
@@ -258,6 +262,7 @@ def _send_via_smtp(
         except Exception as err:
             print("Could not send email:", err, file=sys.stderr)
             capture_exception(err)
+            delivered = False
         finally:
             try:
                 connection.close()  # type: ignore
@@ -267,6 +272,8 @@ def _send_via_smtp(
                     err,
                     file=sys.stderr,
                 )
+
+    return delivered
 
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never
@@ -375,19 +382,20 @@ def _send_email(
     reply_to: Optional[str] = None,
     use_http: Optional[bool] = False,
     properties: Optional[dict] = None,
-) -> None:
+) -> bool:
     """
-    Sends built email message asynchronously, either through SMTP or HTTP
+    Sends built email message asynchronously, either through SMTP or HTTP.
+    Returns whether the message was actually delivered to the provider.
     """
     if use_http and is_http_email_service_available():
-        _send_via_http(
+        return _send_via_http(
             to=to,
             campaign_key=campaign_key,
             template_name=template_name,
             properties=properties or {},
         )
     elif is_smtp_email_service_available():
-        _send_via_smtp(
+        return _send_via_smtp(
             to=to,
             campaign_key=campaign_key,
             subject=subject,
@@ -451,7 +459,13 @@ class EmailMessage:
         email = email_override or user.email
         self.add_recipient(email=email, name=user.first_name, distinct_id=str(user.distinct_id))
 
-    def send(self, send_async: bool = True) -> None:
+    def send(self, send_async: bool = True) -> bool:
+        """
+        Queue or send the email. For synchronous sends (``send_async=False``) the
+        return value reflects whether the message was actually delivered to the
+        provider. For async sends it only reflects that the task was enqueued —
+        the real delivery happens later in a worker — so it is always ``True``.
+        """
         if not self.to:
             raise ValueError("No recipients provided! Use EmailMessage.add_recipient() first!")
 
@@ -470,5 +484,6 @@ class EmailMessage:
 
         if send_async:
             _send_email.apply_async(kwargs=kwargs)
-        else:
-            _send_email.apply(kwargs=kwargs)
+            return True
+
+        return bool(_send_email.apply(kwargs=kwargs).get())
