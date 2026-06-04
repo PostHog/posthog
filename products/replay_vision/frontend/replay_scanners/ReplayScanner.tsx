@@ -28,6 +28,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
@@ -247,8 +248,6 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
     )
 }
 
-const QUOTA_WARN_THRESHOLD = 0.8
-
 // Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
 function QuotaBanner(): JSX.Element | null {
     const { quota } = useValues(visionQuotaLogic)
@@ -268,7 +267,7 @@ function QuotaBanner(): JSX.Element | null {
         return (
             <LemonBanner type="warning">
                 {quota.usage_this_month.toLocaleString()} of {quota.monthly_quota.toLocaleString()} monthly observations
-                used. New observations will pause once you hit the cap; the quota resets on {resetsOn}.
+                used. New observations will pause once you hit the cap. Resets {resetsOn}.
             </LemonBanner>
         )
     }

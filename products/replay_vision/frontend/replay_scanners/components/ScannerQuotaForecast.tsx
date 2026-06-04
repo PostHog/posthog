@@ -2,20 +2,14 @@ import { useValues } from 'kea'
 
 import { Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
+import { type QuotaStatus, projectQuota } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 
 interface Props {
     scannerId: string
     tabId: string
 }
-
-const WARN_THRESHOLD = 0.8
-const MIN_DAYS_FOR_PROJECTED_DATE = 3
-
-type QuotaStatus = 'safe' | 'warning' | 'danger'
 
 const STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
     safe: { bar: 'bg-primary', text: 'text-muted' },
@@ -37,43 +31,27 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
 
-    const now = dayjs()
-    const periodStart = quota?.period_start ? dayjs(quota.period_start) : null
-    const periodEnd = quota?.period_end ? dayjs(quota.period_end) : null
-    const periodLengthDays = periodStart && periodEnd ? Math.max(periodEnd.diff(periodStart, 'day', true), 1) : 30
-    const daysElapsed = periodStart ? Math.max(now.diff(periodStart, 'day', true), 0) : 0
-    const daysRemaining = periodEnd ? Math.max(periodEnd.diff(now, 'day', true), 0) : 0
-    const resetsOn = periodEnd ? periodEnd.format('MMM D') : null
+    const projection = projectQuota(quota, { scannerProjectedMonthly: projected })
+    const {
+        status,
+        capReachDate,
+        projectionConfident,
+        projectedPeriodEndRatio,
+        resetsOn,
+        daysRemaining,
+        scannerDailyRate,
+    } = projection
 
-    // Daily burn = current period's running average. Scanner adds its projection spread across the period.
-    const historicalDailyBurn = daysElapsed > 0 ? used / daysElapsed : 0
-    const scannerDailyRate = projected !== null ? projected / periodLengthDays : 0
-    const combinedDailyRate = historicalDailyBurn + scannerDailyRate
-    const projectionConfident = daysElapsed >= MIN_DAYS_FOR_PROJECTED_DATE
+    // Without a candidate scanner we have nothing project; keep visuals neutral until the estimate lands.
+    const effectiveStatus: QuotaStatus = projected === null ? 'safe' : status
+    const styles = STATUS_STYLES[effectiveStatus]
+    const percentLabel = hasCap ? Math.round(projectedPeriodEndRatio * 100) : 0
 
-    // "If saved now, what % of cap will the org sit at by period end?"
-    const projectedPeriodEndUsage = hasCap && projected !== null ? used + combinedDailyRate * daysRemaining : 0
-    const projectedPeriodEndRatio = hasCap ? projectedPeriodEndUsage / cap : 0
-
-    const capReachDate =
-        hasCap && combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
-    const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
-
-    const status: QuotaStatus =
-        !hasCap || projected === null
-            ? 'safe'
-            : capReachInPeriod
-              ? 'danger'
-              : projectedPeriodEndRatio >= WARN_THRESHOLD
-                ? 'warning'
-                : 'safe'
-    const styles = STATUS_STYLES[status]
-    const percentLabel = hasCap ? Math.min(Math.round(projectedPeriodEndRatio * 100), 999) : 0
-
-    // Bar segments reflect the same "by period end" story: current usage + scanner's remaining-period contribution.
+    // Bar segments reflect the "by period end" story: current usage + scanner's remaining-period contribution.
     const usedPct = hasCap ? Math.min((used / cap) * 100, 100) : 0
     const additionalUsagePct =
         hasCap && projected !== null ? Math.min((scannerDailyRate * daysRemaining * 100) / cap, 100 - usedPct) : 0
+    const projectedPeriodEndUsage = used + (projected !== null ? scannerDailyRate * daysRemaining : 0)
     const overflowPct = hasCap && projectedPeriodEndUsage > cap ? ((projectedPeriodEndUsage - cap) / cap) * 100 : 0
 
     const renderBreakdown = (): JSX.Element => (
@@ -92,7 +70,7 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
     )
 
     const renderStatusLine = (): JSX.Element | string => {
-        if (status === 'danger') {
+        if (effectiveStatus === 'danger') {
             if (capReachDate && projectionConfident) {
                 return (
                     <span className="text-danger">
@@ -102,7 +80,7 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
             }
             return <span className="text-danger">Projected to exceed your monthly cap.</span>
         }
-        if (status === 'warning') {
+        if (effectiveStatus === 'warning') {
             return <span className="text-warning">Approaching cap by {resetsOn ?? 'period end'} at this rate.</span>
         }
         if (hasCap) {
