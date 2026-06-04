@@ -38,9 +38,9 @@ class RedisClusterConnectionFactory(ConnectionFactory):
     instances, so discovery runs once per process and the post-fork prewarm
     populates the same client the request threads read.
 
-    A RedisCluster holds open sockets, so it must not cross a fork; connect()
-    binds the cache to the pid that filled it and rediscovers in a forked worker
-    (see _reset_if_forked) so workers never share inherited file descriptors.
+    A RedisCluster holds open sockets, so the cache is pid-bound and rediscovered
+    after a fork (see _reset_if_forked) -- workers must never share inherited file
+    descriptors.
 
     This relies on the client being long-lived, so CLOSE_CONNECTION is
     unsupported on this alias and rejected in __init__: django_redis closes
@@ -85,6 +85,8 @@ class RedisClusterConnectionFactory(ConnectionFactory):
         if self._owner_pid is not None:
             logger.info("redis_cluster_rediscovering_after_fork", previous_pid=self._owner_pid, pid=pid)
         self._cluster_clients.clear()
+        # Assign on the class, never self: a `self._owner_pid = ...` write would
+        # create a per-instance attribute that shadows the process-global one.
         RedisClusterConnectionFactory._owner_pid = pid
 
     @tracer.start_as_current_span("redis_cluster.discovery")
