@@ -2082,37 +2082,6 @@ class TestPrinter(BaseTest):
             f"SELECT countIf(DISTINCT events.event, like(events.event, %(hogql_val_0)s)) AS count FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}",
         )
 
-    @parameterized.expand(
-        [
-            # (hogql aggregate over if(cond, <literal>, NULL), fragment ClickHouse rewrites to a non-countIf …If form)
-            ("count_distinct", "count(DISTINCT if(event = 'x', 1, NULL))", "count(DISTINCT if("),
-            ("max", "max(if(event = 'x', 1, NULL))", "max(if("),
-            ("avg", "avg(if(event = 'x', 1, NULL))", "avg(if("),
-            ("sum", "sum(if(event = 'x', 1, NULL))", "sum(if("),
-        ]
-    )
-    def test_conditional_aggregate_over_nullable_literal_is_rewrite_bait(self, _name, expr, fragment):
-        # Reproduces ClickHouse THERE_IS_NO_COLUMN (Code 8) on the distributed events table with the new analyzer.
-        # ClickHouse's optimize_rewrite_aggregate_function_with_if (default 1, analyzer-only) rewrites
-        # e.g. max(if(cond, 1, NULL)) -> maxIf(1, cond). The constant in the non-NULL branch is constant-folded
-        # to a different type on the initiator (_CAST(1_UInt8, 'Nullable(UInt8)')) than on the shards
-        # (_CAST(1_Nullable(UInt8), 'Nullable(UInt8)')), so distributed column matching fails at planning time.
-        # See ClickHouse issue #82941. Plain count(if(...)) -> countIf survives; the other …If rewrites do not.
-        #
-        # NOTE: this is a multi-shard-only bug. The test ClickHouse is single-shard with the analyzer off, so it
-        # cannot reproduce the runtime error here — verification stays in prod (multi-shard). This test instead
-        # pins the two preconditions the printer currently emits, and will flip to green once either fix lands:
-        #   (a) HogQLGlobalSettings sets optimize_rewrite_aggregate_function_with_if=0 (settings fix), or
-        #   (b) the printer casts the literal to Nullable(...) so both sides agree on its type (printer fix).
-        printed = self._print(f"SELECT {expr} AS c FROM events", settings=HogQLGlobalSettings())
-
-        # (1) The query still feeds ClickHouse the rewrite-bait shape (literal in the non-NULL branch, NULL else).
-        self.assertIn(fragment, printed)
-        self.assertNotIn("toNullable(", printed)  # printer fix would wrap the literal
-
-        # (2) The settings that would defuse the rewrite are not applied today.
-        self.assertNotIn("optimize_rewrite_aggregate_function_with_if", printed)
-
     def test_print_timezone(self):
         context = HogQLContext(
             team_id=self.team.pk,
@@ -2713,7 +2682,7 @@ class TestPrinter(BaseTest):
         printed = self._print("SELECT 1 FROM events", settings=HogQLGlobalSettings(max_execution_time=10))
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_query_level_settings(self):
@@ -2742,7 +2711,7 @@ class TestPrinter(BaseTest):
         )
         self.assertEqual(
             printed,
-            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SELECT 1 FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS optimize_aggregation_in_order=1, readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_table_top_level_settings_added_to_query(self):
@@ -2943,7 +2912,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT timestamp AS timestamp FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s), "
             f"toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_column_override(self):
@@ -2955,7 +2924,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT event AS event FROM (SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS event, "
             f"event FROM events WHERE equals(events.team_id, {self.team.pk})) "
-            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_properties(self):
@@ -2975,7 +2944,7 @@ class TestPrinter(BaseTest):
             printed,
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_print_hidden_aliases_double_property(self):
@@ -2996,7 +2965,7 @@ class TestPrinter(BaseTest):
             f"SELECT `$browser` AS `$browser` FROM (SELECT nullIf(nullIf(events.`mat_$browser`, ''), 'null'), "
             f"nullIf(nullIf(events.`mat_$browser`, ''), 'null') AS `$browser` "  # only the second one gets the alias
             f"FROM events WHERE equals(events.team_id, {self.team.pk})) LIMIT {MAX_SELECT_RETURNED_ROWS} "
-            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+            f"SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
         )
 
     def test_lookup_domain_type(self):
@@ -3012,7 +2981,7 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "max_ast_elements=4000000, "
-            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_paid_source_type(self):
@@ -3028,7 +2997,7 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "max_ast_elements=4000000, "
-            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_paid_medium_type(self):
@@ -3040,7 +3009,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_paid', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_organic_source_type(self):
@@ -3056,7 +3025,7 @@ class TestPrinter(BaseTest):
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000 SETTINGS "
             "readonly=2, max_execution_time=10, allow_experimental_object_type=1, "
             "max_ast_elements=4000000, "
-            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_lookup_organic_medium_type(self):
@@ -3068,7 +3037,7 @@ class TestPrinter(BaseTest):
             "SELECT dictGetOrNull('posthog_test.channel_definition_dict', 'type_if_organic', "
             "(coalesce(%(hogql_val_0)s, ''), 'medium')) AS medium "
             f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
         ) == printed
 
     def test_currency_conversion(self):
@@ -3079,7 +3048,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, toDateOrNull(%(hogql_val_2)s), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -3092,7 +3061,7 @@ class TestPrinter(BaseTest):
         self.assertEqual(
             (
                 f"SELECT if(equals(%(hogql_val_0)s, %(hogql_val_1)s), toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(100, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)) = 0, toDecimal64(1, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_0)s, today(), toDecimal64(0, 10)))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', %(hogql_val_1)s, today(), toDecimal64(0, 10))))) AS currency "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -3116,7 +3085,7 @@ class TestPrinter(BaseTest):
                 f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_1)s), '{strict_regex}'), ''), '_'))) AS semver2, "
                 f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_2)s), '{strict_regex}'), ''), '_'))) AS semver3, "
                 f"arrayMap(x -> toInt64OrNull(x), splitByChar('.', coalesce(nullIf(extract(assumeNotNull(%(hogql_val_3)s), '{strict_regex}'), ''), '_'))) AS semver4 "
-                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+                "LIMIT 50000 SETTINGS readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
             ),
             printed,
         )
@@ -3268,7 +3237,7 @@ class TestPrinter(BaseTest):
         )
         assert printed == (
             f"SELECT trim(LEADING %(hogql_val_1)s FROM %(hogql_val_0)s) AS a, trim(TRAILING %(hogql_val_3)s FROM %(hogql_val_2)s) AS b, trim(BOTH %(hogql_val_5)s FROM %(hogql_val_4)s) AS c LIMIT {MAX_SELECT_RETURNED_ROWS} SETTINGS "
-            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"
+            "readonly=2, max_execution_time=10, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0"
         )
         printed2 = self._print(
             "select trimLeft('media', 'xy') as a, trimRight('media', 'xy') as b, trim('media', 'xy') as c",

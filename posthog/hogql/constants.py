@@ -145,6 +145,14 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
     # https://github.com/ClickHouse/ClickHouse/issues/64487
     optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
+    # A bugfix workaround for a distributed-planner crash under the new analyzer. ClickHouse rewrites
+    # `max(if(cond, <const>, NULL))` into `maxIf(<const>, cond)` (and similar for sum/avg/min, count(DISTINCT ...)),
+    # but the constant in the non-NULL branch is constant-folded to a different type on the initiator
+    # (`_CAST(1_UInt8, 'Nullable(UInt8)')`) than on the shards (`_CAST(1_Nullable(UInt8), 'Nullable(UInt8)')`),
+    # so distributed column matching fails with `Cannot find column maxIf(...)` (THERE_IS_NO_COLUMN).
+    # Disabling the rewrite avoids it with no perf cost (the rewrite benchmarks ~3-4% slower anyway).
+    # https://github.com/ClickHouse/ClickHouse/issues/82941
+    optimize_rewrite_aggregate_function_with_if: Optional[bool] = False
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
