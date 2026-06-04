@@ -2812,6 +2812,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
+    GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
