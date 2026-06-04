@@ -168,11 +168,14 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError:
             return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
 
-        result = api.get_pr_lifecycle(
-            team=self.team,
-            pr_number=pr_number,
-            repo=request.query_params.get("repo") or None,
-        )
+        try:
+            result = api.get_pr_lifecycle(
+                team=self.team,
+                pr_number=pr_number,
+                repo=request.query_params.get("repo") or None,
+            )
+        except ValueError as err:
+            return Response({"detail": str(err)}, status=status.HTTP_400_BAD_REQUEST)
         if result is None:
             return Response({"detail": "Pull request not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(PRLifecycleSerializer(instance=result).data)

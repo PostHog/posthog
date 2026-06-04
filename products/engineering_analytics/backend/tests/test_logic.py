@@ -136,6 +136,13 @@ class TestPRLifecycleMapping(BaseTest):
         with mock.patch(_RUN_QUERY, return_value=_resp([])):
             assert build_pr_lifecycle(team=self.team, pr_number=999, repo=None) is None
 
+    @parameterized.expand(["PostHog", "PostHog/", "/posthog", "/"])
+    def test_malformed_repo_raises_before_querying(self, repo: str) -> None:
+        # A half-specified repo must fail loudly, not silently drop the filter and
+        # return a PR from the wrong repo. Raises in _split_repo before any query.
+        with self.assertRaises(ValueError):
+            build_pr_lifecycle(team=self.team, pr_number=10, repo=repo)
+
     def test_passes_through_view_derived_fields(self) -> None:
         # is_bot and state come from the curated query as columns; the logic layer does not re-derive them.
         header = _header("closed", merged_at=None, closed_at=_dt("2026-01-12T15:00:00"), is_bot=True, head_sha="")

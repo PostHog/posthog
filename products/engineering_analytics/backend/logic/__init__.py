@@ -61,4 +61,8 @@ def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not repo:
         return None, None
     owner, _, name = repo.partition("/")
-    return owner or None, name or None
+    # A half-specified repo (bare org, trailing/leading slash) would otherwise drop
+    # the filter silently and return a PR from the wrong repo — fail loudly instead.
+    if not (owner and name):
+        raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
+    return owner, name

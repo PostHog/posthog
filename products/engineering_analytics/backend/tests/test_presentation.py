@@ -128,6 +128,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_pr_lifecycle_400_on_malformed_repo(self) -> None:
+        # Bare org (no '/name') would otherwise silently match the wrong repo.
+        response = self.client.get(self._url("pr_lifecycle"), {"pr_number": "10", "repo": "PostHog"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_requires_authentication(self) -> None:
         self.client.logout()
         response = self.client.get(self._url("pr_lifecycle"))
