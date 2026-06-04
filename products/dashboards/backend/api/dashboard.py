@@ -677,6 +677,36 @@ class DashboardWidgetSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
+class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
+    """Tile header metadata for shared dashboards — no user fields or live query results."""
+
+    widget_type = serializers.CharField(
+        max_length=64,
+        help_text="Widget type identifier from the dashboard widget catalog.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional custom display name for this widget tile. Falls back to the widget catalog label when unset.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional markdown description shown on the dashboard tile when enabled.",
+    )
+    config = DashboardWidgetConfigField(
+        required=False,
+        help_text="Widget-specific configuration JSON for this widget type.",
+    )
+
+    class Meta:
+        model = DashboardWidget
+        fields = ["id", "widget_type", "name", "description", "config"]
+        read_only_fields = ["id", "widget_type", "name", "description", "config"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
@@ -704,8 +734,10 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        if self.context.get("is_shared") and representation.get("widget"):
-            representation["widget"] = None
+        if self.context.get("is_shared") and instance.widget_id is not None:
+            representation["widget"] = SharedDashboardWidgetMetadataSerializer(
+                instance.widget, context=self.context
+            ).data
 
         representation["order"] = self.context.get("order", None)
 
@@ -1118,7 +1150,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
-                "dashboard_id": use_dashboard,
+                "duplicated_from_dashboard_id": use_dashboard,
             },
             team=dashboard.team,
             request=request,
@@ -2844,7 +2876,6 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     **template_scope_props,
                     "duplicated": False,
-                    "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
                 },
                 team=dashboard.team,

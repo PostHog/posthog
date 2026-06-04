@@ -81,6 +81,12 @@ export const rateLimitErrorsTotal = new Counter({
     labelNames: ['scope'] as const,
 })
 
+export const rateLimitBlockedByTeam = new Counter({
+    name: 'mcp_rate_limit_blocked_by_team_total',
+    help: 'Rate limit blocks on /mcp requests, by scope and team.',
+    labelNames: ['scope', 'team_id'] as const,
+})
+
 export const contextMillRevalidationsTotal = new Counter({
     name: 'mcp_context_mill_revalidations_total',
     help: 'Context-mill resource revalidation attempts by caller and result.',
