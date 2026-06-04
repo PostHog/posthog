@@ -113,9 +113,30 @@ class SignalSourceConfigAdmin(admin.ModelAdmin):
     list_filter = ("source_product", "source_type", "enabled")
     search_fields = ("id", "team__name", "team__organization__name")
     raw_id_fields = ("team", "created_by")
-    readonly_fields = ("id", "created_at", "updated_at")
     list_select_related = ("team", "team__organization")
     show_full_result_count = False
+
+    # Inspection-only: enabling/disabling a source has setup/backfill/sync side effects that
+    # live in SignalSourceConfigViewSet. Editing here would skip them, so the admin is read-only.
+    readonly_fields = (
+        "id",
+        "team",
+        "source_product",
+        "source_type",
+        "enabled",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    def has_delete_permission(self, request, obj=None) -> bool:
+        return False
 
     @admin.display(description="Team")
     def team_link(self, config: SignalSourceConfig):
