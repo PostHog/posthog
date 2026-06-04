@@ -205,8 +205,8 @@ class TestEmail(BaseTest):
 
             self.assertTrue(message.send(send_async=False))
             record = MessagingRecord.objects.filter(campaign_key="test_campaign_ok").first()
-            self.assertIsNotNone(record)
-            self.assertIsNotNone(record.sent_at)  # type: ignore[union-attr]
+            assert record is not None
+            self.assertIsNotNone(record.sent_at)
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
