@@ -7642,7 +7642,15 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
-    pushDownPredicates: bool | None = None
+    pushDownPredicates: bool | None = Field(
+        default=None,
+        description=(
+            "Pre-filter `FROM events` through a subquery (pushing the events"
+            " WHERE/PREWHERE and an inner LIMIT) before lazy joins, so the LIMIT can"
+            " short-circuit the events scan. Applied only when it stays"
+            " result-equivalent."
+        ),
+    )
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,

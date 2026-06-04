@@ -438,6 +438,7 @@ export interface HogQLQueryModifiersApi {
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
+    /** Pre-filter `FROM events` through a subquery (pushing the events WHERE/PREWHERE and an inner LIMIT) before lazy joins, so the LIMIT can short-circuit the events scan. Applied only when it stays result-equivalent. */
     pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */

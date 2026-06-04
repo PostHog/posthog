@@ -449,6 +449,7 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Pre-filter `FROM events` through a subquery (pushing the events WHERE/PREWHERE and an inner LIMIT) before lazy joins, so the LIMIT can short-circuit the events scan. Applied only when it stays result-equivalent. */
     pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
