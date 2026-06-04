@@ -308,7 +308,7 @@ class TestAccessControlObjectCap(BaseAccessControlTest):
         res = self._put_dashboard_ac(new_dashboard, {"access_level": "viewer"})
 
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
-        assert "reached the limit of 3 dashboard objects" in json.dumps(res.json())
+        assert "Reached the limit of 3 dashboards with access control overrides" in json.dumps(res.json())
 
     def test_additional_rule_on_existing_object_allowed_at_cap(self):
         dashboards = self._fill_to_cap(3)
