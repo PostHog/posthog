@@ -25,6 +25,19 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 
 export type GetLocalOverride = (groupType: TaxonomicFilterGroupType) => TaxonomicDefinitionTypes[] | undefined
 
+/** Raw recents/pinned lists (with their `_recentContext`/`_pinnedContext`
+ *  wrappers intact) for the orchestrator to compose into the Suggested tab —
+ *  read directly rather than through the per-group-type `getLocalOverride`
+ *  switch. */
+export function useRecentPinnedItems(): {
+    recentFilterItems: TaxonomicDefinitionTypes[]
+    pinnedFilterItems: TaxonomicDefinitionTypes[]
+} {
+    const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)
+    const { pinnedFilterItems } = useValues(taxonomicFilterPinnedPropertiesLogic)
+    return { recentFilterItems, pinnedFilterItems }
+}
+
 export function useTaxonomicLocalOverrides(): GetLocalOverride {
     const { actionsSorted } = useValues(actionsModel)
     const { recentFilterItems } = useValues(recentTaxonomicFiltersLogic)

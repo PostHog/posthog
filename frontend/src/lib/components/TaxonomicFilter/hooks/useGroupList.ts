@@ -31,6 +31,7 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
+import { composeSuggestedItems } from 'lib/components/TaxonomicFilter/utils/composeSuggestedItems'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -67,6 +68,13 @@ export interface UseGroupListInput {
     autoSelectItem?: boolean
     /** When true, the list initialises with index=0; otherwise index=NO_ITEM_SELECTED. */
     selectFirstItem?: boolean
+    /** SuggestedFilters only: orchestrator-composed recents/pinned segments. The
+     *  context-filtered full lists feed the no-query prefix; the *Matches lists
+     *  feed the query path. */
+    suggestedRecents?: TaxonomicDefinitionTypes[]
+    suggestedPinned?: TaxonomicDefinitionTypes[]
+    suggestedRecentMatches?: TaxonomicDefinitionTypes[]
+    suggestedPinnedMatches?: TaxonomicDefinitionTypes[]
 }
 
 export interface UseGroupListResult {
@@ -115,6 +123,10 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         enableKeywordShortcuts = false,
         autoSelectItem = true,
         selectFirstItem = true,
+        suggestedRecents,
+        suggestedPinned,
+        suggestedRecentMatches,
+        suggestedPinnedMatches,
     } = input
 
     const [isExpanded, setIsExpanded] = useState(false)
@@ -328,7 +340,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         return group.keywordShortcuts(searchQuery)
     }, [enableKeywordShortcuts, group, searchQuery, trimmedSearch])
 
-    const items: TaxonomicDefinitionTypes[] = useMemo(() => {
+    const mergedItems: TaxonomicDefinitionTypes[] = useMemo(() => {
         const merged: TaxonomicDefinitionTypes[] = []
         merged.push(...keywordShortcuts)
         if (localItems.results.length > 0) {
@@ -339,6 +351,35 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         }
         return merged
     }, [keywordShortcuts, localItems, remoteItems])
+
+    // SuggestedFilters is a composed cross-category surface: recents and pinned
+    // items lead, then this group's own promoted options.
+    const isSuggested = group.type === TaxonomicFilterGroupType.SuggestedFilters
+    const suggested = useMemo(
+        () =>
+            isSuggested
+                ? composeSuggestedItems({
+                      searchQuery,
+                      localResults: localItems.results,
+                      localCount: localItems.count,
+                      contextRecents: suggestedRecents ?? [],
+                      contextPinned: suggestedPinned ?? [],
+                      recentMatches: suggestedRecentMatches ?? [],
+                      pinnedMatches: suggestedPinnedMatches ?? [],
+                  })
+                : null,
+        [
+            isSuggested,
+            searchQuery,
+            localItems,
+            suggestedRecents,
+            suggestedPinned,
+            suggestedRecentMatches,
+            suggestedPinnedMatches,
+        ]
+    )
+
+    const items = suggested ? suggested.items : mergedItems
 
     const isExpandable = !!(
         group.endpoint &&
@@ -351,7 +392,9 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
     // remote groups with paginated results under-report (e.g. Event properties
     // shows 100 instead of 310). `rowCount` stays length-based since it drives
     // virtualisation.
-    const totalResultCount = keywordShortcuts.length + localItems.count + (hasRemoteDataSource ? remoteItems.count : 0)
+    const totalResultCount = suggested
+        ? suggested.count
+        : keywordShortcuts.length + localItems.count + (hasRemoteDataSource ? remoteItems.count : 0)
     const rowCount = items.length + (isExpandable ? 1 : 0)
 
     // ---- Loading / empty state ---------------------------------------------

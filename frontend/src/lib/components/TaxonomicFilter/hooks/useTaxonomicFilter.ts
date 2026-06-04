@@ -29,7 +29,12 @@ import {
     stripRecentContext,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
+    hasPinnedContext,
+    stripPinnedContext,
+} from 'lib/components/TaxonomicFilter/taxonomicFilterPinnedPropertiesLogic'
+import {
     AllowedProperties,
+    ExcludedOperators,
     ExcludedProperties,
     SelectedProperties,
     SimpleOption,
@@ -40,6 +45,13 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { isQuickFilterItem } from 'lib/components/TaxonomicFilter/types'
 import { buildTaxonomicGroups } from 'lib/components/TaxonomicFilter/utils/buildTaxonomicGroups'
+import { resolveItemGroup } from 'lib/components/TaxonomicFilter/utils/resolveSourceGroup'
+import {
+    filterPinnedForContext,
+    filterRecentsForContext,
+    pinnedItemMatchesSearch,
+    recentItemMatchesSearch,
+} from 'lib/components/TaxonomicFilter/utils/suggestedContextFilters'
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -47,7 +59,7 @@ import { AnyDataNode } from '~/queries/schema/schema-general'
 
 import { UseGroupListInput, UseGroupListResult } from './useGroupList'
 import { useTaxonomicGroupsContext } from './useTaxonomicGroupsContext'
-import { useTaxonomicLocalOverrides } from './useTaxonomicLocalOverrides'
+import { useRecentPinnedItems, useTaxonomicLocalOverrides } from './useTaxonomicLocalOverrides'
 
 export interface UseTaxonomicFilterOptions {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
@@ -74,6 +86,12 @@ export interface UseTaxonomicFilterOptions {
     excludedProperties?: ExcludedProperties
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties
+    /** Operators the host can't represent — used to drop matching recents from
+     *  the Suggested tab. */
+    excludedOperators?: ExcludedOperators
+    /** When the picker only selects a property key (no operator/value), recents
+     *  are deduped by storage key. */
+    selectingKeyOnly?: boolean
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
     endpointFilters?: Record<string, any>
@@ -273,6 +291,8 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         enableKeywordShortcuts,
         selectFirstItem,
         autoSelectItem,
+        excludedOperators,
+        selectingKeyOnly,
     } = opts
 
     const ctx = useTaxonomicGroupsContext({
@@ -323,6 +343,32 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             onSearchQueryChange?.(q)
         },
         [isSearchControlled, onSearchQueryChange]
+    )
+
+    // ---- Suggested tab: recents + pinned composition ------------------------
+    // Only computed when a Suggested tab is present. Recents/pinned are
+    // context-filtered to the visible groups; matches are derived per query.
+    const { recentFilterItems, pinnedFilterItems } = useRecentPinnedItems()
+    const hasSuggestedTab = groupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)
+    const contextRecents = useMemo(
+        () =>
+            hasSuggestedTab
+                ? filterRecentsForContext(recentFilterItems, groupTypes, excludedOperators, selectingKeyOnly)
+                : [],
+        [hasSuggestedTab, recentFilterItems, groupTypes, excludedOperators, selectingKeyOnly]
+    )
+    const contextPinned = useMemo(
+        () => (hasSuggestedTab ? filterPinnedForContext(pinnedFilterItems, groupTypes) : []),
+        [hasSuggestedTab, pinnedFilterItems, groupTypes]
+    )
+    const trimmedQuery = searchQuery.trim().toLowerCase()
+    const suggestedRecentMatches = useMemo(
+        () => (trimmedQuery ? contextRecents.filter((i) => recentItemMatchesSearch(i, trimmedQuery, groups)) : []),
+        [trimmedQuery, contextRecents, groups]
+    )
+    const suggestedPinnedMatches = useMemo(
+        () => (trimmedQuery ? contextPinned.filter((i) => pinnedItemMatchesSearch(i, trimmedQuery, groups)) : []),
+        [trimmedQuery, contextPinned, groups]
     )
 
     // ---- active group (controlled by initial prop, then internal) -----------
@@ -417,14 +463,20 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // shortcuts, not filterable definitions); pinned/recent
             // context wrappers get stripped before persisting.
             if (valueIn != null && item && !isQuickFilterItem(item)) {
-                const sourceGroupType = hasRecentContext(item) ? item._recentContext.sourceGroupType : group.type
-                const stripped = hasRecentContext(item) ? stripRecentContext(item) : item
+                const recentContext = hasRecentContext(item) ? item._recentContext : undefined
+                const pinnedContext = hasPinnedContext(item) ? item._pinnedContext : undefined
+                const sourceGroupType = recentContext?.sourceGroupType ?? pinnedContext?.sourceGroupType ?? group.type
+                const sourceGroupName = recentContext?.sourceGroupName ?? pinnedContext?.sourceGroupName ?? group.name
+                const stripped = recentContext
+                    ? stripRecentContext(item)
+                    : pinnedContext
+                      ? stripPinnedContext(item)
+                      : item
                 const cleanItem = {
                     name: stripped.name,
                     ...(stripped.id ? { id: stripped.id } : {}),
                 }
-                const sourceGroupName = hasRecentContext(item) ? item._recentContext.sourceGroupName : group.name
-                const propertyFilterFromRecent = hasRecentContext(item) ? item._recentContext.propertyFilter : undefined
+                const propertyFilterFromRecent = recentContext?.propertyFilter
                 // Defer one tick — keeps the recents write off the
                 // commit's render cycle so React doesn't re-render the
                 // closing popover with a stale list.
@@ -451,12 +503,16 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
         const list = readActiveList()
         const selected = list?.itemAtIndex()
         if (selected && activeGroup) {
-            const itemValue = activeGroup.getValue?.(selected) ?? null
-            selectItem(activeGroup, itemValue, selected)
+            // Cross-group rows (recents / pinned / promoted) resolve to their
+            // source group so the value and the group handed to onChange match
+            // the row's origin, not the meta tab it's shown under.
+            const sourceGroup = resolveItemGroup(selected, groups, activeGroup)
+            const itemValue = sourceGroup.getValue?.(selected) ?? null
+            selectItem(sourceGroup, itemValue, selected)
         } else {
             onEnter?.(searchQuery)
         }
-    }, [activeGroup, selectItem, onEnter, searchQuery, readActiveList])
+    }, [activeGroup, groups, selectItem, onEnter, searchQuery, readActiveList])
 
     // ---- per-tab input factory ---------------------------------------------
     const getGroupListInput = useCallback(
@@ -476,6 +532,14 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             // undefined for groups whose data is `group.options` / endpoint /
             // optionsFromProp — useGroupList handles those internally.
             localOverride: getLocalOverride(group.type),
+            ...(group.type === TaxonomicFilterGroupType.SuggestedFilters
+                ? {
+                      suggestedRecents: contextRecents,
+                      suggestedPinned: contextPinned,
+                      suggestedRecentMatches,
+                      suggestedPinnedMatches,
+                  }
+                : {}),
         }),
         [
             searchQuery,
@@ -488,6 +552,10 @@ export function useTaxonomicFilter(opts: UseTaxonomicFilterOptions): TaxonomicFi
             selectFirstItem,
             autoSelectItem,
             getLocalOverride,
+            contextRecents,
+            contextPinned,
+            suggestedRecentMatches,
+            suggestedPinnedMatches,
         ]
     )
 

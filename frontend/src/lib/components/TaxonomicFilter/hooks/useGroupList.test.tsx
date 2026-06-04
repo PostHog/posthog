@@ -321,4 +321,47 @@ describe('useGroupList', () => {
             expect(result.current.showNonCapturedEventOption).toBe(true)
         })
     })
+
+    describe('SuggestedFilters composition', () => {
+        const suggestedGroup = makeGroup({
+            type: TaxonomicFilterGroupType.SuggestedFilters,
+            options: [{ name: 'promoted' }] as any,
+        })
+
+        it('prepends recents then pinned before local options when there is no query', () => {
+            const { result } = renderHook(() =>
+                useGroupList({
+                    group: suggestedGroup,
+                    searchQuery: '',
+                    suggestedRecents: [{ name: 'recent-1' }, { name: 'recent-2' }] as any,
+                    suggestedPinned: [{ name: 'pinned-1' }] as any,
+                    suggestedRecentMatches: [],
+                    suggestedPinnedMatches: [],
+                })
+            )
+            expect(result.current.items.map((i: any) => i.name)).toEqual([
+                'recent-1',
+                'recent-2',
+                'pinned-1',
+                'promoted',
+            ])
+            expect(result.current.totalResultCount).toBe(4)
+        })
+
+        it('swaps prefixes for query matches when a query is present', () => {
+            const { result } = renderHook(() =>
+                useGroupList({
+                    group: suggestedGroup,
+                    searchQuery: 'foo',
+                    suggestedRecents: [{ name: 'recent-1' }] as any,
+                    suggestedPinned: [{ name: 'pinned-1' }] as any,
+                    suggestedRecentMatches: [{ name: 'recent-match' }] as any,
+                    suggestedPinnedMatches: [{ name: 'pinned-match' }] as any,
+                })
+            )
+            const names = result.current.items.map((i: any) => i.name)
+            expect(names).toEqual(['recent-match', 'pinned-match'])
+            expect(names).not.toContain('recent-1')
+        })
+    })
 })

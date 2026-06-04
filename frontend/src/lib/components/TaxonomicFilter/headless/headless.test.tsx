@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -11,6 +11,7 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
+import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from '../types'
 import { TaxonomicFilterHeadless } from './index'
 
@@ -86,6 +87,42 @@ describe('TaxonomicFilterHeadless integration', () => {
         const suggestedTab = screen.getByTestId('taxonomic-tab-suggested_filters')
         expect(suggestedTab).toBeInTheDocument()
         expect(suggestedTab).toHaveAttribute('aria-selected', 'true')
+    })
+
+    it('surfaces recents in the Suggested tab and selecting one resolves to its source group', async () => {
+        recentTaxonomicFiltersLogic.mount()
+        act(() => {
+            recentTaxonomicFiltersLogic.actions.clearRecentFilters()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: 'my_recent_prop',
+                item: { name: 'my_recent_prop' },
+            })
+        })
+        apiGet.mockResolvedValue({ results: [], count: 0 })
+        render(
+            <Provider>
+                <TaxonomicFilterHeadless.Root
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties]}
+                    onChange={onChangeMock}
+                >
+                    <TaxonomicFilterHeadless.Input />
+                    <TaxonomicFilterHeadless.Categories />
+                    <TaxonomicFilterHeadless.Panel />
+                </TaxonomicFilterHeadless.Root>
+            </Provider>
+        )
+        // Suggested tab is the default surface and the recent property shows as a row.
+        const recentRow = await screen.findByText('my_recent_prop')
+        await user.click(recentRow)
+        // Selecting it commits under the recorded source group (Event properties),
+        // not the meta Suggested tab it was displayed under.
+        expect(onChangeMock).toHaveBeenCalledWith(
+            expect.objectContaining({ type: TaxonomicFilterGroupType.EventProperties }),
+            'my_recent_prop',
+            expect.objectContaining({ name: 'my_recent_prop' })
+        )
     })
 
     it('mounts Root, Input, Categories and Panel without throwing', () => {

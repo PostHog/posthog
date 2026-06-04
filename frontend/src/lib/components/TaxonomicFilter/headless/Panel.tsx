@@ -4,6 +4,7 @@ import { Empty, EmptyHeader, EmptyTitle, ItemMenuItem, Spinner } from '@posthog/
 
 import { useGroupList, UseGroupListResult } from '../hooks/useGroupList'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroup } from '../types'
+import { resolveItemGroup } from '../utils/resolveSourceGroup'
 import { useTaxonomicFilterContext } from './context'
 
 export interface TaxonomicFilterPanelProps {
@@ -65,7 +66,7 @@ function TaxonomicFilterActivePanel({
     loadingState,
     className,
 }: ActivePanelProps): JSX.Element {
-    const { getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
+    const { groups, getGroupListInput, registerActiveList, selectItem } = useTaxonomicFilterContext()
     const list: UseGroupListResult = useGroupList(getGroupListInput(group))
 
     // Register this list as the keyboard target for as long as the panel
@@ -122,8 +123,9 @@ function TaxonomicFilterActivePanel({
             {list.items.map((item, index) => {
                 const isActive = list.index === index
                 const onSelect = (): void => {
-                    const itemValue = group.getValue?.(item) ?? null
-                    selectItem(group, itemValue, item)
+                    const sourceGroup = resolveItemGroup(item, groups, group)
+                    const itemValue = sourceGroup.getValue?.(item) ?? null
+                    selectItem(sourceGroup, itemValue, item)
                 }
                 const onMouseEnter = (): void => list.setIndex(index)
                 if (renderRow) {
