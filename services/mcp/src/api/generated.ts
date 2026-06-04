@@ -36890,6 +36890,14 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    /**
+     * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
+     */
+    export interface ScannerCreatorsResponse {
+      /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
+      creators: UserBasic[];
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Human-readable scorer name.
@@ -44187,13 +44195,17 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersListParams = {
     /**
+     * Filter to scanners created by the given user IDs (comma-separated).
+     */
+    created_by?: string;
+    /**
      * Filter to scanners that emit Signals.
      */
     emits_signals?: boolean;
     /**
-     * Filter to enabled vs disabled scanners.
+     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
      */
-    enabled?: boolean;
+    enabled?: string;
     /**
      * Number of results to return per page.
      */
@@ -44203,29 +44215,18 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer).
-
-    * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
+     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
      */
-    scanner_type?: EnvironmentsVisionScannersListScannerType;
+    scanner_type?: string;
+    /**
+     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
+     */
+    search?: string;
     };
-
-    export type EnvironmentsVisionScannersListScannerType = typeof EnvironmentsVisionScannersListScannerType[keyof typeof EnvironmentsVisionScannersListScannerType];
-
-
-    export const EnvironmentsVisionScannersListScannerType = {
-      Classifier: 'classifier',
-      Monitor: 'monitor',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
@@ -50470,13 +50471,17 @@ export namespace Schemas {
 
     export type VisionScannersListParams = {
     /**
+     * Filter to scanners created by the given user IDs (comma-separated).
+     */
+    created_by?: string;
+    /**
      * Filter to scanners that emit Signals.
      */
     emits_signals?: boolean;
     /**
-     * Filter to enabled vs disabled scanners.
+     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
      */
-    enabled?: boolean;
+    enabled?: string;
     /**
      * Number of results to return per page.
      */
@@ -50486,29 +50491,18 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer).
-
-    * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
+     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
      */
-    scanner_type?: VisionScannersListScannerType;
+    scanner_type?: string;
+    /**
+     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
+     */
+    search?: string;
     };
-
-    export type VisionScannersListScannerType = typeof VisionScannersListScannerType[keyof typeof VisionScannersListScannerType];
-
-
-    export const VisionScannersListScannerType = {
-      Classifier: 'classifier',
-      Monitor: 'monitor',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
 
     export type VisionScannersObservationsListParams = {
     /**
