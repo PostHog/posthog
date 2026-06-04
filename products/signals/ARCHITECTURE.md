@@ -302,10 +302,11 @@ The coordinator's lifetime is seconds regardless of fan-out width; throttling ha
 
 ### Rollout & feature flags
 
-Two flags gate the scout at different layers; both are remote-eval and fail closed.
+The scout is gated by one feature flag, remote-eval and fail closed.
 
-- **`signals-scout`** (run gate) — `_team_passes_rollout_flag(team)` in `scout_coordinator.py` calls `feature_enabled("signals-scout", str(team.id))` with **organization + project group context** (`groups` + `group_properties`, mirroring `backend/access.py` and the `posthog/permissions.py` house pattern). The flag is group-aggregated on `project`, so a team is gated in by adding its project id to the release group (or a blanket rollout %). This is the team-level on/revert dial above the per-scout `SignalScoutConfig.enabled` toggle; flagging a team off drains it from the next tick's fan-out.
-- **`signals-scout-inbox`** (inbox gate) — `access.user_can_see_signals_scout_reports(user, team)` decides whether `signals_scout`-sourced reports surface in the `SignalReport` queryset (`backend/views.py`). Per-user (keyed on the requesting user's `distinct_id`), so a team can run + emit scouts while their reports stay hidden — in both list and detail — until a user is flagged in.
+- **`signals-scout`** (run gate) — `_team_passes_rollout_flag(team)` in `scout_coordinator.py` calls `feature_enabled("signals-scout", str(team.id))` with **organization + project group context** (`groups` + `group_properties`, mirroring the `posthog/permissions.py` house pattern). The flag is group-aggregated on `project`, so a team is gated in by adding its project id to the release group (or a blanket rollout %). This is the team-level on/revert dial above the per-scout `SignalScoutConfig.enabled` toggle; flagging a team off drains it from the next tick's fan-out.
+
+Whether a scout that runs actually emits is governed by the per-config `SignalScoutConfig.emit` dry-run toggle (default off) plus the `SignalSourceConfig` source gate.
 
 ### `RunSignalsScoutWorkflow`
 

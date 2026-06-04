@@ -205,11 +205,11 @@ def _participating_teams() -> list[Team]:
 def _team_passes_rollout_flag(team: Team) -> bool:
     """Whether the `signals-scout` dogfood flag is on for this team.
 
-    Passes organization + project group context — mirroring the inbox gate in
-    `backend/access.py` and the house pattern in `posthog/permissions.py` — so the flag is
-    targetable per project/org from the PostHog UI. A group-aggregated release condition only
-    matches when its group is supplied here, so without this the flag could only ever be a
-    blanket rollout %. Remote eval; fails closed (eval error → team dropped).
+    Passes organization + project group context — mirroring the house pattern in
+    `posthog/permissions.py` — so the flag is targetable per project/org from the PostHog UI.
+    A group-aggregated release condition only matches when its group is supplied here, so
+    without this the flag could only ever be a blanket rollout %. Remote eval; fails closed
+    (eval error → team dropped).
     """
     org_id = str(team.organization_id)
     project_id = str(team.id)
