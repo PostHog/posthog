@@ -2,6 +2,12 @@ import { z, type ZodError, type ZodType } from 'zod'
 
 import { ApiError } from 'lib/api-error'
 
+import {
+    normalizeWidgetConfigKeys,
+    widgetFilterEntrySchema,
+    type StoredWidgetFilter,
+} from '../widget_types/configSchemas'
+
 export function fieldErrorsFromZodError<TField extends string>(error: ZodError): Partial<Record<TField, string>> {
     const { fieldErrors } = z.flattenError(error)
 
@@ -13,7 +19,8 @@ export function fieldErrorsFromZodError<TField extends string>(error: ZodError):
 }
 
 export function parseWidgetConfig<T>(configSchema: ZodType<T>, config: Record<string, unknown>): T {
-    const parsed = configSchema.safeParse(config)
+    const normalized = normalizeWidgetConfigKeys(config)
+    const parsed = configSchema.safeParse(normalized)
     return parsed.success ? parsed.data : configSchema.parse({})
 }
 
@@ -22,6 +29,21 @@ export type WidgetListFormInput = {
     orderBy: string
     dateFrom: string
     filterTestAccounts: boolean
+}
+
+export type WidgetListFormInputWithWidgetFilters = WidgetListFormInput & {
+    widgetFilters: Record<string, StoredWidgetFilter>
+}
+
+/** Validated `widgetFilters` patch for widget config builders (omit key when empty). */
+export function widgetFiltersPatchFromForm(widgetFilters: Record<string, StoredWidgetFilter>): {
+    widgetFilters?: Record<string, StoredWidgetFilter>
+} {
+    const widgetFiltersParsed = widgetFilterEntrySchema.array().safeParse(Object.values(widgetFilters))
+    if (!widgetFiltersParsed.success || Object.keys(widgetFilters).length === 0) {
+        return {}
+    }
+    return { widgetFilters }
 }
 
 export function buildWidgetConfigFromForm<TConfig>(

@@ -7613,6 +7613,40 @@ export const ErrorTrackingIssueStatusEnumApi = {
 } as const
 
 /**
+ * * `user` - user
+ * `role` - role
+ */
+export type AssigneeTypeEnumApi = (typeof AssigneeTypeEnumApi)[keyof typeof AssigneeTypeEnumApi]
+
+export const AssigneeTypeEnumApi = {
+    User: 'user',
+    Role: 'role',
+} as const
+
+export interface ErrorTrackingAssigneeApi {
+    /** User ID or role UUID to filter by. */
+    id: string | number | null
+    /** Assignee target type: user or role.
+
+  * `user` - user
+  * `role` - role */
+    type: AssigneeTypeEnumApi
+}
+
+export interface WidgetFilterConfigEntryApi {
+    /** Filter UUID; must match the widgetFilters map key. */
+    filterId: string
+    /** Event property key (for example $environment). */
+    propertyName: string
+    /** Selected option id from the filter definition. */
+    optionId: string
+    /** Property filter operator (for example exact, is_not, icontains). */
+    operator: string
+    /** Filter value as a string, list of strings, or null. */
+    value?: unknown
+}
+
+/**
  * * `-14d` - -14d
  * `-1h` - -1h
  * `-24h` - -24h
@@ -7646,9 +7680,14 @@ export interface WidgetDateRangeApi {
     date_from?: DateFromEnumApi | null
 }
 
+/**
+ * Widget filter selections keyed by filter id. For error_tracking_list, only filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported.
+ */
+export type ErrorTrackingListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterConfigEntryApi }
+
 export interface ErrorTrackingListWidgetConfigApi {
     /**
-     * Maximum number of issues to return.
+     * Maximum number of issues to return (page size).
      * @minimum 1
      * @maximum 25
      */
@@ -7675,7 +7714,11 @@ export interface ErrorTrackingListWidgetConfigApi {
   * `suppressed` - suppressed
   * `all` - all */
     status?: ErrorTrackingIssueStatusEnumApi
-    /** Optional relative date range override. */
+    /** Filter by assignee ({type: user|role, id}). Omit for any assignee. */
+    assignee?: ErrorTrackingAssigneeApi | null
+    /** Widget filter selections keyed by filter id. For error_tracking_list, only filters named Team, Environment, URL path, or Temporal worker (or matching property names) are supported. */
+    widgetFilters?: ErrorTrackingListWidgetConfigApiWidgetFilters
+    /** Relative date range for issues (date_from only on widgets). */
     dateRange?: WidgetDateRangeApi | null
     /** When omitted, follows the project default for filtering test accounts. */
     filterTestAccounts?: boolean
@@ -7701,6 +7744,11 @@ export const SessionReplayListWidgetConfigOrderByEnumApi = {
     StartTime: 'start_time',
 } as const
 
+/**
+ * Widget filter selections keyed by filter id. Event property filters are applied to the recordings query.
+ */
+export type SessionReplayListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterConfigEntryApi }
+
 export interface SessionReplayListWidgetConfigApi {
     /**
      * Maximum number of recordings to return.
@@ -7724,6 +7772,8 @@ export interface SessionReplayListWidgetConfigApi {
     orderDirection?: OrderDirectionEnumApi
     /** Optional relative date range override. */
     dateRange?: WidgetDateRangeApi | null
+    /** Widget filter selections keyed by filter id. Event property filters are applied to the recordings query. */
+    widgetFilters?: SessionReplayListWidgetConfigApiWidgetFilters
     /** When omitted, follows the project default for filtering test accounts. */
     filterTestAccounts?: boolean
 }
