@@ -508,7 +508,9 @@ ignore_imports = [
     "products.notifications.backend.presentation.views -> products.notifications.backend.models",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
     "products.tracing.backend.presentation.views -> products.tracing.backend.sparkline_query_runner",
+    "products.tracing.backend.presentation.views -> products.tracing.backend.has_spans_query_runner",
     "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.models",
+    "products.user_interviews.backend.presentation.views -> products.user_interviews.backend.invite_email",
     "products.user_interviews.backend.presentation.webhooks -> products.user_interviews.backend.models",
 ]
 

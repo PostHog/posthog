@@ -87,6 +87,7 @@ ActivityScope = Literal[
     "ProductTour",
     "Ticket",
     "InstanceSetting",
+    "SignalScoutConfig",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -285,6 +286,10 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
     },
+    "SignalScoutConfig": {
+        "run_interval_minutes": "run interval (minutes)",
+        "emit": "emit findings",
+    },
     "OrganizationDomain": {
         "jit_provisioning_enabled": "just-in-time provisioning",
         "sso_enforcement": "SSO enforcement",
@@ -326,6 +331,15 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     ],
     "OrganizationDomain": [
         "last_verification_retry",
+    ],
+    "Subscription": [
+        "next_delivery_date",
+    ],
+    # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout).
+    # When that is the only change, suppress the activity signal entirely so run bookkeeping
+    # never spams the audit log.
+    "SignalScoutConfig": [
+        "last_run_at",
     ],
 }
 
@@ -370,6 +384,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+    ],
+    "Subscription": [
+        # Scheduler-derived field; keep it out of user-facing change diffs even when another
+        # field changes in the same save (signal_exclusions only governs whether the signal fires).
+        "next_delivery_date",
     ],
     "Cohort": [
         "version",
@@ -617,6 +636,13 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Evaluation": [
         # Reverse relations — auto-managed by FK creates, not user intent.
         "reports",
+    ],
+    "SignalScoutConfig": [
+        # Run bookkeeping, not user intent — keep it out of change detection even when it
+        # rides along with a real change (belt-and-suspenders with signal_exclusions above).
+        "last_run_at",
+        # Reverse relations auto-managed by FK creates, not user-initiated config changes.
+        "runs",
     ],
 }
 

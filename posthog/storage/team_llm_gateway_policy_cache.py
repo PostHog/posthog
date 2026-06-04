@@ -8,14 +8,15 @@ Shape:
         {
             "id": 123,
             "api_token": "phc_...",
+            "llm_gateway_enabled_at": "2026-05-29T20:46:30+00:00" | null,
             "llm_gateway_revoked_at": "2026-05-20T12:34:56+00:00" | null
         }
 
 The blob is written to its own cache key (sibling to full_metadata.json) so the
 flags-pipeline consumers of team_metadata are not affected by additions here.
-The gateway resolves token -> team and denies on a non-null revoked_at; a
-non-revoked team gets the full gateway-owned model surface. Null revoked_at
-means active, so no backfill is required when the column is first added.
+The gateway admits a team only when enabled_at is set and revoked_at is null;
+revoke wins over enable. Null enabled_at = not enrolled (default-deny); null
+revoked_at = not revoked. Nullable defaults mean no backfill on schema add.
 """
 
 import os
@@ -46,6 +47,7 @@ LLM_GATEWAY_POLICY_CACHE_EXPIRY_SORTED_SET = "llm_gateway_policy_cache_expiry"
 LLM_GATEWAY_POLICY_FIELDS = [
     "id",
     "api_token",
+    "llm_gateway_enabled_at",
     "llm_gateway_revoked_at",
 ]
 
@@ -55,6 +57,7 @@ def _serialize_team_to_llm_gateway_policy(team: Team) -> dict[str, Any]:
     return {
         "id": team.id,
         "api_token": team.api_token,
+        "llm_gateway_enabled_at": (team.llm_gateway_enabled_at.isoformat() if team.llm_gateway_enabled_at else None),
         "llm_gateway_revoked_at": (team.llm_gateway_revoked_at.isoformat() if team.llm_gateway_revoked_at else None),
     }
 
@@ -99,6 +102,18 @@ team_llm_gateway_policy_hypercache = HyperCache(
 
 def get_team_llm_gateway_policy(team: Team | str | int) -> dict[str, Any] | None:
     return team_llm_gateway_policy_hypercache.get_from_cache(team)
+
+
+def get_team_llm_gateway_policy_from_redis(team: Team) -> tuple[dict[str, Any] | None, str]:
+    """Redis-only probe, no fallback or write-back. Source: "redis_hit",
+    "redis_negative" (24h deny sentinel), or "absent"."""
+    results = team_llm_gateway_policy_hypercache.batch_get_from_cache([team])
+    data, source, _etag = results[team.id]
+    if source == "miss":
+        return None, "absent"
+    if data is None:
+        return None, "redis_negative"
+    return data, "redis_hit"
 
 
 def update_team_llm_gateway_policy_cache(team: Team | str | int, ttl: int | None = None) -> bool:

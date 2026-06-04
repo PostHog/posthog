@@ -304,6 +304,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
         read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
 
+    def validate_kind(self, value: str) -> str:
+        if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
+            raise ValidationError("This integration kind is deprecated and can no longer be created.")
+        return value
+
     def create(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]

@@ -25,8 +25,10 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
     cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
+    cdpCyclotronWorkerEmail: true,
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
+    cdpHogflowSubscriptionMatcher: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */
@@ -129,9 +131,17 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlowLegacyPg: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_email:
+            return {
+                cdpCyclotronWorkerEmail: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
+            }
+        case PluginServerMode.cdp_hogflow_subscription_matcher:
+            return {
+                cdpHogflowSubscriptionMatcher: true,
             }
         case PluginServerMode.cdp_cohort_membership:
             return {

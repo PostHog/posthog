@@ -10,9 +10,11 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from django.conf import settings
-from django.http import StreamingHttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
+from django.http.response import HttpResponseBase
 
 import structlog
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -94,6 +96,22 @@ def _log_request_auth(request: Request, *, action: str, team_id: int | None) -> 
 SSE_HEARTBEAT_INTERVAL_SECONDS = 15.0
 SSE_POLL_TIMEOUT_SECONDS = 1.0
 SSE_MAX_DURATION_SECONDS = 30 * 60
+
+WIZARD_SYNC_KILLSWITCH_FLAG = "onboarding-wizard-sync-killswitch"
+
+
+def _wizard_sync_killswitch_enabled(distinct_id: str) -> bool:
+    # Local-only eval: no per-request network/decide call on this hot endpoint.
+    # Flag definitions are served via HyperCache (posthog/apps.py). Fail-open:
+    # if the flag can't be evaluated locally, the stream behaves normally.
+    return bool(
+        posthoganalytics.feature_enabled(
+            WIZARD_SYNC_KILLSWITCH_FLAG,
+            distinct_id,
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
 
 
 class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -236,7 +254,18 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
     )
     @action(detail=False, methods=["get"], url_path="stream", renderer_classes=[EventStreamRenderer])
-    def stream(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+    def stream(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # Killswitch first, before any other work: a 204 tells EventSource to stop
+        # reconnecting, severing the self-reconnect loop for already-open tabs.
+        user = getattr(request, "user", None)
+        distinct_id = (
+            str(user.distinct_id)
+            if user is not None and not user.is_anonymous and getattr(user, "distinct_id", None)
+            else f"team:{self.team_id}"
+        )
+        if _wizard_sync_killswitch_enabled(distinct_id):
+            return HttpResponse(status=204)
+
         workflow_id = request.query_params.get("workflow_id")
         skill_id = request.query_params.get("skill_id") or None
         if not workflow_id:

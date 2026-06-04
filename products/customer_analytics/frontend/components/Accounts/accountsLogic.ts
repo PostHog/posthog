@@ -1,8 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -14,11 +17,12 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
-import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
+import { ACCOUNTS_HOGQL_DEFAULT_SELECT, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
+import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
 
-export const ACCOUNTS_HOGQL_DATA_NODE_KEY = 'customer-analytics-accounts-hogql'
+export const SEARCH_DEBOUNCE_MS = 300
 
 interface SortLikeValues {
     sortOrder: AccountSortOrder
@@ -78,13 +82,41 @@ const ROLE_LABELS: Record<AccountRoleKey, string> = {
 
 export const savingRoleKey = (accountId: string, role: AccountRoleKey): string => `${accountId}:${role}`
 
+// Shareable view state encoded into the URL hash (`#view=...`) so a copied URL
+// reproduces the exact accounts list a colleague is looking at. Only non-default
+// values are serialized, keeping the hash empty for the default view.
+export interface AccountsViewUrlState {
+    search?: string
+    tags?: string[]
+    unassigned?: boolean
+    csm?: number
+    accountExecutive?: number
+    accountOwner?: number
+    sort?: NonNullable<AccountSortOrder>
+    columns?: string[]
+    tileFilter?: TileFilter
+}
+
 export const accountsLogic = kea<accountsLogicType>([
     path(['scenes', 'customerAnalytics', 'accounts', 'accountsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], accountsColumnConfigLogic, ['selectColumns', 'visibleColumnNames']],
-        actions: [accountsColumnConfigLogic, ['setSelectColumns', 'unselectColumn', 'resetColumns']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            accountsColumnConfigLogic,
+            ['selectColumns', 'visibleColumnNames'],
+            accountsOverviewTilesLogic,
+            ['metrics as overviewMetrics', 'tileFilter'],
+        ],
+        actions: [
+            accountsColumnConfigLogic,
+            ['setSelectColumns', 'selectColumn', 'unselectColumn', 'moveColumn', 'resetColumns'],
+            accountsOverviewTilesLogic,
+            ['setTileFilter'],
+        ],
     })),
     actions({
+        setSearchInput: (query: string) => ({ query }),
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
@@ -104,6 +136,13 @@ export const accountsLogic = kea<accountsLogicType>([
         replaceAccount: (account: AccountApi) => ({ account }),
     }),
     reducers({
+        searchInput: [
+            '',
+            {
+                setSearchInput: (_, { query }) => query,
+                setSearchQuery: (_, { query }) => query,
+            },
+        ],
         searchQuery: [
             '',
             {
@@ -174,6 +213,61 @@ export const accountsLogic = kea<accountsLogicType>([
                 (accountId: string, role: AccountRoleKey): boolean =>
                     !!savingRoles[savingRoleKey(accountId, role)],
         ],
+        viewUrlState: [
+            (s) => [
+                s.searchQuery,
+                s.tagsFilter,
+                s.allRolesUnassigned,
+                s.csmFilter,
+                s.accountExecutiveFilter,
+                s.accountOwnerFilter,
+                s.sortOrder,
+                s.selectColumns,
+                s.tileFilter,
+            ],
+            (
+                searchQuery: string,
+                tagsFilter: string[],
+                allRolesUnassigned: boolean,
+                csmFilter: RoleFilterValue,
+                accountExecutiveFilter: RoleFilterValue,
+                accountOwnerFilter: RoleFilterValue,
+                sortOrder: AccountSortOrder,
+                selectColumns: string[],
+                tileFilter: TileFilter | null
+            ): AccountsViewUrlState => {
+                const state: AccountsViewUrlState = {}
+                const trimmedSearch = searchQuery.trim()
+                if (trimmedSearch) {
+                    state.search = trimmedSearch
+                }
+                if (tagsFilter.length > 0) {
+                    state.tags = tagsFilter
+                }
+                if (allRolesUnassigned) {
+                    state.unassigned = true
+                }
+                if (csmFilter !== null) {
+                    state.csm = csmFilter
+                }
+                if (accountExecutiveFilter !== null) {
+                    state.accountExecutive = accountExecutiveFilter
+                }
+                if (accountOwnerFilter !== null) {
+                    state.accountOwner = accountOwnerFilter
+                }
+                if (sortOrder) {
+                    state.sort = sortOrder
+                }
+                if (!objectsEqual(selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT)) {
+                    state.columns = selectColumns
+                }
+                if (tileFilter) {
+                    state.tileFilter = tileFilter
+                }
+                return state
+            },
+        ],
         hogqlQuery: [
             (s) => [
                 s.searchQuery,
@@ -182,6 +276,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.csmFilter,
                 s.accountExecutiveFilter,
                 s.accountOwnerFilter,
+                s.tileFilter,
+                s.overviewMetrics,
                 s.sortOrder,
                 s.selectColumns,
             ],
@@ -192,6 +288,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 csmFilter: RoleFilterValue,
                 accountExecutiveFilter: RoleFilterValue,
                 accountOwnerFilter: RoleFilterValue,
+                tileFilter: TileFilter | null,
+                overviewMetrics: string[],
                 sortOrder: AccountSortOrder,
                 selectColumns: string[]
             ): DataTableNode => {
@@ -199,6 +297,9 @@ export const accountsLogic = kea<accountsLogicType>([
                     kind: NodeKind.AccountsQuery,
                     select: selectColumns,
                     tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
+                }
+                if (overviewMetrics.length > 0) {
+                    source.metrics = overviewMetrics
                 }
                 const trimmed = searchQuery.trim()
                 if (trimmed) {
@@ -219,6 +320,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (accountOwnerFilter !== null) {
                     source.accountOwner = accountOwnerFilter
                 }
+                if (tileFilter) {
+                    source.filterExpression = tileFilter.expression
+                }
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)
                     source.orderBy = [sortOrder.direction === 'asc' ? expr : `${expr} DESC`]
@@ -237,6 +341,10 @@ export const accountsLogic = kea<accountsLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setSearchInput: async ({ query }, breakpoint) => {
+            await breakpoint(SEARCH_DEBOUNCE_MS)
+            actions.setSearchQuery(query)
+        },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
                 if (values.csmFilter !== null) {
@@ -309,6 +417,84 @@ export const accountsLogic = kea<accountsLogicType>([
                 lemonToast.error(`Failed to update ${ROLE_LABELS[role]}`)
             } finally {
                 actions.roleUpdateFinished(accountId, role)
+            }
+        },
+    })),
+    actionToUrl(({ values }) => {
+        // Mirror the full view into the URL hash so the link is shareable.
+        // Search params are preserved untouched — the parent scene owns those.
+        const toUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            urls.customerAnalyticsAccounts(),
+            router.values.searchParams,
+            objectsEqual(values.viewUrlState, {}) ? {} : { view: values.viewUrlState },
+            { replace: true },
+        ]
+        return {
+            setSearchQuery: toUrl,
+            setTagsFilter: toUrl,
+            setAllRolesUnassigned: toUrl,
+            setCsmFilter: toUrl,
+            setAccountExecutiveFilter: toUrl,
+            setAccountOwnerFilter: toUrl,
+            setSortOrder: toUrl,
+            setSelectColumns: toUrl,
+            selectColumn: toUrl,
+            unselectColumn: toUrl,
+            moveColumn: toUrl,
+            resetColumns: toUrl,
+            setTileFilter: toUrl,
+        }
+    }),
+    urlToAction(({ actions, values }) => ({
+        [urls.customerAnalyticsAccounts()]: (_, __, hashParams): void => {
+            const view: AccountsViewUrlState =
+                hashParams?.view && typeof hashParams.view === 'object' ? hashParams.view : {}
+
+            const search = view.search ?? ''
+            if (search !== values.searchQuery) {
+                actions.setSearchQuery(search)
+            }
+
+            const tags = view.tags ?? []
+            if (!objectsEqual(tags, values.tagsFilter)) {
+                actions.setTagsFilter(tags)
+            }
+
+            const unassigned = view.unassigned ?? false
+            if (unassigned !== values.allRolesUnassigned) {
+                actions.setAllRolesUnassigned(unassigned)
+            }
+
+            const csm = view.csm ?? null
+            if (csm !== values.csmFilter) {
+                actions.setCsmFilter(csm)
+            }
+
+            const accountExecutive = view.accountExecutive ?? null
+            if (accountExecutive !== values.accountExecutiveFilter) {
+                actions.setAccountExecutiveFilter(accountExecutive)
+            }
+
+            const accountOwner = view.accountOwner ?? null
+            if (accountOwner !== values.accountOwnerFilter) {
+                actions.setAccountOwnerFilter(accountOwner)
+            }
+
+            const sort = view.sort ?? null
+            if (!objectsEqual(sort, values.sortOrder)) {
+                actions.setSortOrder(sort)
+            }
+
+            // A shared link's columns win over the per-user saved column config;
+            // accountsColumnConfigLogic enforces this by reading the URL when its
+            // async saved-config load resolves.
+            if (view.columns && !objectsEqual(view.columns, values.selectColumns)) {
+                actions.setSelectColumns(view.columns)
+            }
+
+            const tileFilter = view.tileFilter ?? null
+            if (!objectsEqual(tileFilter, values.tileFilter)) {
+                actions.setTileFilter(tileFilter)
             }
         },
     })),

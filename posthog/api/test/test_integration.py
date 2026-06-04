@@ -17,7 +17,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.integration import IntegrationViewSet
+from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -1013,7 +1013,6 @@ class TestIntegrationAPIKeyAccess:
         "kind,scope,expected_status,expected_detail_substring",
         [
             ("slack", "integration:read", status.HTTP_200_OK, None),
-            ("slack-posthog-code", "integration:read", status.HTTP_200_OK, None),
             ("slack", "feature_flag:read", status.HTTP_403_FORBIDDEN, "integration:read"),
             # GitHub and Twilio resolve via the queryset, but the channels action's kind
             # guard rejects them with a 400 before SlackIntegration is constructed.
@@ -3292,3 +3291,40 @@ class TestAnthropicIntegration:
         body = response.json()
         assert body["vaults"] == [{"id": "vault_1", "display_name": "Customer secrets"}]
         assert body["has_more"] is False
+
+
+class TestSlackPostHogCodeKindDeprecated:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    def test_create_slack_posthog_code_integration_rejected(self, client: HttpClient):
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": "slack-posthog-code", "config": {}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "deprecated" in json.dumps(response.json()).lower()
+        assert not Integration.objects.filter(team=self.team, kind="slack-posthog-code").exists()
+
+    def test_validate_kind_rejects_slack_posthog_code(self):
+        serializer = IntegrationSerializer(data={"kind": "slack-posthog-code", "config": {}})
+
+        assert not serializer.is_valid()
+        assert "kind" in serializer.errors
+        assert "deprecated" in str(serializer.errors["kind"]).lower()
+
+    def test_validate_kind_accepts_other_kinds(self):
+        # Sanity check — the validator must not reject unrelated kinds.
+        serializer = IntegrationSerializer(data={"kind": "slack", "config": {}})
+
+        serializer.is_valid()
+        assert "kind" not in serializer.errors
