@@ -5,6 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 from django.conf import settings
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
@@ -25,9 +26,8 @@ from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.filters.filter import Filter
-from posthog.models.person import Person, PersonDistinctId
-from posthog.models.person.person import READ_DB_FOR_PERSONS
-from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
+from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.settings.base_variables import TEST
@@ -57,10 +57,6 @@ CohortOrEmpty = Union["Cohort", Literal[""], None]
 REALTIME_COHORT_MAX_PERSON_COUNT = 20_000_000
 
 logger = structlog.get_logger(__name__)
-
-DELETE_QUERY = """
-DELETE FROM "posthog_cohortpeople" WHERE "cohort_id" = {cohort_id}
-"""
 
 DEFAULT_COHORT_INSERT_BATCH_SIZE = 1000
 
@@ -233,6 +229,12 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                 condition=models.Q(kind__isnull=False, deleted=False),
                 name="unique_cohort_kind_per_team",
             ),
+        ]
+        indexes = [
+            # Backs the default list ordering (filter by team, order by -created_at).
+            models.Index(fields=["team", "-created_at"], name="cohort_team_created_idx"),
+            # Backs `name__icontains` search (the cohort picker's server-side search).
+            GinIndex(fields=["name"], name="cohort_name_trgm_idx", opclasses=["gin_trgm_ops"]),
         ]
 
     def __str__(self):
@@ -412,50 +414,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             duration=(time.monotonic() - start_time),
         )
 
-    def _get_uuids_for_distinct_ids_batch(self, distinct_ids: list[str], team_id: int) -> list[str]:
-        """
-        Get UUIDs for a batch of distinct IDs, excluding those already in this cohort.
-
-        Args:
-            distinct_ids: List of distinct IDs to convert to UUIDs
-            team_id: Team ID to filter by
-
-        Remarks:
-            This used to be a single query with a complex JOIN, but that query was timing out.
-            So we split it into two queries that are much simpler and should hopefully not time out.
-
-        Returns:
-            List of UUIDs for persons with the given distinct IDs who are not already in this cohort
-        """
-        if not distinct_ids:
-            return []
-
-        # Get person UUIDs for this batch of distinct IDs.
-        # This is limited to the batch size so it will be no more than 1000 items in-memory at a time.
-        # You're going to be tempted to exclude people already in the cohort, but that's not only NOT
-        # necessary, but it leads to query timeouts. The insert_users_list_by_uuid handles ensuring we
-        # don't insert people that are already in the cohort efficiently.
-        from posthog.personhog_client.gate import use_personhog
-
-        if use_personhog():
-            persons = get_persons_by_distinct_ids(team_id, list(distinct_ids))
-            return [str(person.uuid) for person in persons]
-
-        # ORM path: lightweight values_list queries — no full model instantiation
-        person_ids_qs = (
-            PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id, distinct_id__in=distinct_ids)
-            .values_list("person_id", flat=True)
-            .distinct()
-        )
-
-        return [
-            str(uuid)
-            for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-            .filter(team_id=team_id, id__in=person_ids_qs)
-            .values_list("uuid", flat=True)
-        ]
-
     def insert_users_by_list(
         self,
         items: list[str],
@@ -480,19 +438,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             # Make sure persons are created in tests before running this
             flush_persons_and_events()
 
-        # Process distinct IDs in batches to avoid memory issues
         def create_uuid_batch(batch_index: int, batch_size: int) -> list[str]:
-            """Create a batch of UUIDs from distinct IDs, excluding those already in cohort."""
+            from posthog.models.person.util import get_person_uuids_by_distinct_ids
+
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            batch_distinct_ids = items[start_idx:end_idx]
+            return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
-            return self._get_uuids_for_distinct_ids_batch(batch_distinct_ids, team_id)
-
-        # Use FunctionBatchIterator to process distinct IDs in batches
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
-
-        # Call the batching method with ClickHouse insertion enabled
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
 
     def insert_users_list_by_uuid(

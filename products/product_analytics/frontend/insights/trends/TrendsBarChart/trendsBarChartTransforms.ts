@@ -1,5 +1,6 @@
-import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
-import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
+import { normalizeAxisLabel } from '@posthog/quill-charts'
+import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+
 import { hexToRGBA } from 'lib/utils'
 import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
 
@@ -112,6 +113,9 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         barLayout: opts.isPercentStackView ? 'percent' : opts.isGrouped ? 'grouped' : 'stacked',
+        // Stacked bars must preserve negative values (e.g. a `A*(-1)` formula) so they render
+        // below the zero baseline instead of being clamped to 0. Only the stacked layout stacks.
+        divergingStack: !opts.isPercentStackView && !opts.isGrouped,
         tooltip: opts.tooltip,
     }
 }

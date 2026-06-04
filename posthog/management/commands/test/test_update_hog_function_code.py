@@ -59,6 +59,28 @@ class TestUpdateHogFunctionCode(BaseTest):
                 deleted=True,
             )
 
+            # Meta Ads destination with old API version
+            self.meta_ads_function1 = HogFunction.objects.create(
+                team=self.team,
+                name="Meta Ads Function 1",
+                type="destination",
+                template_id="template-meta-ads",
+                description="Test Meta Ads Function 1",
+                hog="let res := fetch(f'https://graph.facebook.com/v21.0/{inputs.pixelId}/events', {}); return event;",
+                enabled=True,
+            )
+
+            # Meta Ads destination with new API version (should not be updated)
+            self.meta_ads_function2 = HogFunction.objects.create(
+                team=self.team,
+                name="Meta Ads Function 2",
+                type="destination",
+                template_id="template-meta-ads",
+                description="Test Meta Ads Function 2",
+                hog="let res := fetch(f'https://graph.facebook.com/v25.0/{inputs.pixelId}/events', {}); return event;",
+                enabled=True,
+            )
+
     @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_update_linkedin_api_version_dry_run(self, mock_compile_hog):
         """Test dry run mode - should show what would be updated without making changes."""
@@ -99,6 +121,31 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.linkedin_function2.refresh_from_db()
         assert "'LinkedIn-Version': '202409'" not in self.linkedin_function2.hog
         assert "'LinkedIn-Version': '202508'" in self.linkedin_function2.hog
+
+        output = out.getvalue()
+        self.assertIn("Found 2 destinations to process", output)
+        self.assertIn("Updated: 1", output)
+        self.assertIn("Update completed", output)
+
+    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
+    def test_update_meta_ads_api_version_actual_update(self, mock_compile_hog):
+        """Test actual update - should update Meta Ads functions with old API version."""
+        mock_compile_hog.return_value = "compiled_bytecode"
+
+        out = StringIO()
+        call_command("update_hog_function_code", replace_key="meta-ads-api-version-update", stdout=out)
+
+        # Should have compiled and saved only the function that needed updating
+        assert mock_compile_hog.call_count == 1
+
+        # Check that the function with the old version was updated
+        self.meta_ads_function1.refresh_from_db()
+        assert "graph.facebook.com/v21.0/" not in self.meta_ads_function1.hog
+        assert "graph.facebook.com/v25.0/" in self.meta_ads_function1.hog
+
+        # Check that the function already on the new version was left untouched
+        self.meta_ads_function2.refresh_from_db()
+        assert "graph.facebook.com/v25.0/" in self.meta_ads_function2.hog
 
         output = out.getvalue()
         self.assertIn("Found 2 destinations to process", output)

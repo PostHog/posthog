@@ -104,6 +104,18 @@ def get_team_llm_gateway_policy(team: Team | str | int) -> dict[str, Any] | None
     return team_llm_gateway_policy_hypercache.get_from_cache(team)
 
 
+def get_team_llm_gateway_policy_from_redis(team: Team) -> tuple[dict[str, Any] | None, str]:
+    """Redis-only probe, no fallback or write-back. Source: "redis_hit",
+    "redis_negative" (24h deny sentinel), or "absent"."""
+    results = team_llm_gateway_policy_hypercache.batch_get_from_cache([team])
+    data, source, _etag = results[team.id]
+    if source == "miss":
+        return None, "absent"
+    if data is None:
+        return None, "redis_negative"
+    return data, "redis_hit"
+
+
 def update_team_llm_gateway_policy_cache(team: Team | str | int, ttl: int | None = None) -> bool:
     success = team_llm_gateway_policy_hypercache.update_cache(team, ttl=ttl)
     if not success:

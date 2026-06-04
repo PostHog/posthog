@@ -137,6 +137,7 @@ def refresh_expiring_caches(
     # Push metrics to Pushgateway (Gauges work better than Counters for batch jobs)
     push_hypercache_teams_processed_metrics(
         namespace=config.namespace,
+        cache_name=config.cache_name,
         successful=successful,
         failed=failed,
     )

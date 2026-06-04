@@ -3,15 +3,15 @@ mod common;
 use common::TestContext;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, DeleteHashKeyOverridesByTeamsRequest,
-    DeletePersonsBatchForTeamRequest, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
+    DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, GroupIdentifier, GroupKey, TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -434,6 +434,40 @@ async fn test_get_group_type_mappings_by_team_id() {
     let group_types: Vec<&str> = mappings.iter().map(|m| m.group_type.as_str()).collect();
     assert!(group_types.contains(&"organization"));
     assert!(group_types.contains(&"project"));
+
+    ctx.cleanup().await.ok();
+}
+
+#[rstest]
+#[case::no_mappings(&[], None)]
+#[case::two_mappings(&[("organization", 0), ("project", 1)], Some(2))]
+#[tokio::test]
+async fn test_count_group_type_mappings(
+    #[case] mappings: &[(&str, i32)],
+    #[case] expected_count: Option<i64>,
+) {
+    let ctx = ServiceTestContext::new().await;
+
+    for (group_type, index) in mappings {
+        ctx.insert_group_type_mapping(group_type, *index)
+            .await
+            .unwrap();
+    }
+
+    let response = ctx
+        .service
+        .count_group_type_mappings(Request::new(CountGroupTypeMappingsRequest {
+            read_options: None,
+        }))
+        .await
+        .expect("RPC failed");
+
+    let counts = response.into_inner().counts;
+    let entry = counts.iter().find(|c| c.team_id == ctx.team_id);
+    match expected_count {
+        Some(count) => assert_eq!(entry.unwrap().count, count),
+        None => assert!(entry.is_none()),
+    }
 
     ctx.cleanup().await.ok();
 }

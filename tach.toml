@@ -167,6 +167,7 @@ path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -271,6 +272,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
+    "products.ai_observability",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
@@ -574,6 +576,7 @@ path = "products.user_interviews"
 depends_on = [
     "ee",
     "posthog",
+    "products.ai_observability",
     "products.exports",
 ]
 layer = "modules"
@@ -619,6 +622,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
@@ -718,6 +722,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.access_control",
@@ -745,6 +750,15 @@ expose = [
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
+    "backend\\.temporal.*",
+]
+from = [
+    "products.business_knowledge",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.routes.*",
 ]
 from = [
     "products.business_knowledge",
@@ -759,6 +773,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.wizard",
@@ -773,6 +788,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.engineering_analytics",
@@ -780,7 +796,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.product_analytics"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics"]
 layer = "modules"
 
 [[modules]]

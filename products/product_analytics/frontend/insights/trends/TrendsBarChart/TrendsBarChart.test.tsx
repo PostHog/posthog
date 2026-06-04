@@ -2,8 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
+import { dimensions, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dimensions, setupJsdom, setupSyncRaf } from 'lib/hog-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
@@ -339,6 +340,57 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         await waitFor(
             () => {
                 expect(getHogChart().yTicks()).toHaveLength(1)
+            },
+            { timeout: 5000 }
+        )
+    })
+
+    // A dashboard/card tile is a fixed height, so the chart caps the breakdown rows to those that
+    // fit. The full insight page is `embedded: false` — even when opened from a dashboard, where
+    // `dashboardId` is in the URL — so it must keep growing to render every breakdown row.
+    it.each([
+        { name: 'insight page (not embedded) renders every breakdown bar', embedded: false, expectAllRows: true },
+        {
+            name: 'dashboard tile (embedded) caps bars to those that fit the tile',
+            embedded: true,
+            expectAllRows: false,
+        },
+    ])('$name', async ({ embedded, expectAllRows }) => {
+        const totalRows = 20
+        const manyBreakdowns = {
+            results: Array.from({ length: totalRows }, (_, i) => ({
+                action: { id: '$napped', type: 'events', name: 'Napped', order: 0 },
+                label: `value ${i}`,
+                count: totalRows - i,
+                aggregated_value: totalRows - i,
+                data: [totalRows - i],
+                labels: ['Day 1'],
+                days: ['2024-01-01'],
+                breakdown_value: `value-${i}`,
+            })),
+        }
+        renderInsight({
+            query: aggregatedBar({
+                series: [{ kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' }],
+                breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
+            }),
+            embedded,
+            featureFlags: HOG_CHARTS_FLAG,
+            mocks: {
+                additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: manyBreakdowns }],
+            },
+        })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        await waitFor(
+            () => {
+                const ticks = getHogChart().yTicks()
+                if (expectAllRows) {
+                    expect(ticks).toHaveLength(totalRows)
+                } else {
+                    expect(ticks.length).toBeGreaterThan(0)
+                    expect(ticks.length).toBeLessThan(totalRows)
+                }
             },
             { timeout: 5000 }
         )

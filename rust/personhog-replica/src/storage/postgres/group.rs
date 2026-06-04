@@ -396,6 +396,51 @@ impl GroupStorage for PostgresStorage {
         Ok(rows)
     }
 
+    async fn count_group_type_mappings(
+        &self,
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<Vec<(i64, i64)>> {
+        let client = current_client_name();
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "count_group_type_mappings".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+            ("client".to_string(), client.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT team_id::bigint as "team_id!", COUNT(*)::bigint as "count!"
+            FROM posthog_grouptypemapping
+            GROUP BY team_id
+            ORDER BY team_id
+            "#,
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                (
+                    "operation".to_string(),
+                    "count_group_type_mappings".to_string(),
+                ),
+                ("client".to_string(), client.to_string()),
+            ],
+            rows.len() as f64,
+        );
+
+        Ok(rows.into_iter().map(|r| (r.team_id, r.count)).collect())
+    }
+
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         team_id: i64,
