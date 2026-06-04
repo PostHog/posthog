@@ -12,6 +12,7 @@ from posthog.test.base import (
     flush_persons_and_events,
     materialized,
 )
+from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -35,6 +36,7 @@ from posthog.hogql.transforms.events_predicate_pushdown import (
     EventsFieldCollector,
     EventsPredicatePushdownTransform,
     LazyTypeDetector,
+    _printer_top_level_select_ids,
 )
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 
@@ -99,6 +101,44 @@ class TestEventsPredicatePushdownTransform(BaseTest):
         )
         assert "e.timestamp" in events_subquery, (
             "expected the pushed-down predicate to reference the inner `e`-aliased events table:\n" + events_subquery
+        )
+
+    def test_unexpected_internal_error_degrades_to_flat_query(self):
+        # Pushdown is a pure optimization: an unexpected raise inside the rewrite must leave the query intact
+        # (run flat), never break it. Force a raise in _build_typed_subquery (called before any mutation) and
+        # assert the printed SQL matches the un-pushed flat form.
+        select = "SELECT event, session.$session_duration FROM events WHERE timestamp >= '2024-01-01' LIMIT 10"
+        flat = self._print_select(select, modifiers=HogQLQueryModifiers(pushDownPredicates=False))
+        with patch.object(EventsPredicatePushdownTransform, "_build_typed_subquery", side_effect=RuntimeError("boom")):
+            guarded = self._print_select(select, modifiers=HogQLQueryModifiers(pushDownPredicates=True))
+        assert guarded == flat, f"expected flat fallback on internal error:\nflat={flat}\nguarded={guarded}"
+        assert ") AS events LEFT JOIN" not in guarded, f"the events scan must not be wrapped on fallback:\n{guarded}"
+
+    def test_restricted_property_still_stripped_after_pushdown(self):
+        # Property-level access control strips a restricted event property from the raw `properties` blob via
+        # JSONDropKeys. Pushdown exposes that blob inside the events subquery, so the stripping must apply there
+        # too (the subquery's events scan keeps its EventsTable type). Pin it on both the pushed and flat forms.
+        select = (
+            "SELECT properties, session.$session_duration AS d FROM events WHERE timestamp >= '2024-01-01' LIMIT 10"
+        )
+
+        def _print(push_down: bool) -> str:
+            context = HogQLContext(
+                team_id=self.team.pk,
+                enable_select_queries=True,
+                modifiers=HogQLQueryModifiers(pushDownPredicates=push_down),
+            )
+            context.restricted_properties = {("email", PropertyDefinition.Type.EVENT)}
+            query, _ = prepare_and_print_ast(parse_select(select), context, "clickhouse")
+            return pretty_print_in_tests(query, self.team.pk)
+
+        flat = _print(False)
+        assert "JSONDropKeys" in flat, f"expected the restricted key stripped in the flat query:\n{flat}"
+        pushed = _print(True)
+        assert ") AS events LEFT JOIN" in pushed, f"expected pushdown to fire:\n{pushed}"
+        events_subquery = pushed.split("FROM (", 1)[1].split(") AS events LEFT JOIN", 1)[0]
+        assert "JSONDropKeys" in events_subquery, (
+            "pushdown must preserve restricted-key stripping on the inner events scan:\n" + events_subquery
         )
 
     @pytest.mark.usefixtures("unittest_snapshot")
@@ -378,6 +418,24 @@ class TestEventsPredicatePushdownTransformUnit:
             # The gate requires an effective LIMIT (so the LIMIT can short-circuit the events scan); give the
             # node an explicit one. Tests asserting decline fail on their own check (no WHERE, SAMPLE, etc.).
             limit=ast.Constant(value=100),
+        )
+
+    def test_printer_top_level_select_ids_excludes_nested_union_branches(self):
+        # The printer injects a top-level LIMIT only on the root select or the direct branches of the
+        # OUTERMOST union (depth 2). A nested-union inner branch sits deeper, so it must be excluded; else it
+        # would get an inner LIMIT with no matching printer-injected outer cap, diverging from the flat query.
+        a, b, c = (parse_select("SELECT event FROM events") for _ in range(3))
+        assert isinstance(a, ast.SelectQuery) and isinstance(b, ast.SelectQuery) and isinstance(c, ast.SelectQuery)
+
+        assert _printer_top_level_select_ids(a) == {id(a)}, "a root SelectQuery is itself top-level"
+
+        simple = ast.SelectSetQuery.create_from_queries([a, b], "UNION ALL")
+        assert _printer_top_level_select_ids(simple) == {id(a), id(b)}, "both direct branches of a union are top-level"
+
+        inner = ast.SelectSetQuery.create_from_queries([a, b], "UNION ALL")
+        nested = ast.SelectSetQuery.create_from_queries([inner, c], "UNION ALL")
+        assert _printer_top_level_select_ids(nested) == {id(c)}, (
+            "only the outermost direct SelectQuery branch is top-level"
         )
 
     def test_should_apply_pushdown_with_valid_query(self):
@@ -1092,6 +1150,32 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
         for push in (True, False):
             rows = self._results(limited, push_down=push) or []
             assert len(rows) == 5, f"push={push}: LIMIT 5 must bind to exactly 5 rows, got {len(rows)}: {rows}"
+            assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
+
+    def test_exec_binding_limit_true_fan_out_returns_valid_rows_both_ways(self):
+        # The highest-risk shape: a BINDING inner LIMIT (below the matching-event count) AND a true one-to-many
+        # fan-out (self-join on distinct_id, all events share one distinct_id, so each a-event joins to every
+        # b-event). The pushed inner LIMIT cuts EVENTS before the join, so the joined output still has >= LIMIT
+        # rows; both forms must return exactly LIMIT rows from the full valid set. 6 events on one distinct_id
+        # -> 36 joined pairs, LIMIT 3 binds.
+        self._create_session("2024-01-02T00:00:00", "u1", "pro", *[f"2024-01-02T10:0{m}:00" for m in range(6)])
+        self._create_session("2023-06-01T00:00:00", "u_old", "pro", "2023-06-01T09:00:00")  # out of range, dropped
+        flush_persons_and_events()
+        base = (
+            "SELECT a.timestamp AS at, b.timestamp AS bt FROM events AS a "
+            "LEFT JOIN events AS b ON a.distinct_id = b.distinct_id "
+            "WHERE a.timestamp >= '2024-01-01' AND a.timestamp < '2024-01-08'"
+        )
+        limited = base + " LIMIT 3"
+        printed = self._print_pushdown_sql(limited)
+        assert ") AS a LEFT JOIN" in printed, f"expected the fan-out self-join left scan to push:\n{printed}"
+        subquery = printed.split("FROM (", 1)[1].split(") AS a LEFT JOIN", 1)[0]
+        assert "LIMIT 3" in subquery, f"expected the pushed inner LIMIT to bind:\n{subquery}"
+        valid = {tuple(r) for r in (self._results(base + " LIMIT 1000", push_down=False) or [])}
+        assert len(valid) == 36, f"expected 36 joined pairs (6 events x 6 self-join matches), got {len(valid)}"
+        for push in (True, False):
+            rows = self._results(limited, push_down=push) or []
+            assert len(rows) == 3, f"push={push}: LIMIT 3 must bind to exactly 3 rows, got {len(rows)}: {rows}"
             assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
 
     def _setup_cohort_data(self) -> "Cohort":

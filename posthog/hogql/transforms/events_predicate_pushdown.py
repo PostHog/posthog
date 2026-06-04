@@ -6,14 +6,13 @@ from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FieldTraverser
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
 from posthog.hogql.functions.mapping import find_hogql_aggregation
 from posthog.hogql.printer.base import resolve_field_type
-from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
@@ -32,24 +31,33 @@ def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
     return bool(modifiers.pushDownPredicates or (modifiers.pushDownPredicates is None and TEST))
 
 
+def _printer_top_level_select_ids(node: _T_AST) -> set[int]:
+    """ids of the SelectQuery nodes the printer will inject a top-level LIMIT into.
+
+    Mirrors BasePrinter.visit_select_query's is_top_level_query: the root SelectQuery, or the direct
+    SelectQuery branches of the outermost SelectSetQuery (stack depth 2). A branch that is itself a nested
+    SelectSetQuery is NOT top-level, so its leaves are excluded; pushing an inner LIMIT into those would have
+    no matching printer-injected outer cap, diverging from the flat query.
+    """
+    if isinstance(node, ast.SelectQuery):
+        return {id(node)}
+    if isinstance(node, ast.SelectSetQuery):
+        return {id(branch) for branch in node.select_queries() if isinstance(branch, ast.SelectQuery)}
+    return set()
+
+
 def apply_events_predicate_pushdown(
     node: _T_AST,
     context: HogQLContext,
 ) -> _T_AST:
     """Apply predicate pushdown to events tables with lazy joins. Mutates the AST in place; returns it for chaining."""
-    # Outermost selects always get a top-level LIMIT injected later (the executor's _apply_limit default, or
-    # the printer's limit_top_select cap of MAX_SELECT_RETURNED_ROWS), even when the user wrote none. Both
-    # target exactly the extract_select_queries() set and cap in the beneficial range, so the gate treats
-    # these as guaranteed-limited. limit_top_select runs after this transform, so the limit isn't on the AST
-    # yet, hence the precomputed set.
-    top_level_select_ids = (
-        {id(select) for select in extract_select_queries(node)}
-        if isinstance(node, (ast.SelectQuery, ast.SelectSetQuery))
-        else set()
-    )
-    EventsPredicatePushdownTransform(
-        context=context, dialect="clickhouse", top_level_select_ids=top_level_select_ids
-    ).visit(node)
+    # Printer-top-level selects always get a top-level LIMIT injected later (the executor's _apply_limit
+    # default, or the printer's limit_top_select cap of MAX_SELECT_RETURNED_ROWS), even when the user wrote
+    # none, so the gate treats them as guaranteed-limited. limit_top_select runs after this transform, so the
+    # limit isn't on the AST yet, hence the precomputed set. It must match the printer's own top-level rule
+    # exactly (not every leaf select) or a nested-union branch would get an inner LIMIT with no outer cap.
+    top_level_select_ids = _printer_top_level_select_ids(node)
+    EventsPredicatePushdownTransform(context=context, top_level_select_ids=top_level_select_ids).visit(node)
     return node
 
 
@@ -385,13 +393,11 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     def __init__(
         self,
         context: HogQLContext,
-        dialect: HogQLDialect = "clickhouse",
         top_level_select_ids: set[int] | None = None,
     ):
         super().__init__()
         self.context = context
-        self.dialect = dialect
-        # ids of the outermost select queries, guaranteed to get a top-level LIMIT injected later.
+        # ids of the printer's top-level select queries, guaranteed to get a top-level LIMIT injected later.
         self.top_level_select_ids = top_level_select_ids or set()
 
     def visit_select_query(self, node: ast.SelectQuery):
@@ -401,7 +407,14 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         if self._should_apply_pushdown(node):
             # _apply_pushdown returns a decline reason (None if applied). Debug-logged so "eligible but
             # silently not optimizing" stays observable; the timing span alone can't tell applied from declined.
-            decline_reason = self._apply_pushdown(node)
+            try:
+                decline_reason = self._apply_pushdown(node)
+            except Exception as err:
+                # Pushdown is a pure optimization: any unexpected failure must leave the query untouched, not
+                # break it. _apply_pushdown mutates node only after every check passes (the final block is
+                # exception-free attribute assignment), so a raise leaves node unchanged and it runs flat.
+                logger.warning("events_predicate_pushdown_unexpected_error", error=str(err), exc_info=True)
+                return
             if decline_reason is not None:
                 logger.debug("events_predicate_pushdown_declined", reason=decline_reason)
 
@@ -582,7 +595,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         the joins (all LEFT). Then the first `offset + limit` events cover the outer slice, so the inner LIMIT
         returns the same rows as the flat query (modulo the usual no-ORDER-BY arbitrary-row choice when the
         LIMIT is below the match count, which the flat query is subject to too). Uses the explicit LIMIT,
-        falling back to the context's top-level cap an outermost select gets injected later when it has none.
+        capped at (or, when absent, replaced by) the context's top-level cap that the printer applies to an
+        outermost select, so the inner scan never reads rows the capped outer slice can't emit.
         """
         if (
             node.order_by is not None
@@ -601,16 +615,26 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             if not isinstance(node.offset, ast.Constant) or not isinstance(node.offset.value, int):
                 return None
             offset = node.offset.value
+        # A top-level select's outer LIMIT is capped by the printer at the context max (min(value, cap)).
+        # Deriving the cap from limit_context (not hardcoding MAX_SELECT_RETURNED_ROWS) keeps the inner LIMIT
+        # from under-capping contexts whose cap is larger (EXPORT / HEATMAPS / RETENTION), which would drop rows.
+        cap = (
+            get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+            if self._is_top_level(node)
+            else None
+        )
         if isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, int):
-            return ast.Constant(value=node.limit.value + offset)
-        # An outermost select with no explicit LIMIT gets the context's top-level cap injected later, so push
-        # that exact cap. Deriving it from limit_context (not hardcoding MAX_SELECT_RETURNED_ROWS) keeps the
-        # inner LIMIT from under-capping contexts whose cap is larger (EXPORT / HEATMAPS / RETENTION), which
-        # would otherwise drop rows.
-        if id(node) in self.top_level_select_ids:
-            cap = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+            # Match the printer's outer cap so the inner scan never reads rows the capped outer slice can't emit.
+            limit_value = min(node.limit.value, cap) if cap is not None else node.limit.value
+            return ast.Constant(value=limit_value + offset)
+        # No explicit LIMIT: only a top-level select is safe, since the printer injects its cap as the outer
+        # LIMIT later. A non-top-level select with no LIMIT has nothing to short-circuit, so decline.
+        if cap is not None:
             return ast.Constant(value=cap + offset)
         return None
+
+    def _is_top_level(self, node: ast.SelectQuery) -> bool:
+        return id(node) in self.top_level_select_ids
 
     def _from_is_events_table(self, join_expr: ast.JoinExpr) -> bool:
         """True when the FROM resolves directly to the physical events table (not a subquery).
