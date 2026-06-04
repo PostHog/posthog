@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/icons'
-import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -37,7 +37,6 @@ import {
 } from './playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from './sessionRecordingEventUsageLogic'
 import { sessionReplaySceneLogic } from './sessionReplaySceneLogic'
-import SessionRecordingTemplates from './templates/SessionRecordingTemplates'
 
 function Header(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
@@ -215,8 +214,6 @@ function MainPanel(): JSX.Element {
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
                 <SessionRecordingCollections />
-            ) : tab === ReplayTabs.Templates ? (
-                <SessionRecordingTemplates />
             ) : null}
         </div>
     )
@@ -236,15 +233,10 @@ const ReplayPageTabs: ReplayTab[] = [
         tooltip: 'View & create collections',
         'data-attr': 'session-recordings-collections-tab',
     },
-    {
-        label: 'What to watch',
-        key: ReplayTabs.Templates,
-        'data-attr': 'session-recordings-templates-tab',
-    },
 ]
 
 export function SessionRecordingsPageTabs(): JSX.Element {
-    const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
+    const { tab } = useValues(sessionReplaySceneLogic)
     return (
         <LemonTabs
             activeKey={tab}
@@ -253,14 +245,7 @@ export function SessionRecordingsPageTabs(): JSX.Element {
             className="-mt-4"
             tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                 return {
-                    label: (
-                        <>
-                            {replayTab.label}
-                            {replayTab.label === ReplayTabs.Templates && shouldShowNewBadge && (
-                                <LemonBadge className="ml-1" size="small" />
-                            )}
-                        </>
-                    ),
+                    label: replayTab.label,
                     key: replayTab.key,
                     link: urls.replay(replayTab.key),
                     tooltip: replayTab.tooltip,
