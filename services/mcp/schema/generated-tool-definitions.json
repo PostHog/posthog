@@ -1009,7 +1009,7 @@
         }
     },
     "dashboard-delete-tile": {
-        "description": "Soft-delete a single tile (text, insight, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, or ButtonTile object is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
+        "description": "Soft-delete a single tile (text, insight, widget, or button) from a dashboard. Behaves the same as the delete button in the UI — the underlying Insight, Text, ButtonTile, or widget row is preserved (so an insight that lives on multiple dashboards stays on the others), and the remaining tiles are automatically compacted upward to fill the gap left by the deleted tile (matching the dashboard grid's layout). Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). To remove the whole dashboard instead, use dashboard-delete.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Delete dashboard tile",
@@ -1023,7 +1023,7 @@
         }
     },
     "dashboard-get": {
-        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params; on this endpoint they affect only the merged `filters` and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same query params to dashboard-insights-run.",
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights, widget configurations, and layout information. Widget tiles include a `widget` object with `widget_type` and `config` but no live data — use dashboard-widgets-run with tile IDs from this response. Insight results, filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual data for every insight on the dashboard in one call, or insight-query for a single insight. Supports variables_override and filters_override query params; on this endpoint they affect only the merged `filters` and `variables` fields in the response (preview). To execute insights with the same overrides, pass the same query params to dashboard-insights-run.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Get dashboard",
@@ -1064,8 +1064,22 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-tile-copy": {
+        "description": "Copy an insight, text card, or widget tile from one dashboard to another. The path dashboard ID is the destination. Provide fromDashboardId (source dashboard) and tileId (tile to copy). Widget tiles require the dashboard-widgets feature flag and are deep-cloned with a new widget row.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Copy dashboard tile",
+        "title": "Copy dashboard tile",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -1092,6 +1106,50 @@
             "readOnlyHint": false
         }
     },
+    "dashboard-widget-catalog-list": {
+        "description": "List registered dashboard widget types with labels, descriptions, and config_schema_hints. Use before dashboard-widgets-batch-add to pick a widget_type and shape config.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "List dashboard widget catalog",
+        "title": "List dashboard widget catalog",
+        "required_scopes": ["dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-widgets-batch-add": {
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema_hints. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Add dashboard widgets",
+        "title": "Add dashboard widgets",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "dashboard-widgets"
+    },
+    "dashboard-widgets-run": {
+        "description": "Run live queries for dashboard widget tiles and return results. Requires the dashboard-widgets feature flag. Call dashboard-get first to find widget tile IDs (tiles with a widget field). Pass tile_ids as a comma-separated list. Returns per-tile errors when the caller lacks product access for a widget type (see required_product_access on dashboard-widget-catalog-list).",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Run dashboard widgets",
+        "title": "Run dashboard widgets",
+        "required_scopes": ["dashboard:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "dashboard-widgets"
+    },
     "dashboards-get-all": {
         "description": "List dashboards in the project. The optional `search` parameter runs a fuzzy match against name and description using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type) and returns results ranked by relevance — use it to find a specific dashboard by name rather than paging through every dashboard. `search` is capped at 200 characters; longer queries return a 400 error. Optional filters by tag and pinned status are also supported. Returns name, description, pinned status, tags, and creation metadata. Tiles and insights are not included — use dashboard-get to fetch a dashboard's tiles, then dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
@@ -1104,6 +1162,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "dashboards-move-tile-partial-update": {
+        "description": "Move a tile from the source dashboard (path ID) to another dashboard. Provide to_dashboard (destination dashboard ID) and tile.id (tile ID from dashboard-get). Works for insight, text, and widget tiles; widget tiles require the dashboard-widgets feature flag on the project.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Move dashboard tile",
+        "title": "Move dashboard tile",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "data-warehouse-data-health-issues-retrieve": {
@@ -3320,7 +3392,7 @@
         }
     },
     "llma-skill-get": {
-        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io).",
+        "description": "Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get skill",
@@ -3334,7 +3406,7 @@
         }
     },
     "llma-skill-list": {
-        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content).",
+        "description": "List all agent skills stored for the current team. Returns skill names and descriptions for discovery — use descriptions to determine which skill to fetch for a given task. Does not return skill body content (use llma-skill-get to fetch full content). To link a user to a skill in the PostHog app, build the URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List skills",
@@ -4792,6 +4864,20 @@
             "readOnlyHint": true
         }
     },
+    "survey-launch": {
+        "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Launch a survey now.",
+        "title": "Launch a survey now.",
+        "required_scopes": ["survey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "survey-stats": {
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
@@ -4804,6 +4890,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "survey-stop": {
+        "description": "Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with `archived=true` instead.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Stop a survey now.",
+        "title": "Stop a survey now.",
+        "required_scopes": ["survey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "survey-update": {
@@ -4821,11 +4921,11 @@
         }
     },
     "surveys-get-all": {
-        "description": "Get all surveys in the project with optional filtering. Can filter by search term or use pagination.",
+        "description": "List surveys in the project. Use `search` for fuzzy match against survey name and description (handles typos and prefix-as-you-type). Use `type` to filter by survey kind (popover, widget, external_survey, api). Use `archived` to filter archived state. Combine with pagination via `limit`/`offset`.\nCompanion tools to avoid the recon-loop pattern: - For individual response rows: surveys-responses-list - For aggregate event counts: surveys-stats (single survey) or surveys-global-stats (project-wide)",
         "category": "Surveys",
         "feature": "surveys",
-        "summary": "Get all surveys in the project with optional filtering.",
-        "title": "Get all surveys in the project with optional filtering.",
+        "summary": "List surveys in the project (server-side search + filters).",
+        "title": "List surveys in the project (server-side search + filters).",
         "required_scopes": ["survey:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4844,6 +4944,34 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-responses-list": {
+        "description": "List individual responses for a specific survey. Question text is already resolved server-side — callers do not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of executing raw SQL against `survey sent` events.\nCommon patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.\nFor person properties on respondents, follow up with persons-get using the row's distinct_id — this tool only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` / `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving between pages can shift boundaries).",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "List individual survey responses with resolved question text.",
+        "title": "List individual survey responses with resolved question text.",
+        "required_scopes": ["survey:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-summarize-responses-create": {
+        "description": "Summarize survey responses using PostHog's LLM summarization. Pass question_id (preferred) or question_index to get a per-question theme summary. Omit both to get the survey-wide headline summary instead — the endpoint dispatches automatically based on what you pass.\nPass force_refresh=true in the body to bypass cached summaries. Per-question summaries are cached on the survey object; headline summaries are cached on the survey row.\nUse this after you have identified a survey of interest. If you need raw response rows for cross-pivot, use surveys-responses-list instead.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Summarize survey responses (per question, or survey-wide headline).",
+        "title": "Summarize survey responses (per question, or survey-wide headline).",
+        "required_scopes": ["survey:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": true
         }
