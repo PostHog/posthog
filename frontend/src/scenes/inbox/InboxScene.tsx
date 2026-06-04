@@ -6,6 +6,7 @@ import {
     IconArrowLeft,
     IconBug,
     IconCheck,
+    IconChevronDown,
     IconChevronRight,
     IconFilter,
     IconGear,
@@ -53,12 +54,29 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CodingAgentEnumApi } from 'products/signals/frontend/generated/api.schemas'
+
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { SignalCard } from './SignalCard'
 import { SignalGraphTab } from './SignalGraphTab'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SourcesModal } from './SourcesModal'
 import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from './types'
+
+const AGENT_LABEL: Record<CodingAgentEnumApi, string> = {
+    [CodingAgentEnumApi.Cursor]: 'Send to Cursor',
+    [CodingAgentEnumApi.PosthogCode]: 'Send to PostHog Code',
+}
+const AGENT_SHORT: Record<CodingAgentEnumApi, string> = {
+    [CodingAgentEnumApi.Cursor]: 'Cursor',
+    [CodingAgentEnumApi.PosthogCode]: 'PostHog Code',
+}
+const AGENT_TOOLTIP: Record<CodingAgentEnumApi, string> = {
+    [CodingAgentEnumApi.Cursor]: 'Runs as a Cursor cloud agent. Requires Cursor Pro and GitHub connected in Cursor.',
+    [CodingAgentEnumApi.PosthogCode]: "Runs in PostHog's hosted coding agent and opens a PR.",
+}
+const otherAgent = (agent: CodingAgentEnumApi): CodingAgentEnumApi =>
+    agent === CodingAgentEnumApi.Cursor ? CodingAgentEnumApi.PosthogCode : CodingAgentEnumApi.Cursor
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -530,9 +548,10 @@ function ReportDetailPane(): JSX.Element {
         selectedReportSignals,
         reportSignalsLoading,
         selectedReportReviewers,
-        canDispatchToCursor,
-        isDispatchingToCursor,
-        cursorConnected,
+        canDispatch,
+        isDispatchingSelectedReport,
+        defaultCodingAgent,
+        cursorConnectionWarning,
         showConnectModal,
         cursorApiKeyDraft,
         cursorConnectionLoading,
@@ -540,7 +559,8 @@ function ReportDetailPane(): JSX.Element {
     const {
         deleteReport,
         reingestReport,
-        dispatchToCursor,
+        requestDispatch,
+        saveTeamDefaultAgent,
         setActiveDetailTab,
         setShowConnectModal,
         setCursorApiKeyDraft,
@@ -640,32 +660,49 @@ function ReportDetailPane(): JSX.Element {
                             <span className="inline-flex items-center gap-1">
                                 Updated: <TZLabel time={selectedReport.updated_at} />
                             </span>
-                            {canDispatchToCursor &&
-                                (cursorConnected ? (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSparkles />}
-                                        loading={isDispatchingToCursor}
-                                        disabledReason={isDispatchingToCursor ? 'Sending to Cursor…' : undefined}
-                                        onClick={() => dispatchToCursor(selectedReport.id)}
-                                        data-attr="send-to-cursor-button"
-                                        className="ml-auto"
-                                    >
-                                        Send to Cursor
-                                    </LemonButton>
-                                ) : (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconSparkles />}
-                                        onClick={() => setShowConnectModal(true)}
-                                        data-attr="connect-cursor-button"
-                                        className="ml-auto"
-                                    >
-                                        Connect Cursor
-                                    </LemonButton>
-                                ))}
+                            {canDispatch && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSparkles />}
+                                    tooltip={AGENT_TOOLTIP[defaultCodingAgent]}
+                                    loading={isDispatchingSelectedReport}
+                                    disabledReason={isDispatchingSelectedReport ? 'Dispatching…' : undefined}
+                                    onClick={() => requestDispatch(selectedReport.id, defaultCodingAgent)}
+                                    data-attr="dispatch-report-button"
+                                    className="ml-auto"
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={[
+                                                        {
+                                                            label: AGENT_LABEL[otherAgent(defaultCodingAgent)],
+                                                            tooltip: AGENT_TOOLTIP[otherAgent(defaultCodingAgent)],
+                                                            onClick: () =>
+                                                                requestDispatch(
+                                                                    selectedReport.id,
+                                                                    otherAgent(defaultCodingAgent)
+                                                                ),
+                                                        },
+                                                        {
+                                                            label: `Set ${AGENT_SHORT[otherAgent(defaultCodingAgent)]} as team default`,
+                                                            onClick: () =>
+                                                                saveTeamDefaultAgent({
+                                                                    agent: otherAgent(defaultCodingAgent),
+                                                                }),
+                                                        },
+                                                    ]}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    {AGENT_LABEL[defaultCodingAgent]}
+                                </LemonButton>
+                            )}
                             <LemonModal
                                 title="Connect Cursor"
                                 isOpen={showConnectModal}
@@ -682,9 +719,14 @@ function ReportDetailPane(): JSX.Element {
                                     </LemonButton>
                                 }
                             >
+                                {cursorConnectionWarning && (
+                                    <LemonBanner type="warning" className="mb-2">
+                                        {cursorConnectionWarning}
+                                    </LemonBanner>
+                                )}
                                 <p className="mb-2 max-w-md">
-                                    Paste your Cursor API key. It's stored encrypted for this project and used to
-                                    launch Cursor cloud agents from signal reports.
+                                    Paste your Cursor API key. It's stored encrypted for this project and used to launch
+                                    Cursor cloud agents from signal reports.
                                 </p>
                                 <LemonInput
                                     type="password"
@@ -739,6 +781,11 @@ function ReportDetailPane(): JSX.Element {
                                 }
                             />
                         </div>
+                        {cursorConnectionWarning && (
+                            <LemonBanner type="warning" className="mt-3">
+                                {cursorConnectionWarning}
+                            </LemonBanner>
+                        )}
                     </div>
                 </div>
 

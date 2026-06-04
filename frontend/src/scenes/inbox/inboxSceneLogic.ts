@@ -13,14 +13,20 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { Breadcrumb } from '~/types'
+
 import {
+    signalsConfigCreate,
+    signalsConfigList,
     signalsReportsCursorConnectionCreate,
     signalsReportsCursorConnectionRetrieve,
-    signalsReportsDispatchToCursorCreate,
+    signalsReportsDispatchCreate,
 } from 'products/signals/frontend/generated/api'
-import { CursorConnectionStatusApi } from 'products/signals/frontend/generated/api.schemas'
-
-import { Breadcrumb } from '~/types'
+import {
+    CodingAgentEnumApi,
+    CursorConnectionStatusApi,
+    SignalTeamConfigApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
@@ -53,11 +59,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setActiveDetailTab: (tab: DetailTab) => ({ tab }),
         deleteReport: (reportId: string) => ({ reportId }),
         reingestReport: (reportId: string) => ({ reportId }),
-        dispatchToCursor: (reportId: string) => ({ reportId }),
-        dispatchToCursorSuccess: (reportId: string) => ({ reportId }),
-        dispatchToCursorFailure: (reportId: string) => ({ reportId }),
+        requestDispatch: (reportId: string, agent: CodingAgentEnumApi) => ({ reportId, agent }),
+        dispatchReport: (reportId: string, agent: CodingAgentEnumApi) => ({ reportId, agent }),
+        dispatchReportSuccess: (reportId: string) => ({ reportId }),
+        dispatchReportFailure: (reportId: string) => ({ reportId }),
         setShowConnectModal: (show: boolean) => ({ show }),
         setCursorApiKeyDraft: (apiKey: string) => ({ apiKey }),
+        setPendingCursorDispatch: (reportId: string | null) => ({ reportId }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -119,6 +127,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     await signalsReportsCursorConnectionCreate(String(getCurrentTeamId()), { api_key: apiKey }),
             },
         ],
+        teamConfig: [
+            null as SignalTeamConfigApi | null,
+            {
+                loadTeamConfig: async () => await signalsConfigList(String(getCurrentTeamId())),
+                saveTeamDefaultAgent: async ({ agent }: { agent: CodingAgentEnumApi }) =>
+                    await signalsConfigCreate(String(getCurrentTeamId()), { default_coding_agent: agent }),
+            },
+        ],
     })),
 
     reducers({
@@ -164,12 +180,22 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         dispatchingReportIds: [
             [] as string[],
             {
-                dispatchToCursor: (state: string[], { reportId }: { reportId: string }) =>
+                dispatchReport: (state: string[], { reportId }: { reportId: string }) =>
                     state.includes(reportId) ? state : [...state, reportId],
-                dispatchToCursorSuccess: (state: string[], { reportId }: { reportId: string }) =>
+                dispatchReportSuccess: (state: string[], { reportId }: { reportId: string }) =>
                     state.filter((id) => id !== reportId),
-                dispatchToCursorFailure: (state: string[], { reportId }: { reportId: string }) =>
+                dispatchReportFailure: (state: string[], { reportId }: { reportId: string }) =>
                     state.filter((id) => id !== reportId),
+            },
+        ],
+        // Remembers a report the dev tried to send to Cursor while disconnected, so we can
+        // auto-dispatch it once the Connect flow succeeds. Cleared on cancel or once dispatched.
+        pendingCursorDispatchReportId: [
+            null as string | null,
+            {
+                setPendingCursorDispatch: (_: string | null, { reportId }: { reportId: string | null }) => reportId,
+                setShowConnectModal: (state: string | null, { show }: { show: boolean }) => (show ? state : null),
+                dispatchReport: () => null,
             },
         ],
         showConnectModal: [
@@ -254,12 +280,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return reviewersArtefact.content as EnrichedReviewer[]
             },
         ],
-        canDispatchToCursor: [
+        canDispatch: [
             (s) => [s.featureFlags],
             (featureFlags: Record<string, boolean | string>): boolean =>
                 !!featureFlags[FEATURE_FLAGS.SIGNALS_CURSOR_DISPATCH],
         ],
-        isDispatchingToCursor: [
+        isDispatchingSelectedReport: [
             (s) => [s.dispatchingReportIds, s.selectedReportId],
             (dispatchingReportIds: string[], selectedReportId: string | null): boolean =>
                 selectedReportId !== null && dispatchingReportIds.includes(selectedReportId),
@@ -267,6 +293,27 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         cursorConnected: [
             (s) => [s.cursorConnection],
             (cursorConnection: CursorConnectionStatusApi): boolean => !!cursorConnection?.connected,
+        ],
+        defaultCodingAgent: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfigApi | null): CodingAgentEnumApi =>
+                teamConfig?.default_coding_agent ?? CodingAgentEnumApi.PosthogCode,
+        ],
+        // When Cursor is connected but can't actually run agents, surface the wall at connect time.
+        cursorConnectionWarning: [
+            (s) => [s.cursorConnection],
+            (cursorConnection: CursorConnectionStatusApi): string | null => {
+                if (!cursorConnection?.connected) {
+                    return null
+                }
+                if (cursorConnection.plan_ok === false) {
+                    return 'Connected, but your Cursor account needs a Pro plan to run cloud agents.'
+                }
+                if (cursorConnection.has_repo_access === false) {
+                    return 'Connected, but Cursor has no repository access — connect GitHub in your Cursor account.'
+                }
+                return null
+            },
         ],
     }),
 
@@ -320,33 +367,59 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 lemonToast.error(errorMessage)
             }
         },
-        dispatchToCursor: async ({ reportId }) => {
+        requestDispatch: ({ reportId, agent }) => {
+            // Choosing Cursor while disconnected opens the Connect flow first; the report is
+            // remembered and auto-dispatched once the connection succeeds.
+            if (agent === CodingAgentEnumApi.Cursor && !values.cursorConnected) {
+                actions.setPendingCursorDispatch(reportId)
+                actions.setShowConnectModal(true)
+                return
+            }
+            actions.dispatchReport(reportId, agent)
+        },
+        dispatchReport: async ({ reportId, agent }) => {
             try {
-                const response = await signalsReportsDispatchToCursorCreate(String(getCurrentTeamId()), reportId)
-                const agentUrl = response.agent_url
-                lemonToast.success(
-                    'Sent to Cursor — a cloud agent is now working on this report',
-                    agentUrl
-                        ? {
-                              button: {
-                                  label: 'View agent in Cursor',
-                                  action: () => window.open(agentUrl, '_blank', 'noopener,noreferrer'),
-                              },
-                          }
-                        : undefined
-                )
-                actions.dispatchToCursorSuccess(reportId)
+                const response = await signalsReportsDispatchCreate(String(getCurrentTeamId()), reportId, { agent })
+                if (response.agent === CodingAgentEnumApi.Cursor) {
+                    const agentUrl = response.agent_url
+                    lemonToast.success(
+                        'Sent to Cursor — a cloud agent is now working on this report',
+                        agentUrl
+                            ? {
+                                  button: {
+                                      label: 'View agent in Cursor',
+                                      action: () => window.open(agentUrl, '_blank', 'noopener,noreferrer'),
+                                  },
+                              }
+                            : undefined
+                    )
+                } else {
+                    lemonToast.success(
+                        'PostHog Code is on it — the implementation PR will appear on this report when it’s ready'
+                    )
+                    actions.loadReports()
+                }
+                actions.dispatchReportSuccess(reportId)
             } catch (error: any) {
-                const errorMessage = error?.detail || error?.message || 'Failed to send report to Cursor'
+                const errorMessage = error?.detail || error?.message || 'Failed to dispatch report'
                 lemonToast.error(errorMessage)
-                actions.dispatchToCursorFailure(reportId)
+                actions.dispatchReportFailure(reportId)
             }
         },
         connectCursorSuccess: () => {
             lemonToast.success('Cursor connected')
+            if (values.pendingCursorDispatchReportId) {
+                actions.dispatchReport(values.pendingCursorDispatchReportId, CodingAgentEnumApi.Cursor)
+            }
         },
         connectCursorFailure: () => {
             lemonToast.error('Failed to connect Cursor — check the API key')
+        },
+        saveTeamDefaultAgentSuccess: () => {
+            lemonToast.success('Default coding agent updated')
+        },
+        saveTeamDefaultAgentFailure: () => {
+            lemonToast.error('Failed to update the default coding agent')
         },
         loadSourceConfigsSuccess: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
@@ -377,6 +450,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         afterMount: () => {
             actions.loadReports()
             actions.loadCursorConnection()
+            actions.loadTeamConfig()
         },
         beforeUnmount: () => {
             clearInterval(cache.sessionAnalysisPollInterval)
