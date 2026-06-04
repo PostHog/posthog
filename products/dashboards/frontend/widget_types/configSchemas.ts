@@ -1,5 +1,8 @@
 import { z } from 'zod'
 
+import type { ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import { PropertyOperator } from '~/types'
+
 /** Shared widget config fields inherited by all widget types. */
 export const baseWidgetConfigSchema = z.object({
     filterTestAccounts: z.boolean().optional(),
@@ -63,13 +66,48 @@ export const widgetLimitFieldSchema = z
 
 export const widgetOrderDirectionSchema = z.enum(['ASC', 'DESC']).default('DESC')
 
+const errorTrackingWidgetAssigneeSchema = z
+    .object({
+        type: z.enum(['user', 'role']),
+        id: z.union([z.number(), z.string()]),
+    })
+    .nullable()
+    .optional()
+
+/** Persisted filter selection on dashboard widget `config.widgetFilters`. */
+export const widgetFilterEntrySchema = z.object({
+    filterId: z.string(),
+    propertyName: z.string(),
+    optionId: z.string(),
+    value: z.union([z.string(), z.array(z.string()), z.null()]).optional(),
+    operator: z.nativeEnum(PropertyOperator),
+})
+
+export const widgetFiltersSchema = z.record(z.string(), widgetFilterEntrySchema).optional()
+
+export type WidgetFilterConfigEntry = z.infer<typeof widgetFilterEntrySchema>
+export type WidgetFilterConfigRecord = Record<string, WidgetFilterConfigEntry>
+/** Alias used in widget config validation and tile filter bar. */
+export type StoredWidgetFilter = WidgetFilterConfigEntry
+
+/** Accept legacy `quickFilters` key until stored configs are migrated. */
+export function normalizeWidgetConfigKeys(config: Record<string, unknown>): Record<string, unknown> {
+    if (config.quickFilters !== undefined && config.widgetFilters === undefined) {
+        const { quickFilters, ...rest } = config
+        return { ...rest, widgetFilters: quickFilters }
+    }
+    return config
+}
+
 // New widget types: add per-type schemas here — CONTRIBUTING.md
 export const errorTrackingWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),
     orderBy: z.enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions']).default('occurrences'),
     orderDirection: widgetOrderDirectionSchema,
-    status: z.enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed', 'all']).default('active'),
+    status: z.enum(['active', 'resolved', 'suppressed', 'all', 'archived', 'pending_release']).default('active'),
     dateRange: widgetDateRangeSchema,
+    assignee: errorTrackingWidgetAssigneeSchema,
+    widgetFilters: widgetFiltersSchema,
 })
 
 export type ErrorTrackingWidgetConfig = z.infer<typeof errorTrackingWidgetConfigSchema>
@@ -91,8 +129,17 @@ export function widgetListFormSchema<TOrderBy extends z.ZodType>(
     })
 }
 
+export type ErrorTrackingWidgetFormStatus = NonNullable<ErrorTrackingQuery['status']> | 'all'
+
 /** Form fields edited in the error tracking widget settings modal. */
-export const errorTrackingWidgetFormSchema = widgetListFormSchema(errorTrackingWidgetConfigSchema.shape.orderBy)
+export const errorTrackingWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: errorTrackingWidgetConfigSchema.shape.orderBy,
+    orderDirection: widgetOrderDirectionSchema,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+    status: z.enum(['active', 'resolved', 'suppressed', 'all']),
+})
 
 export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),
@@ -101,9 +148,16 @@ export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
         .default('start_time'),
     orderDirection: widgetOrderDirectionSchema,
     dateRange: widgetDateRangeSchema,
+    widgetFilters: widgetFiltersSchema,
 })
 
 export type SessionReplayWidgetConfig = z.infer<typeof sessionReplayWidgetConfigSchema>
 
 /** Form fields edited in the session replay widget settings modal. */
-export const sessionReplayWidgetFormSchema = widgetListFormSchema(sessionReplayWidgetConfigSchema.shape.orderBy)
+export const sessionReplayWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: sessionReplayWidgetConfigSchema.shape.orderBy,
+    orderDirection: widgetOrderDirectionSchema,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+})

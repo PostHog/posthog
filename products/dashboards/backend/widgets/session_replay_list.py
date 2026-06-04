@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -12,6 +13,7 @@ from posthog.models.user import User
 from posthog.session_recordings.session_recording_api import run_recordings_list_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 
+from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widgets.config import (
     merge_base_widget_config_fields,
     resolve_filter_test_accounts,
@@ -20,6 +22,13 @@ from products.dashboards.backend.widgets.config import (
     validate_widget_list_order_by,
     validate_widget_list_order_direction,
 )
+from products.dashboards.backend.widgets.widget_filters import (
+    build_event_property_filters_from_widget_filters,
+    validate_session_replay_widget_filters,
+    widget_filters_from_config,
+)
+
+logger = logging.getLogger(__name__)
 
 SESSION_REPLAY_ORDER_BY = frozenset(
     {
@@ -50,12 +59,14 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
     order_by = validate_widget_list_order_by(config, allowed=SESSION_REPLAY_ORDER_BY, default="start_time")
     order_direction = validate_widget_list_order_direction(config)
     validated_date_range = validate_widget_list_date_range_if_present(config)
+    validated_widget_filters = validate_session_replay_widget_filters(config)
 
     return {
         "limit": limit,
         "orderBy": order_by,
         "orderDirection": order_direction,
         **({"dateRange": validated_date_range} if validated_date_range is not None else {}),
+        **({"widgetFilters": validated_widget_filters} if validated_widget_filters is not None else {}),
         **merge_base_widget_config_fields(config),
     }
 
@@ -67,31 +78,86 @@ def _build_recordings_query(team: Team, config: dict[str, Any]):
     if isinstance(date_range_raw, dict) and isinstance(date_range_raw.get("date_from"), str):
         date_from = date_range_raw["date_from"]
 
-    return filter_from_params_to_query(
-        {
-            "limit": config["limit"],
-            "offset": 0,
-            "date_from": date_from,
-            "filter_test_accounts": resolve_filter_test_accounts(config, team),
-            "order": ORDER_BY_TO_RECORDING_ORDER[order_by],
-            "order_direction": config.get("orderDirection", "DESC"),
-        }
+    params: dict[str, Any] = {
+        "limit": config["limit"],
+        "offset": 0,
+        "date_from": date_from,
+        "filter_test_accounts": resolve_filter_test_accounts(config, team),
+        "order": ORDER_BY_TO_RECORDING_ORDER[order_by],
+        "order_direction": config.get("orderDirection", "DESC"),
+    }
+    property_filters = build_event_property_filters_from_widget_filters(
+        cast(dict[str, dict[str, Any]] | None, widget_filters_from_config(config))
     )
+    if property_filters:
+        params["properties"] = property_filters
+
+    return filter_from_params_to_query(params)
 
 
-def run_session_replay_list_widget(team: Team, config: dict[str, Any], user: User | None = None) -> dict[str, Any]:
+def _run_session_replay_list_query(
+    team: Team,
+    config: dict[str, Any],
+    user: User | None,
+) -> dict[str, Any]:
     query = _build_recordings_query(team, config)
-    limit = cast(int, config["limit"])
     with tags_context(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk):
-        data = run_recordings_list_query(
+        return run_recordings_list_query(
             query=query,
             user=user,
             team=team,
             allow_event_property_expansion=False,
         )
-    return {
-        "results": data["results"],
-        "hasMore": data["has_next"],
+
+
+def _count_matching_session_recordings(
+    team: Team,
+    config: dict[str, Any],
+    user: User | None,
+    *,
+    cap: int = MAX_WIDGET_RESULT_LIMIT,
+) -> tuple[int, bool]:
+    """Return how many recordings match the widget filters, and whether the count hit the cap."""
+    count_config = {**config, "limit": cap}
+    data = _run_session_replay_list_query(team, count_config, user)
+    raw_results_value = data.get("results")
+    raw_results = raw_results_value if isinstance(raw_results_value, list) else []
+    return len(raw_results), bool(data.get("has_next"))
+
+
+def run_session_replay_list_widget(
+    team: Team,
+    config: dict[str, Any],
+    user: User | None = None,
+    *,
+    include_total_count: bool = True,
+) -> dict[str, Any]:
+    query_config = dict(config)
+    limit = cast(int, query_config["limit"])
+    data = _run_session_replay_list_query(team, query_config, user)
+    raw_results_value = data.get("results")
+    raw_results = raw_results_value if isinstance(raw_results_value, list) else []
+    results = raw_results[:limit]
+    has_more = bool(data.get("has_next"))
+    shown = len(results)
+
+    payload: dict[str, Any] = {
+        "results": results,
+        "hasMore": has_more,
         "limit": limit,
-        "offset": query.offset or 0,
+        "offset": 0,
     }
+
+    if has_more:
+        if include_total_count:
+            try:
+                total_count, total_count_capped = _count_matching_session_recordings(team, query_config, user)
+                payload["totalCount"] = total_count
+                payload["totalCountCapped"] = total_count_capped
+            except Exception:
+                logger.exception("session_replay_widget_total_count_failed")
+    else:
+        payload["totalCount"] = shown
+        payload["totalCountCapped"] = False
+
+    return payload
