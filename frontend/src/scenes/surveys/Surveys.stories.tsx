@@ -403,6 +403,8 @@ export const NewSurveyWithHTMLQuestionDescription: Story = {
 }
 
 export const NewSurveyWithTextQuestionDescriptionThatDoesNotRenderHTML: Story = {
+    // FIXME: Crashes webkit deterministically since the Playwright 1.60.0 bump (#60771). Fix tracked separately.
+    tags: ['test-skip-webkit'],
     render: () => {
         useDelayedOnMountEffect(() => {
             surveyLogic({ id: 'new' }).mount()
