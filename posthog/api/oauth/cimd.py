@@ -325,12 +325,16 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
 def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
     """Look up a verification token from CIMD metadata, preferring the nested
     `com.posthog.verification_token` and falling back to the legacy top-level
-    `posthog_verification_token`. Returns the token record on match, or None."""
+    `posthog_verification_token`. Falls back to the top-level token when the nested
+    one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
+    a partner whose legacy token still resolves. Returns the token record, or None."""
     com_posthog = metadata.get("com.posthog")
     if isinstance(com_posthog, dict):
         nested_raw = com_posthog.get("verification_token")
         if nested_raw and isinstance(nested_raw, str):
-            return find_cimd_verification_token(nested_raw)
+            token = find_cimd_verification_token(nested_raw)
+            if token is not None:
+                return token
 
     raw = metadata.get("posthog_verification_token")
     if not raw or not isinstance(raw, str):
@@ -353,9 +357,8 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     com_posthog = metadata.get("com.posthog")
     if not isinstance(com_posthog, dict):
         return None
-    raw_scopes = com_posthog.get("scopes")
-    if raw_scopes is None:
-        return None
+    # Untrusted partner JSON: the TypedDict says list[str], but guard the real type.
+    raw_scopes: object = com_posthog.get("scopes")
     if not isinstance(raw_scopes, list):
         return None
     return [s for s in raw_scopes if isinstance(s, str) and s in UNPRIVILEGED_SCOPES]

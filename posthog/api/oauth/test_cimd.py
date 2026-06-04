@@ -49,8 +49,8 @@ def generate_rsa_key() -> str:
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"
 
 
-def _make_metadata(url: str = VALID_CIMD_URL, **overrides) -> dict:
-    metadata = {
+def _make_metadata(url: str = VALID_CIMD_URL, **overrides: object) -> dict:
+    metadata: dict[str, object] = {
         "client_id": url,
         "client_name": "Test MCP Client",
         "redirect_uris": ["http://127.0.0.1:3000/callback"],
@@ -886,12 +886,12 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     # posthog_verification_token must link the app to the organization.
     @parameterized.expand(
         [
-            ("nested", True),
-            ("top_level", True),
+            ("nested",),
+            ("top_level",),
         ]
     )
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_verification_token_dual_read(self, token_placement, expected_linked, mock_get, _url_mock):
+    def test_verification_token_dual_read(self, token_placement, mock_get, _url_mock):
         token, plaintext = create_cimd_verification_token(
             organization=self.organization, label="Dual-read partner", created_by=self.user
         )
@@ -904,10 +904,23 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
 
         assert app is not None
-        if expected_linked:
-            self.assertEqual(app.organization_id, self.organization.id)
-        else:
-            self.assertIsNone(app.organization_id)
+        self.assertEqual(app.organization_id, self.organization.id)
+
+    # (d) continued: an unrecognized nested token falls back to a valid top-level one.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_verification_token_falls_back_when_nested_unrecognized(self, mock_get, _url_mock):
+        _, plaintext = create_cimd_verification_token(
+            organization=self.organization, label="Fallback partner", created_by=self.user
+        )
+        metadata = _make_metadata(
+            posthog_verification_token=plaintext,
+            **{"com.posthog": {"verification_token": "phvt_does_not_exist"}},
+        )
+        mock_get.return_value = _mock_response(metadata, headers={})
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.organization_id, self.organization.id)
 
     # (d) continued: nested token takes precedence over top-level when both present.
     @patch("posthog.api.oauth.cimd.requests.get")
