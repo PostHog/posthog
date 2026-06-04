@@ -475,3 +475,26 @@ class TestCalculateActivity(BaseTest):
             assert row.status == ExperimentMetricResult.Status.FAILED
             assert row.error_message is not None
             assert len(row.error_message) <= 2000
+
+
+@pytest.mark.django_db(transaction=True)
+class TestMissingRecalcRow:
+    # All three activities go through _get_recalc_state at the top. A missing row is deterministic
+    # (bogus id, manual delete, or cascade from team/experiment) — every activity must fail non-retryable
+    # so Temporal terminates instead of burning retries.
+    @parameterized.expand(
+        [
+            ("discover", lambda bogus_id: _discover(bogus_id)),
+            ("update_progress", lambda bogus_id: _update(RecalculationProgressUpdate(recalculation_id=bogus_id))),
+            ("calculate", lambda bogus_id: _calculate(1, "m1", bogus_id, _QUERY_TO)),
+        ]
+    )
+    def test_fails_non_retryable(self, name: str, call_activity):
+        bogus_id = "019e9af0-0000-7000-8000-000000000000"
+
+        with pytest.raises(ApplicationError) as exc_info:
+            call_activity(bogus_id)
+
+        assert bogus_id in str(exc_info.value)
+        assert "not found" in str(exc_info.value)
+        assert exc_info.value.non_retryable is True

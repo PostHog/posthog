@@ -80,8 +80,11 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         .first()
     )
     if row is None:
-        raise ExperimentMetricsRecalculation.DoesNotExist(
-            f"ExperimentMetricsRecalculation {recalculation_id} not found"
+        # Deterministic: the row's not coming back (bogus id, manual delete, cascade from team/experiment).
+        # Non-retryable so Temporal terminates promptly instead of burning retries on each activity.
+        raise ApplicationError(
+            f"ExperimentMetricsRecalculation {recalculation_id} not found",
+            non_retryable=True,
         )
     return _RecalcState(
         team_id=row["team_id"],
