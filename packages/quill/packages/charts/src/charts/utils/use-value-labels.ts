@@ -5,9 +5,7 @@ import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
-    /** Per-segment label text. Receives a `context` (band values, raw value, percent layout) so
-     *  callers can render shares/percentages without the library knowing about them. Returning an
-     *  empty string skips the label. */
+    /** Per-segment label text — see `ValueLabelFormatter` for the context and empty-string contract. */
     formatter?: ValueLabelFormatter
 }
 

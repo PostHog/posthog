@@ -352,19 +352,21 @@ describe('ValueLabels', () => {
             })
             const { container } = renderInChart(
                 ctx,
-                <ValueLabels valueFormatter={(v, _si, _di, c) => `${(v * 100).toFixed(0)}%${c.isPercent ? '*' : ''}`} />
+                // Encode both `value` (the fraction) and `isPercent` so the assertion pins both, no branch.
+                <ValueLabels valueFormatter={(v, _si, _di, c) => `${(v * 100).toFixed(0)}%|${c.isPercent}`} />
             )
             expect(
                 labelDivs(container)
                     .map((d) => d.textContent)
                     .sort()
-            ).toEqual(['20%*', '40%*', '60%*', '80%*'])
+            ).toEqual(['20%|true', '40%|true', '60%|true', '80%|true'])
         })
 
         it('skips labels whose formatter returns an empty string', () => {
             const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30] }]
             const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
-            const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => (v === 20 ? '' : `${v}`)} />)
+            const textByValue: Record<number, string> = { 10: '10', 20: '', 30: '30' }
+            const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => textByValue[v]} />)
             expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30'])
         })
     })

@@ -12,8 +12,9 @@ export type ValueLabelsMode = 'per-segment' | 'stack-total'
  *  the band (e.g. each segment's share of its band). Keeps band/stacking knowledge in the library
  *  while leaving the label text — values, percentages, units — entirely to the caller. */
 export interface ValueLabelContext {
-    /** Underlying value of this segment. In percent layout the formatter's `value` arg is the
-     *  segment's fraction (0..1); `rawValue` stays the original so callers can compute their own shares. */
+    /** Underlying value of this segment (the band total for stack-total labels). In percent layout
+     *  the formatter's `value` arg is the segment's fraction (0..1); `rawValue` stays the original so
+     *  callers can compute their own shares. */
     rawValue: number
     /** Finite values of every series contributing to this band's stack (non-excluded, not a fill
      *  lower-bound, not an overlay) at this dataIndex — the denominator set for share math. */
@@ -116,9 +117,6 @@ function buildCandidates(args: BuildCandidatesArgs): Candidate[] {
     return args.mode === 'stack-total' ? buildStackTotal(args, ctx) : buildPerSegment(args, ctx)
 }
 
-// Series contributing to a band's stack height: non-excluded, not a fill lower-bound, not an
-// overlay. The denominator set both for percent-layout fraction placement and for the
-// `bandValues` exposed to value formatters.
 function stackContributors(series: ResolvedSeries[]): ResolvedSeries[] {
     return series.filter((s) => !s.visibility?.excluded && !s.fill?.lowerData && !s.overlay)
 }
@@ -180,6 +178,8 @@ function buildStackTotal(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
         if (categoricalCoord == null || !isFinite(categoricalCoord) || !isFinite(valueCoord)) {
             continue
         }
+        // `visible` (label-eligible series) rather than all stack contributors, so `bandValues`
+        // sums to the `total` shown — `buildPerSegment` deliberately uses the wider contributor set.
         const text = valueFormatter(total, -1, dIdx, {
             rawValue: total,
             bandValues: bandValuesAt(visible, dIdx),
@@ -209,10 +209,12 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
     const { series, labels, scales, resolvePositionValue, valueFormatter, isHorizontal, isPercent } = args
     const out: Candidate[] = []
 
-    // Series forming the stack — the denominator both for percent-layout fraction placement (each
-    // segment's `raw / total`) and for the `bandValues` we hand to the formatter. Includes series
-    // with `valueLabel: false`, since they still contribute to the visual stack height.
+    // Stack denominator — for percent-layout fraction placement and for the `bandValues` handed to
+    // the formatter. Includes `valueLabel: false` series, which still contribute to stack height.
+    // The band depends only on `dIdx`, so compute it once per index instead of per segment.
     const contributors = stackContributors(series)
+    const bandValuesByIndex = labels.map((_, dIdx) => bandValuesAt(contributors, dIdx))
+    const bandTotalByIndex = isPercent ? labels.map((_, dIdx) => bandTotal(contributors, dIdx)) : []
 
     for (let sIdx = 0; sIdx < series.length; sIdx++) {
         const s = series[sIdx]
@@ -236,7 +238,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             let above = isPercent ? false : yValue >= 0
 
             if (isPercent) {
-                const total = bandTotal(contributors, dIdx)
+                const total = bandTotalByIndex[dIdx]
                 if (total == null || total === 0) {
                     continue
                 }
@@ -256,7 +258,7 @@ function buildPerSegment(args: BuildCandidatesArgs, ctx: CanvasRenderingContext2
             }
             const text = valueFormatter(displayValue, sIdx, dIdx, {
                 rawValue,
-                bandValues: bandValuesAt(contributors, dIdx),
+                bandValues: bandValuesByIndex[dIdx],
                 isPercent,
             })
             if (text === '') {

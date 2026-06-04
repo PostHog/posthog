@@ -29,10 +29,8 @@ export interface LifecycleValueLabelOptions {
     showPercentages: boolean
 }
 
-// Builds the value-label text for lifecycle bars: the value, a percentage, or `value (pct%)`.
 // Each segment's percentage is its share of the band's absolute total — `abs` so the negative
-// dormant series still contributes a sensible denominator instead of cancelling the positives.
-// Returning '' (percentages-only with no band total) tells the overlay to skip the label.
+// dormant series contributes a sensible denominator instead of cancelling the positives.
 export function buildLifecycleValueLabelFormatter(
     formatValue: (value: number) => string,
     { showValues, showPercentages }: LifecycleValueLabelOptions
@@ -43,7 +41,7 @@ export function buildLifecycleValueLabelFormatter(
             return valueText
         }
         const absTotal = context.bandValues.reduce((sum, v) => sum + Math.abs(v), 0)
-        if (absTotal <= 0) {
+        if (absTotal === 0) {
             return valueText
         }
         const pct = Math.round((Math.abs(context.rawValue) / absTotal) * 100)
