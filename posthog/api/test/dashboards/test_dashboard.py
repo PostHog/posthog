@@ -1340,8 +1340,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "dashboard created",
             {
                 "created_at": mock.ANY,
-                "dashboard_id": None,
+                "dashboard_id": response["id"],
                 "duplicated": False,
+                "duplicated_from_dashboard_id": None,
                 "from_template": True,
                 "has_description": True,
                 "is_shared": False,
