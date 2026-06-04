@@ -71,12 +71,16 @@ fi
 # and uses host.docker.internal for services running natively on the host
 # (recording-api, Django).
 
+# Local-dev only: lets Chromium's sandbox initialize in the emulated container; stays ON, never used in prod.
+chrome_sandbox_opts=(--security-opt seccomp=unconfined) # nosemgrep: trailofbits.generic.container-privileged.container-privileged
+
 echo "Starting recording-rasterizer container..."
 docker run --rm \
     --name "$CONTAINER_NAME" \
     --network posthog_default \
     --platform linux/amd64 \
     --add-host localhost:host-gateway \
+    "${chrome_sandbox_opts[@]}" \
     -e TEMPORAL_HOST="${TEMPORAL_HOST:-posthog-temporal-1}" \
     -e TEMPORAL_PORT="${TEMPORAL_PORT:-7233}" \
     -e RECORDING_API_BASE_URL="${RECORDING_API_BASE_URL:-http://host.docker.internal:6741}" \
