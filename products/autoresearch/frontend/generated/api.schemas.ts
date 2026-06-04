@@ -561,6 +561,37 @@ export interface CreateSuggestionApi {
 }
 
 /**
+ * * `picked_up` - picked_up
+ * `acted_on` - acted_on
+ * `dismissed` - dismissed
+ */
+export type RespondToSuggestionStatusEnumApi =
+    (typeof RespondToSuggestionStatusEnumApi)[keyof typeof RespondToSuggestionStatusEnumApi]
+
+export const RespondToSuggestionStatusEnumApi = {
+    PickedUp: 'picked_up',
+    ActedOn: 'acted_on',
+    Dismissed: 'dismissed',
+} as const
+
+/**
+ * Input for the agent to record how it interpreted a steering suggestion.
+ */
+export interface RespondToSuggestionApi {
+    /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+
+  * `picked_up` - picked_up
+  * `acted_on` - acted_on
+  * `dismissed` - dismissed */
+    status: RespondToSuggestionStatusEnumApi
+    /**
+     * Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).
+     * @maxLength 2000
+     */
+    agent_response?: string
+}
+
+/**
  * One iteration referenced from a run summary's ladder or dead-ends list.
  */
 export interface TrainingRunSummaryLadderItemApi {
@@ -884,6 +915,11 @@ export interface RecordIterationApi {
      * @nullable
      */
     agent_confidence?: number | null
+    /**
+     * UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'.
+     * @nullable
+     */
+    parent_suggestion?: string | null
 }
 
 export interface AutoresearchIterationApi {
@@ -914,6 +950,11 @@ export interface AutoresearchIterationApi {
      * @nullable
      */
     agent_confidence?: number | null
+    /**
+     * UUID of the steering suggestion this iteration was spawned from, if any.
+     * @nullable
+     */
+    parent_suggestion?: string | null
     readonly created_at: string
 }
 

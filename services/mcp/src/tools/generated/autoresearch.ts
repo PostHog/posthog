@@ -23,6 +23,8 @@ import {
     AutoresearchSuggestionsCreateParams,
     AutoresearchSuggestionsListParams,
     AutoresearchSuggestionsListQueryParams,
+    AutoresearchSuggestionsRespondCreateBody,
+    AutoresearchSuggestionsRespondCreateParams,
     AutoresearchSuggestionsRetrieveParams,
     AutoresearchTemplatesListQueryParams,
     AutoresearchTrainCreateBody,
@@ -604,6 +606,34 @@ const autoresearchSuggestionsRetrieve = (): ToolBase<
     },
 })
 
+const AutoresearchSuggestionsRespondSchema = AutoresearchSuggestionsRespondCreateParams.omit({
+    project_id: true,
+}).extend(AutoresearchSuggestionsRespondCreateBody.shape)
+
+const autoresearchSuggestionsRespond = (): ToolBase<
+    typeof AutoresearchSuggestionsRespondSchema,
+    Schemas.AutoresearchSuggestion
+> => ({
+    name: 'autoresearch-suggestions-respond',
+    schema: AutoresearchSuggestionsRespondSchema,
+    handler: async (context: Context, params: z.infer<typeof AutoresearchSuggestionsRespondSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.agent_response !== undefined) {
+            body['agent_response'] = params.agent_response
+        }
+        const result = await context.api.request<Schemas.AutoresearchSuggestion>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/suggestions/${encodeURIComponent(String(params.id))}/respond/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AutoresearchTemplatesListSchema = AutoresearchTemplatesListQueryParams
 
 const autoresearchTemplatesList = (): ToolBase<
@@ -882,6 +912,9 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
         if (params.agent_confidence !== undefined) {
             body['agent_confidence'] = params.agent_confidence
         }
+        if (params.parent_suggestion !== undefined) {
+            body['parent_suggestion'] = params.parent_suggestion
+        }
         const result = await context.api.request<Schemas.AutoresearchIteration>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/iterations/`,
@@ -1047,6 +1080,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'autoresearch-suggestions-create': autoresearchSuggestionsCreate,
     'autoresearch-suggestions-list': autoresearchSuggestionsList,
     'autoresearch-suggestions-retrieve': autoresearchSuggestionsRetrieve,
+    'autoresearch-suggestions-respond': autoresearchSuggestionsRespond,
     'autoresearch-templates-list': autoresearchTemplatesList,
     'autoresearch-train-create': autoresearchTrainCreate,
     'autoresearch-training-runs-artifacts-delete-create': autoresearchTrainingRunsArtifactsDeleteCreate,

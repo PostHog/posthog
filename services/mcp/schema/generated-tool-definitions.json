@@ -714,6 +714,20 @@
             "readOnlyHint": true
         }
     },
+    "autoresearch-suggestions-respond": {
+        "description": "Record how you handled a steering suggestion so the human who submitted it sees the outcome (it stays 'queued' in the UI until you do). Set status to 'picked_up' (applied as a search constraint across iterations), 'acted_on' (spawned one or more iterations from it), or 'dismissed' (rejected — explain why in agent_response), and write a one-line agent_response. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion picked_up/dismissed without a dedicated iteration.",
+        "category": "Autoresearch",
+        "feature": "autoresearch",
+        "summary": "Respond to a suggestion",
+        "title": "Respond to a suggestion",
+        "required_scopes": ["autoresearch:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "autoresearch-suggestions-retrieve": {
         "description": "Get full details for a specific suggestion including its status and agent_response.",
         "category": "Autoresearch",
@@ -855,7 +869,7 @@
         }
     },
     "autoresearch-training-runs-iterations-create": {
-        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: model_class in model_spec must be in the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a read-only SELECT keyed on person_id. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion.",
+        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: model_class in model_spec must be in the sklearn/xgboost allowlist, and feature_sql in recipe_snapshot must be a read-only SELECT keyed on person_id. Use status='kept' if the iteration improved on the best score, 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Record a training iteration",

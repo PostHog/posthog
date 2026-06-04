@@ -43,6 +43,7 @@ import type {
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
+    RespondToSuggestionApi,
     StartTrainingRequestApi,
     StoredArtifactApi,
     TrainingRunHistoryApi,
@@ -320,6 +321,32 @@ export const autoresearchSuggestionsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAutoresearchSuggestionsRespondCreateUrl = (projectId: string, pipelineId: string, id: string) => {
+    return `/api/projects/${projectId}/autoresearch/${pipelineId}/suggestions/${id}/respond/`
+}
+
+/**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreate = async (
+    projectId: string,
+    pipelineId: string,
+    id: string,
+    respondToSuggestionApi: RespondToSuggestionApi,
+    options?: RequestInit
+): Promise<AutoresearchSuggestionApi> => {
+    return apiMutator<AutoresearchSuggestionApi>(
+        getAutoresearchSuggestionsRespondCreateUrl(projectId, pipelineId, id),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(respondToSuggestionApi),
+        }
+    )
 }
 
 export const getAutoresearchTrainingRunsListUrl = (

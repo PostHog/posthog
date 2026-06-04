@@ -495,6 +495,12 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax)
             .nullish()
             .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
+        parent_suggestion: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'."
+            ),
     })
     .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
 

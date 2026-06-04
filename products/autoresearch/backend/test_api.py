@@ -442,6 +442,64 @@ class TestAutoresearchSuggestionAPI(APIBaseTest):
         resp = self.client.get(f"{self._suggestions_url(pipeline_b.id)}{suggestion.id}/")
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
+    # ──────────────────────────────────────────── respond ─────────────────────────────────────────
+
+    def _make_suggestion(self, pipeline: AutoresearchPipeline) -> AutoresearchSuggestion:
+        return AutoresearchSuggestion.objects.create(
+            pipeline=pipeline,
+            created_by=self.user,
+            prompt="try a calibrated logistic regression",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+
+    def test_respond_sets_status_and_agent_response(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline.id)}{suggestion.id}/respond/",
+            {"status": "acted_on", "agent_response": "Spawned iter 2 with LR + calibration."},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        data = resp.json()
+        assert data["status"] == "acted_on"
+        assert data["agent_response"] == "Spawned iter 2 with LR + calibration."
+        suggestion.refresh_from_db()
+        assert suggestion.status == "acted_on"
+
+    def test_respond_dismissed(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline.id)}{suggestion.id}/respond/",
+            {"status": "dismissed", "agent_response": "Already a dead-end in a prior run."},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["status"] == "dismissed"
+
+    def test_respond_invalid_status_returns_400(self):
+        pipeline = self._make_pipeline()
+        suggestion = self._make_suggestion(pipeline)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline.id)}{suggestion.id}/respond/",
+            {"status": "queued"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_respond_wrong_pipeline_returns_404(self):
+        pipeline_a = self._make_pipeline(name="Pipeline A")
+        pipeline_b = self._make_pipeline(name="Pipeline B")
+        suggestion = self._make_suggestion(pipeline_a)
+        resp = self.client.post(
+            f"{self._suggestions_url(pipeline_b.id)}{suggestion.id}/respond/",
+            {"status": "acted_on"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
 
 class _InMemoryStorage:
     """In-memory stand-in for object_storage so artifact endpoints don't need MinIO."""

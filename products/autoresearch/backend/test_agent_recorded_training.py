@@ -9,6 +9,7 @@ from products.autoresearch.backend.models import (
     AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
+    AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
 
@@ -75,6 +76,58 @@ class TestAgentRecordedTraining(APIBaseTest):
         resp = self._record(run_id, number=0)
         assert resp.status_code == status.HTTP_201_CREATED, resp.json()
         assert AutoresearchIteration.objects.filter(training_run_id=run_id, iteration_number=0).exists()
+
+    def test_record_iteration_links_parent_suggestion_and_marks_acted_on(self):
+        suggestion = AutoresearchSuggestion.objects.create(
+            pipeline=self.pipeline,
+            created_by=self.user,
+            prompt="try a calibrated logistic regression",
+            priority=AutoresearchSuggestion.Priority.TRY_NEXT,
+            source=AutoresearchSuggestion.Source.USER,
+        )
+        run_id = self._open_run()
+        resp = self.client.post(
+            f"{self.runs_url}/{run_id}/iterations/",
+            {
+                "iteration_number": 0,
+                "recipe_snapshot": VALID_RECIPE,
+                "model_spec": VALID_SPEC,
+                "status": "kept",
+                "holdout_score": 0.9,
+                "agent_description": "acting on the steer",
+                "parent_suggestion": str(suggestion.id),
+            },
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_201_CREATED, resp.json()
+        iteration = AutoresearchIteration.objects.get(training_run_id=run_id, iteration_number=0)
+        assert str(iteration.parent_suggestion_id) == str(suggestion.id)
+        # Spawning an iteration from a suggestion advances it to acted_on for the UI feedback loop.
+        suggestion.refresh_from_db()
+        assert suggestion.status == "acted_on"
+        assert str(iteration.id) in [str(i) for i in suggestion.iterations.values_list("id", flat=True)]
+
+    def test_record_iteration_rejects_foreign_parent_suggestion(self):
+        other_pipeline = AutoresearchPipeline.objects.create(
+            team=self.team, created_by=self.user, name="Other", target_event="$pageview", horizon_days=7
+        )
+        foreign = AutoresearchSuggestion.objects.create(
+            pipeline=other_pipeline, created_by=self.user, prompt="foreign", source=AutoresearchSuggestion.Source.USER
+        )
+        run_id = self._open_run()
+        resp = self.client.post(
+            f"{self.runs_url}/{run_id}/iterations/",
+            {
+                "iteration_number": 0,
+                "recipe_snapshot": VALID_RECIPE,
+                "model_spec": VALID_SPEC,
+                "status": "kept",
+                "holdout_score": 0.9,
+                "parent_suggestion": str(foreign.id),
+            },
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_record_iteration_accepts_any_model_class(self):
         # model_class is informational at recording time — the agent's real model runs

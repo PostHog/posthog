@@ -514,9 +514,15 @@ class AutoresearchIterationSerializer(serializers.ModelSerializer):
             "status",
             "agent_description",
             "agent_confidence",
+            "parent_suggestion",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+        extra_kwargs = {
+            "parent_suggestion": {
+                "help_text": "UUID of the steering suggestion this iteration was spawned from, if any."
+            },
+        }
 
 
 class TrainingRunHistoryEntrySerializer(serializers.Serializer):
@@ -777,6 +783,15 @@ class RecordIterationSerializer(serializers.Serializer):
         max_value=1,
         help_text="Agent's self-assessed confidence (0–1) that this iteration helps.",
     )
+    parent_suggestion = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the "
+            "iteration acts on a pending suggestion — it links the iteration back to the suggestion for "
+            "attribution and advances the suggestion to 'acted_on'."
+        ),
+    )
 
     def validate(self, data: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -784,6 +799,25 @@ class RecordIterationSerializer(serializers.Serializer):
         except RecipeValidationError as e:
             raise serializers.ValidationError(str(e)) from e
         return data
+
+
+class RespondToSuggestionSerializer(serializers.Serializer):
+    """Input for the agent to record how it interpreted a steering suggestion."""
+
+    status = serializers.ChoiceField(
+        choices=["picked_up", "acted_on", "dismissed"],
+        help_text=(
+            "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), "
+            "'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response)."
+        ),
+    )
+    agent_response = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=2000,
+        help_text="Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).",
+    )
 
 
 class CompleteTrainingRunSerializer(serializers.Serializer):

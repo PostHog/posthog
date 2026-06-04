@@ -60,6 +60,7 @@ from products.autoresearch.backend.serializers import (
     RecordIterationSerializer,
     ResolvedTemplateSerializer,
     ResolveTemplateRequestSerializer,
+    RespondToSuggestionSerializer,
     StartTrainingRequestSerializer,
     StoredArtifactSerializer,
     TemplateInfoSerializer,
@@ -572,6 +573,19 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         recipe_hash = hashlib.sha256(
             json.dumps({"recipe": recipe_snapshot, "spec": model_spec}, sort_keys=True).encode()
         ).hexdigest()
+
+        # Link the iteration to the suggestion that spawned it, if any. Scope the lookup to this
+        # run's pipeline so a foreign suggestion id can't be attached across tenants.
+        parent_suggestion = None
+        parent_suggestion_id = data.get("parent_suggestion")
+        if parent_suggestion_id:
+            try:
+                parent_suggestion = AutoresearchSuggestion.objects.get(
+                    id=parent_suggestion_id, pipeline=training_run.pipeline
+                )
+            except AutoresearchSuggestion.DoesNotExist:
+                raise ValidationError("parent_suggestion not found on this pipeline.")
+
         iteration, _ = AutoresearchIteration.objects.update_or_create(
             training_run=training_run,
             iteration_number=data["iteration_number"],
@@ -585,8 +599,19 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
                 "status": data["status"],
                 "agent_description": data.get("agent_description", ""),
                 "agent_confidence": data.get("agent_confidence"),
+                "parent_suggestion": parent_suggestion,
             },
         )
+
+        # Spawning an iteration from a suggestion is itself acting on it — advance the suggestion so
+        # the UI reflects the pickup even if the agent never calls the respond endpoint.
+        if parent_suggestion and parent_suggestion.status in (
+            AutoresearchSuggestion.Status.QUEUED,
+            AutoresearchSuggestion.Status.PICKED_UP,
+        ):
+            parent_suggestion.status = AutoresearchSuggestion.Status.ACTED_ON
+            parent_suggestion.save(update_fields=["status", "updated_at"])
+
         return Response(AutoresearchIterationSerializer(iteration).data, status=201)
 
     @validated_request(
@@ -931,7 +956,7 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
 
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
-    scope_object_write_actions = ["create"]
+    scope_object_write_actions = ["create", "respond"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchSuggestionSerializer
     queryset = AutoresearchSuggestion.objects.all()
@@ -1010,3 +1035,31 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             source=AutoresearchSuggestion.Source.USER,
         )
         return Response(AutoresearchSuggestionSerializer(suggestion).data, status=201)
+
+    @validated_request(
+        request_serializer=RespondToSuggestionSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=AutoresearchSuggestionSerializer,
+                description="The updated suggestion with its new status and agent_response.",
+            ),
+        },
+        summary="Respond to a suggestion",
+        description=(
+            "Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a "
+            "search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in "
+            "agent_response), and write the agent_response note the human will read. Call this from the "
+            "training loop after deciding what to do with a pending suggestion. Recording an iteration with "
+            "parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative "
+            "or to mark a suggestion picked_up/dismissed without spawning an iteration."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="respond")
+    def respond(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        suggestion = self.get_object()
+        data = request.validated_data  # type: ignore[attr-defined]
+        suggestion.status = data["status"]
+        if data.get("agent_response"):
+            suggestion.agent_response = data["agent_response"]
+        suggestion.save(update_fields=["status", "agent_response", "updated_at"])
+        return Response(AutoresearchSuggestionSerializer(suggestion).data)

@@ -7799,6 +7799,11 @@ export namespace Schemas {
          * @nullable
          */
       agent_confidence?: number | null;
+      /**
+         * UUID of the steering suggestion this iteration was spawned from, if any.
+         * @nullable
+         */
+      parent_suggestion?: string | null;
       readonly created_at: string;
     }
 
@@ -37740,6 +37745,11 @@ export namespace Schemas {
          * @nullable
          */
       agent_confidence?: number | null;
+      /**
+         * UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'.
+         * @nullable
+         */
+      parent_suggestion?: string | null;
     }
 
     /**
@@ -37899,6 +37909,37 @@ export namespace Schemas {
       output_person_property: string;
       /** Usage notes and guidance for interpreting this resolved config. */
       notes: string;
+    }
+
+    /**
+     * * `picked_up` - picked_up
+    * `acted_on` - acted_on
+    * `dismissed` - dismissed
+     */
+    export type RespondToSuggestionStatusEnum = typeof RespondToSuggestionStatusEnum[keyof typeof RespondToSuggestionStatusEnum];
+
+
+    export const RespondToSuggestionStatusEnum = {
+      PickedUp: 'picked_up',
+      ActedOn: 'acted_on',
+      Dismissed: 'dismissed',
+    } as const;
+
+    /**
+     * Input for the agent to record how it interpreted a steering suggestion.
+     */
+    export interface RespondToSuggestion {
+      /** How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).
+
+      * `picked_up` - picked_up
+      * `acted_on` - acted_on
+      * `dismissed` - dismissed */
+      status: RespondToSuggestionStatusEnum;
+      /**
+         * Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).
+         * @maxLength 2000
+         */
+      agent_response?: string;
     }
 
     export type RetrieveBasicOutputStatus = typeof RetrieveBasicOutputStatus[keyof typeof RetrieveBasicOutputStatus];

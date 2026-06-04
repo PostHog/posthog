@@ -129,6 +129,31 @@ export const AutoresearchSuggestionsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration.
+ * @summary Respond to a suggestion
+ */
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseDefault = ``
+export const autoresearchSuggestionsRespondCreateBodyAgentResponseMax = 2000
+
+export const AutoresearchSuggestionsRespondCreateBody = /* @__PURE__ */ zod
+    .object({
+        status: zod
+            .enum(['picked_up', 'acted_on', 'dismissed'])
+            .describe('\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed')
+            .describe(
+                "How the agent handled the suggestion: 'picked_up' (applied as a search constraint), 'acted_on' (spawned one or more iterations), or 'dismissed' (rejected — explain why in agent_response).\n\n\* `picked_up` - picked_up\n\* `acted_on` - acted_on\n\* `dismissed` - dismissed"
+            ),
+        agent_response: zod
+            .string()
+            .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
+            .default(autoresearchSuggestionsRespondCreateBodyAgentResponseDefault)
+            .describe(
+                'Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).'
+            ),
+    })
+    .describe('Input for the agent to record how it interpreted a steering suggestion.')
+
+/**
  * Open a new training run for a pipeline and return its id. An agent — the in-house sandbox, an external bring-your-own agent, or a scheduled job — then records iterations against this run and finalizes it with the complete endpoint. The run starts in 'running'.
  * @summary Open a training run
  */
@@ -278,6 +303,12 @@ export const AutoresearchTrainingRunsIterationsCreateBody = /* @__PURE__ */ zod
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax)
             .nullish()
             .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
+        parent_suggestion: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "UUID of the steering suggestion this iteration was spawned from, if any. Set it whenever the iteration acts on a pending suggestion — it links the iteration back to the suggestion for attribution and advances the suggestion to 'acted_on'."
+            ),
     })
     .describe('Input for recording one training iteration. Validated against the recipe allowlist.')
 
