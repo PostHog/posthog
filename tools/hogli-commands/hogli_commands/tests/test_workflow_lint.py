@@ -676,7 +676,7 @@ class TestCheckoutFullDepthCheck:
         assert issue.step == "step[0]"
         assert "fetch-depth: 0" in issue.message
 
-    def test_fails_filter_combined_with_sparse_checkout(self, tmp_path: Path) -> None:
+    def test_passes_filter_combined_with_sparse_checkout(self, tmp_path: Path) -> None:
         _write(
             tmp_path,
             "wf.yml",
@@ -696,9 +696,7 @@ class TestCheckoutFullDepthCheck:
                         rust/
             """,
         )
-        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
-        assert "filter" in issue.message
-        assert "sparse-checkout" in issue.message
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
 
 
 # ---------------------------------------------------------------------------

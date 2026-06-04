@@ -28,13 +28,6 @@ def _has_blobless_filter(step: Step) -> bool:
     return step.with_ is not None and step.with_.get("filter") == "blob:none"
 
 
-def _has_filter(step: Step) -> bool:
-    if step.with_ is None:
-        return False
-    value = step.with_.get("filter")
-    return isinstance(value, str) and value.strip() != ""
-
-
 def _has_sparse_checkout(step: Step) -> bool:
     if step.with_ is None:
         return False
@@ -101,8 +94,7 @@ class CheckoutFullDepthCheck(WorkflowCheck):
     def fix_hint(self) -> str | None:
         return (
             "For `actions/checkout` with `fetch-depth: 0`, add `filter: blob:none`, "
-            "use `sparse-checkout`, or add `# hogli-lint: allow-full-depth-checkout -- <reason>`. "
-            "Do not combine `filter` with `sparse-checkout`; checkout ignores sparse patterns when filter is set."
+            "use `sparse-checkout`, or add `# hogli-lint: allow-full-depth-checkout -- <reason>`."
         )
 
     def run(self, workflows: list[Workflow]) -> CheckResult:
@@ -114,17 +106,6 @@ class CheckoutFullDepthCheck(WorkflowCheck):
                 for step in job.steps:
                     if not _is_checkout(step):
                         continue
-
-                    if _fetch_depth_is_zero(step) and _has_filter(step) and _has_sparse_checkout(step):
-                        result.issues.append(
-                            Issue(
-                                workflow=wf.path.name,
-                                job=job.name,
-                                step=step.ref,
-                                message="actions/checkout `filter` overrides `sparse-checkout`; use one optimization mode",
-                                file=str(wf.path),
-                            )
-                        )
 
                     if (
                         _fetch_depth_is_zero(step)
