@@ -503,6 +503,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_ai_training_cta_shown?: boolean
     is_hipaa?: boolean
     members_can_invite?: boolean
+    members_can_create_projects?: boolean
     members_can_use_personal_api_keys: boolean
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
@@ -690,6 +691,9 @@ export interface ConversationsSettings {
     slack_ticket_emoji?: string | null
     slack_bot_icon_url?: string | null
     slack_bot_display_name?: string | null
+    slack_notify_on_join?: boolean
+    slack_notify_on_leave?: boolean
+    slack_alert_channel_id?: string | null
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -3260,6 +3264,10 @@ export interface TrendResult {
     persons_urls?: { url: string }[]
     persons?: Person
     filter?: TrendsFilterType
+    /** Series order set by the query runner: the action order for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows).
+     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    order?: number
 }
 
 interface Person {
@@ -4340,10 +4348,6 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
-    posthog_code_slack_service: {
-        available: boolean
-        client_id?: string
-    }
     data_warehouse_integrations: {
         hubspot: {
             client_id?: string
@@ -4669,6 +4673,8 @@ export interface Experiment {
         }
         frequentist?: {
             alpha?: number
+            sequential_testing_enabled?: boolean
+            sequential_tuning_parameter?: number
         }
         cuped?: {
             enabled?: boolean
@@ -5152,7 +5158,6 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
-    'slack-posthog-code',
     'salesforce',
     'hubspot',
     'google-pubsub',
@@ -5633,6 +5638,7 @@ export enum ActivityScope {
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
+    SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
 }
 
 export type CommentType = {
@@ -5956,6 +5962,9 @@ export interface ExternalDataSourceSyncSchema {
     cdc_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
+    /** True when the resource has no API list endpoint and can only be populated via webhooks
+     *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
+    webhook_only?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -5994,6 +6003,19 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+}
+
+/** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
+export interface ExternalDataSchemaSourceSummary {
+    id: string
+    source_type: ExternalDataSourceType
+    supports_column_selection?: boolean
+    user_access_level: AccessControlLevel | null
+}
+
+export interface ExternalDataSchemaWithSource extends ExternalDataSourceSchema {
+    /** Populated only on the single-schema retrieve endpoint; `null` when serialized elsewhere. */
+    source: ExternalDataSchemaSourceSummary | null
 }
 
 export enum ExternalDataSchemaStatus {
@@ -6095,11 +6117,6 @@ export type BatchExportServiceBigQuery = {
     type: 'BigQuery'
     integration?: number
     config: {
-        project_id: string
-        private_key: string
-        private_key_id: string
-        client_email: string
-        token_uri: string
         dataset_id: string
         table_id: string
         exclude_events: string[]

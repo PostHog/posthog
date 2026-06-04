@@ -42,6 +42,9 @@ tools:
     conversations-retrieve:
         operation: conversations_retrieve
         enabled: false
+    conversations-tickets-bulk-update-status-create:
+        operation: conversations_tickets_bulk_update_status_create
+        enabled: false
     conversations-tickets-bulk-update-tags-create:
         operation: conversations_tickets_bulk_update_tags_create
         enabled: false

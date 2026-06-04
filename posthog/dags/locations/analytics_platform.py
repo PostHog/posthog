@@ -9,7 +9,7 @@ from posthog.dags.sessions import (
     sessions_backfill_job,
 )
 
-from . import resources
+from . import loggers, resources
 
 defs = dagster.Definitions(
     assets=[sessions.sessions_v3_backfill, sessions.sessions_v3_backfill_replay, experimental_sessions_v3_backfill],
@@ -20,5 +20,6 @@ defs = dagster.Definitions(
         backfill_internal_test_users_cohort_job,
         backfill_persons_on_events_mode_job,
     ],
+    loggers=loggers,
     resources=resources,
 )

@@ -12,7 +12,7 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
-import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
+import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -115,8 +115,16 @@ function buildBillingAlertNotice(
 export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
+        logic: [verifyEmailLogic],
         values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
-        actions: [eventUsageLogic, ['reportProjectNoticeDismissed', 'reportProjectNoticeShown']],
+        actions: [
+            eventUsageLogic,
+            ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
+            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
+            verifyEmailLogic,
+            ['requestVerificationLink'],
+        ],
     })),
     actions({
         dismissProjectNotice: (dismissKey: string | null) => ({ dismissKey }),

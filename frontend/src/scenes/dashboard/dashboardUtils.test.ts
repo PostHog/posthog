@@ -21,7 +21,7 @@ describe('getDashboardTileDisplayName', () => {
             color: null,
         }
 
-        expect(getDashboardTileDisplayName(tile)).toBe('error_tracking_list')
+        expect(getDashboardTileDisplayName(tile)).toBe('Top issues')
     })
 
     it('uses custom widget name when set', () => {
@@ -39,7 +39,7 @@ describe('getDashboardTileDisplayName', () => {
 describe('isWidgetTileVisibleOnPlacement', () => {
     it.each([
         [DashboardPlacement.Dashboard, true],
-        [DashboardPlacement.Public, false],
+        [DashboardPlacement.Public, true],
         [DashboardPlacement.Export, false],
     ])('placement=%s → %s', (placement, expected) => {
         expect(isWidgetTileVisibleOnPlacement(placement)).toBe(expected)

@@ -68,6 +68,38 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Tune one scout: change its schedule (`run_interval_minutes`), `enabled`, or `emit` (dry-run) posture. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * @summary Update a scout config
+ */
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
+
+export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
+    .object({
+        enabled: zod
+            .boolean()
+            .optional()
+            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+        emit: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.'
+            ),
+        run_interval_minutes: zod
+            .number()
+            .min(signalsScoutConfigUpdateBodyRunIntervalMinutesMin)
+            .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
+            .optional()
+            .describe(
+                'Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.'
+            ),
+    })
+    .describe(
+        'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-\*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
+    )
+
+/**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */

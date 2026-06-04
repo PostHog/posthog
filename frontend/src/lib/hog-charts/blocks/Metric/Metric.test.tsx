@@ -1,7 +1,8 @@
 import { render } from '@testing-library/react'
 
-import type { ChartTheme } from '../../core/types'
-import { renderHogChart, setupJsdom, setupSyncRaf } from '../../testing'
+import type { ChartTheme } from '@posthog/quill-charts'
+import { renderHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+
 import { Metric, type MetricChange } from './Metric'
 
 const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
