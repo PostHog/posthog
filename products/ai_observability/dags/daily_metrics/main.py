@@ -61,30 +61,25 @@ def llma_metrics_daily(
     context.log.info(f"Aggregating LLMA metrics for {metric_date}")
 
     try:
-        # Cross-team background aggregation — attribute these reads/writes to AI
-        # observability's enrichment pipeline. The Dagster run tags are already set above.
-        with query_tagging.tags_context(
-            product=query_tagging.Product.LLM_ANALYTICS, feature=query_tagging.Feature.ENRICHMENT
-        ):
-            delete_query = get_delete_query(metric_date)
-            sync_execute(delete_query, settings=LLMA_CLICKHOUSE_SETTINGS)
+        delete_query = get_delete_query(metric_date)
+        sync_execute(delete_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
-            insert_query = get_insert_query(metric_date)
-            context.log.info(f"Metrics query: \n{insert_query}")
-            sync_execute(insert_query, settings=LLMA_CLICKHOUSE_SETTINGS)
+        insert_query = get_insert_query(metric_date)
+        context.log.info(f"Metrics query: \n{insert_query}")
+        sync_execute(insert_query, settings=LLMA_CLICKHOUSE_SETTINGS)
 
-            # Query and log the metrics that were just aggregated
-            metrics_query = f"""
-                SELECT
-                    metric_name,
-                    count(DISTINCT team_id) as teams,
-                    sum(metric_value) as total_value
-                FROM {config.table_name}
-                WHERE date = '{metric_date}'
-                GROUP BY metric_name
-                ORDER BY metric_name
-            """
-            metrics_results = sync_execute(metrics_query)
+        # Query and log the metrics that were just aggregated
+        metrics_query = f"""
+            SELECT
+                metric_name,
+                count(DISTINCT team_id) as teams,
+                sum(metric_value) as total_value
+            FROM {config.table_name}
+            WHERE date = '{metric_date}'
+            GROUP BY metric_name
+            ORDER BY metric_name
+        """
+        metrics_results = sync_execute(metrics_query)
 
         if metrics_results:
             df = pd.DataFrame(metrics_results, columns=["metric_name", "teams", "total_value"])
