@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -192,7 +192,7 @@ export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. If a share link already exists it is reused; otherwise the body shows an illustrative placeholder link (`is_preview_link: true`).
+ * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating or reading any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. The body always shows an illustrative placeholder link (`is_preview_link: true`), never a live interview URL.
  */
 export const UserInterviewTopicsPreviewInviteCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this user interview topic.'),
