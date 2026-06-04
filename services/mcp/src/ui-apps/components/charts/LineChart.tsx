@@ -1,8 +1,13 @@
 import { type ReactElement, useMemo } from 'react'
 
-import { type ChartTheme, type Series as QuillSeries, TimeSeriesLineChart } from '@posthog/quill-charts'
+import {
+    type ChartTheme,
+    type Series as QuillSeries,
+    type YAxisFormat,
+    TimeSeriesLineChart,
+} from '@posthog/quill-charts'
 
-import { formatDate, formatNumber } from '../utils'
+import { formatDate } from '../utils'
 
 // Quill chart colors. Canvas can't read `var(--…)`, so we resolve the host CSS
 // variables to concrete strings and fall back to the same hexes base.css ships.
@@ -42,9 +47,17 @@ export interface LineChartProps {
     maxValue: number
     showLegend?: boolean
     yAxisLabel?: string | undefined
+    /** Y-axis value format. Mirrors a trends insight's `aggregationAxisFormat`; defaults to `numeric`. */
+    yAxisFormat?: YAxisFormat | undefined
 }
 
-export function LineChart({ series, labels, showLegend = true, yAxisLabel }: LineChartProps): ReactElement {
+export function LineChart({
+    series,
+    labels,
+    showLegend = true,
+    yAxisLabel,
+    yAxisFormat = 'numeric',
+}: LineChartProps): ReactElement {
     const palette = useMemo(() => CHART_VARS.map(([name, fallback]) => resolveVar(name, fallback)), [])
 
     const theme: ChartTheme = useMemo(
@@ -85,8 +98,8 @@ export function LineChart({ series, labels, showLegend = true, yAxisLabel }: Lin
                         xAxis: { tickFormatter: (value) => formatDate(value) },
                         yAxis: {
                             ...(yAxisLabel ? { label: yAxisLabel } : {}),
+                            format: yAxisFormat,
                             showGrid: true,
-                            tickFormatter: (value) => formatNumber(value),
                         },
                     }}
                 />
