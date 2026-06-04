@@ -38,6 +38,7 @@ Iceberg dual-write:
     DuckLake backfill, which remains the source of truth for every team.
 """
 
+import os
 import json
 import calendar
 from datetime import date, datetime, timedelta
@@ -64,7 +65,7 @@ from dagster import (
     sensor,
 )
 from psycopg import sql as psql
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_fixed
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, stop_after_delay, wait_exponential, wait_fixed
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
 from posthog.clickhouse.cluster import ClickhouseCluster, get_cluster
@@ -106,8 +107,57 @@ def iceberg_enabled_for_team(team_id: int) -> bool:
 
 # Duckgres connection timeouts: connect_timeout bounds the TCP+TLS handshake;
 # statement_timeout bounds query execution to prevent hung Dagster workers.
-DUCKGRES_CONNECT_TIMEOUT = 10  # seconds
+# A backfill connection may have to wait for duckgres to spin up a fresh worker
+# (a cold worker can require provisioning a new node, which takes minutes), so
+# the handshake budget is generous and `_connect_duckgres` retries with backoff.
+DUCKGRES_CONNECT_TIMEOUT = 60  # seconds
 DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
+
+# Worker-profile opt-in. When enabled, a backfill connection asks duckgres for a
+# small COLOCATED (bin-packed) worker via libpq startup options, so it bursts
+# into a ready pod instead of contending for the big exclusive shared workers
+# (the cause of the backfill ConnectionTimeouts). Gated so it stays off until
+# duckgres has the colocated warm pool deployed and the server gate is on.
+#
+# Evaluated once at process startup, not per connection/partition — toggling it
+# (including rollback) requires redeploying the Dagster code location so the
+# process restarts and re-reads the env, not just unsetting the variable.
+DUCKGRES_WORKER_PROFILE_ENABLED = os.environ.get("DUCKGRES_WORKER_PROFILE_ENABLED", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
+# Colocated worker sizes. Iceberg-allowlisted orgs dual-write via an
+# INSERT ... SELECT read_parquet over a full event-day (memory-heavy), so they
+# get a larger colocated pod than the metadata-only DuckLake register path.
+DUCKGRES_BACKFILL_COLOCATE_CPU = "4"
+DUCKGRES_BACKFILL_COLOCATE_MEMORY = "16Gi"
+DUCKGRES_ICEBERG_BACKFILL_COLOCATE_CPU = "8"
+DUCKGRES_ICEBERG_BACKFILL_COLOCATE_MEMORY = "48Gi"
+
+
+def _duckgres_backfill_options(team_id: int) -> str:
+    """libpq startup `options` for a backfill connection.
+
+    Always bounds statement execution; when the worker-profile feature is
+    enabled, additionally requests a small colocated worker shape (larger for
+    Iceberg-allowlisted orgs). Returns a single space-joined `-c key=value` string
+    — psycopg forwards it as the startup `options` parameter, which duckgres
+    parses to size/schedule the worker.
+    """
+    opts = [f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}"]
+    if DUCKGRES_WORKER_PROFILE_ENABLED:
+        if iceberg_enabled_for_team(team_id):
+            cpu, memory = DUCKGRES_ICEBERG_BACKFILL_COLOCATE_CPU, DUCKGRES_ICEBERG_BACKFILL_COLOCATE_MEMORY
+        else:
+            cpu, memory = DUCKGRES_BACKFILL_COLOCATE_CPU, DUCKGRES_BACKFILL_COLOCATE_MEMORY
+        opts += [
+            "-c duckgres.colocate=true",
+            f"-c duckgres.worker_cpu={cpu}",
+            f"-c duckgres.worker_memory={memory}",
+        ]
+    return " ".join(opts)
 
 
 @retry(
@@ -126,6 +176,16 @@ def _get_cluster() -> ClickhouseCluster:
     return get_cluster()
 
 
+@retry(
+    # Deep enough to outlast a cold colocated-node provision (minutes) or a brief
+    # warm-pool exhaustion under a burst: up to ~5 minutes or 12 attempts. A
+    # shallow 3-attempt/~10s budget would surface the very ConnectionTimeout this
+    # feature exists to remove. statement_timeout (set per connection) is separate.
+    stop=stop_after_delay(300) | stop_after_attempt(12),
+    wait=wait_exponential(multiplier=1, min=5, max=60),
+    retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
+    reraise=True,
+)
 def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
     """Open a psycopg connection to the org's duckgres server.
 
@@ -135,6 +195,11 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
 
     Cross-account S3 credentials are configured server-side via IRSA on the
     duckling, so the DAG no longer calls `configure_cross_account_connection`.
+
+    Retries with backoff: a cold duckgres worker can take longer than a single
+    connect_timeout to become ready (worker pod may need a fresh node), so we
+    retry the connect rather than failing the partition on the first timeout.
+    `psycopg.errors.ConnectionTimeout` is an `OperationalError` subclass.
     """
     if catalog.team_id is None:
         raise ValueError(
@@ -150,7 +215,7 @@ def _connect_duckgres(catalog: DuckLakeCatalog) -> psycopg.Connection[Any]:
         conninfo,
         autocommit=True,
         connect_timeout=DUCKGRES_CONNECT_TIMEOUT,
-        options=f"-c statement_timeout={DUCKGRES_STATEMENT_TIMEOUT_MS}",
+        options=_duckgres_backfill_options(catalog.team_id),
     )
 
 
@@ -188,12 +253,24 @@ EVENTS_COLUMNS = """
 BACKFILL_EVENTS_S3_PREFIX = "backfill/events"
 BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 
+# Shared concurrency key across events + persons backfills. Each duckling
+# connection spins up a duckgres worker, and the per-org worker pool is capped
+# (maxWorkers in the duckgres chart) and shared with product queries — so the
+# two backfills must draw from ONE combined limit, not two independent ones.
+# The limit itself is a Dagster Cloud deployment setting (charts repo); this tag
+# is just the key it targets. Per-product keys are kept for optional finer limits.
+DUCKLING_BACKFILL_CONCURRENCY_TAG = {
+    "duckling_backfill_concurrency": "duckling_v1",
+}
+
 EVENTS_CONCURRENCY_TAG = {
     "duckling_events_backfill_concurrency": "duckling_events_v1",
+    **DUCKLING_BACKFILL_CONCURRENCY_TAG,
 }
 
 PERSONS_CONCURRENCY_TAG = {
     "duckling_persons_backfill_concurrency": "duckling_persons_v1",
+    **DUCKLING_BACKFILL_CONCURRENCY_TAG,
 }
 
 # Persons columns for export - joined with person_distinct_id2 to include distinct_ids
@@ -967,6 +1044,21 @@ def export_events_to_duckling_s3(
 
     where_clause = f"team_id = {team_id} AND toDate(timestamp) = '{date_str}'"
 
+    # Event rows are wide (large properties/person_properties JSON), and the Parquet
+    # writer buffers a full row group per encoding thread before flushing — this is where
+    # the export OOMs (ParquetBlockOutputFormat in the stack trace), not the scan. Peak
+    # memory is ~ row_group_size * bytes_per_row * threads, so the 1M-row default builds
+    # multi-GB groups that blow the limit under parallel encoding. 250k rows lands each
+    # group in Parquet's recommended byte range (~hundreds of MB) while keeping read
+    # efficiency near the default; the raised ceiling is headroom on top.
+    export_settings = settings.copy()
+    export_settings.update(
+        {
+            "max_memory_usage": 100 * 1024 * 1024 * 1024,  # 100GB, matching the full-persons export
+            "output_format_parquet_row_group_size": 250_000,  # down from the 1M default
+        }
+    )
+
     # ClickHouse uses its EC2 instance role - no credentials needed
     # The duckling bucket policy allows the ClickHouse EC2 role
     export_sql = f"""
@@ -996,7 +1088,7 @@ def export_events_to_duckling_s3(
     )
 
     try:
-        _execute_export_with_retry(client, export_sql, settings, info)
+        _execute_export_with_retry(client, export_sql, export_settings, info)
         context.log.info(f"Successfully exported events for {info}")
         logger.info("duckling_export_success", team_id=team_id, date=date_str)
         return s3_path

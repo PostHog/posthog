@@ -809,6 +809,8 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                 type: zod
                     .enum([
                         'S3',
+                        'AwsS3',
+                        'S3Compatible',
                         'Snowflake',
                         'Postgres',
                         'Redshift',
@@ -821,10 +823,10 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                         'FileDownload',
                     ])
                     .describe(
-                        '\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        '\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     )
                     .describe(
-                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     ),
                 config: zod
                     .union([
@@ -1006,6 +1008,8 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                 type: zod
                     .enum([
                         'S3',
+                        'AwsS3',
+                        'S3Compatible',
                         'Snowflake',
                         'Postgres',
                         'Redshift',
@@ -1018,10 +1022,10 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         'FileDownload',
                     ])
                     .describe(
-                        '\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        '\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     )
                     .describe(
-                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     ),
                 config: zod
                     .union([
@@ -1214,6 +1218,8 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                 type: zod
                     .enum([
                         'S3',
+                        'AwsS3',
+                        'S3Compatible',
                         'Snowflake',
                         'Postgres',
                         'Redshift',
@@ -1226,10 +1232,10 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                         'FileDownload',
                     ])
                     .describe(
-                        '\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        '\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     )
                     .describe(
-                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     ),
                 config: zod
                     .union([
@@ -1415,6 +1421,8 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                 type: zod
                     .enum([
                         'S3',
+                        'AwsS3',
+                        'S3Compatible',
                         'Snowflake',
                         'Postgres',
                         'Redshift',
@@ -1427,10 +1435,10 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         'FileDownload',
                     ])
                     .describe(
-                        '\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        '\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     )
                     .describe(
-                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
+                        'A choice of supported BatchExportDestination types.\n\n\* `S3` - S3\n\* `AwsS3` - Aws S3\n\* `S3Compatible` - S3 Compatible\n\* `Snowflake` - Snowflake\n\* `Postgres` - Postgres\n\* `Redshift` - Redshift\n\* `BigQuery` - Bigquery\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `Workflows` - Workflows\n\* `HTTP` - Http\n\* `NoOp` - Noop\n\* `FileDownload` - File Download'
                     ),
                 config: zod
                     .union([
@@ -1753,3 +1761,38 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
         data_interval_end: zod.iso.datetime({ offset: true }),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
+
+/**
+ * Create a new managed migration/batch import.
+ */
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Viewset for BatchImport model
+ */
+export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Viewset for BatchImport model
+ */
+export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Pause a running batch import.
+ */
+export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
+ * Resume a paused batch import.
+ */
+export const ManagedMigrationsResumeCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')

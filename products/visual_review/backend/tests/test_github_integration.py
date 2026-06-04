@@ -370,16 +370,10 @@ class TestGitHubCommitOnApprove:
         """
         run = run_with_changes
 
-        # Approve the snapshots
-        approved = [
-            {"identifier": "button--primary", "new_hash": "abc123hash"},
-            {"identifier": "card--default", "new_hash": "def456hash"},
-        ]
-
-        result = logic.approve_run(
+        result = logic.finalize_run(
             run_id=run.id,
             user_id=user.id,
-            approved_snapshots=approved,
+            approve_all=True,
             commit_to_github=True,
         )
 
@@ -406,6 +400,104 @@ class TestGitHubCommitOnApprove:
             text=True,
         )
         assert "chore(visual): update storybook baselines" in log_result.stdout
+
+    def test_finalize_commits_all_db_approved_not_just_last_reviewed(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+    ):
+        """Regression: the committed baseline comes from DB state, so snapshots reviewed in
+        earlier (DB-only) calls are still committed — not just the finalizing call's set."""
+        run = run_with_changes
+
+        # Mark each snapshot reviewed in a separate DB-only call, then finalize with no list.
+        logic.approve_snapshots(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "button--primary", "new_hash": "abc123hash"}],
+        )
+        logic.approve_snapshots(
+            run_id=run.id,
+            user_id=user.id,
+            approved_snapshots=[{"identifier": "card--default", "new_hash": "def456hash"}],
+        )
+        logic.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
+
+        parsed = yaml.safe_load((local_git_repo / ".snapshots.yml").read_text())
+        # Both land — the old explicit-list path would have dropped the one not in the final call.
+        assert "abc123hash" in parsed["snapshots"]["button--primary"]["hash"]
+        assert "def456hash" in parsed["snapshots"]["card--default"]["hash"]
+
+    def test_finalize_does_not_commit_tolerated_snapshot(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        run_with_changes,
+        user,
+    ):
+        """Regression: a tolerated snapshot keeps its baseline — finalize must not bake its
+        current hash into snapshots.yml (and approve_all must not flip it to approved)."""
+        run = run_with_changes
+        card = run.snapshots.get(identifier="card--default")
+        logic.mark_snapshot_as_tolerated(run.id, card.id, user.id, run.team_id)
+
+        logic.finalize_run(run_id=run.id, user_id=user.id, approve_all=True, commit_to_github=True)
+
+        parsed = yaml.safe_load((local_git_repo / ".snapshots.yml").read_text())
+        assert "abc123hash" in parsed["snapshots"]["button--primary"]["hash"]
+        assert "card--default" not in parsed["snapshots"]  # tolerated → baseline untouched
+        card.refresh_from_db()
+        assert card.review_state == "tolerated"
+
+    def test_finalize_commits_to_prune_removed_only_run(
+        self,
+        local_git_repo,
+        mock_github_api,
+        mock_github_integration,
+        vr_project_with_github,
+        user,
+    ):
+        """Regression: a run whose only actionable change is a REMOVED snapshot must still commit —
+        the removed entry has to be pruned from snapshots.yml, or the gate greens over a stale baseline."""
+        repo = vr_project_with_github
+
+        # Seed a baseline containing the entry finalize must prune.
+        snapshots_file = local_git_repo / ".snapshots.yml"
+        snapshots_file.write_text(
+            yaml.dump({"version": 1, "snapshots": {"gone--snap": {"hash": "v1.kfake.gonehash.fakemac" + "1" * 40}}})
+        )
+        subprocess.run(["git", "add", "."], cwd=local_git_repo, check=True)
+        subprocess.run(["git", "commit", "-m", "seed baseline"], cwd=local_git_repo, check=True)
+
+        run = Run.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            status=RunStatus.COMPLETED,
+            run_type="storybook",
+            commit_sha=_get_head_sha(local_git_repo),
+            branch="feature-branch",
+            pr_number=42,
+            total_snapshots=1,
+            removed_count=1,
+        )
+        RunSnapshot.objects.create(
+            run=run,
+            team_id=repo.team_id,
+            identifier="gone--snap",
+            result=SnapshotResult.REMOVED,
+        )
+
+        result = logic.finalize_run(run_id=run.id, user_id=user.id, commit_to_github=True)
+
+        assert result.approved is True
+        parsed = yaml.safe_load(snapshots_file.read_text())
+        assert "gone--snap" not in parsed["snapshots"]  # pruned by the finalize commit
 
     def test_approve_merges_with_existing_baselines(
         self,
@@ -435,13 +527,10 @@ class TestGitHubCommitOnApprove:
         run.commit_sha = _get_head_sha(local_git_repo)
         run.save()
 
-        # Approve only button--primary
-        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
-
-        logic.approve_run(
+        logic.finalize_run(
             run_id=run.id,
             user_id=user.id,
-            approved_snapshots=approved,
+            approve_all=True,
             commit_to_github=True,
         )
 
@@ -472,13 +561,11 @@ class TestGitHubCommitOnApprove:
         subprocess.run(["git", "commit", "-m", "new commit"], cwd=local_git_repo, check=True)
 
         # Now the run's commit_sha doesn't match HEAD
-        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
-
         with pytest.raises(logic.PRSHAMismatchError) as exc_info:
-            logic.approve_run(
+            logic.finalize_run(
                 run_id=run.id,
                 user_id=user.id,
-                approved_snapshots=approved,
+                approve_all=True,
                 commit_to_github=True,
             )
 
@@ -517,10 +604,10 @@ class TestGitHubCommitOnApprove:
                 sensitive_config={"user_access_token": "ghu_fake"},
             )
 
-        logic.approve_run(
+        logic.finalize_run(
             run_id=run_with_changes.id,
             user_id=user.id,
-            approved_snapshots=[{"identifier": "button--primary", "new_hash": "abc123hash"}],
+            approve_all=True,
             commit_to_github=True,
         )
 
@@ -545,13 +632,11 @@ class TestGitHubCommitOnApprove:
         """Approve with commit_to_github=False should only update DB."""
         run = run_with_changes
 
-        approved = [{"identifier": "button--primary", "new_hash": "abc123hash"}]
-
         # This should succeed without GitHub mocks
-        result = logic.approve_run(
+        result = logic.finalize_run(
             run_id=run.id,
             user_id=user.id,
-            approved_snapshots=approved,
+            approve_all=True,
             commit_to_github=False,
         )
 
@@ -595,13 +680,11 @@ class TestGitHubCommitOnApprove:
             result=SnapshotResult.CHANGED,
         )
 
-        approved = [{"identifier": "test-snapshot", "new_hash": "newhash"}]
-
         # Should succeed without GitHub interaction
-        result = logic.approve_run(
+        result = logic.finalize_run(
             run_id=run.id,
             user_id=user.id,
-            approved_snapshots=approved,
+            approve_all=True,
             commit_to_github=True,  # True but no pr_number
         )
 
@@ -629,15 +712,10 @@ class TestGitHubCommitOnApprove:
             assert s.reviewed_by_id is None
             assert s.approved_hash == ""
 
-        approved = [
-            {"identifier": "button--primary", "new_hash": "abc123hash"},
-            {"identifier": "card--default", "new_hash": "def456hash"},
-        ]
-
-        logic.approve_run(
+        logic.finalize_run(
             run_id=run.id,
             user_id=user.id,
-            approved_snapshots=approved,
+            approve_all=True,
             commit_to_github=False,
         )
 
@@ -693,9 +771,9 @@ class TestGitHubIntegrationErrors:
         )
 
         with pytest.raises(logic.GitHubIntegrationNotFoundError):
-            logic.approve_run(
+            logic.finalize_run(
                 run_id=run.id,
                 user_id=user.id,
-                approved_snapshots=[{"identifier": "snap", "new_hash": "hash123"}],
+                approve_all=True,
                 commit_to_github=True,
             )

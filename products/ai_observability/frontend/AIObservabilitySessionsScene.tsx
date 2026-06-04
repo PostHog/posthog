@@ -14,6 +14,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { isHogQLQuery } from '~/queries/utils'
 
+import { LazyPersonColumnCell, ToolsDisplay } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEvents'
 import { useSortableColumns } from './hooks/useSortableColumns'
@@ -100,6 +101,22 @@ export function AIObservabilitySessionsScene(): JSX.Element {
                             )
                         },
                     },
+                    distinct_id: {
+                        title: 'Person',
+                        render: function RenderPerson({ value }) {
+                            const distinctId = value as string
+                            if (!distinctId) {
+                                return <span>–</span>
+                            }
+                            return <LazyPersonColumnCell distinctId={distinctId} />
+                        },
+                    },
+                    tools: {
+                        renderTitle: () => <Tooltip title="Distinct tools called in this session">Tools</Tooltip>,
+                        render: function RenderTools({ value }) {
+                            return <ToolsDisplay tools={Array.isArray(value) ? (value as string[]) : []} />
+                        },
+                    },
                     traces: {
                         renderTitle: () => (
                             <span className="inline-flex items-center gap-1">
@@ -139,6 +156,13 @@ export function AIObservabilitySessionsScene(): JSX.Element {
                                 {renderSortableColumnTitle('errors', 'Errors')}
                             </Tooltip>
                         ),
+                        render: function RenderErrors({ value }) {
+                            const count = Number(value)
+                            if (!count) {
+                                return <span>–</span>
+                            }
+                            return <LemonTag type="danger">{count}</LemonTag>
+                        },
                     },
                     total_cost: {
                         renderTitle: () => (
