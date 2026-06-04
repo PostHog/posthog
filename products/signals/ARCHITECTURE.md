@@ -293,12 +293,19 @@ Defined in `backend/temporal/agentic/scout_coordinator.py`.
 
 **Flow:**
 
-1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to dogfood teams — those with a `signals-scout-*` skill or config, gated by the `signals-scout` feature flag (`_participating_teams`). For each, it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`_register_missing_configs`). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
+1. Activity `fetch_enabled_signals_scout_runs_activity` bounds candidates to dogfood teams — those with a `signals-scout-*` skill or config, gated by the `signals-scout` feature flag (`_participating_teams` → `_team_passes_rollout_flag`, evaluated with organization + project group context; see _Rollout & feature flags_ below). For each, it calls `sync_canonical_skills(team, prune=True)` to mirror the on-disk `signals-scout-*` skills onto the team's `LLMSkill` rows, then auto-registers a `SignalScoutConfig` for any scout skill missing one (`_register_missing_configs`). Failures here are logged and the tick continues — a stale skill is preferable to a dead tick.
 2. For each enabled config, the coordinator computes how overdue the scout is: due when `last_run_at is None`, or `now - last_run_at >= run_interval_minutes`. There is no sampling — every due scout is planned.
 3. Due runs are sorted most-overdue-first and truncated at `MAX_RUNS_PER_TICK` (50 per tick; the cost bound — overflow catches up next tick). `last_run_at` is advanced via `.update()` for everything dispatched (bypasses `save()`, so the per-tick write never hits the activity log). Planned runs are re-sorted by `(team_id, skill_name)` for stable child IDs.
 4. Each `PlannedRun` becomes a child `RunSignalsScoutWorkflow` started with `ParentClosePolicy.ABANDON` and a deterministic workflow ID per `(team_id, skill_name, tick_id)` so retried coordinators can't double-launch within a tick.
 
 The coordinator's lifetime is seconds regardless of fan-out width; throttling happens at the Temporal task queue + worker concurrency layer. Pausing a scout is `enabled=False` on its config; slowing it is a larger `run_interval_minutes` — both tunable via the `signals-scout-config-update` MCP tool.
+
+### Rollout & feature flags
+
+Two flags gate the scout at different layers; both are remote-eval and fail closed.
+
+- **`signals-scout`** (run gate) — `_team_passes_rollout_flag(team)` in `scout_coordinator.py` calls `feature_enabled("signals-scout", str(team.id))` with **organization + project group context** (`groups` + `group_properties`, mirroring `backend/access.py` and the `posthog/permissions.py` house pattern). The flag is group-aggregated on `project`, so a team is gated in by adding its project id to the release group (or a blanket rollout %). This is the team-level on/revert dial above the per-scout `SignalScoutConfig.enabled` toggle; flagging a team off drains it from the next tick's fan-out.
+- **`signals-scout-inbox`** (inbox gate) — `access.user_can_see_signals_scout_reports(user, team)` decides whether `signals_scout`-sourced reports surface in the `SignalReport` queryset (`backend/views.py`). Per-user (keyed on the requesting user's `distinct_id`), so a team can run + emit scouts while their reports stay hidden — in both list and detail — until a user is flagged in.
 
 ### `RunSignalsScoutWorkflow`
 
