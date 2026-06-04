@@ -6,12 +6,13 @@
   FROM (
   SELECT e.`$session_id` AS `$session_id`, e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events AS e 
-  WHERE and(equals(e.team_id, 420), greaterOrEquals(e.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(e.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s)))) AS e LEFT JOIN (
+  WHERE and(equals(e.team_id, 420), greaterOrEquals(e.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(e.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s))) 
+  LIMIT 50) AS e LEFT JOIN (
   SELECT dateDiff(%(hogql_val_5)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_6)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_7)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_8)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(%(hogql_val_9)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_10)s)), e__session.session_id_v7) ORDER BY toTimeZone(e.timestamp, %(hogql_val_11)s) ASC 
-  LIMIT 50000
+  GROUP BY raw_sessions.session_id_v7) AS e__session ON equals(toUInt128(accurateCastOrNull(e.`$session_id`, %(hogql_val_10)s)), e__session.session_id_v7) 
+  LIMIT 50
   '''
 # ---
 # name: TestEventsPredicatePushdownExecution.test_exec_timestamp_filter_with_session_join
@@ -21,12 +22,13 @@
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), less(events.timestamp, toDateTime64(%(hogql_val_3)s, 6, %(hogql_val_4)s))) 
+  LIMIT 50) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_5)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_6)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_7)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_8)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(%(hogql_val_9)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_10)s)), events__session.session_id_v7) ORDER BY toTimeZone(events.timestamp, %(hogql_val_11)s) ASC 
-  LIMIT 50000
+  GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_10)s)), events__session.session_id_v7) 
+  LIMIT 50
   '''
 # ---
 # name: TestEventsPredicatePushdownTransform.test_bare_timestamp_with_select_alias_pushes_down
@@ -36,7 +38,8 @@
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), today()))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(toTimeZone(events.timestamp, %(hogql_val_1)s), toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)), lessOrEquals(toTimeZone(events.timestamp, %(hogql_val_4)s), today())) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_5)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_6)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_7)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_8)s, toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(today(), toIntervalDay(3)))) 
@@ -51,7 +54,8 @@
   FROM (
   SELECT e.`$session_id` AS `$session_id`, e.event AS event, toTimeZone(e.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events AS e 
-  WHERE and(equals(e.team_id, 420), greaterOrEquals(e.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS e LEFT JOIN (
+  WHERE and(equals(e.team_id, 420), greaterOrEquals(e.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS e LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
@@ -66,7 +70,8 @@
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
@@ -99,16 +104,16 @@
 # name: TestEventsPredicatePushdownTransform.test_multiple_poe_fields_with_session_join
   '''
   
-  SELECT events.event AS event, events.person_id AS id, events.person_properties AS properties, toTimeZone(events.person_created_at, %(hogql_val_9)s) AS created_at 
+  SELECT events.event AS event, events.person_id AS id, events.person_properties AS properties, toTimeZone(events.person_created_at, %(hogql_val_9)s) AS created_at, events__session.`$session_duration` AS `$session_duration` 
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, events.person_id AS person_id, events.person_properties AS person_properties, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s))) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_8)s)), events__session.session_id_v7) 
-  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
   LIMIT 50000
   '''
 # ---
@@ -119,7 +124,8 @@
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), equals(events.event, %(hogql_val_3)s))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), equals(events.event, %(hogql_val_3)s)) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
@@ -127,19 +133,110 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_0_explicit_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_1_inner_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events INNER JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_2_cross_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events CROSS JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_3_right_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events RIGHT JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_4_right_outer_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events RIGHT OUTER JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_5_full_outer_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events FULL OUTER JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventsPredicatePushdownTransform.test_non_row_preserving_join_skips_pushdown_6_full_join
+  '''
+  
+  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
+  FROM events FULL JOIN (
+  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM raw_sessions 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventsPredicatePushdownTransform.test_poe_created_at_with_session_join
   '''
   
-  SELECT events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_9)s) AS created_at 
+  SELECT events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_9)s) AS created_at, events__session.`$session_duration` AS `$session_duration` 
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.person_created_at, %(hogql_val_0)s) AS person_created_at, toTimeZone(events.timestamp, %(hogql_val_1)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_2)s, 6, %(hogql_val_3)s))) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_4)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_5)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_6)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_7)s, toIntervalDay(3)))) 
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_8)s)), events__session.session_id_v7) 
-  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
   LIMIT 50000
   '''
 # ---
@@ -150,7 +247,8 @@
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.person_id AS person_id, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
@@ -161,27 +259,28 @@
 # name: TestEventsPredicatePushdownTransform.test_poe_properties_with_session_join
   '''
   
-  SELECT events.event AS event, events.person_properties AS properties 
+  SELECT events.event AS event, events.person_properties AS properties, events__session.`$session_duration` AS `$session_duration` 
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, events.person_properties AS person_properties, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) 
-  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
   LIMIT 50000
   '''
 # ---
-# name: TestEventsPredicatePushdownTransform.test_safe_join_type_pushes_timestamp_down_0_explicit_join
+# name: TestEventsPredicatePushdownTransform.test_row_preserving_join_pushes_timestamp_down_0_left_join
   '''
   
   SELECT sessions.session_id AS session_id, events.uuid AS uuid 
   FROM (
   SELECT events.`$session_id` AS `$session_id`, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.uuid AS uuid 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events JOIN (
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS events LEFT JOIN (
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
@@ -189,14 +288,15 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventsPredicatePushdownTransform.test_safe_join_type_pushes_timestamp_down_1_inner_join
+# name: TestEventsPredicatePushdownTransform.test_row_preserving_join_pushes_timestamp_down_1_left_outer_join
   '''
   
   SELECT sessions.session_id AS session_id, events.uuid AS uuid 
   FROM (
   SELECT events.`$session_id` AS `$session_id`, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.uuid AS uuid 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events INNER JOIN (
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS events LEFT OUTER JOIN (
   SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
@@ -204,64 +304,16 @@
   LIMIT 50000
   '''
 # ---
-# name: TestEventsPredicatePushdownTransform.test_safe_join_type_pushes_timestamp_down_2_left_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM (
-  SELECT events.`$session_id` AS `$session_id`, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.uuid AS uuid 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_safe_join_type_pushes_timestamp_down_3_left_outer_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM (
-  SELECT events.`$session_id` AS `$session_id`, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.uuid AS uuid 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT OUTER JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_safe_join_type_pushes_timestamp_down_4_cross_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM (
-  SELECT toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp, events.uuid AS uuid 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events CROSS JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_session_duration_filter_stays_in_outer_where
+# name: TestEventsPredicatePushdownTransform.test_session_duration_filter_declines
   '''
   
   SELECT events.event AS event, events__session.`$session_duration` AS `$session_duration` 
-  FROM (
-  SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
-  FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT JOIN (
-  SELECT dateDiff(%(hogql_val_3)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_4)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_5)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
+  FROM events LEFT JOIN (
+  SELECT dateDiff(%(hogql_val_0)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_6)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_7)s)), events__session.session_id_v7) 
-  WHERE ifNull(greater(events__session.`$session_duration`, 0), 0) 
+  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_3)s, toIntervalDay(3)))) 
+  GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_4)s)), events__session.session_id_v7) 
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_5)s, 6, %(hogql_val_6)s)), ifNull(greater(events__session.`$session_duration`, 0), 0)) 
   LIMIT 50000
   '''
 # ---
@@ -272,7 +324,8 @@
   FROM (
   SELECT events.distinct_id AS distinct_id, events.event AS event, events.person_id AS person_id, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)))) AS events LEFT OUTER JOIN (
+  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
+  LIMIT 50000) AS events LEFT OUTER JOIN (
   SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id 
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 420) 
@@ -297,65 +350,14 @@
   FROM (
   SELECT events.`$session_id` AS `$session_id`, events.event AS event, toTimeZone(events.timestamp, %(hogql_val_0)s) AS timestamp 
   FROM events 
-  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), or(equals(events.event, %(hogql_val_3)s), equals(events.event, %(hogql_val_4)s)))) AS events LEFT JOIN (
+  WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s)), or(equals(events.event, %(hogql_val_3)s), equals(events.event, %(hogql_val_4)s))) 
+  LIMIT 100) AS events LEFT JOIN (
   SELECT dateDiff(%(hogql_val_5)s, min(toTimeZone(raw_sessions.min_timestamp, %(hogql_val_6)s)), max(toTimeZone(raw_sessions.max_timestamp, %(hogql_val_7)s))) AS `$session_duration`, raw_sessions.session_id_v7 AS session_id_v7 
   FROM raw_sessions 
   WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_8)s, toIntervalDay(3)))) 
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(toUInt128(accurateCastOrNull(events.`$session_id`, %(hogql_val_9)s)), events__session.session_id_v7) 
   LIMIT 100) 
   GROUP BY event 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_unsafe_join_type_skips_pushdown_0_right_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM events RIGHT JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_unsafe_join_type_skips_pushdown_1_right_outer_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM events RIGHT OUTER JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_unsafe_join_type_skips_pushdown_2_full_outer_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM events FULL OUTER JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  LIMIT 50000
-  '''
-# ---
-# name: TestEventsPredicatePushdownTransform.test_unsafe_join_type_skips_pushdown_3_full_join
-  '''
-  
-  SELECT sessions.session_id AS session_id, events.uuid AS uuid 
-  FROM events FULL JOIN (
-  SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id, raw_sessions.session_id_v7 AS session_id_v7 
-  FROM raw_sessions 
-  WHERE and(equals(raw_sessions.team_id, 420), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(%(hogql_val_0)s, toIntervalDay(3)))) 
-  GROUP BY raw_sessions.session_id_v7) AS sessions ON equals(events.`$session_id`, sessions.session_id) 
-  WHERE and(equals(events.team_id, 420), greater(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
   LIMIT 50000
   '''
 # ---

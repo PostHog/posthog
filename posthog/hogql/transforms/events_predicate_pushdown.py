@@ -6,7 +6,7 @@ from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FieldTraverser
 from posthog.hogql.database.schema.events import EventsTable
@@ -22,13 +22,6 @@ from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import TEST
 
 logger = structlog.get_logger(__name__)
-
-# Large JSON String columns whose per-row read is expensive. Reading one inside the pushdown subquery
-# (versus the flat query, which fuses the filter with the LIMIT and stops the scan early) regresses badly
-# unless a LIMIT is also pushed to short-circuit the subquery scan. Measured ~20x more bytes / 15x slower
-# on ClickHouse 26.3 for a non-materialized `properties` filter; materialized and property-group columns
-# read cheaply and are unaffected.
-_RAW_JSON_BLOB_COLUMNS = frozenset({"properties"})
 
 
 def events_pushdown_enabled(modifiers: HogQLQueryModifiers) -> bool:
@@ -176,9 +169,6 @@ class EventsFieldCollector(TraversingVisitor):
         # ids of bare `properties` Fields already covered by an OPTIMIZED JSONHas group rewrite (skip the blob).
         self._group_covered_field_ids: set[int] = set()
         self.has_non_direct_fields = False
-        # True once the subquery would have to read a raw JSON blob column (a non-materialized property, or a
-        # bare `properties` reference) — the read that regresses without a pushed LIMIT.
-        self.needs_properties_blob = False
 
     def visit_field(self, node: ast.Field):
         super().visit_field(node)
@@ -212,8 +202,6 @@ class EventsFieldCollector(TraversingVisitor):
                 db_column_name = self._get_database_column_name(field_type)
                 if db_column_name:
                     self.collected_fields[db_column_name] = field_type
-                    if db_column_name in _RAW_JSON_BLOB_COLUMNS:
-                        self.needs_properties_blob = True
                 else:
                     self.has_non_direct_fields = True  # non-direct field (FieldTraverser, etc.); can't push
 
@@ -480,17 +468,15 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         inner_where = self._prepare_inner_predicate(inner_from_where, select_aliases)
         inner_prewhere = self._prepare_inner_predicate(inner_from_prewhere, select_aliases)
 
-        # Reading the raw `properties` blob inside the subquery (a non-materialized property in a pushed
-        # predicate, or a projected `properties` reference) regresses badly versus the flat query, which fuses
-        # the filter with the LIMIT and stops the blob read early. Recover that by pushing a LIMIT into the
-        # events subquery when it stays result-equivalent; otherwise decline (the flat query is fine). Cheap
-        # reads (timestamp / materialized / property-group columns) never get a pushed LIMIT — it measured
-        # worse for them, since ClickHouse already short-circuits those.
-        inner_limit: ast.Constant | None = None
-        if collector.needs_properties_blob:
-            inner_limit = self._safe_inner_limit(node, new_where, new_prewhere)
-            if inner_limit is None:
-                return "raw_properties_blob_without_short_circuit"
+        # The optimization only pays off when a LIMIT can short-circuit the events read: measured on
+        # ClickHouse 26.3 (team 2, ~435M events/week), pushing predicates + an inner LIMIT beats the flat
+        # query for every column type (timestamp / materialized / property-group / raw JSON), while
+        # predicates-only regresses for the raw `properties` blob and ORDER BY (which blocks the inner LIMIT)
+        # regresses ~4x for everything. So push the inner LIMIT whenever it stays result-equivalent, and
+        # decline otherwise — the flat query is never slower than the cases we decline.
+        inner_limit = self._safe_inner_limit(node, new_where, new_prewhere)
+        if inner_limit is None:
+            return "no_short_circuitable_limit"
 
         # Build the subquery with explicit types (not resolve_types, which would re-resolve lazy joins). The
         # inner events table keeps the outer query's alias (e.g. `FROM events AS e`) so the pushed predicates,
@@ -605,7 +591,8 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         Safe only when nothing after the events scan can drop or reorder rows: no ORDER BY / LIMIT BY / ARRAY
         JOIN / WITH TIES / percent limit, no predicate left on the outer query, and every events row survives
         the joins (all LEFT). Then the first `offset + limit` events cover the outer slice, so the inner LIMIT
-        is result-equivalent. Needs a concrete integer LIMIT already on the AST to push.
+        is result-equivalent. Uses the explicit LIMIT, falling back to the MAX_SELECT_RETURNED_ROWS cap that an
+        outermost select gets injected later when it has none.
         """
         if (
             node.order_by is not None
@@ -619,14 +606,18 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             return None
         if not self._all_joins_preserve_every_row(node):
             return None
-        if not isinstance(node.limit, ast.Constant) or not isinstance(node.limit.value, int):
-            return None
         offset = 0
         if node.offset is not None:
             if not isinstance(node.offset, ast.Constant) or not isinstance(node.offset.value, int):
                 return None
             offset = node.offset.value
-        return ast.Constant(value=node.limit.value + offset)
+        if isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, int):
+            return ast.Constant(value=node.limit.value + offset)
+        # An outermost select with no explicit LIMIT gets MAX_SELECT_RETURNED_ROWS injected later (the
+        # executor default or the printer's top-level cap), so push that to short-circuit the events read.
+        if id(node) in self.top_level_select_ids:
+            return ast.Constant(value=MAX_SELECT_RETURNED_ROWS + offset)
+        return None
 
     def _from_is_events_table(self, join_expr: ast.JoinExpr) -> bool:
         """True when the FROM resolves directly to the physical events table (not a subquery).
