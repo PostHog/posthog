@@ -3260,6 +3260,10 @@ export interface TrendResult {
     persons_urls?: { url: string }[]
     persons?: Person
     filter?: TrendsFilterType
+    /** Series order set by the query runner: the action order for plain series, or the
+     * formula index for formula results (uniform across a formula's breakdown rows).
+     * Unlike `action.order`, this is always populated — formula results carry `action: null`. */
+    order?: number
 }
 
 interface Person {
