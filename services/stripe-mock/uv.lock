@@ -3,12 +3,15 @@ revision = 3
 requires-python = ">=3.12"
 
 [options]
-exclude-newer = "2026-04-03T08:27:21.219959Z"
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
-posthoganalytics = false
+pixelhog = false
 hogql-parser = false
+posthoganalytics = false
+django = false
+hogql-parser-rs = false
 
 [[package]]
 name = "annotated-doc"

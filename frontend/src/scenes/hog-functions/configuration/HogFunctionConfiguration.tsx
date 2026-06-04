@@ -156,7 +156,7 @@ export function HogFunctionConfiguration({
                                             disabled={loading}
                                             bordered
                                             fullWidth
-                                            label="Enable destination"
+                                            label={`Enable ${humanizeHogFunctionType(type)}`}
                                             tooltip={
                                                 <>
                                                     {value
