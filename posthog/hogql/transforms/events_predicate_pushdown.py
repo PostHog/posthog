@@ -6,7 +6,7 @@ from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLDialect
+from posthog.hogql.constants import HogQLDialect, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, FieldTraverser
 from posthog.hogql.database.schema.events import EventsTable
@@ -385,8 +385,12 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
     applies bottom-up so nested `FROM events` subqueries benefit too.
     """
 
-    # Join types that preserve the events (left) side. RIGHT / FULL OUTER preserve the right side, so
-    # pre-filtering events would turn matched rows into NULL-padded ones; exclude them.
+    # Join types across which moving an events PREDICATE is result-safe: they preserve the events (left) side
+    # (RIGHT / FULL OUTER preserve the right side, so pre-filtering events would NULL-pad matched rows).
+    # This is a broader set than the LIMIT gate's _all_joins_preserve_every_row (LEFT [OUTER] only): pushing
+    # the predicate before an INNER / CROSS join is fine, but pushing the inner LIMIT is not (those joins can
+    # drop events rows). Since the single-rule gate always requires the inner LIMIT, INNER / CROSS pass this
+    # set but then decline at _safe_inner_limit.
     _SAFE_JOIN_TYPES = {"JOIN", "INNER JOIN", "LEFT JOIN", "LEFT OUTER JOIN", "CROSS JOIN"}
 
     def __init__(
@@ -591,8 +595,9 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
         Safe only when nothing after the events scan can drop or reorder rows: no ORDER BY / LIMIT BY / ARRAY
         JOIN / WITH TIES / percent limit, no predicate left on the outer query, and every events row survives
         the joins (all LEFT). Then the first `offset + limit` events cover the outer slice, so the inner LIMIT
-        is result-equivalent. Uses the explicit LIMIT, falling back to the MAX_SELECT_RETURNED_ROWS cap that an
-        outermost select gets injected later when it has none.
+        returns the same rows as the flat query (modulo the usual no-ORDER-BY arbitrary-row choice when the
+        LIMIT is below the match count, which the flat query is subject to as well). Uses the explicit LIMIT,
+        falling back to the context's top-level cap that an outermost select gets injected later when it has none.
         """
         if (
             node.order_by is not None
@@ -613,10 +618,13 @@ class EventsPredicatePushdownTransform(TraversingVisitor):
             offset = node.offset.value
         if isinstance(node.limit, ast.Constant) and isinstance(node.limit.value, int):
             return ast.Constant(value=node.limit.value + offset)
-        # An outermost select with no explicit LIMIT gets MAX_SELECT_RETURNED_ROWS injected later (the
-        # executor default or the printer's top-level cap), so push that to short-circuit the events read.
+        # An outermost select with no explicit LIMIT gets the context's top-level cap injected later (the
+        # executor default or the printer's cap), so push that exact cap. Deriving it from limit_context
+        # (rather than hardcoding MAX_SELECT_RETURNED_ROWS) keeps the inner LIMIT from under-capping contexts
+        # whose cap is larger (EXPORT / HEATMAPS / RETENTION), which would otherwise drop rows.
         if id(node) in self.top_level_select_ids:
-            return ast.Constant(value=MAX_SELECT_RETURNED_ROWS + offset)
+            cap = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+            return ast.Constant(value=cap + offset)
         return None
 
     def _from_is_events_table(self, join_expr: ast.JoinExpr) -> bool:

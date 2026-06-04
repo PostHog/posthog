@@ -1053,6 +1053,28 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             assert len(rows) == 3, f"push={push}: expected exactly 3 rows, got {rows}"
             assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
 
+    def test_exec_offset_with_fan_out_join_returns_valid_rows_both_ways(self):
+        # OFFSET + a one-to-many LEFT join. The pushed inner LIMIT is limit + offset, so the first
+        # offset+limit events still cover the outer [offset, offset+limit) slice. Below-match-count
+        # LIMIT/OFFSET is non-deterministic without ORDER BY (flat too), so assert both forms return exactly
+        # LIMIT rows drawn from the valid matching set, and that the inner LIMIT is limit+offset.
+        self._create_data()  # u1 x2 + u2 x1 in range; self-join on distinct_id fans out (u1 -> 2 b-rows each)
+        base = (
+            "SELECT a.event AS ae, a.distinct_id AS aid FROM events AS a "
+            "LEFT JOIN events AS b ON a.distinct_id = b.distinct_id "
+            "WHERE a.timestamp >= '2024-01-01' AND a.timestamp < '2024-01-08'"
+        )
+        paged = base + " LIMIT 2 OFFSET 1"
+        printed = self._print_pushdown_sql(paged)
+        assert ") AS a LEFT JOIN" in printed, f"expected the OFFSET self-join left scan to push:\n{printed}"
+        subquery = printed.split("FROM (", 1)[1].split(") AS a LEFT JOIN", 1)[0]
+        assert "LIMIT 3" in subquery, f"inner LIMIT should be limit+offset (2+1=3):\n{subquery}"
+        valid = {tuple(r) for r in (self._results(base + " LIMIT 1000", push_down=False) or [])}
+        for push in (True, False):
+            rows = self._results(paged, push_down=push) or []
+            assert len(rows) == 2, f"push={push}: expected exactly 2 rows, got {rows}"
+            assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
+
     def test_exec_array_join_predicate_not_pushed_stays_equivalent(self):
         # arrayJoin in a predicate is residual (it can't be pushed into the events subquery), so the whole
         # pushdown declines: with a residual predicate left on the outer query an inner LIMIT would be unsafe,
