@@ -12,7 +12,6 @@ from django.http import Http404
 from django.utils import timezone
 
 import structlog
-from django_display_ids import DisplayIDLookupError, ObjectNotFoundError, resolve_object
 from django_display_ids.contrib.rest_framework import DisplayIDField
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -404,33 +403,18 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
     def safely_get_object(self, queryset):
         """
-        Support looking up tickets by display ID, UUID, or ticket_number.
-        Display IDs (e.g. "tkt_2aUyqj...") and UUIDs are resolved by django-display-ids against
-        the team-scoped queryset (slug lookup is auto-skipped since Ticket has no slug field).
-        ticket_number is a Conversations-specific integer lookup the library doesn't know about,
-        so it stays as the final fallback.
+        Resolve tickets by ticket_number (a Conversations-specific integer identifier), and defer
+        display ID and UUID lookups to the base resolver (TeamAndOrgViewSetMixin.safely_get_object,
+        enabled by Ticket.display_id_prefix). This is all the per-view code display IDs require.
         """
         lookup_value: str | None = self.kwargs.get("pk")
+        if lookup_value and lookup_value.isdigit():
+            try:
+                return queryset.get(ticket_number=int(lookup_value))
+            except Ticket.DoesNotExist:
+                raise Http404("Ticket not found")
 
-        if not lookup_value:
-            raise Http404("Ticket not found")
-
-        try:
-            return resolve_object(Ticket, lookup_value, queryset=queryset)
-        except ObjectNotFoundError:
-            raise Http404("Ticket not found")
-        except DisplayIDLookupError:
-            pass  # Not a display ID or UUID — fall through to ticket_number.
-
-        try:
-            ticket_number = int(lookup_value)
-        except (ValueError, TypeError):
-            raise Http404("Ticket not found")
-
-        try:
-            return queryset.get(ticket_number=ticket_number)
-        except Ticket.DoesNotExist:
-            raise Http404("Ticket not found")
+        return super().safely_get_object(queryset)
 
     def get_serializer_context(self):
         context = super().get_serializer_context()

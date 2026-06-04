@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db.models.query import QuerySet
 
+from django_display_ids import DisplayIDLookupError, ObjectNotFoundError, resolve_object
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -394,7 +395,31 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         raise NotImplementedError()
 
     def safely_get_object(self, queryset: QuerySet) -> Any:
-        raise NotImplementedError()
+        """
+        Default object lookup. If the model defines a ``display_id_prefix`` (via DisplayIDModel),
+        the URL identifier is resolved as a Stripe-style display ID, a UUID, or a slug (slug only
+        when the model has a slug field) against the already team-scoped ``queryset`` — so any such
+        model is addressable by its ``display_id`` with no per-view code. The object returned here
+        is still run through ``check_object_permissions`` by ``get_object``.
+
+        Models without a ``display_id_prefix`` raise ``NotImplementedError`` to preserve DRF's
+        default primary-key lookup, exactly as before.
+        """
+        if getattr(queryset.model, "display_id_prefix", None) is None:
+            raise NotImplementedError()
+
+        lookup = self.lookup_url_kwarg or self.lookup_field
+        value = self.kwargs.get(lookup)
+        if value is None:
+            raise NotImplementedError()
+
+        try:
+            return resolve_object(queryset.model, str(value), queryset=queryset)
+        except ObjectNotFoundError:
+            raise NotFound()
+        except DisplayIDLookupError:
+            # Not a display ID / UUID / slug — defer to DRF's default primary-key lookup.
+            raise NotImplementedError()
 
     def get_object(self):
         """

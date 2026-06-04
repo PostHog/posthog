@@ -21,6 +21,7 @@ from django.db.backends.utils import CursorWrapper
 from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
+from django_display_ids.models import DisplayIDModel
 
 from posthog.hogql import ast
 
@@ -180,9 +181,13 @@ class DeletedMetaFields(models.Model):
         abstract = True
 
 
-class UUIDModel(models.Model):
+class UUIDModel(DisplayIDModel):
     """
     Base Django Model with default autoincremented ID field replaced with UUID7.
+
+    Inherits DisplayIDModel, so any subclass that sets `display_id_prefix` gets a Stripe-style
+    `display_id` (e.g. `tkt_2aUyqj...`) encoding its UUID `id` for free — no field, no migration.
+    Subclasses without a prefix are unaffected (`display_id` is None).
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=uuid7, editable=False)
@@ -191,13 +196,16 @@ class UUIDModel(models.Model):
         abstract = True
 
 
-class UUIDTModel(models.Model):
+class UUIDTModel(DisplayIDModel):
     """
     Deprecated, you probably want to use UUIDModel instead. As of May 2024 the latest RFC with the UUIv7 spec is at
     Proposed Standard (see RFC9562 https://www.rfc-editor.org/rfc/rfc9562#name-uuid-version-7). This class was written
     well before that, is still in use in PostHog, but should not be used for new models.
 
     Base Django Model with default autoincremented ID field replaced with UUIDT.
+
+    Inherits DisplayIDModel, so any subclass that sets `display_id_prefix` gets a Stripe-style
+    `display_id` encoding its UUID `id` for free. Subclasses without a prefix are unaffected.
     """
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)

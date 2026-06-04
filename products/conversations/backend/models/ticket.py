@@ -2,11 +2,6 @@ from typing import TYPE_CHECKING
 
 from django.db import models, transaction
 
-# Import from the submodule rather than the package root: the package exposes
-# DisplayIDModel via a lazy module __getattr__, which static type checkers can't
-# resolve as a class (mypy: "not valid as a type" / "invalid base class").
-from django_display_ids.models import DisplayIDModel
-
 from posthog.models.utils import UUIDTModel
 
 from .constants import Channel, ChannelDetail, Priority, Status
@@ -36,9 +31,10 @@ class TicketManager(models.Manager):
             return self.create(**kwargs)
 
 
-class Ticket(DisplayIDModel, UUIDTModel):
-    # Stripe-style prefixed display ID (e.g. "tkt_2aUyqjCzEIiEcYMKj7TZtw"). Encodes the
-    # existing UUID `id` — no extra column, no migration. Exposed via `ticket.display_id`.
+class Ticket(UUIDTModel):
+    # Setting display_id_prefix on a UUIDModel/UUIDTModel subclass is all it takes to get a
+    # Stripe-style `display_id` (e.g. "tkt_2aUyqjCzEIiEcYMKj7TZtw") encoding the UUID `id` —
+    # no extra column, no migration. Exposed via `ticket.display_id`.
     display_id_prefix = "tkt"
 
     objects = TicketManager()
