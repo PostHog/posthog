@@ -529,8 +529,10 @@ function ReportDetailPane(): JSX.Element {
         selectedReportSignals,
         reportSignalsLoading,
         selectedReportReviewers,
+        canDispatch,
+        isDispatchingSelectedReport,
     } = useValues(inboxSceneLogic)
-    const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { deleteReport, reingestReport, dispatchReport, setActiveDetailTab } = useActions(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
@@ -625,6 +627,21 @@ function ReportDetailPane(): JSX.Element {
                             <span className="inline-flex items-center gap-1">
                                 Updated: <TZLabel time={selectedReport.updated_at} />
                             </span>
+                            {canDispatch && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconSparkles />}
+                                    tooltip="Runs in PostHog's hosted coding agent and opens a PR"
+                                    loading={isDispatchingSelectedReport}
+                                    disabledReason={isDispatchingSelectedReport ? 'Dispatching…' : undefined}
+                                    onClick={() => dispatchReport(selectedReport.id)}
+                                    data-attr="dispatch-report-button"
+                                    className="ml-auto"
+                                >
+                                    Send to PostHog Code
+                                </LemonButton>
+                            )}
                             <More
                                 overlay={
                                     <LemonMenuOverlay

@@ -118,6 +118,47 @@ def _resolve_autostart_assignee(
     return None
 
 
+def start_internal_implementation_task(
+    *,
+    team: Team,
+    report_id: str,
+    title: str,
+    summary: str,
+    repository: str,
+    assignee: User,
+    priority: PriorityAssessment | None = None,
+) -> Task:
+    """Create and run an internal implementation Task (the PostHog Code runner) for a report.
+
+    Shared by the autonomy auto-start path and the manual dispatch endpoint so both produce
+    an identical Task + SignalReportTask(IMPLEMENTATION) link, surfaced via implementation-PR tracking.
+    """
+    task = Task.create_and_run(
+        team=team,
+        title=title,
+        description=_build_autostart_task_description(
+            report_id=report_id, summary=summary, repository=repository, priority=priority
+        ),
+        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        user_id=assignee.id,
+        repository=repository,
+        signal_report_id=report_id,
+        posthog_mcp_scopes="read_only",
+        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
+    )
+    task_run = task.runs.order_by("-created_at").first()
+    if task_run is None:
+        raise RuntimeError(f"Task {task.id} started without producing a TaskRun")
+
+    SignalReportTask.objects.create(
+        team_id=team.id,
+        report_id=report_id,
+        task=task,
+        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+    )
+    return task
+
+
 async def maybe_autostart_implementation_task(
     *,
     team_id: int,
@@ -163,26 +204,12 @@ async def maybe_autostart_implementation_task(
     if task_user is None:
         return
 
-    task = await database_sync_to_async(Task.create_and_run, thread_sensitive=False)(
+    await database_sync_to_async(start_internal_implementation_task, thread_sensitive=False)(
         team=team,
-        title=title,
-        description=_build_autostart_task_description(
-            report_id=report_id, summary=summary, repository=repository, priority=priority
-        ),
-        origin_product=Task.OriginProduct.SIGNAL_REPORT,
-        user_id=task_user.id,
-        repository=repository,
-        signal_report_id=report_id,
-        posthog_mcp_scopes="read_only",
-        interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
-    )
-    task_run = await task.runs.order_by("-created_at").afirst()
-    if task_run is None:
-        raise RuntimeError(f"Task {task.id} auto-started without producing a TaskRun")
-
-    await SignalReportTask.objects.acreate(
-        team_id=team_id,
         report_id=report_id,
-        task=task,
-        relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        title=title,
+        summary=summary,
+        repository=repository,
+        assignee=task_user,
+        priority=priority,
     )

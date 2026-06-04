@@ -5,12 +5,17 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
+
+import { signalsReportsDispatchCreate } from 'products/signals/frontend/generated/api'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
@@ -32,7 +37,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
 
     connect({
-        values: [signalSourcesLogic, ['hasNoSources', 'isSessionAnalysisRunning']],
+        values: [signalSourcesLogic, ['hasNoSources', 'isSessionAnalysisRunning'], featureFlagLogic, ['featureFlags']],
         actions: [signalSourcesLogic, ['loadSourceConfigs']],
     }),
 
@@ -43,6 +48,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setActiveDetailTab: (tab: DetailTab) => ({ tab }),
         deleteReport: (reportId: string) => ({ reportId }),
         reingestReport: (reportId: string) => ({ reportId }),
+        dispatchReport: (reportId: string) => ({ reportId }),
+        dispatchReportSuccess: (reportId: string) => ({ reportId }),
+        dispatchReportFailure: (reportId: string) => ({ reportId }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
@@ -137,6 +145,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 runSessionAnalysisFailure: () => false,
             },
         ],
+        dispatchingReportIds: [
+            [] as string[],
+            {
+                dispatchReport: (state: string[], { reportId }: { reportId: string }) =>
+                    state.includes(reportId) ? state : [...state, reportId],
+                dispatchReportSuccess: (state: string[], { reportId }: { reportId: string }) =>
+                    state.filter((id) => id !== reportId),
+                dispatchReportFailure: (state: string[], { reportId }: { reportId: string }) =>
+                    state.filter((id) => id !== reportId),
+            },
+        ],
     }),
 
     selectors({
@@ -205,6 +224,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 return reviewersArtefact.content as EnrichedReviewer[]
             },
         ],
+        canDispatch: [
+            (s) => [s.featureFlags],
+            (featureFlags: Record<string, boolean | string>): boolean =>
+                !!featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_DISPATCH],
+        ],
+        isDispatchingSelectedReport: [
+            (s) => [s.dispatchingReportIds, s.selectedReportId],
+            (dispatchingReportIds: string[], selectedReportId: string | null): boolean =>
+                selectedReportId !== null && dispatchingReportIds.includes(selectedReportId),
+        ],
     }),
 
     listeners(({ actions, values, cache }) => ({
@@ -242,6 +271,20 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 const errorMessage = error?.detail || error?.message || 'Failed to delete report'
                 lemonToast.error(errorMessage)
                 actions.loadReports()
+            }
+        },
+        dispatchReport: async ({ reportId }) => {
+            try {
+                await signalsReportsDispatchCreate(String(getCurrentTeamId()), reportId)
+                lemonToast.success(
+                    'PostHog Code is on it — the implementation PR will appear on this report when it’s ready'
+                )
+                actions.dispatchReportSuccess(reportId)
+                actions.loadReports()
+            } catch (error: any) {
+                const errorMessage = error?.detail || error?.message || 'Failed to dispatch report'
+                lemonToast.error(errorMessage)
+                actions.dispatchReportFailure(reportId)
             }
         },
         reingestReport: async ({ reportId }) => {

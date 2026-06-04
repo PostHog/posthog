@@ -24,6 +24,7 @@ import type {
     RememberRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportDispatchResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutRunDetailApi,
@@ -161,6 +162,27 @@ export const signalsReportsRetrieve = async (
     return apiMutator<SignalReportApi>(getSignalsReportsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsReportsDispatchCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/dispatch/`
+}
+
+/**
+ * Dispatch this report to PostHog Code (the internal Tasks runner). Behind the signals-report-dispatch flag.
+
+Creates an implementation Task that investigates the report and opens a PR, the same work the
+autonomy auto-start path performs automatically. Idempotent: a report has at most one such Task.
+ */
+export const signalsReportsDispatchCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportDispatchResponseApi> => {
+    return apiMutator<SignalReportDispatchResponseApi>(getSignalsReportsDispatchCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

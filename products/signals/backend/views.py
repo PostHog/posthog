@@ -26,6 +26,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce
 
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -50,6 +51,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.signals.backend.auto_start import start_internal_implementation_task
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
@@ -71,6 +73,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.serializers import (
     SignalReportArtefactSerializer,
     SignalReportArtefactWriteSerializer,
+    SignalReportDispatchResponseSerializer,
     SignalReportSerializer,
     SignalReportTaskSerializer,
     SignalSourceConfigSerializer,
@@ -98,6 +101,10 @@ from products.tasks.backend.models import TaskRun
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
+
+# Manual report→coding-agent dispatch (the "Send to PostHog Code" button). Agent-agnostic;
+# Cursor as an alternate agent is layered on top behind its own flag.
+SIGNALS_REPORT_DISPATCH_FLAG = "signals-report-dispatch"
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -948,6 +955,79 @@ class SignalReportViewSet(
             )
 
         return Response({"status": "reingestion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
+
+    def _report_repository(self, report: SignalReport) -> str | None:
+        artefact = (
+            report.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION)
+            .order_by("-created_at")
+            .first()
+        )
+        if artefact is None:
+            return None
+        try:
+            content = json.loads(artefact.content)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        repository = content.get("repository") if isinstance(content, dict) else None
+        return repository if isinstance(repository, str) and repository else None
+
+    @extend_schema(request=None, responses={200: SignalReportDispatchResponseSerializer})
+    @action(detail=True, methods=["post"], url_path="dispatch", required_scopes=["task:write"])
+    def dispatch_report(self, request, pk=None, **kwargs):
+        """Dispatch this report to PostHog Code (the internal Tasks runner). Behind the signals-report-dispatch flag.
+
+        Creates an implementation Task that investigates the report and opens a PR, the same work the
+        autonomy auto-start path performs automatically. Idempotent: a report has at most one such Task.
+        """
+        if not posthoganalytics.feature_enabled(
+            SIGNALS_REPORT_DISPATCH_FLAG,
+            str(request.user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
+        report = cast(SignalReport, self.get_object())
+
+        existing = (
+            SignalReportTask.objects.filter(
+                team=self.team,
+                report_id=report.id,
+                relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+            )
+            .select_related("task")
+            .first()
+        )
+        if existing is not None:
+            return Response(
+                SignalReportDispatchResponseSerializer(
+                    {"task_id": str(existing.task_id), "status": "already_dispatched"}
+                ).data
+            )
+
+        repository = self._report_repository(report)
+        if not repository:
+            return Response(
+                {"error": "Report has no selected repository to act on."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            task = start_internal_implementation_task(
+                team=self.team,
+                report_id=str(report.id),
+                title=report.title or "Signal report",
+                summary=report.summary or "",
+                repository=repository,
+                assignee=request.user,
+            )
+        except ValueError as e:
+            # PostHog Code needs a GitHub integration on the team to open a PR. Surface it as an
+            # actionable conflict rather than an unhandled 500.
+            logger.warning("signals.report_dispatch.precondition_failed", report_id=str(report.id), error=str(e))
+            return Response({"error": str(e)}, status=status.HTTP_409_CONFLICT)
+
+        return Response(SignalReportDispatchResponseSerializer({"task_id": str(task.id), "status": "started"}).data)
 
 
 @extend_schema_view(

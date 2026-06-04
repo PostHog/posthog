@@ -108,6 +108,16 @@ export interface PaginatedSignalReportListApi {
     results: SignalReportApi[]
 }
 
+export interface SignalReportDispatchResponseApi {
+    /**
+     * Id of the internal implementation Task started (or already running) for this report.
+     * @nullable
+     */
+    task_id: string | null
+    /** Dispatch outcome: 'started' for a new Task, or 'already_dispatched' if one already existed. */
+    status: string
+}
+
 /**
  * * `suppressed` - suppressed
  * `potential` - potential

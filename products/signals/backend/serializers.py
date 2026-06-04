@@ -165,6 +165,16 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         }
 
 
+class SignalReportDispatchResponseSerializer(serializers.Serializer):
+    task_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the internal implementation Task started (or already running) for this report.",
+    )
+    status = serializers.CharField(
+        help_text="Dispatch outcome: 'started' for a new Task, or 'already_dispatched' if one already existed.",
+    )
+
+
 class _UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
