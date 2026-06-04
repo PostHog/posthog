@@ -102,11 +102,18 @@ def test_backend_failure_yields_error_except_when_gates_deny(
         assert "infrastructure" in pipeline.reviewer_output["reasoning"]
 
 
-def test_turn_limit_error_not_retried_and_has_correct_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.parametrize(
+    "gate_verdict, expected_final",
+    [
+        ("PENDING", "ERROR"),
+        ("AUTO-APPROVED", "ERROR"),
+        ("DENIED", "REFUSED"),
+    ],
+)
+def test_turn_limit_error_not_retried(monkeypatch: pytest.MonkeyPatch, gate_verdict: str, expected_final: str) -> None:
     """A turn-limit error is non-retryable and should give a clear message
-    about complexity rather than blaming infrastructure."""
+    about complexity rather than blaming infrastructure. When gates DENIED,
+    the deterministic denial still outranks the error."""
     call_count = 0
     original_review = _TurnLimitReviewer.review
 
@@ -123,15 +130,16 @@ def test_turn_limit_error_not_retried_and_has_correct_message(
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pipeline.pr = _fake_pr(head_sha="abc123")
     pipeline.classification = {"tier": "T1-agent", "breadth": "narrow"}
-    pipeline.gate_results = [GateResult("deny-list", True, "")]
+    pipeline.gate_results = [GateResult("deny-list", gate_verdict != "DENIED", "")]
 
-    pipeline._llm_review("PENDING")
+    pipeline._llm_review(gate_verdict)
 
     # Non-retryable: should only be called once, not retried
     assert call_count == 1
-    assert pipeline.final_verdict == "ERROR"
-    assert pipeline.reviewer_output is not None
-    assert "could not complete its analysis" in pipeline.reviewer_output["reasoning"]
-    # Should NOT mention infrastructure/credentials
-    assert "infrastructure" not in pipeline.reviewer_output["reasoning"]
-    assert "credentials" not in pipeline.reviewer_output["reasoning"]
+    assert pipeline.final_verdict == expected_final
+    if expected_final == "ERROR":
+        assert pipeline.reviewer_output is not None
+        assert "could not complete its analysis" in pipeline.reviewer_output["reasoning"]
+        # Should NOT mention infrastructure/credentials
+        assert "infrastructure" not in pipeline.reviewer_output["reasoning"]
+        assert "credentials" not in pipeline.reviewer_output["reasoning"]
