@@ -115,7 +115,7 @@ class ModalSandbox implements Sandbox {
         this.sessionId = state.sessionId
     }
 
-    /** Modal's `ap-...` sandbox id — what `client.sandboxes.fromId()` consumes. */
+    /** Modal's `sb-...` sandbox id — what `client.sandboxes.fromId()` consumes. */
     get providerSandboxId(): string {
         return this.state.handle.sandboxId
     }
@@ -205,7 +205,16 @@ export class ModalSandboxPool implements SandboxPool {
                 })
                 const image = client.images.fromRegistry(this.opts.image ?? DEFAULT_IMAGE_TAG)
                 return { client, app, image }
-            })()
+            })().catch((err) => {
+                // Clear so the next acquire retries the handshake. Without
+                // this, a transient Modal auth blip / rate limit / network
+                // failure on the FIRST acquire wedges the rejected promise
+                // in the cache forever — every subsequent acquire would
+                // skip the re-init guard and rethrow the same stale error
+                // until the pod restarts.
+                this.clientPromise = null
+                throw err
+            })
         }
         return this.clientPromise
     }
