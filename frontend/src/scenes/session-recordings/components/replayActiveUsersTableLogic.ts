@@ -67,7 +67,15 @@ export const replayActiveUsersTableLogic = kea<replayActiveUsersTableLogicType>(
             LIMIT 10
                 `
 
-                const qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
+                let qResponse: Awaited<ReturnType<typeof api.queryHogQL>>
+                try {
+                    qResponse = await api.queryHogQL(q, { scene: 'Replay', productKey: 'session_replay' })
+                } catch {
+                    // This query joins replay events against the events table over 7 days and
+                    // can time out or 500 on large teams. It only powers a non-critical widget,
+                    // so degrade to an empty table rather than surfacing an uncaught error.
+                    return []
+                }
 
                 breakpoint()
 
