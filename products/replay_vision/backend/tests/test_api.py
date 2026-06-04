@@ -643,7 +643,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         [
             ("status=bogus", "status"),
             ("triggered_by=hack", "triggered_by"),
-            ("verdict=maybe", "scanner_result__model_output__verdict"),
+            ("verdict=maybe", "verdict"),
             ("order_by=garbage", "order_by"),
             ("order_by=-result_score_typo", "order_by"),
         ]

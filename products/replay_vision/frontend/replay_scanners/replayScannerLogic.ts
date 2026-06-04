@@ -652,8 +652,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 try {
-                    // Stats endpoint accepts the same filters as the list endpoint so the cards reflect the current view.
-                    const params = buildObservationListParams(values)
+                    // Stats endpoint accepts the same filters as the list, but `order_by` is meaningless on an aggregate.
+                    const { order_by: _ignored, ...params } = buildObservationListParams(values)
                     const response = await visionScannersObservationsStatsRetrieve(String(teamId), props.id, params)
                     actions.loadObservationStatsSuccess(response)
                 } catch {

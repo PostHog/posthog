@@ -311,9 +311,18 @@ _MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
 class _MultiChoiceFilter(django_filters.CharFilter):
     """CSV-encoded multi-value filter; 400s on values outside `valid_choices` when supplied."""
 
-    def __init__(self, *args: Any, valid_choices: frozenset[str] | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        valid_choices: frozenset[str] | None = None,
+        error_key: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         self._valid_choices = valid_choices
+        # When `field_name` is an ORM traversal path (e.g. `scanner_result__model_output__verdict`), the
+        # default error dict key would leak it; override so the response keys match the public param name.
+        self._error_key = error_key
 
     def filter(self, qs: QuerySet[ReplayObservation], value: str | None) -> QuerySet[ReplayObservation]:
         if not value:
@@ -324,9 +333,8 @@ class _MultiChoiceFilter(django_filters.CharFilter):
         if self._valid_choices is not None:
             invalid = sorted({v for v in values if v not in self._valid_choices})
             if invalid:
-                raise ValidationError(
-                    {self.field_name: f"Invalid value(s) {invalid}; allowed: {sorted(self._valid_choices)}."}
-                )
+                key = self._error_key or self.field_name
+                raise ValidationError({key: f"Invalid value(s) {invalid}; allowed: {sorted(self._valid_choices)}."})
         return qs.filter(**{f"{self.field_name}__in": values})
 
 
@@ -344,6 +352,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     verdict = _MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
         valid_choices=_MONITOR_VERDICTS,
+        error_key="verdict",
         help_text="Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
     )
     tags = django_filters.CharFilter(
