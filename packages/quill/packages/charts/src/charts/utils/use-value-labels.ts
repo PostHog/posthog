@@ -1,15 +1,14 @@
 import { useMemo } from 'react'
 
 import type { Series } from '../../core/types'
+import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
-    formatter?: (value: number) => string
-    /** Per-band percentage on each segment label (e.g. `580 (42%)`, or `42%` without
-     *  `showValues`). See `ValueLabelsProps.showPercentages` for details. */
-    showPercentages?: boolean
-    /** Whether the raw value is shown. Defaults to true. See `ValueLabelsProps.showValues`. */
-    showValues?: boolean
+    /** Per-segment label text. Receives a `context` (band values, raw value, percent layout) so
+     *  callers can render shares/percentages without the library knowing about them. Returning an
+     *  empty string skips the label. */
+    formatter?: ValueLabelFormatter
 }
 
 export function resolveValueLabelsConfig(input: boolean | ValueLabelsConfig | undefined): ValueLabelsConfig | null {

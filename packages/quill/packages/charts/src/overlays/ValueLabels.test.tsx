@@ -312,78 +312,27 @@ describe('ValueLabels', () => {
         })
     })
 
-    describe('showPercentages', () => {
-        it('appends per-band percentage to each segment label', () => {
-            // Band totals (sum of |value|): Mon = 30+10 = 40, Tue = 25+75 = 100.
-            // a: Mon 30/40=75%, Tue 25/100=25%. b: Mon 10/40=25%, Tue 75/100=75%.
-            // Values spread across distinct y positions so collision avoidance doesn't drop labels.
+    describe('formatter context', () => {
+        it('passes each segment the raw value and its band of stack-contributing values', () => {
+            // Two series, one negative — the formatter encodes rawValue and the band so we can
+            // assert the overlay surfaces the full band (incl. the negative) to the caller.
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
-                { key: 'b', label: 'B', color: '#0a0', data: [10, 75] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
             ]
             const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
-            const { container } = renderInChart(ctx, <ValueLabels showPercentages />)
-            const labels = labelDivs(container).map((d) => d.textContent)
-            expect(labels.sort()).toEqual(['10 (25%)', '25 (25%)', '30 (75%)', '75 (75%)'])
-        })
-
-        it('uses absolute values in the denominator so diverging stacks (lifecycle) work', () => {
-            // dormant is negative — the existing `bandTotal` would reject this band as mixed-sign,
-            // but `showPercentages` uses |sum(abs)| so the segment shares are still meaningful.
-            // Band total: |20| + |-10| = 30. positive 20/30=67%, dormant 10/30=33%.
-            const series: ResolvedSeries[] = [
-                { key: 'pos', label: 'Positive', color: '#a00', data: [20] },
-                { key: 'neg', label: 'Dormant', color: '#0a0', data: [-10] },
-            ]
-            const ctx = makeContext(series, { labels: ['Mon'] })
-            const { container } = renderInChart(ctx, <ValueLabels showPercentages />)
-            expect(
-                labelDivs(container)
-                    .map((d) => d.textContent)
-                    .sort()
-            ).toEqual(['-10 (33%)', '20 (67%)'])
-        })
-
-        it('respects the caller-provided value formatter and appends percentages after it', () => {
-            const series: ResolvedSeries[] = [{ key: 'a', label: 'A', color: '#a00', data: [50] }]
-            const ctx = makeContext(series, { labels: ['Mon'] })
             const { container } = renderInChart(
                 ctx,
-                <ValueLabels showPercentages valueFormatter={(v) => `$${v.toFixed(0)}`} />
+                <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.bandValues.join(',')}`} />
             )
-            expect(labelDivs(container).map((d) => d.textContent)).toEqual(['$50 (100%)'])
-        })
-
-        it('renders bare percentages (no value, no brackets) when showValues is false', () => {
-            // Same band as the append test, but values are hidden so each label is just the percentage.
-            const series: ResolvedSeries[] = [
-                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
-                { key: 'b', label: 'B', color: '#0a0', data: [10, 75] },
-            ]
-            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
-            const { container } = renderInChart(ctx, <ValueLabels showPercentages showValues={false} />)
             expect(
                 labelDivs(container)
                     .map((d) => d.textContent)
                     .sort()
-            ).toEqual(['25%', '25%', '75%', '75%'])
+            ).toEqual(['-10|30,-10', '25|25,75', '30|30,-10', '75|25,75'])
         })
 
-        it('bare percentages use absolute values for diverging stacks (lifecycle)', () => {
-            const series: ResolvedSeries[] = [
-                { key: 'pos', label: 'Positive', color: '#a00', data: [20] },
-                { key: 'neg', label: 'Dormant', color: '#0a0', data: [-10] },
-            ]
-            const ctx = makeContext(series, { labels: ['Mon'] })
-            const { container } = renderInChart(ctx, <ValueLabels showPercentages showValues={false} />)
-            expect(
-                labelDivs(container)
-                    .map((d) => d.textContent)
-                    .sort()
-            ).toEqual(['33%', '67%'])
-        })
-
-        it('does not append percentages when isPercent is true (labels already express fractions)', () => {
+        it('marks the context isPercent in percent layout and passes the segment fraction as value', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [20, 60] },
                 { key: 'b', label: 'B', color: '#0a0', data: [80, 40] },
@@ -393,10 +342,7 @@ describe('ValueLabels', () => {
                 y: (v: number) => 368 - v * 352,
                 yTicks: () => [0, 0.5, 1],
             }
-            const positionByKey: Record<string, number[]> = {
-                a: [0.2, 0.6],
-                b: [1.0, 1.0],
-            }
+            const positionByKey: Record<string, number[]> = { a: [0.2, 0.6], b: [1.0, 1.0] }
             const resolvePositionValue: ResolveValueFn = (s, i) => positionByKey[s.key]?.[i] ?? 0
             const ctx = makeContext(series, {
                 isPercent: true,
@@ -406,14 +352,20 @@ describe('ValueLabels', () => {
             })
             const { container } = renderInChart(
                 ctx,
-                <ValueLabels showPercentages valueFormatter={(v) => `${(v * 100).toFixed(0)}%`} />
+                <ValueLabels valueFormatter={(v, _si, _di, c) => `${(v * 100).toFixed(0)}%${c.isPercent ? '*' : ''}`} />
             )
-            // Same expected output as the non-`showPercentages` percent-layout test — no double-tagging.
             expect(
                 labelDivs(container)
                     .map((d) => d.textContent)
                     .sort()
-            ).toEqual(['20%', '40%', '60%', '80%'])
+            ).toEqual(['20%*', '40%*', '60%*', '80%*'])
+        })
+
+        it('skips labels whose formatter returns an empty string', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30] }]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
+            const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => (v === 20 ? '' : `${v}`)} />)
+            expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30'])
         })
     })
 

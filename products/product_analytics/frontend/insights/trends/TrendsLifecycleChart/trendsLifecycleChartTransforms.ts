@@ -1,4 +1,4 @@
-import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import type { Series, TimeSeriesBarChartConfig, ValueLabelFormatter } from '@posthog/quill-charts'
 
 import { getBarColorFromStatus } from 'lib/colors'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -22,6 +22,33 @@ export interface TrendsLifecycleResultLike {
 function lifecycleStatusOrder(status: string | undefined): number {
     const i = LIFECYCLE_STATUS_ORDER.indexOf(status as LifecycleToggle)
     return i === -1 ? LIFECYCLE_STATUS_ORDER.length : i
+}
+
+export interface LifecycleValueLabelOptions {
+    showValues: boolean
+    showPercentages: boolean
+}
+
+// Builds the value-label text for lifecycle bars: the value, a percentage, or `value (pct%)`.
+// Each segment's percentage is its share of the band's absolute total — `abs` so the negative
+// dormant series still contributes a sensible denominator instead of cancelling the positives.
+// Returning '' (percentages-only with no band total) tells the overlay to skip the label.
+export function buildLifecycleValueLabelFormatter(
+    formatValue: (value: number) => string,
+    { showValues, showPercentages }: LifecycleValueLabelOptions
+): ValueLabelFormatter {
+    return (value, _seriesIndex, _dataIndex, context) => {
+        const valueText = showValues ? formatValue(value) : ''
+        if (!showPercentages || context.isPercent) {
+            return valueText
+        }
+        const absTotal = context.bandValues.reduce((sum, v) => sum + Math.abs(v), 0)
+        if (absTotal <= 0) {
+            return valueText
+        }
+        const pct = Math.round((Math.abs(context.rawValue) / absTotal) * 100)
+        return showValues ? `${valueText} (${pct}%)` : `${pct}%`
+    }
 }
 
 // `dormant` is the only lifecycle status whose values are emitted as negatives,
