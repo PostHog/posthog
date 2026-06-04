@@ -27,9 +27,18 @@ function isPathWithoutProjectId(path: string): boolean {
     return pathsWithoutProjectId.includes(firstPart)
 }
 
+function normalizeRelativePath(path: string): string {
+    const normalized = path.replace(/^(\.\.\/)+|^\.\//, '')
+    return normalized.startsWith('/') ? normalized : `/${normalized}`
+}
+
 function addProjectIdUnlessPresent(path: string, teamId?: TeamType['id']): string {
     if (path.match(projectIdentifierInUrlRegex)) {
         return path
+    }
+
+    if (path.startsWith('../') || path.startsWith('./')) {
+        path = normalizeRelativePath(path)
     }
 
     let prefix = ''
