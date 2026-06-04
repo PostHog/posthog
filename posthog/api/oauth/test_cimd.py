@@ -32,7 +32,7 @@ from posthog.api.oauth.cimd import (
     validate_cimd_url,
 )
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
-from posthog.scopes import PRIVILEGED_SCOPES
+from posthog.scopes import OAUTH_HIDDEN_SCOPES, PRIVILEGED_SCOPES
 
 
 def generate_rsa_key() -> str:
@@ -943,11 +943,18 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         assert app is not None
         self.assertEqual(sorted(app.scopes), sorted(expected_scopes))
 
-    # (c) privileged scopes are always stripped.
+    # (c) Only UNPRIVILEGED_SCOPES pass — privileged, hidden, and unknown strings are all dropped.
     @patch("posthog.api.oauth.cimd.requests.get")
-    def test_privileged_scopes_stripped(self, mock_get, _url_mock):
-        privileged = sorted(PRIVILEGED_SCOPES)
-        input_scopes = [*privileged, "insight:read"]
+    def test_non_grantable_scopes_stripped(self, mock_get, _url_mock):
+        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
+        input_scopes = [
+            *sorted(PRIVILEGED_SCOPES),
+            "not_a_real_scope:write",  # unknown / garbage string
+            "insight:read",  # legitimate — must survive
+        ]
+        if hidden_scope:
+            input_scopes.append(hidden_scope)
+
         metadata = _make_metadata(**{"com.posthog": {"scopes": input_scopes}})
         mock_get.return_value = _mock_response(metadata, headers={})
 
@@ -956,6 +963,9 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         assert app is not None
         for privileged_scope in PRIVILEGED_SCOPES:
             self.assertNotIn(privileged_scope, app.scopes)
+        self.assertNotIn("not_a_real_scope:write", app.scopes)
+        if hidden_scope:
+            self.assertNotIn(hidden_scope, app.scopes)
         self.assertIn("insight:read", app.scopes)
 
     # (b) absent com.posthog.scopes on refresh leaves existing scopes untouched.
