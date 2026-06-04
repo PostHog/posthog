@@ -40,7 +40,7 @@ export class StreamableMcpHandler {
         // NATs shouldn't share buckets across unrelated users.
         const rateLimit = await this.rateLimiter.check(auth.props.userHash)
         if (rateLimit && !rateLimit.allowed) {
-            await recordRateLimitBlock(this.redis, auth.props, rateLimit)
+            void recordRateLimitBlock(this.redis, auth.props, rateLimit).catch(() => {})
             return buildRateLimitResponse(rateLimit)
         }
 
