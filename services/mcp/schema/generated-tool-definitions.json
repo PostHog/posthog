@@ -5388,7 +5388,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interviews-list": {
-        "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic — use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview.",
+        "description": "List completed user interview responses in the current project, newest first. Each row includes the interviewee email(s) and identifier, the linked `topic` UUID (set when the interview came in via a topic's shared link), and the AI-generated `transcript` and `summary` fields. Pass `topic` with a topic UUID to scope to a single research topic — use this to answer questions like \"do I have any responses on my X topic yet?\". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific interview. Pass `classifications` (comma-separated; any of `abandoned`, `off-topic`) to return only responses carrying any of those classifications — e.g. `classifications=abandoned` to find drop-offs.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "List user interview responses",
@@ -5399,6 +5399,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "user-interviews"
+    },
+    "user-interviews-partial-update": {
+        "description": "Replace the searchable `classifications` on a single interview response. The valid classifications are `abandoned` and `off-topic`. `abandoned` is auto-derived from the transcript when the response is recorded; use this to correct it or to apply `off-topic`, which is never auto-set. Sending `classifications` replaces the entire list — pass the full desired set, not a delta, so include the auto-derived `abandoned` if you want to keep it. Filter by these later via the `classifications` parameter on `user-interviews-list` and `user-interviews-search`.",
+        "category": "User interview topics",
+        "feature": "user_interviews",
+        "summary": "Set classifications on an interview response",
+        "title": "Set classifications on an interview response",
+        "required_scopes": ["user_interview:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "user-interviews"
     },
@@ -5418,7 +5433,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interviews-search": {
-        "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
+        "description": "Search recorded user interviews by meaning, not keywords. Embeds the natural-language `query` with the same model used to index transcripts and summaries, then returns the top matches by cosine similarity. Each match is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and summary score above other interviews. Use `document_types` to restrict to just `transcript` or just `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of returned matches (1-50, default 10). Filter by `classifications` (any of `abandoned`, `off-topic`) to restrict the search to responses carrying those; combines with `topic_id` as AND. Useful for surfacing relevant excerpts when the caller has a research question rather than a known string to grep for.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Semantic search across interview responses",
