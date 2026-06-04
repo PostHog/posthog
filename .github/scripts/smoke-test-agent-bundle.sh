@@ -41,6 +41,13 @@ docker run --rm \
     -e ENCRYPTION_SALT_KEYS='00beef0000beef0000beef0000beef00' \
     -e INTERNAL_SECRET='smoke-test-internal-secret' \
     -e KAFKA_HOSTS='127.0.0.1:1' \
+    -e REDIS_URL='redis://127.0.0.1:1' \
+    -e SANDBOX_BACKEND='modal' \
+    -e MODAL_TOKEN_ID='smoke-modal-token-id' \
+    -e MODAL_TOKEN_SECRET='smoke-modal-token-secret' \
+    -e AGENT_USE_AI_GATEWAY='1' \
+    -e POSTHOG_AI_GATEWAY_URL='http://127.0.0.1:1/v1' \
+    -e POSTHOG_API_BASE_URL='http://127.0.0.1:1' \
     -e NODE_ENV='production' \
     --entrypoint sh \
     "$IMAGE_REF" \

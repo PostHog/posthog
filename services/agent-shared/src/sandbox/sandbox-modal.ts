@@ -36,17 +36,14 @@ import { AcquireOpts, InvokeRequest, InvokeResponse, Sandbox, SandboxPool } from
 const log = createLogger('sandbox-modal')
 
 /**
- * Default base image. `node:24-alpine` matches the runner's Node major and is
- * always available. The chart in prod points at
- * `ghcr.io/posthog/posthog-agent-sandbox-host@sha256:...` instead (digest
- * pinned because Modal caches by reference indefinitely — see Tasks's
- * modal_sandbox.py for the precedent). The canonical sandbox-host image
- * bakes `/sandbox/dispatch.js`; we still write it per-acquire so the same
- * code path works against a vanilla node image too. The write is idempotent
- * + cheap (~tens of ms), so leaving it on is the simplest correctness
- * posture until the chart-side rollout settles.
+ * Default base image. Canonical `posthog-agent-sandbox-host` from public
+ * GHCR — bakes `/sandbox/dispatch.js` and `/sandbox/host.js`. Production
+ * should pin a `@sha256:...` digest via `SANDBOX_HOST_IMAGE` because Modal
+ * caches images by reference indefinitely (see Tasks's modal_sandbox.py for
+ * the precedent); the `:master` default here is for dev / tests where the
+ * mutable tag is fine.
  */
-const DEFAULT_IMAGE_TAG = 'node:24-alpine'
+const DEFAULT_IMAGE_TAG = 'ghcr.io/posthog/posthog-agent-sandbox-host:master'
 
 /** Default Modal app name. Override via `appName` ctor opt. */
 const DEFAULT_APP_NAME = 'posthog-agent-sandbox'
@@ -71,100 +68,6 @@ function resolveRegion(env: NodeJS.ProcessEnv = process.env): string {
     }
     return DEFAULT_MODAL_REGION
 }
-
-/**
- * Dispatcher source. Mirrors `services/agent-sandbox-host/src/dispatch.js`
- * exactly — same wire format, same `ctx` shape — so the runner-side write
- * works against either a vanilla base image or the canonical
- * `posthog-agent-sandbox-host` image (which bakes the same script at
- * `/sandbox/dispatch.js`). The write is idempotent; on the baked-image path
- * we overwrite identical content. Long-term, this duplication collapses
- * when both consumers read from a shared file via an esbuild text loader.
- */
-const DISPATCH_JS = `'use strict'
-
-const fs = require('node:fs')
-const path = require('node:path')
-const { performance } = require('node:perf_hooks')
-
-const TOOLS_DIR = process.env.SANDBOX_TOOLS_DIR || '/workdir/tools'
-const NONCES_PATH = process.env.SANDBOX_NONCES_PATH || '/workdir/nonces.json'
-
-function readJson(p) { return JSON.parse(fs.readFileSync(p, 'utf-8')) }
-function writeJson(p, value) { fs.writeFileSync(p, JSON.stringify(value)) }
-function loadNonces() { try { return readJson(NONCES_PATH) } catch { return {} } }
-
-function loadTool(toolId) {
-    const compiledPath = path.join(TOOLS_DIR, toolId, 'compiled.js')
-    if (!fs.existsSync(compiledPath)) {
-        throw Object.assign(new Error('tool not found: ' + toolId), { code: 'tool_not_found' })
-    }
-    delete require.cache[require.resolve(compiledPath)]
-    return require(compiledPath)
-}
-
-function buildContext(nonces) {
-    return {
-        secrets: {
-            ref: (name) => {
-                if (!(name in nonces)) throw new Error('secret not provisioned: ' + name)
-                return nonces[name]
-            },
-        },
-        log: (level, msg, meta) => {
-            const entry = { level, msg, meta: meta == null ? null : meta, ts: new Date().toISOString() }
-            process.stderr.write(JSON.stringify(entry) + '\\n')
-        },
-    }
-}
-
-async function withTimeout(promise, timeoutMs) {
-    if (!timeoutMs || timeoutMs <= 0) return promise
-    let timer
-    try {
-        return await Promise.race([
-            promise,
-            new Promise((_resolve, reject) => {
-                timer = setTimeout(() => reject(Object.assign(new Error('tool timeout'), { code: 'timeout' })), timeoutMs)
-            }),
-        ])
-    } finally { clearTimeout(timer) }
-}
-
-async function dispatch(request) {
-    const tool = loadTool(request.toolId)
-    const action = (tool.actions || {})[request.action]
-    if (typeof action !== 'function') {
-        throw Object.assign(new Error('action not found: ' + request.action), { code: 'action_not_found' })
-    }
-    const ctx = buildContext(loadNonces())
-    const t0 = performance.now()
-    const result = await withTimeout(Promise.resolve(action(request.args, ctx)), request.timeoutMs)
-    return { result, ms: Math.round(performance.now() - t0) }
-}
-
-async function main() {
-    const [reqPath, resPath] = process.argv.slice(2)
-    if (!reqPath || !resPath) {
-        process.stderr.write('usage: dispatch.js <request.json> <response.json>\\n')
-        process.exit(2)
-    }
-    let response
-    try {
-        const request = readJson(reqPath)
-        const { result } = await dispatch(request)
-        response = { ok: true, result }
-    } catch (err) {
-        response = { ok: false, error: { code: err.code || 'tool_invoke_failed', message: err.message || String(err) } }
-    }
-    writeJson(resPath, response)
-}
-
-main().catch((err) => {
-    process.stderr.write('dispatch fatal: ' + (err.stack || err.message) + '\\n')
-    process.exit(1)
-})
-`
 
 interface ModalSandboxPoolOpts {
     /** Default `posthog-agent-sandbox`. Override per environment (e.g. `posthog-agent-sandbox-dev`). */
@@ -370,14 +273,12 @@ export class ModalSandboxPool implements SandboxPool {
         }
 
         try {
-            await handle.filesystem.makeDirectory('/sandbox')
+            // Per-session bits only — the canonical sandbox-host image bakes
+            // `/sandbox/dispatch.js` and `/sandbox/host.js`. If someone
+            // points us at a vanilla node base image they'll see ENOENT on
+            // dispatch — by design; the image is the contract.
             await handle.filesystem.makeDirectory('/workdir')
             await handle.filesystem.makeDirectory('/workdir/tools')
-            // Dispatcher: idempotent write. The canonical
-            // posthog-agent-sandbox-host image bakes the same file; this
-            // write overwrites identical content. On a vanilla node base
-            // image (dev default) the write is what makes the sandbox work.
-            await handle.filesystem.writeText(DISPATCH_JS, '/sandbox/dispatch.js')
             for (const tool of opts.tools) {
                 const dir = `/workdir/tools/${tool.id}`
                 await handle.filesystem.makeDirectory(dir)

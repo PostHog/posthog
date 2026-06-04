@@ -88,6 +88,10 @@ maybeDescribe('ModalSandboxPool: real e2e', () => {
             // Per-test app so concurrent runs don't collide. Modal will
             // create-if-missing.
             appName: process.env.MODAL_APP_NAME ?? 'posthog-agent-sandbox-test',
+            // Override the published image when validating an in-flight PR
+            // before the `:master` tag exists. The chart sets this from
+            // state.yaml in prod.
+            image: process.env.SANDBOX_HOST_IMAGE,
             // Tight upper bound — if the test wedges, the sandbox dies on
             // its own within 2 minutes.
             defaultSessionTimeoutMs: 120_000,
@@ -162,6 +166,7 @@ maybeDescribe('ModalSandboxPool: real e2e', () => {
     it('reaper terminates a Modal sandbox out-of-process by providerSandboxId', async () => {
         const pool = new ModalSandboxPool({
             appName: process.env.MODAL_APP_NAME ?? 'posthog-agent-sandbox-test',
+            image: process.env.SANDBOX_HOST_IMAGE,
             defaultSessionTimeoutMs: 120_000,
         })
 
