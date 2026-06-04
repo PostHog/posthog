@@ -43,7 +43,17 @@ FILE_DOWNLOAD_PREFIX = (
 
 NON_RETRYABLE_ERROR_TYPES = ()
 
-SESSION = aioboto3.Session()
+# Created lazily rather than at module import time: instantiating a boto3 session eagerly
+# resolves botocore config (including the active AWS profile), which crashes Django startup
+# when a profile is set in the environment but absent from local AWS config.
+_SESSION: aioboto3.Session | None = None
+
+
+def get_session() -> aioboto3.Session:
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = aioboto3.Session()
+    return _SESSION
 
 
 class Credentials(typing.NamedTuple):
@@ -100,7 +110,7 @@ async def _get_temporary_credentials_for_bucket_prefix(
     `_get_temporary_credentials_for_multipart_upload` or
     `_get_temporary_credentials_to_head_object` as needed.
     """
-    async with SESSION.client("sts") as sts:
+    async with get_session().client("sts") as sts:
         for attempt in range(1, max_attempts + 1):
             try:
                 response = await sts.assume_role(
