@@ -17,7 +17,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import InCohortVia, PropertyGroupsMode
+from posthog.schema import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode, PropertyGroupsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -1079,11 +1079,8 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             assert len(rows) == 2, f"push={push}: expected exactly 2 rows, got {rows}"
             assert all(tuple(r) in valid for r in rows), f"push={push}: returned a row outside the matching set: {rows}"
 
-    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
-    def test_exec_in_cohort_with_session_join_declines_and_stays_equivalent(self):
-        # `person_id IN COHORT` + a session join + LIMIT. Across every inCohortVia mode the pushdown DECLINES
-        # (LEFTJOIN: unresolved InCohort op kept outer; SUBQUERY: the IN (SELECT ...) is kept outer), so the
-        # query runs flat — results stay correct (only c_in's 2 events match; c_out is excluded) and on==off.
+    def _setup_cohort_data(self) -> "Cohort":
+        # c_in ($os=Chrome) is in the cohort with 2 in-range events; c_out ($os=Firefox) is out, with 1.
         _create_person(team=self.team, distinct_ids=["c_in"], properties={"$os": "Chrome"}, is_identified=True)
         _create_person(team=self.team, distinct_ids=["c_out"], properties={"$os": "Firefox"}, is_identified=True)
         self._create_session("2024-01-02T00:00:00", "c_in", "pro", "2024-01-02T10:00:00", "2024-01-02T10:05:00")
@@ -1093,29 +1090,101 @@ class TestEventsPredicatePushdownExecution(_PushdownExecutionTestBase):
             team=self.team, groups=[{"properties": [{"key": "$os", "value": "Chrome", "type": "person"}]}]
         )
         recalculate_cohortpeople(cohort, pending_version=0, initiating_user_id=None)
+        return cohort
+
+    # Cohort predicates must never push, regardless of how IN COHORT resolves: inCohortVia=LEFTJOIN leaves an
+    # unresolved InCohort op (kept outer), and SUBQUERY / CONJOINED / inline resolve to a nested subquery
+    # (kept outer) — across every personsOnEventsMode, so the `person_id` resolution (direct vs lazy override)
+    # can't make it slip through. Each shape must decline (run flat) and stay result-equivalent on vs off.
+    _COHORT_SHAPES = [
+        (
+            "subquery_person_id_direct",
+            InCohortVia.SUBQUERY,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            InlineCohortCalculation.OFF,
+            "IN COHORT",
+            2,
+        ),
+        (
+            "subquery_override_on_events",
+            InCohortVia.SUBQUERY,
+            PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+            InlineCohortCalculation.OFF,
+            "IN COHORT",
+            2,
+        ),
+        (
+            "subquery_poe_disabled",
+            InCohortVia.SUBQUERY,
+            PersonsOnEventsMode.DISABLED,
+            InlineCohortCalculation.OFF,
+            "IN COHORT",
+            2,
+        ),
+        (
+            "leftjoin_person_id_direct",
+            InCohortVia.LEFTJOIN,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            InlineCohortCalculation.OFF,
+            "IN COHORT",
+            2,
+        ),
+        (
+            "conjoined_person_id_direct",
+            InCohortVia.LEFTJOIN_CONJOINED,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            InlineCohortCalculation.OFF,
+            "IN COHORT",
+            2,
+        ),
+        (
+            "subquery_inline_calc",
+            InCohortVia.SUBQUERY,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            InlineCohortCalculation.ALWAYS,
+            "IN COHORT",
+            2,
+        ),
+        (
+            "not_in_cohort",
+            InCohortVia.SUBQUERY,
+            PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            InlineCohortCalculation.OFF,
+            "NOT IN COHORT",
+            1,
+        ),
+    ]
+
+    @parameterized.expand(_COHORT_SHAPES)
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=True, PERSON_ON_EVENTS_V2_OVERRIDE=False)
+    def test_exec_cohort_predicate_declines_and_stays_equivalent(
+        self, _name, in_cohort_via, poe_mode, inline, predicate, expected_count
+    ):
+        cohort = self._setup_cohort_data()
         select = (
             f"SELECT event, session.$session_duration FROM events "
-            f"WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' AND person_id IN COHORT {cohort.pk} LIMIT 50"
+            f"WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08' "
+            f"AND person_id {predicate} {cohort.pk} LIMIT 50"
         )
-        for mode in (InCohortVia.SUBQUERY, InCohortVia.LEFTJOIN, InCohortVia.AUTO):
-            printed, _ = prepare_and_print_ast(
-                parse_select(select),
-                HogQLContext(
-                    team_id=self.team.pk,
-                    enable_select_queries=True,
-                    modifiers=HogQLQueryModifiers(pushDownPredicates=True, inCohortVia=mode),
-                ),
-                "clickhouse",
+
+        def mods(push: bool) -> HogQLQueryModifiers:
+            return HogQLQueryModifiers(
+                pushDownPredicates=push,
+                inCohortVia=in_cohort_via,
+                personsOnEventsMode=poe_mode,
+                inlineCohortCalculation=inline,
             )
-            assert ") AS events LEFT JOIN" not in printed, f"mode={mode}: cohort predicate must not push:\n{printed}"
-            on = execute_hogql_query(
-                select, team=self.team, modifiers=HogQLQueryModifiers(pushDownPredicates=True, inCohortVia=mode)
-            ).results
-            off = execute_hogql_query(
-                select, team=self.team, modifiers=HogQLQueryModifiers(pushDownPredicates=False, inCohortVia=mode)
-            ).results
-            assert sorted(on or []) == sorted(off or []), f"mode={mode}: pushdown changed results: on={on} off={off}"
-            assert len(on or []) == 2, f"mode={mode}: expected 2 cohort-member events, got {on}"
+
+        printed, _ = prepare_and_print_ast(
+            parse_select(select),
+            HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=mods(True)),
+            "clickhouse",
+        )
+        assert ") AS events LEFT JOIN" not in printed, f"{_name}: cohort predicate must not push:\n{printed}"
+        on = execute_hogql_query(select, team=self.team, modifiers=mods(True)).results
+        off = execute_hogql_query(select, team=self.team, modifiers=mods(False)).results
+        assert sorted(on or []) == sorted(off or []), f"{_name}: pushdown changed results: on={on} off={off}"
+        assert len(on or []) == expected_count, f"{_name}: expected {expected_count} rows, got {on}"
 
     def test_exec_array_join_predicate_not_pushed_stays_equivalent(self):
         # arrayJoin in a predicate is residual (it can't be pushed into the events subquery), so the whole
