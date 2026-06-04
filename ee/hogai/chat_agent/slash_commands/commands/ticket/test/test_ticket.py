@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
@@ -172,14 +173,14 @@ class TestTicketCommand(BaseTest):
     async def test_is_organization_new_returns_true_for_recent_org(self):
         """Test that _is_organization_new returns True for org created less than 3 months ago."""
         self.team.organization.created_at = timezone.now() - timedelta(days=30)
-        self.team.organization.save()
+        await sync_to_async(self.team.organization.save)()
         self.assertTrue(await self.command._is_organization_new())
 
     @pytest.mark.asyncio
     async def test_is_organization_new_returns_false_for_old_org(self):
         """Test that _is_organization_new returns False for org created more than 3 months ago."""
         self.team.organization.created_at = timezone.now() - timedelta(days=100)
-        self.team.organization.save()
+        await sync_to_async(self.team.organization.save)()
         self.assertFalse(await self.command._is_organization_new())
 
     @pytest.mark.asyncio
