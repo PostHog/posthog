@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { Spinner } from '@posthog/lemon-ui'
@@ -15,16 +15,27 @@ import { ErrorTrackingIngestionPrompt } from 'products/error_tracking/frontend/c
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import { WidgetCardProductIntroduction } from '../../components/WidgetCardProductIntroduction/WidgetCardProductIntroduction'
+import { formatWidgetListCountFooter } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { parseErrorTrackingWidgetConfig } from './errorTrackingWidgetConfigValidation'
+import { errorTrackingWidgetLogic } from './errorTrackingWidgetLogic'
 import { canConfigureErrorTrackingWidgetIssues } from './utils'
 
 type ErrorTrackingWidgetResult = {
     results?: ErrorTrackingIssue[]
     hasMore?: boolean
     limit?: number
+    totalCount?: number
+    totalCountCapped?: boolean
 }
 
-export function ErrorTrackingWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
+export function ErrorTrackingWidget({
+    result,
+    loading,
+    config,
+    onRefreshData,
+    canMutateErrorTrackingIssues = false,
+}: DashboardWidgetComponentProps): JSX.Element {
     if (loading) {
         return (
             <WidgetCardContent>
@@ -35,7 +46,13 @@ export function ErrorTrackingWidget({ result, loading }: DashboardWidgetComponen
 
     return (
         <ErrorTrackingWidgetSetupGate>
-            <ErrorTrackingWidgetBody result={result} />
+            <BindLogic logic={errorTrackingWidgetLogic} props={{ onRefreshData }}>
+                <ErrorTrackingWidgetBody
+                    result={result}
+                    config={config}
+                    canMutateIssues={canMutateErrorTrackingIssues}
+                />
+            </BindLogic>
         </ErrorTrackingWidgetSetupGate>
     )
 }
@@ -70,9 +87,18 @@ function ErrorTrackingWidgetSetupGate({ children }: { children: ReactNode }): JS
     return <>{children}</>
 }
 
-function ErrorTrackingWidgetBody({ result }: { result: DashboardWidgetComponentProps['result'] }): JSX.Element {
+function ErrorTrackingWidgetBody({
+    result,
+    config,
+    canMutateIssues,
+}: {
+    result: DashboardWidgetComponentProps['result']
+    config: DashboardWidgetComponentProps['config']
+    canMutateIssues: boolean
+}): JSX.Element {
     const payload = result as ErrorTrackingWidgetResult | null | undefined
     const rows = payload?.results ?? []
+    const orderBy = parseErrorTrackingWidgetConfig(config).orderBy
 
     if (rows.length === 0) {
         return (
@@ -93,9 +119,22 @@ function ErrorTrackingWidgetBody({ result }: { result: DashboardWidgetComponentP
         )
     }
 
+    const footer =
+        rows.length > 0 ? (
+            <p className="text-xs text-muted m-0 text-center" data-attr="error-tracking-widget-count">
+                {formatWidgetListCountFooter(
+                    rows.length,
+                    payload?.totalCount,
+                    payload?.totalCountCapped,
+                    undefined,
+                    payload?.hasMore
+                )}
+            </p>
+        ) : undefined
+
     return (
-        <WidgetCardContent>
-            <ErrorTrackingIssueList issues={rows} />
+        <WidgetCardContent footer={footer}>
+            <ErrorTrackingIssueList issues={rows} orderBy={orderBy} canMutateIssues={canMutateIssues} />
         </WidgetCardContent>
     )
 }

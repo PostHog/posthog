@@ -65,6 +65,7 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         refreshDashboardWidgets,
+        scheduleRefreshDashboardWidgets,
         moveToDashboard,
         copyToDashboard,
         setTileOverride,
@@ -379,6 +380,7 @@ export function DashboardItems(): JSX.Element {
                                 onEnterEditModeFromEdge,
                                 onDragHandleMouseDown,
                                 showEditingControls,
+                                isDashboardEditMode: dashboardMode === DashboardMode.Edit,
                                 moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                     moveToDashboard(tile, requireDashboardId('move this tile'), id, name)
                                 },
@@ -490,6 +492,7 @@ export function DashboardItems(): JSX.Element {
                                         tile={tile}
                                         placement={placement}
                                         dashboardId={dashboard?.id}
+                                        canEditDashboard={canEditDashboard}
                                         result={runResult?.result}
                                         error={getDashboardWidgetFetchDisplayError(
                                             runResult?.error ?? refreshState?.error
@@ -499,6 +502,7 @@ export function DashboardItems(): JSX.Element {
                                         onRefresh={() =>
                                             refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
                                         }
+                                        onRefreshWidgetData={scheduleRefreshDashboardWidgets}
                                         onUpdateWidgetTile={async (patch) => {
                                             await updateWidgetTile({ tile, ...patch })
                                         }}
@@ -509,6 +513,7 @@ export function DashboardItems(): JSX.Element {
                                         onCopyToDashboard={commonTileProps.copyToDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
                                         showEditingControls={commonTileProps.showEditingControls}
+                                        isDashboardEditMode={commonTileProps.isDashboardEditMode}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}

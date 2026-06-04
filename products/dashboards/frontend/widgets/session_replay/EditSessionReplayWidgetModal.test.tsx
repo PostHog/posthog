@@ -57,6 +57,7 @@ describe('EditSessionReplayWidgetModal', () => {
             expect.objectContaining({
                 limit: 10,
                 orderBy: 'start_time',
+                orderDirection: 'DESC',
                 filterTestAccounts: true,
                 dateRange: { date_from: '-7d' },
             }),

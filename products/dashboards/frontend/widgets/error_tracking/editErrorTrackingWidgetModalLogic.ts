@@ -6,18 +6,15 @@ import { teamLogic } from 'scenes/teamLogic'
 import { exceptionIngestionLogic } from 'products/error_tracking/frontend/components/SetupPrompt/exceptionIngestionLogic'
 
 import { isWidgetConfigValidationError } from '../../utils'
-import {
-    resolveWidgetFilterTestAccounts,
-    type ErrorTrackingWidgetConfig,
-    type WidgetDateFromValue,
-} from '../../widget_types/configSchemas'
+import { resolveWidgetFilterTestAccounts, type ErrorTrackingWidgetConfig } from '../../widget_types/configSchemas'
 import {
     widgetEditModalFilterTestAccountsActions,
     widgetEditModalListFieldActions,
     widgetEditModalPropSelectors,
     widgetEditModalTileActions,
+    buildWidgetTileMetadataPatch,
+    getWidgetEditModalTileDefaults,
 } from '../editWidgetModalBuilders'
-import { buildWidgetTileMetadataPatch, getWidgetEditModalTileDefaults } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editErrorTrackingWidgetModalLogicType } from './editErrorTrackingWidgetModalLogicType'
 import {
@@ -41,7 +38,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
         description: '',
     } as EditErrorTrackingWidgetModalLogicProps),
 
-    connect({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeam'],
@@ -50,10 +47,11 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
             exceptionIngestionLogic,
             ['hasSentExceptionEvent', 'hasSentExceptionEventLoading'],
         ],
-    }),
+    })),
 
     actions({
         setOrderBy: (orderBy: string) => ({ orderBy }),
+        setOrderDirection: (orderDirection: ErrorTrackingWidgetConfig['orderDirection']) => ({ orderDirection }),
         ...widgetEditModalListFieldActions,
         ...widgetEditModalTileActions,
         ...widgetEditModalFilterTestAccountsActions,
@@ -74,17 +72,19 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                 ): ErrorTrackingWidgetConfig['orderBy'] => orderBy as ErrorTrackingWidgetConfig['orderBy'],
             },
         ],
+        orderDirection: [
+            'DESC' as ErrorTrackingWidgetConfig['orderDirection'],
+            {
+                setOrderDirection: (
+                    _: ErrorTrackingWidgetConfig['orderDirection'],
+                    { orderDirection }: { orderDirection: ErrorTrackingWidgetConfig['orderDirection'] }
+                ): ErrorTrackingWidgetConfig['orderDirection'] => orderDirection,
+            },
+        ],
         limit: [
             10,
             {
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
-            },
-        ],
-        dateFrom: [
-            '-7d',
-            {
-                setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: string }): WidgetDateFromValue =>
-                    dateFrom as WidgetDateFromValue,
             },
         ],
         tileName: [
@@ -129,9 +129,9 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
         saving: [
             false,
             {
-                submit: (_state: boolean, _payload: { value: true }) => true,
-                submitSuccess: (_state: boolean, _payload: { value: true }) => false,
-                submitFailure: (_state: boolean, _payload: { value: true }) => false,
+                submit: () => true,
+                submitSuccess: () => false,
+                submitFailure: () => false,
             },
         ],
     }),
@@ -150,12 +150,12 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
         ],
         ...widgetEditModalPropSelectors,
         validation: [
-            (s) => [s.limit, s.orderBy, s.dateFrom, s.filterTestAccounts, s.widgetConfig],
-            (limit, orderBy, dateFrom, filterTestAccounts, widgetConfig) =>
+            (s) => [s.limit, s.orderBy, s.orderDirection, s.filterTestAccounts, s.widgetConfig],
+            (limit, orderBy, orderDirection, filterTestAccounts, widgetConfig) =>
                 validateErrorTrackingWidgetConfigInput({
                     limit,
                     orderBy,
-                    dateFrom,
+                    orderDirection,
                     filterTestAccounts,
                     baseConfig: widgetConfig,
                 }),
@@ -185,11 +185,10 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
 
     defaults(({ props, values }) => {
         const baseConfig = parseErrorTrackingWidgetConfig(props.config)
-
         return {
             limit: baseConfig.limit,
             orderBy: baseConfig.orderBy,
-            dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
+            orderDirection: baseConfig.orderDirection,
             ...getWidgetEditModalTileDefaults(props),
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,
@@ -202,13 +201,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
 
     listeners(({ actions, props, values }) => ({
         submit: async () => {
-            const result = validateErrorTrackingWidgetConfigInput({
-                limit: values.limit,
-                orderBy: values.orderBy,
-                dateFrom: values.dateFrom,
-                filterTestAccounts: values.filterTestAccounts,
-                baseConfig: values.widgetConfig,
-            })
+            const result = values.validation
 
             if (!result.success) {
                 actions.setFieldErrors(result.fieldErrors)
