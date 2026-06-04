@@ -15,7 +15,6 @@ use tracing_subscriber::{EnvFilter, Layer};
 use capture::config::Config;
 use capture::server::serve;
 use capture::setup;
-// test: selective builds CI validation
 
 common_alloc::used!();
 
