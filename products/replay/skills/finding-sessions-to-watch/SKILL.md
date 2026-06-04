@@ -117,11 +117,13 @@ ORDER BY max(timestamp) DESC         -- recent first: UUIDs aren't time-ordered,
 LIMIT 100
 ```
 
-Then fetch those recordings (some session IDs won't have a recording — that's expected):
+Then fetch those recordings (some session IDs won't have a recording — that's expected). Pass the same
+`date_from` window as the SQL step — with only `session_ids`, the query falls back to its `-3d` default
+and would drop sessions whose event was older than that:
 
 ```json
 posthog:query-session-recordings-list
-{ "session_ids": ["<id1>", "<id2>", "..."] }
+{ "date_from": "-7d", "session_ids": ["<id1>", "<id2>", "..."] }
 ```
 
 ## Worked example
