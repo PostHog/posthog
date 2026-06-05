@@ -44,12 +44,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.printer.differential import (
-    ShadowInput,
-    maybe_record_shadow_divergence,
-    should_shadow,
-    snapshot_shadow_input,
-)
+from posthog.hogql.printer.differential import check_query
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -678,7 +673,6 @@ class HogQLQueryExecutor:
         if self.query_modifiers.forceClickhouseDataSkippingIndexes:
             settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
 
-        shadow_input: ShadowInput | None = None
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,
@@ -691,11 +685,10 @@ class HogQLQueryExecutor:
                 limit_context=self.limit_context,
                 database=self.hogql_context.database if self.hogql_context else None,
             )
-            # Differential shadow-compare (§13): snapshot the input before prepare_ast_for_printing mutates it. This is
-            # the real query-execution boundary (execute_hogql_query bypasses prepare_and_print_ast), so it is where the
-            # differential earns its coverage. Off by default — a single env check unless a sweep is active.
-            if should_shadow(self.clickhouse_context, "clickhouse"):
-                shadow_input = snapshot_shadow_input(self.select_query, settings)
+            # Differential (§13): keep the settings for the new-path render at the end of execute() (this is the real
+            # execution boundary — execute_hogql_query bypasses prepare_and_print_ast). The render reuses the prepared
+            # tree, so no snapshot of the raw input is needed.
+            self._differential_settings = settings
             with self.timings.measure("prepare_ast_for_printing"):
                 self.clickhouse_prepared_ast = prepare_ast_for_printing(
                     node=self.select_query,
@@ -730,17 +723,6 @@ class HogQLQueryExecutor:
                     self.error = "Unknown error"
             else:
                 raise
-
-        # Recompile on the new path and compare against the served SQL — after it is produced, so a shadow failure can
-        # never affect what the query returns (§13.2). Gated to a no-op unless a sweep is active.
-        if shadow_input is not None and self.clickhouse_sql and self.clickhouse_context is not None:
-            maybe_record_shadow_divergence(
-                shadow_input,
-                self.clickhouse_context,
-                "clickhouse",
-                old_sql=self.clickhouse_sql,
-                pretty=self.pretty if self.pretty is not None else True,
-            )
 
     def _prepare_execution(self) -> _PreparedExecution:
         self._parse_query()
@@ -922,6 +904,26 @@ class HogQLQueryExecutor:
             # raises would hide the most useful signal.
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
+
+        # Differential (§13): in test mode, recompile the served query on the new lowering path and compare its result
+        # rows to the served result. SQL-equal => skip; SQL-diff => execute the new path and compare; fail on a real
+        # mismatch. Runs after the served result is computed, so a check failure can never affect what was returned.
+        if (
+            self.error is None
+            and self.clickhouse_prepared_ast is not None
+            and self.clickhouse_sql
+            and self.clickhouse_context is not None
+            and self.results is not None
+        ):
+            check_query(
+                self.clickhouse_prepared_ast,
+                self.clickhouse_context,
+                self.clickhouse_sql,
+                "clickhouse",
+                served_results=self.results,
+                settings=getattr(self, "_differential_settings", None),
+                pretty=self.pretty if self.pretty is not None else True,
+            )
 
         warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
         return HogQLQueryResponse(

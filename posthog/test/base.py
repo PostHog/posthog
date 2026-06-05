@@ -1604,10 +1604,15 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
+        # The HogQL differential (§13) recompiles + executes the new lowering path on every query in test mode to verify
+        # it matches the old path. Those are verification queries, not the query behavior under test — exclude them so
+        # query snapshots / counts reflect only what the code under test ran.
+        from posthog.hogql.printer.differential import is_in_differential  # noqa: PLC0415 — avoid base-import coupling
+
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
-            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+            if not is_in_differential() and query_filter(sqlparse.format(query, strip_comments=True).strip()):
                 queries.append(query)
             return original_client_execute(query, *args, **kwargs)
 

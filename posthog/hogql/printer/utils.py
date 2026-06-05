@@ -17,12 +17,7 @@ from posthog.hogql.observability import (
 )
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
-from posthog.hogql.printer.differential import (
-    ShadowInput,
-    maybe_record_shadow_divergence,
-    should_shadow,
-    snapshot_shadow_input,
-)
+from posthog.hogql.printer.differential import check_query
 from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -64,13 +59,6 @@ def prepare_and_print_ast(
     settings: HogQLGlobalSettings | None = None,
     pretty: bool = False,
 ) -> tuple[str, _T_AST | None]:
-    # Differential shadow-compare (§13): snapshot the pristine input *before* the old-path compile mutates the node and
-    # settings, so the new-path recompile below starts from the same query. A single cheap env check unless a sweep is
-    # active (off by default — no overhead on normal runs).
-    shadow_input: ShadowInput | None = None
-    if should_shadow(context, dialect):
-        shadow_input = snapshot_shadow_input(node, settings)
-
     previous_type_observability = context.type_observability
     context.type_observability = create_hogql_type_observability(
         dialect=dialect,
@@ -96,10 +84,10 @@ def prepare_and_print_ast(
             settings=settings,
             pretty=pretty,
         )
-        # Recompile on the new path and compare against the served SQL. Runs after the old path has produced output, so
-        # a shadow failure can never affect what the caller gets back (§13.2).
-        if shadow_input is not None:
-            maybe_record_shadow_divergence(shadow_input, context, dialect, old_sql=printed, stack=stack, pretty=pretty)
+        # Differential (§13): render the new path from the resolved+swapped tree the old path just produced, and
+        # compare. Runs after the served output, so a check failure can't affect it. Compile-only boundary:
+        # served_results is None, so a SQL diff executes the served SQL itself (skipped if it isn't runnable).
+        check_query(prepared_ast, context, printed, dialect, stack=stack, settings=settings, pretty=pretty)
         return printed, prepared_ast
     except Exception:
         if context.type_observability is not None:
