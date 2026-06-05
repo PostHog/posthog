@@ -17,6 +17,7 @@ import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~
 import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountRoleKey, accountsLogic } from './accountsLogic'
 
 type AccountAssignment = { id: number; email: string } | null
@@ -242,10 +243,28 @@ function useContextColumns(): Record<string, QueryContextColumn> {
 
 function useExpandable(): QueryContext<DataTableNode>['expandable'] {
     const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { expandedAccountIds } = useValues(accountsExpansionLogic)
+    const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     return useMemo(
         () => ({
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
+            isRowExpanded: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                return !!cell && expandedAccountIds.includes(cell.id)
+            },
+            onRowExpand: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                if (cell) {
+                    toggleAccountExpanded(cell.id)
+                }
+            },
+            onRowCollapse: ({ result }) => {
+                const cell = getNameCell(result, visibleColumnNames)
+                if (cell) {
+                    toggleAccountExpanded(cell.id)
+                }
+            },
             expandedRowRender: ({ result }) => {
                 const cell = getNameCell(result, visibleColumnNames)
                 return cell ? (
@@ -253,7 +272,7 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
                 ) : null
             },
         }),
-        [visibleColumnNames]
+        [visibleColumnNames, expandedAccountIds, toggleAccountExpanded]
     )
 }
 
