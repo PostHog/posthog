@@ -318,9 +318,9 @@ export const TARGET_AREA_TO_NAME = [
     { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
 
-// Flattened single-list version for the searchable picker in the support form
-export const TARGET_AREA_OPTIONS: { key: string; label: string }[] = TARGET_AREA_TO_NAME.flatMap((group) =>
-    group.options.map((option) => ({ key: option.value, label: option.label }))
+// `key` is the label (not the value) so the searchable input shows readable text on edit, not the raw target_area
+export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] = TARGET_AREA_TO_NAME.flatMap(
+    (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
 )
 
 export const SEVERITY_LEVEL_TO_NAME = {
