@@ -4815,6 +4815,20 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-set-emit": {
+        "description": "Turn scout emitting on or off for this project in one call. Set `emit` true to let scouts write findings to the inbox, false for dry-run. Target one scout with `skill_name`, or every scout when omitted. When enabling, `ensure_source` (default true) also opens the project's `signals_scout` source gate that emit requires. Returns the project's emit-readiness — including the org AI-data-processing approval that emit also needs but this tool cannot set; `emit_effective` is true only when all gates are open.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Set scout emit posture",
+        "title": "Set scout emit posture",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "sql-variables-create": {
         "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
         "category": "Data warehouse",

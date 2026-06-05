@@ -37447,6 +37447,16 @@ export namespace Schemas {
     }
 
     /**
+     * One scout's emit posture after a set-emit call.
+     */
+    export interface SignalScoutConfigEmitStatus {
+      /** The `signals-scout-*` skill this status is for. */
+      skill_name: string;
+      /** The scout's emit posture after the update. */
+      emit: boolean;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response.
@@ -37524,6 +37534,35 @@ export namespace Schemas {
       task_url?: string | null;
       /** One-paragraph close-out the scout wrote at end-of-run. Empty string for runs that errored before close-out. The dedupe key for non-emitting runs. */
       summary: string;
+    }
+
+    /**
+     * Request to flip scout `emit` for one scout or every scout on the project.
+     */
+    export interface SignalScoutSetEmit {
+      /** Target emit posture. True lets the scout(s) write findings to the inbox; False is dry-run — the scout still runs and records findings but emits nothing. */
+      emit: boolean;
+      /**
+         * A single `signals-scout-*` skill to target. Omit or pass null to apply to every scout config on the project.
+         * @nullable
+         */
+      skill_name?: string | null;
+      /** When enabling emit, also enable the project's `signals_scout` / `cross_source_issue` SignalSourceConfig — the team-level source gate that emit also requires. Ignored when emit is False. */
+      ensure_source?: boolean;
+    }
+
+    /**
+     * Emit-readiness for the project after a set-emit call — the three gates emit requires.
+     */
+    export interface SignalScoutSetEmitResponse {
+      /** Per-scout emit posture after the update, for the targeted scouts, ordered by skill name. */
+      configs: SignalScoutConfigEmitStatus[];
+      /** Whether the project's `signals_scout` / `cross_source_issue` SignalSourceConfig is enabled (the team-level source gate). */
+      source_enabled: boolean;
+      /** Whether the project's organization has approved AI data processing. Emit also requires this; it is an org setting and is not changed by this endpoint. */
+      ai_processing_approved: boolean;
+      /** Whether emitted findings will actually reach the inbox: true only when at least one scout on the project has emit=True and both `source_enabled` and `ai_processing_approved` hold. */
+      emit_effective: boolean;
     }
 
     export interface _User {

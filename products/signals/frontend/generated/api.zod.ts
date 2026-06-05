@@ -100,6 +100,34 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Flip `emit` on one scout (`skill_name`) or every scout on the project in one call. When enabling, optionally also enable the project's `signals_scout` / `cross_source_issue` source gate (`ensure_source`, default true) that emit requires. Returns the project's full emit-readiness, including the org AI-data-processing approval that emit also requires but this endpoint cannot set. Emitting drives spend, so config changes are activity-logged.
+ * @summary Set scout emit posture
+ */
+export const signalsScoutSetEmitBodyEnsureSourceDefault = true
+
+export const SignalsScoutSetEmitBody = /* @__PURE__ */ zod
+    .object({
+        emit: zod
+            .boolean()
+            .describe(
+                'Target emit posture. True lets the scout(s) write findings to the inbox; False is dry-run — the scout still runs and records findings but emits nothing.'
+            ),
+        skill_name: zod
+            .string()
+            .nullish()
+            .describe(
+                'A single `signals-scout-\*` skill to target. Omit or pass null to apply to every scout config on the project.'
+            ),
+        ensure_source: zod
+            .boolean()
+            .default(signalsScoutSetEmitBodyEnsureSourceDefault)
+            .describe(
+                "When enabling emit, also enable the project's `signals_scout` \/ `cross_source_issue` SignalSourceConfig — the team-level source gate that emit also requires. Ignored when emit is False."
+            ),
+    })
+    .describe('Request to flip scout `emit` for one scout or every scout on the project.')
+
+/**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */

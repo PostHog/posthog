@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 15 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -171,6 +171,42 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe(
         'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
     )
+
+/**
+ * Flip `emit` on one scout (`skill_name`) or every scout on the project in one call. When enabling, optionally also enable the project's `signals_scout` / `cross_source_issue` source gate (`ensure_source`, default true) that emit requires. Returns the project's full emit-readiness, including the org AI-data-processing approval that emit also requires but this endpoint cannot set. Emitting drives spend, so config changes are activity-logged.
+ * @summary Set scout emit posture
+ */
+export const SignalsScoutSetEmitParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const signalsScoutSetEmitBodyEnsureSourceDefault = true
+
+export const SignalsScoutSetEmitBody = /* @__PURE__ */ zod
+    .object({
+        emit: zod
+            .boolean()
+            .describe(
+                'Target emit posture. True lets the scout(s) write findings to the inbox; False is dry-run — the scout still runs and records findings but emits nothing.'
+            ),
+        skill_name: zod
+            .string()
+            .nullish()
+            .describe(
+                'A single `signals-scout-*` skill to target. Omit or pass null to apply to every scout config on the project.'
+            ),
+        ensure_source: zod
+            .boolean()
+            .default(signalsScoutSetEmitBodyEnsureSourceDefault)
+            .describe(
+                "When enabling emit, also enable the project's `signals_scout` / `cross_source_issue` SignalSourceConfig — the team-level source gate that emit also requires. Ignored when emit is False."
+            ),
+    })
+    .describe('Request to flip scout `emit` for one scout or every scout on the project.')
 
 /**
  * Return the team's deterministic project profile. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.

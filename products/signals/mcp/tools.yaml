@@ -168,6 +168,22 @@ tools:
             Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or
             `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+    signals-scout-set-emit:
+        operation: signals_scout_set_emit
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set scout emit posture
+        description: >
+            Turn scout emitting on or off for this project in one call. Set `emit` true to let scouts write findings to
+            the inbox, false for dry-run. Target one scout with `skill_name`, or every scout when omitted. When enabling,
+            `ensure_source` (default true) also opens the project's `signals_scout` source gate that emit requires.
+            Returns the project's emit-readiness — including the org AI-data-processing approval that emit also needs but
+            this tool cannot set; `emit_effective` is true only when all gates are open.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true

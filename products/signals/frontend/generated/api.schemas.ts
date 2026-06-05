@@ -198,6 +198,45 @@ export interface PatchedSignalScoutConfigApi {
 }
 
 /**
+ * Request to flip scout `emit` for one scout or every scout on the project.
+ */
+export interface SignalScoutSetEmitApi {
+    /** Target emit posture. True lets the scout(s) write findings to the inbox; False is dry-run — the scout still runs and records findings but emits nothing. */
+    emit: boolean
+    /**
+     * A single `signals-scout-*` skill to target. Omit or pass null to apply to every scout config on the project.
+     * @nullable
+     */
+    skill_name?: string | null
+    /** When enabling emit, also enable the project's `signals_scout` / `cross_source_issue` SignalSourceConfig — the team-level source gate that emit also requires. Ignored when emit is False. */
+    ensure_source?: boolean
+}
+
+/**
+ * One scout's emit posture after a set-emit call.
+ */
+export interface SignalScoutConfigEmitStatusApi {
+    /** The `signals-scout-*` skill this status is for. */
+    skill_name: string
+    /** The scout's emit posture after the update. */
+    emit: boolean
+}
+
+/**
+ * Emit-readiness for the project after a set-emit call — the three gates emit requires.
+ */
+export interface SignalScoutSetEmitResponseApi {
+    /** Per-scout emit posture after the update, for the targeted scouts, ordered by skill name. */
+    configs: SignalScoutConfigEmitStatusApi[]
+    /** Whether the project's `signals_scout` / `cross_source_issue` SignalSourceConfig is enabled (the team-level source gate). */
+    source_enabled: boolean
+    /** Whether the project's organization has approved AI data processing. Emit also requires this; it is an org setting and is not changed by this endpoint. */
+    ai_processing_approved: boolean
+    /** Whether emitted findings will actually reach the inbox: true only when at least one scout on the project has emit=True and both `source_enabled` and `ai_processing_approved` hold. */
+    emit_effective: boolean
+}
+
+/**
  * `inventory.project_context` — free-form orientation about the project's product.
  */
 export interface ProjectContextApi {

@@ -845,3 +845,65 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         model = SignalScoutConfig
         fields = ["id", "skill_name", "enabled", "emit", "run_interval_minutes", "last_run_at", "created_at"]
         read_only_fields = ["id", "created_at"]
+
+
+class SignalScoutSetEmitSerializer(serializers.Serializer):
+    """Request to flip scout `emit` for one scout or every scout on the project."""
+
+    emit = serializers.BooleanField(
+        help_text=(
+            "Target emit posture. True lets the scout(s) write findings to the inbox; False is "
+            "dry-run — the scout still runs and records findings but emits nothing."
+        )
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "A single `signals-scout-*` skill to target. Omit or pass null to apply to every scout "
+            "config on the project."
+        ),
+    )
+    ensure_source = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "When enabling emit, also enable the project's `signals_scout` / `cross_source_issue` "
+            "SignalSourceConfig — the team-level source gate that emit also requires. Ignored when "
+            "emit is False."
+        ),
+    )
+
+
+class SignalScoutConfigEmitStatusSerializer(serializers.Serializer):
+    """One scout's emit posture after a set-emit call."""
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill this status is for.")
+    emit = serializers.BooleanField(help_text="The scout's emit posture after the update.")
+
+
+class SignalScoutSetEmitResponseSerializer(serializers.Serializer):
+    """Emit-readiness for the project after a set-emit call — the three gates emit requires."""
+
+    configs = SignalScoutConfigEmitStatusSerializer(
+        many=True, help_text="Per-scout emit posture after the update, for the targeted scouts, ordered by skill name."
+    )
+    source_enabled = serializers.BooleanField(
+        help_text=(
+            "Whether the project's `signals_scout` / `cross_source_issue` SignalSourceConfig is enabled "
+            "(the team-level source gate)."
+        )
+    )
+    ai_processing_approved = serializers.BooleanField(
+        help_text=(
+            "Whether the project's organization has approved AI data processing. Emit also requires this; "
+            "it is an org setting and is not changed by this endpoint."
+        )
+    )
+    emit_effective = serializers.BooleanField(
+        help_text=(
+            "Whether emitted findings will actually reach the inbox: true only when at least one scout on "
+            "the project has emit=True and both `source_enabled` and `ai_processing_approved` hold."
+        )
+    )

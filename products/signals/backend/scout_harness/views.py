@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import uuid
 
+from django.db import transaction
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
@@ -37,9 +39,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models import Team
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.scout_harness.serializers import (
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
@@ -55,6 +58,8 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
+    SignalScoutSetEmitResponseSerializer,
+    SignalScoutSetEmitSerializer,
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
@@ -546,3 +551,71 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)
         return Response(SignalScoutConfigSerializer(instance).data)
+
+    @extend_schema(
+        request=SignalScoutSetEmitSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutSetEmitResponseSerializer,
+                description="Emit posture applied; the project's emit-readiness is returned.",
+            ),
+            404: OpenApiResponse(description="No matching scout config for this project."),
+        },
+        summary="Set scout emit posture",
+        description=(
+            "Flip `emit` on one scout (`skill_name`) or every scout on the project in one call. When "
+            "enabling, optionally also enable the project's `signals_scout` / `cross_source_issue` source "
+            "gate (`ensure_source`, default true) that emit requires. Returns the project's full "
+            "emit-readiness, including the org AI-data-processing approval that emit also requires but this "
+            "endpoint cannot set. Emitting drives spend, so config changes are activity-logged."
+        ),
+        operation_id="signals_scout_set_emit",
+    )
+    @action(detail=False, methods=["post"], url_path="set-emit", required_scopes=["signal_scout:write"])
+    def set_emit(self, request: Request, *args, **kwargs) -> Response:
+        serializer = SignalScoutSetEmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        emit = serializer.validated_data["emit"]
+        skill_name = serializer.validated_data["skill_name"]
+        ensure_source = serializer.validated_data["ensure_source"]
+        team_id = _canonical_team_id(self)
+
+        configs_qs = SignalScoutConfig.objects.unscoped().filter(team_id=team_id)
+        if skill_name:
+            configs_qs = configs_qs.filter(skill_name=skill_name)
+        configs = list(configs_qs.order_by("skill_name"))
+        if not configs:
+            raise exceptions.NotFound("No matching scout config for this project.")
+
+        with transaction.atomic():
+            for config in configs:
+                if config.emit != emit:
+                    config.emit = emit
+                    config.save()  # full save so ModelActivityMixin logs the emit change
+            if emit and ensure_source:
+                source, created = SignalSourceConfig.objects.get_or_create(
+                    team_id=team_id,
+                    source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+                    source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+                    defaults={"enabled": True, "created_by": request.user},
+                )
+                if not created and not source.enabled:
+                    source.enabled = True
+                    source.save(update_fields=["enabled", "updated_at"])
+
+        source_enabled = SignalSourceConfig.is_source_enabled(
+            team_id,
+            SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+        )
+        ai_processing_approved = bool(
+            Team.objects.values_list("organization__is_ai_data_processing_approved", flat=True).get(id=team_id)
+        )
+        any_emit = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, emit=True).exists()
+        payload = {
+            "configs": [{"skill_name": config.skill_name, "emit": config.emit} for config in configs],
+            "source_enabled": source_enabled,
+            "ai_processing_approved": ai_processing_approved,
+            "emit_effective": any_emit and source_enabled and ai_processing_approved,
+        }
+        return Response(SignalScoutSetEmitResponseSerializer(payload).data)

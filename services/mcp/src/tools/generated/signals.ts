@@ -17,6 +17,7 @@ import {
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
+    SignalsScoutSetEmitBody,
     SignalsSourceConfigsListQueryParams,
     SignalsSourceConfigsRetrieveParams,
 } from '@/generated/signals/api'
@@ -231,6 +232,32 @@ const signalsScoutConfigUpdate = (): ToolBase<
     },
 })
 
+const SignalsScoutSetEmitSchema = SignalsScoutSetEmitBody
+
+const signalsScoutSetEmit = (): ToolBase<typeof SignalsScoutSetEmitSchema, Schemas.SignalScoutSetEmitResponse> => ({
+    name: 'signals-scout-set-emit',
+    schema: SignalsScoutSetEmitSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutSetEmitSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.emit !== undefined) {
+            body['emit'] = params.emit
+        }
+        if (params.skill_name !== undefined) {
+            body['skill_name'] = params.skill_name
+        }
+        if (params.ensure_source !== undefined) {
+            body['ensure_source'] = params.ensure_source
+        }
+        const result = await context.api.request<Schemas.SignalScoutSetEmitResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/set-emit/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
     SignalsScoutEmitSignalBody.shape
 )
@@ -422,6 +449,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-update': signalsScoutConfigUpdate,
+    'signals-scout-set-emit': signalsScoutSetEmit,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-list': signalsScoutRunsList,

@@ -28,6 +28,8 @@ import type {
     SignalScoutConfigApi,
     SignalScoutRunDetailApi,
     SignalScoutRunSummaryApi,
+    SignalScoutSetEmitApi,
+    SignalScoutSetEmitResponseApi,
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
@@ -236,6 +238,27 @@ export const signalsScoutConfigUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalScoutConfigApi),
+    })
+}
+
+export const getSignalsScoutSetEmitUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/set-emit/`
+}
+
+/**
+ * Flip `emit` on one scout (`skill_name`) or every scout on the project in one call. When enabling, optionally also enable the project's `signals_scout` / `cross_source_issue` source gate (`ensure_source`, default true) that emit requires. Returns the project's full emit-readiness, including the org AI-data-processing approval that emit also requires but this endpoint cannot set. Emitting drives spend, so config changes are activity-logged.
+ * @summary Set scout emit posture
+ */
+export const signalsScoutSetEmit = async (
+    projectId: string,
+    signalScoutSetEmitApi: SignalScoutSetEmitApi,
+    options?: RequestInit
+): Promise<SignalScoutSetEmitResponseApi> => {
+    return apiMutator<SignalScoutSetEmitResponseApi>(getSignalsScoutSetEmitUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalScoutSetEmitApi),
     })
 }
 

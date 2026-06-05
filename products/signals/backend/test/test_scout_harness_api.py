@@ -18,7 +18,13 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
-from products.signals.backend.models import SignalProjectProfile, SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.models import (
+    SignalProjectProfile,
+    SignalScoutConfig,
+    SignalScoutRun,
+    SignalScratchpad,
+    SignalSourceConfig,
+)
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.tasks.backend.models import Task, TaskRun
 
@@ -524,4 +530,106 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _set_emit_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/set-emit/"
+
+    def _approve_ai(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    def _scout_source(self) -> SignalSourceConfig | None:
+        return SignalSourceConfig.objects.filter(
+            team_id=self.team.id,
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+        ).first()
+
+    def test_set_emit_all_scouts_enables_emit_and_source(self) -> None:
+        self._approve_ai()
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.post(self._set_emit_url(), data={"emit": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [(c["skill_name"], c["emit"]) for c in body["configs"]] == [
+            ("signals-scout-alpha", True),
+            ("signals-scout-beta", True),
+        ]
+        assert body["source_enabled"] is True
+        assert body["ai_processing_approved"] is True
+        assert body["emit_effective"] is True
+        assert SignalScoutConfig.objects.filter(team_id=self.team.id, emit=True).count() == 2
+        source = self._scout_source()
+        assert source is not None and source.enabled is True
+
+    def test_set_emit_targets_a_single_scout_by_skill_name(self) -> None:
+        self._approve_ai()
+        alpha = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+        beta = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
+
+        response = self.client.post(
+            self._set_emit_url(), data={"emit": True, "skill_name": "signals-scout-alpha"}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()["configs"]] == ["signals-scout-alpha"]
+        alpha.refresh_from_db()
+        beta.refresh_from_db()
+        assert alpha.emit is True
+        assert beta.emit is False
+
+    def test_set_emit_false_is_dry_run_and_leaves_source_untouched(self) -> None:
+        self._approve_ai()
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", emit=True)
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+            source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+            enabled=True,
+        )
+
+        response = self.client.post(self._set_emit_url(), data={"emit": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        config.refresh_from_db()
+        assert config.emit is False
+        assert body["emit_effective"] is False  # nothing emits now
+        # disabling emit doesn't touch the source row
+        source = self._scout_source()
+        assert source is not None and source.enabled is True
+
+    def test_set_emit_ensure_source_false_does_not_create_source(self) -> None:
+        self._approve_ai()
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+
+        response = self.client.post(self._set_emit_url(), data={"emit": True, "ensure_source": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["source_enabled"] is False
+        assert body["emit_effective"] is False  # source gate still closed
+        assert self._scout_source() is None
+
+    def test_set_emit_emit_effective_false_without_org_approval(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+
+        response = self.client.post(self._set_emit_url(), data={"emit": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["source_enabled"] is True
+        assert body["ai_processing_approved"] is False
+        assert body["emit_effective"] is False  # org approval gate closed
+
+    def test_set_emit_no_matching_config_returns_404(self) -> None:
+        response = self.client.post(
+            self._set_emit_url(), data={"emit": True, "skill_name": "signals-scout-missing"}, format="json"
+        )
         assert response.status_code == status.HTTP_404_NOT_FOUND
