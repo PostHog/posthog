@@ -26316,6 +26316,14 @@ class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    breakdownAttributionType: BreakdownAttributionType | None = Field(
+        default=BreakdownAttributionType.FIRST_TOUCH,
+        description="How to attribute the breakdown value across funnel steps.",
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is `step`, the 0-indexed step to attribute from."),
+    )
     funnel_order_type: StepOrderValue | None = None
     metric_type: Literal["funnel"] = "funnel"
     series: list[Annotated[EventsNode | ActionsNode | ExperimentDataWarehouseNode, Field(discriminator="kind")]]
@@ -26750,6 +26758,14 @@ class CalendarHeatmapQuery(BaseModel):
 class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: BreakdownAttributionType | None = Field(
+        default=BreakdownAttributionType.FIRST_TOUCH,
+        description="How to attribute the breakdown value across funnel steps.",
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is `step`, the 0-indexed step to attribute from."),
     )
     breakdownFilter: BreakdownFilter | None = None
     conversion_window: int | None = None

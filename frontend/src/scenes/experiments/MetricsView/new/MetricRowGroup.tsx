@@ -8,6 +8,7 @@ import { createPortal } from 'react-dom'
 import { IconTrending } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -19,11 +20,12 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import {
     Breakdown,
+    ExperimentFunnelMetric,
     ExperimentMetric,
     ExperimentStatsBaseValidated,
     NewExperimentQueryResponse,
 } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { isExperimentFunnelMetric, NodeKind } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from '~/scenes/experiments/experimentMetricsLogic'
 import { isLaunched } from '~/scenes/experiments/experimentsLogic'
@@ -53,8 +55,10 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
+import { BreakdownAttributionType } from '~/types'
 import { Experiment, InsightType } from '~/types'
 
+import { MetricBreakdownAttribution } from '../shared/MetricBreakdownAttribution'
 import { ChartCell } from './ChartCell'
 import {
     CELL_HEIGHT,
@@ -71,28 +75,70 @@ import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { TimeseriesModal } from './TimeseriesModal'
 import { useAxisScale } from './useAxisScale'
 
+/**
+ * Renders the metric's breakdown chips on the left and, for funnel metrics behind the
+ * metric-event-breakdowns flag, the attribution dropdown on the right.
+ */
+function BreakdownChipsRow({
+    metric,
+    onRemoveBreakdown,
+    onAttributionChange,
+}: {
+    metric: ExperimentMetric
+    onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
+}): JSX.Element {
+    const metricEventBreakdownsEnabled = useFeatureFlag('EXPERIMENT_METRIC_EVENT_BREAKDOWNS')
+    const showAttribution = metricEventBreakdownsEnabled && isExperimentFunnelMetric(metric)
+
+    return (
+        <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+                {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
+                    <BreakdownTag
+                        key={index}
+                        breakdown={breakdown.property}
+                        breakdownType={breakdown.type || 'event'}
+                        onClose={() => onRemoveBreakdown(index)}
+                        size="small"
+                    />
+                ))}
+            </div>
+            {showAttribution && (
+                <div className="flex items-center gap-1">
+                    <span className="text-muted">Attribution</span>
+                    <MetricBreakdownAttribution
+                        metric={metric as ExperimentFunnelMetric}
+                        onChange={onAttributionChange}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
 interface BreakdownErrorStateProps {
     metric: ExperimentMetric
     isAlternatingRow: boolean
     onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
 }
 
-function BreakdownErrorState({ metric, isAlternatingRow, onRemoveBreakdown }: BreakdownErrorStateProps): JSX.Element {
+function BreakdownErrorState({
+    metric,
+    isAlternatingRow,
+    onRemoveBreakdown,
+    onAttributionChange,
+}: BreakdownErrorStateProps): JSX.Element {
     return (
         <tr data-breakdown-row className="hover:bg-bg-hover group [&:last-child>td]:border-b-0">
             <td colSpan={7} className={`p-0 border-t border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'}`}>
                 <div className="p-1">
-                    <div className="flex items-center gap-2">
-                        {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                            <BreakdownTag
-                                key={index}
-                                breakdown={breakdown.property}
-                                breakdownType={breakdown.type || 'event'}
-                                onClose={() => onRemoveBreakdown(index)}
-                                size="small"
-                            />
-                        ))}
-                    </div>
+                    <BreakdownChipsRow
+                        metric={metric}
+                        onRemoveBreakdown={onRemoveBreakdown}
+                        onAttributionChange={onAttributionChange}
+                    />
                 </div>
             </td>
         </tr>
@@ -112,6 +158,7 @@ interface CollapsibleBreakdownSectionProps {
     colors: ReturnType<typeof useChartColors>
     scale: ReturnType<typeof useAxisScale>
     onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
     onRetry: () => void
     query?: Record<string, any>
     handleTooltipMouseEnter: (e: React.MouseEvent, variantResult: ExperimentVariantResult) => void
@@ -131,6 +178,7 @@ function CollapsibleBreakdownSection({
     colors,
     scale,
     onRemoveBreakdown,
+    onAttributionChange,
     onRetry,
     query,
     handleTooltipMouseEnter,
@@ -190,16 +238,15 @@ function CollapsibleBreakdownSection({
                         {
                             key: 'breakdowns',
                             header: (
-                                <div className="flex items-center gap-2">
-                                    {metric.breakdownFilter?.breakdowns?.map((breakdown, index) => (
-                                        <BreakdownTag
-                                            key={index}
-                                            breakdown={breakdown.property}
-                                            breakdownType={breakdown.type || 'event'}
-                                            onClose={() => onRemoveBreakdown(index)}
-                                            size="small"
-                                        />
-                                    ))}
+                                <div
+                                    // Prevent the attribution dropdown (and chip close) from toggling the collapse.
+                                    onClick={(e) => e.stopPropagation()}
+                                >
+                                    <BreakdownChipsRow
+                                        metric={metric}
+                                        onRemoveBreakdown={onRemoveBreakdown}
+                                        onAttributionChange={onAttributionChange}
+                                    />
                                 </div>
                             ),
                             // Render no content (non-expandable disabled header) when recalculating (stale
@@ -507,6 +554,7 @@ interface MetricRowGroupProps {
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
+    onAttributionChange: (attributionType: BreakdownAttributionType, attributionValue?: number) => void
     error?: any
     isLoading?: boolean
     exposuresLoading?: boolean
@@ -528,6 +576,7 @@ export function MetricRowGroup({
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
+    onAttributionChange,
     error,
     isLoading,
     exposuresLoading = false,
@@ -860,6 +909,7 @@ export function MetricRowGroup({
                         metric={metric}
                         isAlternatingRow={isAlternatingRow}
                         onRemoveBreakdown={onRemoveBreakdown}
+                        onAttributionChange={onAttributionChange}
                     />
                 )}
             </>
@@ -1159,6 +1209,7 @@ export function MetricRowGroup({
                     colors={colors}
                     scale={scale}
                     onRemoveBreakdown={onRemoveBreakdown}
+                    onAttributionChange={onAttributionChange}
                     onRetry={handleRetry}
                     query={debugQuery}
                     handleTooltipMouseEnter={handleTooltipMouseEnter}
