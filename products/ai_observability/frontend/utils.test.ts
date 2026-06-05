@@ -15,27 +15,19 @@ import {
     hasStringContentField,
     isEmptyJSONStructure,
     isInternalToolResultUserMessage,
-    isLangChainMessage,
     isInternalTagMessage,
     isTextContentItem,
     isToolResult,
     isToolStepItem,
     looksLikeXml,
-    parseOpenAIToolCalls,
     parsePartialJSON,
     parseToolArgumentsForDisplay,
     sanitizeTraceUrlSearchParams,
 } from './utils'
-import * as legacy from './utils'
 
-// Parameterized suite: the canonical `normalizeMessage`/`normalizeMessages`
-// in `./utils` stays untouched and is the production code path; the
-// recipe-based wrapper in `./normalizer` exposes the same shape and we run
-// the entire suite against it too. Any divergence shows up as a failure on
-// only one column.
+// The recipe-based `RecipeNormalizer` in `./normalizer` is the production code path.
 const recipe = new RecipeNormalizer()
 const IMPLS = [
-    { name: 'legacy', normalizeMessage: legacy.normalizeMessage, normalizeMessages: legacy.normalizeMessages },
     {
         name: 'recipe',
         normalizeMessage: (r: unknown, d: string) => recipe.normalizeMessage(r, d),
@@ -43,7 +35,7 @@ const IMPLS = [
     },
 ] as const
 
-describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage, normalizeMessages }) => {
+describe.each(IMPLS)('AI observability utils [$name]', ({ normalizeMessage, normalizeMessages }) => {
     beforeEach(() => {
         console.warn = jest.fn()
     })
@@ -1764,17 +1756,6 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage
     })
 
     describe('LangChain/LangGraph format', () => {
-        it.each([
-            ['human type', { type: 'human', content: 'Hello' }, true],
-            ['ai type', { type: 'ai', content: 'Hi there', tool_calls: [] }, true],
-            ['tool type', { type: 'tool', content: 'result', tool_call_id: 'toolu_123' }, true],
-            ['context type', { type: 'context', content: '<system_reminder>...' }, true],
-            ['rejects messages with role field', { role: 'user', type: 'human', content: 'Hello' }, false],
-            ['rejects unknown types', { type: 'text', content: 'Hello' }, false],
-        ])('isLangChainMessage: %s', (_, input, expected) => {
-            expect(isLangChainMessage(input)).toBe(expected)
-        })
-
         it('normalizeMessage maps human type to user role', () => {
             const message = { type: 'human', content: 'Hello', id: 'msg-1' }
             const result = normalizeMessage(message, 'assistant')
@@ -1821,103 +1802,6 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage
             const result = normalizeMessage(message, 'user')
             expect(result).toEqual([
                 { role: 'system', content: '<system_reminder>Your initial mode is sql.</system_reminder>' },
-            ])
-        })
-    })
-
-    describe('parseOpenAIToolCalls', () => {
-        it('should parse valid JSON arguments in tool calls', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-123',
-                    function: {
-                        name: 'test_function',
-                        arguments: '{"key": "value", "number": 42}',
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-123',
-                    function: {
-                        name: 'test_function',
-                        arguments: { key: 'value', number: 42 },
-                    },
-                },
-            ])
-        })
-
-        it('should handle malformed JSON arguments gracefully', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-456',
-                    function: {
-                        name: 'test_function',
-                        arguments: 'invalid json {not valid}',
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            // Should keep the original string if parsing fails
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-456',
-                    function: {
-                        name: 'test_function',
-                        arguments: 'invalid json {not valid}',
-                    },
-                },
-            ])
-        })
-
-        it('should handle mixed valid and invalid JSON in multiple tool calls', () => {
-            const toolCalls = [
-                {
-                    type: 'function' as const,
-                    id: 'call-1',
-                    function: {
-                        name: 'func1',
-                        arguments: '{"valid": "json"}',
-                    },
-                },
-                {
-                    type: 'function' as const,
-                    id: 'call-2',
-                    function: {
-                        name: 'func2',
-                        arguments: 'not valid json',
-                    },
-                },
-            ]
-
-            const result = parseOpenAIToolCalls(toolCalls)
-
-            expect(result).toEqual([
-                {
-                    type: 'function',
-                    id: 'call-1',
-                    function: {
-                        name: 'func1',
-                        arguments: { valid: 'json' },
-                    },
-                },
-                {
-                    type: 'function',
-                    id: 'call-2',
-                    function: {
-                        name: 'func2',
-                        arguments: 'not valid json',
-                    },
-                },
             ])
         })
     })
@@ -2559,9 +2443,8 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage
         })
     })
 
-    // Regressions found by sampling real production payloads across teams (see
-    // normalizer/coverageHarness.test.ts). These shapes were mishandled by the
-    // recipe pipeline; both implementations must agree on them.
+    // Regressions found by sampling real production payloads across teams. These
+    // shapes were mishandled at some point by the recipe pipeline.
     describe('production payload regressions', () => {
         it('null input carries no message', () => {
             // Recipe used to salvage `null` into a spurious empty user message.
@@ -2604,39 +2487,24 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage
         })
     })
 
-    // Cases where the recipe pipeline deliberately IMPROVES on legacy. The legacy
-    // path retires once the recipe pipeline is the default, at which point these
-    // collapse to a single assertion. Until then each documents both behaviors.
-    describe('accepted divergences (recipe improvements)', () => {
-        const expectByImpl = (input: unknown, role: string, legacyOut: unknown, recipeOut: unknown): void => {
-            expect(normalizeMessages(input, role)).toEqual(name === 'recipe' ? recipeOut : legacyOut)
+    // Structured content the recipe pipeline surfaces as canonical messages.
+    describe('recipe normalization improvements', () => {
+        const expectRecipe = (input: unknown, role: string, expected: unknown): void => {
+            expect(normalizeMessages(input, role)).toEqual(expected)
         }
 
         it('extracts single-field {text}/{message} wrappers instead of stringifying them', () => {
-            // legacy stringifies the whole object; recipe surfaces the inner text.
-            expectByImpl(
-                { text: 'hello' },
-                'assistant',
-                [{ role: 'assistant', content: '{"text":"hello"}' }],
-                [{ role: 'assistant', content: 'hello' }]
-            )
+            expectRecipe({ text: 'hello' }, 'assistant', [{ role: 'assistant', content: 'hello' }])
         })
 
-        it('empties null content instead of preserving it', () => {
-            // legacy keeps content:null (and the empty tool_calls); recipe
-            // normalizes content to '' (renderers expect a string) and drops the
-            // empty tool_calls.
-            expectByImpl(
-                { role: 'assistant', content: null, tool_calls: [] },
-                'assistant',
-                [{ role: 'assistant', content: null, tool_calls: [] }],
-                [{ role: 'assistant', content: '' }]
-            )
+        it('empties null content and drops an empty tool_calls array', () => {
+            // content is normalized to '' (renderers expect a string).
+            expectRecipe({ role: 'assistant', content: null, tool_calls: [] }, 'assistant', [
+                { role: 'assistant', content: '' },
+            ])
         })
 
-        it('preserves and canonicalizes a tool_call that legacy drops', () => {
-            // The tool_call lacks the `type: "function"` marker, so legacy's
-            // strict guard rejects the whole array and loses the call. Recipe
+        it('preserves and canonicalizes a tool_call lacking the type marker', () => {
             // canonicalizes it to {type, id, function:{name, parsed args}}.
             const input = {
                 role: 'assistant',
@@ -2650,78 +2518,54 @@ describe.each(IMPLS)('AI observability utils [$name]', ({ name, normalizeMessage
                     },
                 ],
             }
-            expectByImpl(
-                input,
-                'assistant',
-                [{ role: 'assistant', content: null }],
-                [
-                    {
-                        role: 'assistant',
-                        content: '',
-                        tool_calls: [
-                            {
-                                type: 'function',
-                                id: 'call_1',
-                                function: { name: 'send_email', arguments: { to: 'x@y.com' } },
-                            },
-                        ],
-                    },
-                ]
-            )
+            expectRecipe(input, 'assistant', [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'call_1',
+                            function: { name: 'send_email', arguments: { to: 'x@y.com' } },
+                        },
+                    ],
+                },
+            ])
         })
 
         it('flattens a doubly-nested message array instead of stringifying it', () => {
-            // legacy stringifies the inner array as one user message; recipe flattens.
             const input = [
                 [
                     { role: 'system', content: 'a' },
                     { role: 'user', content: 'b' },
                 ],
             ]
-            expectByImpl(
-                input,
-                'user',
-                [{ role: 'user', content: '[{"role":"system","content":"a"},{"role":"user","content":"b"}]' }],
-                [
-                    { role: 'system', content: 'a' },
-                    { role: 'user', content: 'b' },
-                ]
-            )
+            expectRecipe(input, 'user', [
+                { role: 'system', content: 'a' },
+                { role: 'user', content: 'b' },
+            ])
         })
 
-        it('parses typed agent items (tool_call/tool_result) legacy stringifies or drops', () => {
+        it('parses typed agent items (tool_call/tool_result) into real tool messages', () => {
             // Flat type-discriminated agent stream (OpenAI Agents SDK and similar).
-            // legacy stringifies the tool_call and drops the tool_result's output;
-            // recipe produces a real tool call and tool message.
             const input = [
                 { type: 'tool_call', callId: 'c1', name: 'getWeather', arguments: { city: 'NYC' } },
                 { type: 'tool_result', callId: 'c1', name: 'getWeather', output: { tempF: 71 } },
             ]
-            expectByImpl(
-                input,
-                'user',
-                [
-                    {
-                        role: 'user',
-                        content: '{"type":"tool_call","callId":"c1","name":"getWeather","arguments":{"city":"NYC"}}',
-                    },
-                    { role: 'assistant (tool result)' },
-                ],
-                [
-                    {
-                        role: 'assistant',
-                        content: '',
-                        tool_calls: [
-                            {
-                                type: 'function',
-                                id: 'c1',
-                                function: { name: 'getWeather', arguments: { city: 'NYC' } },
-                            },
-                        ],
-                    },
-                    { role: 'tool', content: '{"tempF":71}', tool_call_id: 'c1' },
-                ]
-            )
+            expectRecipe(input, 'user', [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        {
+                            type: 'function',
+                            id: 'c1',
+                            function: { name: 'getWeather', arguments: { city: 'NYC' } },
+                        },
+                    ],
+                },
+                { role: 'tool', content: '{"tempF":71}', tool_call_id: 'c1' },
+            ])
         })
     })
 })
