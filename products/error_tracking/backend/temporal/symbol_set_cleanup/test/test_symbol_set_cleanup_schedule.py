@@ -38,6 +38,18 @@ def mock_client():
     return object()
 
 
+def assert_symbol_set_cleanup_schedule(schedule) -> None:
+    assert isinstance(schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.action.workflow == WORKFLOW_NAME
+    assert schedule.action.args == [SymbolSetCleanupInputs()]
+    assert schedule.action.id == SCHEDULE_ID
+    assert schedule.action.task_queue == settings.ERROR_TRACKING_TASK_QUEUE
+    assert schedule.policy is not None
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.policy.catchup_window == SCHEDULE_INTERVAL
+    assert schedule.spec.intervals == [ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]
+
+
 class TestCreateErrorTrackingSymbolSetCleanupSchedule:
     @pytest.mark.asyncio
     async def test_creates_hourly_schedule_when_missing(self, mock_client, schedule_helpers) -> None:
@@ -52,15 +64,7 @@ class TestCreateErrorTrackingSymbolSetCleanupSchedule:
         assert schedule_id == SCHEDULE_ID
         assert schedule_helpers["create"].call_args.kwargs["trigger_immediately"] is False
 
-        assert isinstance(schedule.action, ScheduleActionStartWorkflow)
-        assert schedule.action.workflow == WORKFLOW_NAME
-        assert schedule.action.args == [SymbolSetCleanupInputs()]
-        assert schedule.action.id == SCHEDULE_ID
-        assert schedule.action.task_queue == settings.ERROR_TRACKING_TASK_QUEUE
-        assert schedule.policy is not None
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
-        assert schedule.policy.catchup_window == SCHEDULE_INTERVAL
-        assert schedule.spec.intervals == [ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]
+        assert_symbol_set_cleanup_schedule(schedule)
 
     @pytest.mark.asyncio
     async def test_updates_existing_schedule(self, mock_client, schedule_helpers) -> None:
@@ -73,5 +77,4 @@ class TestCreateErrorTrackingSymbolSetCleanupSchedule:
         client, schedule_id, schedule = schedule_helpers["update"].call_args.args
         assert client is mock_client
         assert schedule_id == SCHEDULE_ID
-        assert isinstance(schedule.action, ScheduleActionStartWorkflow)
-        assert schedule.action.workflow == WORKFLOW_NAME
+        assert_symbol_set_cleanup_schedule(schedule)

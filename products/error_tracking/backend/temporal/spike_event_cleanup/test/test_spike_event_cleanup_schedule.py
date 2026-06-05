@@ -38,6 +38,20 @@ def mock_client():
     return object()
 
 
+def assert_spike_event_cleanup_schedule(schedule) -> None:
+    assert isinstance(schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.action.workflow == WORKFLOW_NAME
+    assert schedule.action.args == [SpikeEventCleanupInputs()]
+    assert schedule.action.id == SCHEDULE_ID
+    assert schedule.action.task_queue == settings.ERROR_TRACKING_TASK_QUEUE
+    assert schedule.policy is not None
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert schedule.policy.catchup_window == SCHEDULE_CATCHUP_WINDOW
+    assert schedule.spec.calendars == [
+        ScheduleCalendarSpec(comment="Daily at 4 AM UTC", hour=[ScheduleRange(start=4, end=4)])
+    ]
+
+
 class TestCreateErrorTrackingSpikeEventCleanupSchedule:
     @pytest.mark.asyncio
     async def test_creates_daily_schedule_when_missing(self, mock_client, schedule_helpers) -> None:
@@ -52,17 +66,7 @@ class TestCreateErrorTrackingSpikeEventCleanupSchedule:
         assert schedule_id == SCHEDULE_ID
         assert schedule_helpers["create"].call_args.kwargs["trigger_immediately"] is False
 
-        assert isinstance(schedule.action, ScheduleActionStartWorkflow)
-        assert schedule.action.workflow == WORKFLOW_NAME
-        assert schedule.action.args == [SpikeEventCleanupInputs()]
-        assert schedule.action.id == SCHEDULE_ID
-        assert schedule.action.task_queue == settings.ERROR_TRACKING_TASK_QUEUE
-        assert schedule.policy is not None
-        assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
-        assert schedule.policy.catchup_window == SCHEDULE_CATCHUP_WINDOW
-        assert schedule.spec.calendars == [
-            ScheduleCalendarSpec(comment="Daily at 4 AM UTC", hour=[ScheduleRange(start=4, end=4)])
-        ]
+        assert_spike_event_cleanup_schedule(schedule)
 
     @pytest.mark.asyncio
     async def test_updates_existing_schedule(self, mock_client, schedule_helpers) -> None:
@@ -75,5 +79,4 @@ class TestCreateErrorTrackingSpikeEventCleanupSchedule:
         client, schedule_id, schedule = schedule_helpers["update"].call_args.args
         assert client is mock_client
         assert schedule_id == SCHEDULE_ID
-        assert isinstance(schedule.action, ScheduleActionStartWorkflow)
-        assert schedule.action.workflow == WORKFLOW_NAME
+        assert_spike_event_cleanup_schedule(schedule)
