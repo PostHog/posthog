@@ -5,7 +5,8 @@ This is a two-phase query for performance: first find matching trace IDs, then f
 Time ranges are always required. Results can be large — dump to a file if needed.
 
 This query intentionally omits large content fields (`$ai_input`, `$ai_output`, `$ai_output_choices`, `$ai_input_state`, `$ai_output_state`, `$ai_tools`).
-Use the [single trace query](./example-llm-trace.md) (or the `query-llm-trace` wrapper) to retrieve those for a specific trace; both read from a dedicated table that retains the full payload for ~30 days.
+These live only on the dedicated `posthog.ai_events` table (not `events`), retained 30 days by default.
+Use the [single trace query](./example-llm-trace.md) (or the `query-llm-trace` wrapper) to retrieve them for a specific trace, or read `posthog.ai_events` directly anchored on `trace_id` — see [where heavy content lives](./events-and-properties.md#where-heavy-content-lives-events-vs-ai_events) for the column mapping.
 
 ## Phase 1 — Find trace IDs
 
