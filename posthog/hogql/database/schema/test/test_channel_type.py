@@ -1,3 +1,4 @@
+import copy
 import uuid
 from urllib.parse import parse_qs, urlparse
 
@@ -6,6 +7,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 from posthog.schema import CustomChannelCondition, CustomChannelRule, FilterLogicalOperator, HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import _default_channel_type_expr
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -104,6 +106,16 @@ class TestChannelType(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         return (person_response.results or [])[0][0]
+
+    def test_shared_default_channel_type_expr_is_not_mutated_by_resolution(self):
+        shared = _default_channel_type_expr(("properties",))
+        snapshot = copy.deepcopy(shared)
+
+        # Resolution must not mutate the shared cached AST (resolver clones it first); this single-process test guards that.
+        self._get_person_initial_channel_type({"$initial_utm_source": "google"})
+
+        assert _default_channel_type_expr(("properties",)) is shared
+        assert shared == snapshot, "resolution mutated the shared channel-type AST in place"
 
     def _get_person_initial_channel_type_with_rules(self, properties=None, custom_channel_rules=None):
         person_id = str(uuid.uuid4())

@@ -78,6 +78,40 @@ if(
     )
 
 
+def _channel_source_exprs(properties_path: list[str]) -> ChannelTypeExprs:
+    return ChannelTypeExprs(
+        campaign=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_campaign"])]),
+        medium=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_medium"])]),
+        source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_source"])]),
+        referring_domain=ast.Call(
+            name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
+        ),
+        url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]),
+        hostname=ast.Call(
+            name="domain",
+            args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_hostname"])])],
+        ),
+        pathname=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_pathname"])]),
+        has_gclid=ast.Call(
+            name="isNotNull",
+            args=[wrap_with_null_if_empty(ast.Field(chain=[*properties_path, "$initial_gclid"]))],
+        ),
+        has_fbclid=ast.Call(
+            name="isNotNull",
+            args=[wrap_with_null_if_empty(ast.Field(chain=[*properties_path, "$initial_fbclid"]))],
+        ),
+        gad_source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_gad_source"])]),
+    )
+
+
+@cache
+def _default_channel_type_expr(properties_path: tuple[str, ...]) -> ast.Expr:
+    # With no custom rules (the common case) the channel-type AST is a process-wide constant for a given
+    # properties_path. Build it once and share it: consumers clone_expr() the expr before use, so the
+    # shared node is never mutated. Custom rules are per-team, so those still build fresh below.
+    return create_channel_type_expr(source_exprs=_channel_source_exprs(list(properties_path)), custom_rules=None)
+
+
 def create_initial_channel_type(
     name: str,
     custom_rules: Optional[list[CustomChannelRule]] = None,
@@ -86,37 +120,13 @@ def create_initial_channel_type(
 ) -> ExpressionField:
     if not properties_path:
         properties_path = ["properties"]
-    return ExpressionField(
-        name=name,
-        expr=create_channel_type_expr(
-            source_exprs=ChannelTypeExprs(
-                campaign=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_campaign"])]),
-                medium=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_medium"])]),
-                source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_utm_source"])]),
-                referring_domain=ast.Call(
-                    name="toString", args=[ast.Field(chain=[*properties_path, "$initial_referring_domain"])]
-                ),
-                url=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_current_url"])]),
-                hostname=ast.Call(
-                    name="domain",
-                    args=[ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_hostname"])])],
-                ),
-                pathname=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_pathname"])]),
-                has_gclid=ast.Call(
-                    name="isNotNull",
-                    args=[wrap_with_null_if_empty(ast.Field(chain=[*properties_path, "$initial_gclid"]))],
-                ),
-                has_fbclid=ast.Call(
-                    name="isNotNull",
-                    args=[wrap_with_null_if_empty(ast.Field(chain=[*properties_path, "$initial_fbclid"]))],
-                ),
-                gad_source=ast.Call(name="toString", args=[ast.Field(chain=[*properties_path, "$initial_gad_source"])]),
-            ),
-            custom_rules=custom_rules,
-            timings=timings,
-        ),
-        isolate_scope=True,
-    )
+    if not custom_rules:
+        expr: ast.Expr = _default_channel_type_expr(tuple(properties_path))
+    else:
+        expr = create_channel_type_expr(
+            source_exprs=_channel_source_exprs(properties_path), custom_rules=custom_rules, timings=timings
+        )
+    return ExpressionField(name=name, expr=expr, isolate_scope=True)
 
 
 def custom_condition_to_expr(
