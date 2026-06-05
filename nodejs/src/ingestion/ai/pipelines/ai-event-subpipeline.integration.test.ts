@@ -230,4 +230,54 @@ describe('AI event subpipeline integration', () => {
         expect(result.result.type).toBe(PipelineResultType.DROP)
         expect(mockOutputs.produce).not.toHaveBeenCalled()
     })
+
+    it('drops an SDK client generation routed through the AI gateway', async () => {
+        const event = createAiEvent({ properties: { $ai_base_url: 'https://ai-gateway.us.posthog.com/v1' } })
+
+        const { pipeline, mockOutputs } = buildPipeline()
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+
+        expect(result.result.type).toBe(PipelineResultType.DROP)
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
+    })
+
+    it('drops an OTel client generation routed through the AI gateway (base_url mapped from server.address)', async () => {
+        const event = createAiEvent({
+            properties: { $ai_ingestion_source: 'otel', 'server.address': 'ai-gateway.us.posthog.com' },
+        })
+
+        const { pipeline, mockOutputs } = buildPipeline()
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+
+        expect(result.result.type).toBe(PipelineResultType.DROP)
+        expect(mockOutputs.produce).not.toHaveBeenCalled()
+    })
+
+    it("keeps the gateway's own event ($ai_gateway: true, provider base_url)", async () => {
+        const event = createAiEvent({
+            properties: {
+                $ai_gateway: true,
+                $ai_ingestion_source: 'gateway',
+                $ai_base_url: 'https://api.anthropic.com',
+            },
+        })
+
+        const { pipeline, mockOutputs } = buildPipeline()
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+
+        expect(result.result.type).toBe(PipelineResultType.OK)
+        const { properties } = getProduceCall(mockOutputs)
+        expect(properties.$ai_gateway).toBe(true)
+        expect(properties.$ai_base_url).toBe('https://api.anthropic.com')
+    })
+
+    it('keeps a direct provider generation (non-gateway base_url)', async () => {
+        const event = createAiEvent({ properties: { $ai_base_url: 'https://api.openai.com' } })
+
+        const { pipeline, mockOutputs } = buildPipeline()
+        const result = await pipeline.process(createOkContext(createInput(event), {}))
+
+        expect(result.result.type).toBe(PipelineResultType.OK)
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+    })
 })

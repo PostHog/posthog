@@ -53,3 +53,9 @@ export const aiOtelSystemInstructionsCounter = new Counter({
     help: 'Outcome of promoting `gen_ai.system_instructions` into a leading $ai_input system message',
     labelNames: ['outcome'],
 })
+
+export const aiGatewayDedupDroppedCounter = new Counter({
+    name: 'llma_ai_gateway_dedup_dropped_total',
+    help: 'Client-emitted $ai_generation events dropped as duplicates of the gateway-emitted canonical event, labelled by the matched gateway host',
+    labelNames: ['host'],
+})

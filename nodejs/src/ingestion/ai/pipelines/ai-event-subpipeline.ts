@@ -26,6 +26,7 @@ import { IngestionOutputs } from '../../outputs/ingestion-outputs'
 import { PipelineBuilder, StartPipelineBuilder } from '../../pipelines/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../../pipelines/extensions/tophog'
 import { isDropResult } from '../../pipelines/results'
+import { createDropGatewayRoutedEventsStep } from './steps/drop-gateway-routed-events-step'
 import { createProcessAiEventStep } from './steps/process-ai-event-step'
 
 export interface AiEventSubpipelineInput {
@@ -101,6 +102,7 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
         )
         .pipe(createNormalizeEventStep())
         .pipe(createProcessAiEventStep())
+        .pipe(createDropGatewayRoutedEventsStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(
             topHog(createProcessPersonsStep(options, outputs, personsStore), [
