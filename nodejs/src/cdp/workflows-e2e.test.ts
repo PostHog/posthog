@@ -201,7 +201,8 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
 
     /**
      * Build the row-scoped globals the DWH consumer produces for a synced warehouse row: a synthetic
-     * event with no real person, plus `dataWarehouseTable` so the executor matches the trigger's table.
+     * event named `$dwh_row_synced` with no real person, and the source table on
+     * `event.properties.$source_table` so the consumer's eligibilityFn matches warehouse-table triggers.
      */
     function createDwhGlobals(
         tableName: string,
@@ -210,13 +211,12 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         return createHogExecutionGlobals({
             project: { id: team.id } as any,
             event: {
-                uuid: 'data-warehouse-table-uuid-do-not-use',
-                event: 'data-warehouse-table-event-do-not-use',
-                distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
-                properties: rowProperties,
+                uuid: new UUIDT().toString(),
+                event: '$dwh_row_synced',
+                distinct_id: '',
+                properties: { ...rowProperties, $source_table: tableName },
                 timestamp: '2024-09-03T09:00:00Z',
             } as any,
-            dataWarehouseTable: tableName,
         })
     }
 

@@ -119,8 +119,10 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 column2: 123,
                 test_prop: 'test_value',
             })
-            expect(invocations[0].event.uuid).toBe('data-warehouse-table-uuid-do-not-use')
-            expect(invocations[0].event.event).toBe('data-warehouse-table-event-do-not-use')
+            // Real per-row UUID so billing dedup (keyed on event.uuid) counts each row distinctly.
+            expect(invocations[0].event.uuid).toMatch(/^[0-9a-f-]+$/i)
+            expect(invocations[0].event.uuid).not.toBe('data-warehouse-table-uuid-do-not-use')
+            expect(invocations[0].event.event).toBe('$dwh_row_synced')
         })
 
         it('should not parse events for teams without hog functions or flows', async () => {
@@ -417,9 +419,12 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             const event = createDataWarehouseEvent(team.id, {}, 'postgres.table_1')
             const globals = await processor._parseKafkaBatch([createKafkaMessage(event)])
 
-            // Team has a workflow but no hog functions - the row must not be dropped
+            // Team has a workflow but no hog functions - the row must not be dropped.
+            // The source table is exposed via event.properties.$source_table so the pipeline's
+            // eligibilityFn can match warehouse-table triggers without a top-level globals field.
             expect(globals).toHaveLength(1)
-            expect(globals[0].dataWarehouseTable).toBe('postgres.table_1')
+            expect(globals[0].event?.event).toBe('$dwh_row_synced')
+            expect(globals[0].event?.properties?.$source_table).toBe('postgres.table_1')
         })
     })
 

@@ -123,30 +123,17 @@ export class HogFlowExecutorService {
         // TRICKY: The frontend generates filters matching the Clickhouse event type so we are converting back
         const filterGlobals = convertToHogFunctionFilterGlobal(triggerGlobals)
 
-        // Warehouse rows carry the dot-notated source table name so we can match row-scoped triggers.
-        const dataWarehouseTable = triggerGlobals.dataWarehouseTable
-
+        // Trigger-source compatibility is decided by the pipeline's eligibilityFn (see
+        // HogFlowInvocationPipeline). Flows that reach this loop are assumed to be source-compatible
+        // with the given globals — the executor's job is just to evaluate filter bytecode.
         for (const hogFlow of hogFlows) {
             const trigger = hogFlow.trigger
 
-            switch (trigger.type) {
-                case 'event':
-                    // Event triggers never apply to warehouse rows (which carry a synthetic event)
-                    if (dataWarehouseTable !== undefined) {
-                        continue
-                    }
-                    break
-                case 'data-warehouse-table':
-                    // Row-scoped: only fire when the row's source table matches the trigger's table
-                    if (dataWarehouseTable === undefined || trigger.table_name !== dataWarehouseTable) {
-                        continue
-                    }
-                    break
-                default:
-                    continue
+            // Defensive: only the trigger types that carry `filters` make it through eligibility.
+            if (trigger.type !== 'event' && trigger.type !== 'data-warehouse-table') {
+                continue
             }
 
-            // Both remaining trigger types carry `filters`
             const filterResults = await filterFunctionInstrumented({
                 fn: hogFlow,
                 filters: trigger.filters,

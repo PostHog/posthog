@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { HogFlow } from '~/schema/hogflow'
 
 import { RedisV2 } from '../../common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/services/keyed-rate-limiter.service'
@@ -64,18 +65,30 @@ export class HogFlowInvocationPipeline {
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFlows')
     public async buildInvocations(
-        invocationGlobals: HogFunctionInvocationGlobals[]
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        options?: {
+            // Predicate evaluated per (flow, globals) before the executor runs filter bytecode.
+            // The consumer is the natural layer to decide trigger-source compatibility because it
+            // knows its own source (events consumer → event triggers; DWH consumer → matching
+            // warehouse-table triggers). Flows that fail the predicate are skipped without
+            // touching the executor.
+            eligibilityFn?: (hogFlow: HogFlow, globals: HogFunctionInvocationGlobals) => boolean
+        }
     ): Promise<CyclotronJobInvocation[]> {
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const hogFlowsByTeam = await this.deps.hogFlowManager.getHogFlowsForTeams(teamsToLoad)
+        const eligibilityFn = options?.eligibilityFn
 
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
                     const teamHogFlows = hogFlowsByTeam[globals.project.id]
+                    const eligibleFlows = eligibilityFn
+                        ? teamHogFlows.filter((flow) => eligibilityFn(flow, globals))
+                        : teamHogFlows
 
                     const { invocations, metrics, logs } = await this.deps.hogFlowExecutor.buildHogFlowInvocations(
-                        teamHogFlows,
+                        eligibleFlows,
                         globals
                     )
 

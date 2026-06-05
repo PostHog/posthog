@@ -16,6 +16,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-t
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { UUIDT } from '../../src/utils/utils'
 import { logger } from '../utils/logger'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
 import {
@@ -336,13 +337,12 @@ describe('CDP Consumer loop', () => {
             createHogExecutionGlobals({
                 project: { id: team.id } as any,
                 event: {
-                    uuid: 'data-warehouse-table-uuid-do-not-use',
-                    event: 'data-warehouse-table-event-do-not-use',
-                    distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
-                    properties: rowProperties,
+                    uuid: new UUIDT().toString(),
+                    event: '$dwh_row_synced',
+                    distinct_id: '',
+                    properties: { ...rowProperties, $source_table: TABLE_NAME },
                     timestamp: '2024-09-03T09:00:00Z',
                 } as any,
-                dataWarehouseTable: TABLE_NAME,
             })
 
         beforeEach(async () => {

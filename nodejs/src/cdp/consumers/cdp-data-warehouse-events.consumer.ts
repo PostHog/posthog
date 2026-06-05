@@ -8,6 +8,7 @@ import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { UUIDT } from '../../utils/utils'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
@@ -15,6 +16,15 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
+
+// Synthetic event name stamped on the synthetic event built for a warehouse-row trigger.
+// Acts as the "this globals object originated from a synced warehouse row" discriminator.
+export const DWH_ROW_SYNCED_EVENT = '$dwh_row_synced'
+
+// Special property on the synthetic event holding the dot-notated source table name.
+// Used by the pipeline's eligibility predicate to match warehouse-table HogFlow triggers
+// against the row's source table without adding a top-level field to globals.
+export const DWH_SOURCE_TABLE_PROPERTY = '$source_table'
 
 export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpDatawarehouseEventsConsumer'
@@ -69,16 +79,23 @@ export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
-        await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
+        // Warehouse rows carry no `$groups` property — group enrichment is a no-op here, so we skip the
+        // call entirely to avoid the per-batch group-types lookup.
 
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'data-warehouse-table',
             }),
-            // The pipeline loads the team's HogFlows and only matches `data-warehouse-table`
-            // triggers against the row's source table (see HogFlowExecutorService).
-            this.hogFlowPipeline.buildInvocations(invocationGlobals),
+            // Source-compatibility matching lives in the consumer rather than the executor — the
+            // consumer knows it's serving warehouse rows, so it filters flows to only those whose
+            // trigger.table_name matches the row's $source_table property. The executor then just
+            // evaluates filter bytecode on the matched flows.
+            this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+                eligibilityFn: (flow, globals) =>
+                    flow.trigger.type === 'data-warehouse-table' &&
+                    flow.trigger.table_name === globals.event?.properties?.[DWH_SOURCE_TABLE_PROPERTY],
+            }),
         ])
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
@@ -181,28 +198,28 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     const data = event.properties
     const projectUrl = `${siteUrl}/project/${team.id}`
 
-    const context: HogFunctionInvocationGlobals = {
+    // The synthetic event carries:
+    //   - a real per-row uuid so billing dedup (keyed on event.uuid) counts each row distinctly
+    //   - `$dwh_row_synced` as the event name so downstream code can identify warehouse-row globals
+    //   - the dot-notated source table name on `properties.$source_table` so consumers can match
+    //     warehouse-table HogFlow triggers without a new top-level field on globals
+    return {
         project: {
             id: team.id,
             name: team.name,
             url: projectUrl,
         },
         event: {
-            uuid: 'data-warehouse-table-uuid-do-not-use',
-            event: 'data-warehouse-table-event-do-not-use',
-            elements_chain: '', // Not applicable but left here for compatibility
-            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
-            properties: data,
+            uuid: new UUIDT().toString(),
+            event: DWH_ROW_SYNCED_EVENT,
+            elements_chain: '',
+            distinct_id: '',
+            properties: {
+                ...data,
+                [DWH_SOURCE_TABLE_PROPERTY]: event.table_name ?? '',
+            },
             timestamp: DateTime.now().toISO(),
             url: '',
         },
-        // Used to match row-scoped `data-warehouse-table` HogFlow triggers against the source table.
-        // Always set a non-undefined value for warehouse rows (falling back to '' for old messages
-        // that predate table_name) so the executor's `!== undefined` event-trigger guard reliably
-        // skips warehouse rows, while event-sourced globals (where this is left undefined) still run
-        // event triggers. An empty string also can't match any real (non-empty) trigger table_name.
-        dataWarehouseTable: event.table_name ?? '',
     }
-
-    return context
 }

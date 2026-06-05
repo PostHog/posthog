@@ -57,9 +57,10 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
 
-                // Warehouse-row invocations carry a synthetic, made-up event.distinct_id that evals
-                // truthy but maps to no real person. Skip the person lookup entirely for them — the
-                // row is the unit of work and person-dependent steps no-op for these flows.
+                // Warehouse-row invocations don't have a real person — the row is the unit of work
+                // and person-dependent steps no-op for these flows. Explicitly skip the person lookup
+                // rather than relying on event.distinct_id being empty so future changes to the
+                // synthetic event shape don't accidentally re-enable the lookup.
                 const isWarehouseRow = hogFlow.trigger?.type === 'data-warehouse-table'
                 const personIdOrDistinctId = isWarehouseRow
                     ? undefined
