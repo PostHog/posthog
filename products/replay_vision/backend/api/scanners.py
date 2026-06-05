@@ -3,7 +3,7 @@ from typing import Any, NoReturn, cast
 
 from django.conf import settings
 from django.db import IntegrityError
-from django.db.models import CharField, F, Q, QuerySet, Value
+from django.db.models import CharField, Count, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, NullIf
 
 import structlog
@@ -369,6 +369,32 @@ class EstimateRequestSerializer(serializers.Serializer):
         return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
 
 
+class ScannerTypeStatsSerializer(serializers.Serializer):
+    """Per-scanner-type count of enabled vs total scanners."""
+
+    enabled = serializers.IntegerField(help_text="Number of enabled scanners of this type.")
+    total = serializers.IntegerField(help_text="Number of scanners of this type (enabled + disabled).")
+
+
+class ScannerStatsByTypeSerializer(serializers.Serializer):
+    """One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`."""
+
+    monitor = ScannerTypeStatsSerializer()
+    classifier = ScannerTypeStatsSerializer()
+    scorer = ScannerTypeStatsSerializer()
+    summarizer = ScannerTypeStatsSerializer()
+
+
+class ScannerStatsResponseSerializer(serializers.Serializer):
+    """Team-wide scanner counts independent of any list-filter state."""
+
+    total = serializers.IntegerField(help_text="Total scanners on the team.")
+    enabled = serializers.IntegerField(help_text="Number of enabled scanners on the team.")
+    by_type = ScannerStatsByTypeSerializer(
+        help_text="Per-scanner-type breakdown (monitor / classifier / scorer / summarizer)."
+    )
+
+
 class ScannerCreatorsResponseSerializer(serializers.Serializer):
     """Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown."""
 
@@ -424,7 +450,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     scope_object = "replay_scanner"
     # Custom actions must be listed explicitly or personal-API-key callers 403 silently.
-    scope_object_read_actions = ["list", "retrieve", "creators"]
+    scope_object_read_actions = ["list", "retrieve", "creators", "stats"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "observe"]
     permission_classes = [ReplayVisionEnabledPermission]
     serializer_class = ReplayScannerSerializer
@@ -464,6 +490,27 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             id__in=accessible.values_list("created_by_id", flat=True),
         ).order_by("first_name", "last_name", "email", "id")
         return Response({"creators": UserBasicSerializer(users, many=True).data})
+
+    @extend_schema(responses={200: ScannerStatsResponseSerializer})
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def stats(self, request: Request, **kwargs: Any) -> Response:
+        """Team-wide scanner counts — independent of list filters, so the overview stays stable."""
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            ReplayScanner.objects.filter(team_id=self.team_id)
+        )
+        # `.order_by()` so the default ordering doesn't leak into GROUP BY.
+        rows = accessible.order_by().values("scanner_type", "enabled").annotate(c=Count("*"))
+        by_type: dict[str, dict[str, int]] = {value: {"enabled": 0, "total": 0} for value, _ in ScannerType.choices}
+        total = 0
+        enabled = 0
+        for row in rows:
+            bucket = by_type.setdefault(row["scanner_type"], {"enabled": 0, "total": 0})
+            bucket["total"] += row["c"]
+            total += row["c"]
+            if row["enabled"]:
+                bucket["enabled"] += row["c"]
+                enabled += row["c"]
+        return Response({"total": total, "enabled": enabled, "by_type": by_type})
 
     @extend_schema(
         request=ObserveRequestSerializer,

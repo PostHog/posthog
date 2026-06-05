@@ -86,6 +86,14 @@ class StripeAuthMethodConfig(config.Config):
 
 
 @config.config
+class TwilioAuthMethodConfig(config.Config):
+    selection: Literal["api_key", "auth_token"] = "api_key"
+    api_key_sid: str | None = None
+    api_key_secret: str | None = None
+    auth_token: str | None = None
+
+
+@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
@@ -135,12 +143,12 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AsanaSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
 class AshbySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -198,7 +206,8 @@ class BraintreeSourceConfig(config.Config):
 
 @config.config
 class BrazeSourceConfig(config.Config):
-    pass
+    api_key: str
+    url: str
 
 
 @config.config
@@ -258,7 +267,8 @@ class ClickHouseSourceConfig(config.Config):
 
 @config.config
 class ClickUpSourceConfig(config.Config):
-    pass
+    api_key: str
+    workspace_id: str
 
 
 @config.config
@@ -273,7 +283,9 @@ class CockroachDBSourceConfig(config.Config):
 
 @config.config
 class ConfluenceSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
@@ -309,7 +321,11 @@ class CustomerIOSourceConfig(config.Config):
 
 @config.config
 class DatadogSourceConfig(config.Config):
-    pass
+    api_key: str
+    application_key: str
+    site: Literal[
+        "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"
+    ] = config.value(default="datadoghq.com")
 
 
 @config.config
@@ -356,12 +372,13 @@ class FreshdeskSourceConfig(config.Config):
 
 @config.config
 class FreshsalesSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
 class FrontSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -427,7 +444,7 @@ class GranolaSourceConfig(config.Config):
 
 @config.config
 class GreenhouseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -473,7 +490,7 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LaunchDarklySourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -539,7 +556,10 @@ class MicrosoftTeamsSourceConfig(config.Config):
 
 @config.config
 class MixpanelSourceConfig(config.Config):
-    pass
+    project_id: str
+    service_account_username: str
+    service_account_secret: str
+    region: Literal["us", "eu", "in"] = config.value(default="us")
 
 
 @config.config
@@ -583,7 +603,7 @@ class OktaSourceConfig(config.Config):
 
 @config.config
 class OmnisendSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -623,7 +643,8 @@ class PayPalSourceConfig(config.Config):
 
 @config.config
 class PendoSourceConfig(config.Config):
-    pass
+    integration_key: str
+    region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
 
 
 @config.config
@@ -641,7 +662,8 @@ class PinterestAdsSourceConfig(config.Config):
 
 @config.config
 class PipedriveSourceConfig(config.Config):
-    pass
+    company_domain: str
+    api_token: str
 
 
 @config.config
@@ -678,7 +700,7 @@ class PostmarkSourceConfig(config.Config):
 
 @config.config
 class ProductboardSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -748,7 +770,7 @@ class SalesforceSourceConfig(config.Config):
 
 @config.config
 class SendGridSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -790,7 +812,7 @@ class SlackSourceConfig(config.Config):
 
 @config.config
 class SmartsheetSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -864,7 +886,8 @@ class TrelloSourceConfig(config.Config):
 
 @config.config
 class TwilioSourceConfig(config.Config):
-    pass
+    account_sid: str
+    auth_method: TwilioAuthMethodConfig
 
 
 @config.config
@@ -911,7 +934,8 @@ class WorkOSSourceConfig(config.Config):
 
 @config.config
 class WrikeSourceConfig(config.Config):
-    pass
+    access_token: str
+    host: str
 
 
 @config.config
@@ -938,7 +962,9 @@ class ZohoCRMSourceConfig(config.Config):
 
 @config.config
 class ZoomSourceConfig(config.Config):
-    pass
+    account_id: str
+    client_id: str
+    client_secret: str
 
 
 @config.config

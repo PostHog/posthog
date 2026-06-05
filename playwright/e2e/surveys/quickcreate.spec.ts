@@ -47,9 +47,10 @@ const expectEvents = async (page: Page, events: string[]): Promise<void> => {
 
 const addTwoVariants = async (page: Page): Promise<void> => {
     await page.getByText('Multiple variants with rollout percentages (A/B/n test)').click()
-    // Default multivariate now includes control/test at 50/50, so just rename them
-    await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="0"]').fill('test-1')
-    await page.locator('[data-attr="feature-flag-variant-key"][data-key-index="1"]').fill('test-2')
+    // Default multivariate includes control/test at 50/50, each in a collapsed row, so expand then rename them
+    await page.getByRole('button', { name: 'Expand all' }).click()
+    await page.locator('[data-attr="feature-flag-variant-key-0"]').fill('test-1')
+    await page.locator('[data-attr="feature-flag-variant-key-1"]').fill('test-2')
 }
 
 const clickCreateSurvey = async (page: Page, name: string): Promise<void> => {
@@ -116,6 +117,7 @@ test.describe('Quick create survey from feature flag', () => {
 
         // start ff creation
         await page.locator('[data-attr="new-feature-flag"]').click()
+        await page.locator('[data-attr="blank-feature-flag-template"]').click()
         await page.locator('[data-attr="feature-flag-key"]').fill(name)
         await page.locator('[data-attr="rollout-percentage"]').fill('100')
     })
