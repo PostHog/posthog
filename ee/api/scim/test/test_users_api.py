@@ -1074,3 +1074,34 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user_b.refresh_from_db()
         assert user_b.email == "userb@example.com"
+
+    def test_deactivate_owner_is_blocked(self):
+        # Deprovisioning must run the canonical User.leave path, which protects an
+        # organization from being left without an owner.
+        owner = User.objects.create_user(
+            email="owner2@example.com", password=None, first_name="Owner", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=owner,
+            organization_domain=self.domain,
+            username="owner2@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "value": {"active": False}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{owner.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code != status.HTTP_200_OK
+        assert OrganizationMembership.objects.filter(
+            user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        ).exists()

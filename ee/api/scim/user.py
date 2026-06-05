@@ -274,13 +274,20 @@ class PostHogSCIMUser(SCIMUser):
             else:
                 self.deactivate()
 
+    def _leave_organization(self) -> None:
+        # Route membership removal through User.leave so the owner-protection guard and the
+        # canonical current-org/team cleanup run. Tolerate an already-removed membership so
+        # deprovisioning stays idempotent.
+        try:
+            self.obj.leave(organization=self._organization_domain.organization)
+        except OrganizationMembership.DoesNotExist:
+            pass
+
     def deactivate(self) -> None:
         """
         Deactivate user by removing their membership and marking SCIM record as inactive.
         """
-        OrganizationMembership.objects.filter(
-            user=self.obj, organization=self._organization_domain.organization
-        ).delete()
+        self._leave_organization()
 
         SCIMProvisionedUser.objects.filter(
             user=self.obj,
@@ -291,9 +298,7 @@ class PostHogSCIMUser(SCIMUser):
         """
         Delete user by removing their membership and SCIM provisioned user record.
         """
-        OrganizationMembership.objects.filter(
-            user=self.obj, organization=self._organization_domain.organization
-        ).delete()
+        self._leave_organization()
 
         SCIMProvisionedUser.objects.filter(
             user=self.obj,
