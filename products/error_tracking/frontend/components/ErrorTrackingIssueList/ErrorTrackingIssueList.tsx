@@ -15,7 +15,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { useSparklineData } from '../../hooks/use-sparkline-data'
 import { errorTrackingIssueSceneLogic } from '../../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION, sourceDisplay } from '../../utils'
-import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../Assignee/AssigneeDisplay'
+import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeResolver } from '../Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../Assignee/AssigneeSelect'
 import { StatusIndicator } from '../Indicators'
 import { issueActionsLogic } from '../IssueActions/issueActionsLogic'
@@ -133,15 +133,19 @@ export function ErrorTrackingIssueListRow({
                             )}
                         </AssigneeSelect>
                     ) : (
-                        <div className="ml-1 flex items-center text-xs text-secondary">
-                            <AssigneeIconDisplay assignee={issue.assignee} size="xsmall" />
-                            <AssigneeLabelDisplay
-                                assignee={issue.assignee}
-                                className="ml-1 text-xs text-secondary"
-                                size="xsmall"
-                                placeholder="Unassigned"
-                            />
-                        </div>
+                        <AssigneeResolver assignee={issue.assignee}>
+                            {({ assignee: resolvedAssignee }) => (
+                                <div className="ml-1 flex items-center text-xs text-secondary">
+                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="xsmall" />
+                                    <AssigneeLabelDisplay
+                                        assignee={resolvedAssignee}
+                                        className="ml-1 text-xs text-secondary"
+                                        size="xsmall"
+                                        placeholder="Unassigned"
+                                    />
+                                </div>
+                            )}
+                        </AssigneeResolver>
                     )}
                     <CustomSeparator />
                     {orderBy === 'first_seen' && issue.first_seen ? (
