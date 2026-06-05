@@ -1,7 +1,6 @@
 # Example: { type: function_call, call_id: c1, name: search, arguments: '{"q":"x"}' }
 
 id: openai_responses
-priority: 40
 
 rules:
     - on:
