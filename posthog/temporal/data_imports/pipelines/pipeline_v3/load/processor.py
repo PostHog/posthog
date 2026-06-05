@@ -252,13 +252,14 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
                 schema_id=export_signal.schema_id,
                 token=job.workflow_run_id,
             )
-    except Exception:
-        logger.warning(
+    except Exception as e:
+        logger.error(
             "failed_to_release_v3_pipeline_lock",
             job_id=export_signal.job_id,
             schema_id=export_signal.schema_id,
             exc_info=True,
         )
+        capture_exception(e)
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> None:

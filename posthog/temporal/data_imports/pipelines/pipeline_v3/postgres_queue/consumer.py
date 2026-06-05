@@ -21,6 +21,7 @@ import psycopg
 import structlog
 from asgiref.sync import sync_to_async
 
+from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BatchQueue, PendingBatch
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     ACTIVE_GROUPS,
@@ -366,13 +367,14 @@ class BatchConsumer:
                     schema_id=batch.schema_id,
                     token=workflow_run_id,
                 )
-            except Exception:
-                logger.warning(
+            except Exception as e:
+                logger.error(
                     "failed_to_release_v3_pipeline_lock",
                     job_id=batch.job_id,
                     schema_id=batch.schema_id,
                     exc_info=True,
                 )
+                capture_exception(e)
 
     async def _recovery_loop(self) -> None:
         """Run recovery sweeps periodically until shutdown."""

@@ -14,6 +14,9 @@ logger = structlog.get_logger(__name__)
 LOCK_KEY_PREFIX = "v3_pipeline_lock"
 LOCK_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days, matching max workflow duration
 
+# Atomic check-and-delete: prevents a race where workflow A's expired lock is
+# acquired by workflow B, then A's delayed consumer releases B's lock.
+# Replaceable with DELEX once we upgrade to Redis >= 8.4.
 _RELEASE_LOCK_SCRIPT = """
 if redis.call("get", KEYS[1]) == ARGV[1] then
     return redis.call("del", KEYS[1])
