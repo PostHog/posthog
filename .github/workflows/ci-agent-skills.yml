@@ -152,8 +152,6 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0
 
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
@@ -235,8 +233,8 @@ jobs:
             - name: Determine next version
               id: version
               run: |
-                  git fetch --tags --force
-                  LATEST_TAG=$(git tag -l 'agent-skills-v*' | grep -E '^agent-skills-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
+                  REMOTE_TAGS=$(git ls-remote --tags --refs origin 'refs/tags/agent-skills-v*')
+                  LATEST_TAG=$(printf '%s\n' "$REMOTE_TAGS" | awk '{print $2}' | sed 's#refs/tags/##' | grep -E '^agent-skills-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)
                   if [ -z "$LATEST_TAG" ]; then LATEST_TAG="agent-skills-v0.0.0"; fi
                   MINOR=$(echo "${LATEST_TAG#agent-skills-v}" | cut -d. -f2)
                   echo "tag=agent-skills-v0.$((MINOR + 1)).0" >> "$GITHUB_OUTPUT"
