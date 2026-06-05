@@ -75,6 +75,7 @@ the row lists both.
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
+| gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | granola          | HTTP                        | requests                                                        | ✅                          |
@@ -193,7 +194,6 @@ doesn't conflict with concurrent PRs.
 - firebase
 - fullstory
 - gitlab
-- gong
 - google_analytics
 - google_drive
 - helpscout
