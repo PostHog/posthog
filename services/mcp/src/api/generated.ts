@@ -41603,6 +41603,27 @@ export namespace Schemas {
       query: _TracingAggregationQueryBody;
     }
 
+    export interface _TracingCountBody {
+      /** Date range for the count. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by HTTP status codes. */
+      statusCodes?: number[];
+      /** Property filters for the count. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingCountRequest {
+      /** The span count query to execute. */
+      query: _TracingCountBody;
+    }
+
+    export interface _TracingCountResponse {
+      /** Number of spans matching the filters. */
+      count: number;
+    }
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
