@@ -497,16 +497,36 @@ jobs:
                   # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
             - name: Create GitHub Release
+              shell: bash
               env:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
                   ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
+                  LATEST_RELEASE_TAG: posthog-cli-latest
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
-                  echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
-                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+                  echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+                  release_args=()
+                  if [ -n "$PRERELEASE_FLAG" ]; then
+                      release_args+=("$PRERELEASE_FLAG")
+                  fi
+
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+
+                  if [ -z "$PRERELEASE_FLAG" ]; then
+                      gh release delete "$LATEST_RELEASE_TAG" --yes || true
+                      git push origin ":refs/tags/$LATEST_RELEASE_TAG" || true
+                      gh release create "$LATEST_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest" \
+                          --notes "Same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false \
+                          artifacts/*
+                  else
+                      echo "Skipping $LATEST_RELEASE_TAG update for prerelease ${{ needs.plan-release.outputs.tag }}"
+                  fi
 
     publish-npm:
         needs:

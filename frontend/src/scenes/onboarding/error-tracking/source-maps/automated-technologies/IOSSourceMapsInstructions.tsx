@@ -19,7 +19,7 @@ export function IOSSourceMapsInstructions(): JSX.Element {
             <h4 className="text-sm font-semibold mt-4 mb-2">curl:</h4>
             <CodeSnippet language={Language.Bash}>
                 {[
-                    "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/PostHog/posthog/releases/latest/download/posthog-cli-installer.sh | sh",
+                    "curl --proto '=https' --tlsv1.2 -LsSf https://download.posthog.com/cli | sh",
                     'posthog-cli-update',
                 ].join('\n')}
             </CodeSnippet>
