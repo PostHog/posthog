@@ -2,6 +2,7 @@ from typing import cast
 
 from django.test import TestCase
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import EventPropertyFilter
@@ -15,9 +16,16 @@ from products.dashboards.backend.widgets.widget_filters import (
 
 
 class TestWidgetFilters(TestCase):
-    def test_validate_widget_filters_rejects_invalid_shape(self) -> None:
+    @parameterized.expand(
+        [
+            ("string", "nope"),
+            ("int", 123),
+            ("list", []),
+        ]
+    )
+    def test_validate_widget_filters_rejects_invalid_shape(self, _label: str, widget_filters: object) -> None:
         with self.assertRaises(DRFValidationError):
-            validate_widget_filters(cast(WidgetListConfigInputBase, {"widgetFilters": "nope"}))
+            validate_widget_filters(cast(WidgetListConfigInputBase, {"widgetFilters": widget_filters}))
 
     def test_validate_widget_filters_normalizes_entries(self) -> None:
         validated = validate_widget_filters(
@@ -53,7 +61,8 @@ class TestWidgetFilters(TestCase):
         assert isinstance(property_filter, EventPropertyFilter)
         assert property_filter.key == "$environment"
 
-    def test_validate_widget_filters_rejects_unknown_operator(self) -> None:
+    @parameterized.expand(["not_a_real_operator", "bogus", "=="])
+    def test_validate_widget_filters_rejects_unknown_operator(self, operator: str) -> None:
         with self.assertRaises(DRFValidationError):
             validate_widget_filters(
                 {
@@ -62,7 +71,7 @@ class TestWidgetFilters(TestCase):
                             "filterId": "qf-1",
                             "propertyName": "$environment",
                             "optionId": "opt-1",
-                            "operator": "not_a_real_operator",
+                            "operator": operator,
                             "value": "production",
                         }
                     }
