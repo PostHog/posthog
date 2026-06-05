@@ -33,6 +33,9 @@ from posthog.test.base import (
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.hogql import translate_hogql
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.data_deletion_request import compile_hogql_predicate
@@ -115,6 +118,23 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
             self._assert_unqualified_and_mutation_safe(sql, mat_name)
             # The compared value is parameterized (not inlined), and resolves to the literal we passed.
             assert params == {"hogql_val_0": "Chrome"}, params
+
+    def test_lowering_gate_on_keeps_within_non_hogql_predicate_unqualified(self) -> None:
+        # The property-lowering gate must NOT touch within_non_hogql_query queries: the lowered physical pass builds
+        # table-qualified synthetic fields (`events.mat_$browser`), which the lightweight-delete mutation analyzer
+        # rejects (§8.4). With the gate ON, the predicate must STILL compile to the unqualified printer form — the
+        # lowering pass declines for within_non_hogql_query, so this stays byte-identical to the gate-off path.
+        self.addCleanup(cleanup_materialized_columns)
+        with materialized("events", "$browser", is_nullable=False):
+            mat_name = self._materialized_column_name("events", "$browser")
+            context = HogQLContext(
+                team_id=self.team.pk,
+                within_non_hogql_query=True,
+                enable_select_queries=True,
+                lower_property_access=True,
+            )
+            sql = translate_hogql("properties.$browser = 'Chrome'", context, dialect="clickhouse")
+            self._assert_unqualified_and_mutation_safe(sql, mat_name)
 
     def test_compiled_predicate_is_unqualified_and_mutation_safe_without_materialized_column(self) -> None:
         # Without materialization the fragment is the JSON-blob form; it must STILL be unqualified and mutation-safe
