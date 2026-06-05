@@ -503,7 +503,7 @@ Per §12.8, the new path reproduces master's **results** everywhere. **Any diver
 ### 13.7 Status / what to build
 
 - **Build:** the differential shadow-compare — test-mode (env-gated hook at the compile boundary) **BUILT** (`differential.py` + `prepare_and_print_ast` hook + `run_shadow_differential.py`, commit `09d756bd`); the Celery production shadow second (task #17).
-- **Remove:** the committed reachability-oracle scaffolding (`posthog/hogql/printer/test/reachability_oracle.py`, `run_reachability_oracle.py`, the baseline report) as part of the restructure.
+- **Remove:** the reachability-oracle scaffolding (`reachability_oracle.py`, `run_reachability_oracle.py`, `test_reachability_oracle.py`, the baseline report) — **DONE** (forward-deleted on `rearch-base`; the lone consumer, the `test_logical_property_lowering` reachability check, now asserts deletion-readiness by direct AST inspection). Still TODO: restructure the Graphite stack to drop the PR0b oracle commit from history (a history rewrite — coordinate before doing).
 - **Keep:** the characterization corpus, the execution + skip-index net, the `JSONFieldAccess` node + leaf renderers, the logical-lowering pass, the ClickHouse physical passes, and the gated flip — these are the real work; only the oracle apparatus changes.
 
 ### 13.8 Reading a test-mode sweep: the divergence taxonomy

@@ -8,7 +8,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.printer.test.property_corpus import LOGICAL_CASES
 from posthog.hogql.printer.test.property_harness import compile_case
-from posthog.hogql.printer.test.reachability_oracle import printer_reachability_oracle
 from posthog.hogql.visitor import TraversingVisitor
 
 
@@ -44,24 +43,13 @@ class TestLogicalPropertyLowering(BaseTest):
                 on, _ = compile_case(case.sql, dialect, self.team, case.modifiers, lower_property_access=True)
                 self.assertEqual(on, off, f"{case.name}/{dialect}: lowering changed output\n off: {off}\n on:  {on}")
 
-    def test_blob_properties_no_longer_reach_printer_when_lowering_enabled(self) -> None:
-        # With lowering on, JSON-blob property reads are JSONFieldAccess before printing, so they never reach the
-        # printer's property-decision code — the reachability oracle (the deletion gate) records nothing for them.
-        # ClickHouse is included now that its pipeline runs lowering + the physical passes (which handle the property
-        # via their own resolution, not the printer's instrumented entry points): the unmaterialized corpus declines
-        # to the blob JSONFieldAccess, so nothing reaches visit_property_type either.
-        sql = "SELECT properties.foo, properties.a.b.c FROM events WHERE properties.bar = 'x'"
-        for dialect in ("postgres", "duckdb", "clickhouse"):
-            with printer_reachability_oracle() as collector:
-                compile_case(sql, dialect, self.team, lower_property_access=True)
-            self.assertEqual(
-                collector.property_names_for_dialect(dialect),
-                set(),
-                f"{dialect}: blob properties should be lowered, not reach the printer",
-            )
-
     def test_prepared_tree_has_no_surviving_blob_property(self) -> None:
-        for dialect in ("postgres", "duckdb"):
+        # Deletion-readiness, by direct AST inspection (replaces the reachability oracle, doc §13.3): with lowering on,
+        # every JSON-blob `properties.X` read is a JSONFieldAccess before printing and no blob-backed PropertyType Field
+        # survives — so nothing reaches the printer's property-decision code. ClickHouse is included now that its pipeline
+        # runs lowering + the physical passes (an unmaterialized read declines to the blob JSONFieldAccess, never a
+        # surviving PropertyType). Asserting on the prepared tree is what the oracle's instrumentation used to prove.
+        for dialect in ("postgres", "duckdb", "clickhouse"):
             context = HogQLContext(
                 team_id=self.team.pk,
                 team=self.team,
@@ -70,7 +58,7 @@ class TestLogicalPropertyLowering(BaseTest):
                 lower_property_access=True,
             )
             prepared = prepare_ast_for_printing(
-                parse_select("SELECT properties.foo FROM events WHERE properties.bar = 'x'"),
+                parse_select("SELECT properties.foo, properties.a.b.c FROM events WHERE properties.bar = 'x'"),
                 context=context,
                 dialect=dialect,
             )

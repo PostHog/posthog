@@ -5,7 +5,7 @@ printer/property-lowering rearchitecture (see ``posthog/hogql/PRINTER_REARCHITEC
 
 - the golden harness (``test_property_golden.py``) — compiles every logical case across the dialects it supports and
   asserts the printed SQL against a harness-owned golden file (NOT ``.ambr`` — CI owns those, see doc §8.9);
-- the reachability oracle harness — runs the corpus with the printer's property-decision entry points instrumented;
+- the logical-lowering tests — assert the corpus lowers byte-identically and leaves no blob PropertyType for the printer;
 - the ClickHouse execution + skip-index net — drives the physical-optimization scenarios.
 
 Two kinds of case, matching the two axes the rearchitecture separates (doc §4.1):
@@ -26,7 +26,7 @@ from posthog.schema import HogQLQueryModifiers, PropertyGroupsMode
 
 from posthog.hogql.constants import HogQLDialect
 
-# The four dialects, in a fixed order so golden files and oracle reports are deterministic.
+# The four dialects, in a fixed order so golden files and sweep reports are deterministic.
 ALL_DIALECTS: tuple[HogQLDialect, ...] = ("hogql", "clickhouse", "postgres", "duckdb")
 
 # ClickHouse is the only backend with materialized columns / skip indexes / property groups, and the only one that
@@ -170,7 +170,7 @@ LOGICAL_CASES: tuple[LogicalCase, ...] = (
     LogicalCase(
         "in_cte",
         "WITH recent AS (SELECT uuid FROM events WHERE properties.foo = 'x') SELECT uuid FROM recent",
-        "property inside a CTE body — the visitor-coverage gap that the suite-wide oracle caught (doc §3.2)",
+        "property inside a CTE body — the visitor-coverage gap that the suite-wide sweep caught (doc §3.2)",
     ),
     LogicalCase(
         "in_subquery",
