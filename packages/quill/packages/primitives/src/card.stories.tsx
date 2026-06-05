@@ -1,9 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { UserIcon } from 'lucide-react'
+import { MoreVertical, UserIcon } from 'lucide-react'
 
 import { Button } from './button'
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from './card'
-import { Field } from './field'
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from './item'
 
 const meta = {
@@ -34,6 +33,87 @@ export const Default: Story = {
                 </Button>
             </CardFooter>
         </Card>
+    ),
+} satisfies Story
+
+export const Sizes: Story = {
+    render: () => (
+        <div className="flex flex-col gap-4 max-w-sm">
+            <Card size='sm'>
+                <CardHeader>
+                    <CardTitle>Small size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon"><MoreVertical /></Button>
+                    </CardAction>
+                </CardHeader>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card size='sm'>
+                <CardHeader>
+                    <CardTitle>Small size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon"><MoreVertical /></Button>
+                    </CardAction>
+                </CardHeader>
+                <CardContent>
+                    <p>Card Content</p>
+                </CardContent>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Default size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon"><MoreVertical /></Button>
+                    </CardAction>
+                </CardHeader>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+            <Card>
+                <CardHeader>
+                    <CardTitle>Default size</CardTitle>
+                    <CardDescription>Card Description</CardDescription>
+                    <CardAction>
+                        <Button size="icon"><MoreVertical /></Button>
+                    </CardAction>
+                </CardHeader>
+                <CardContent>
+                    <p>Card Content</p>
+                </CardContent>
+                <CardFooter className="flex-col gap-2">
+                    <Button type="submit" variant="primary" className="w-full">
+                        Login
+                    </Button>
+                    <Button variant="outline" className="w-full">
+                        Cancel
+                    </Button>
+                </CardFooter>
+            </Card>
+        </div>
     ),
 } satisfies Story
 
@@ -87,9 +167,8 @@ export const CardWithItems: Story = {
             <CardHeader>
                 <CardTitle>Team members</CardTitle>
             </CardHeader>
-            <CardContent>
-                <Field>
-                    <ItemGroup combined>
+            <CardContent className="py-0">
+                    <ItemGroup>
                         <Item
                             variant="pressable"
                             render={
@@ -121,7 +200,6 @@ export const CardWithItems: Story = {
                             }
                         />
                     </ItemGroup>
-                </Field>
             </CardContent>
         </Card>
     ),

@@ -45,9 +45,12 @@ import {
 
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+import { BoxPlotPropertySelector } from './BoxPlotPropertySelector'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
 import { MathSelector } from './MathSelector'
-import { BoxPlotPropertySelector, PropertyValueMathSelector } from './PropertyMathSelector'
+import { getDefaultMathHogQLExpression } from './mathUtils'
+import { PropertyValueMathSelector } from './PropertyValueMathSelector'
+import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
@@ -134,6 +137,7 @@ export function ActionFilterRow({
 
     const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
     const isTrendsContext = trendsDisplayCategory != null
+    const suggestedFiltersLabel = isFunnelContext ? 'Suggested step' : isTrendsContext ? 'Suggested series' : undefined
 
     // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
     // dashboardItemId should be the insight's id, but the typeKey might contain a /on-dashboard- suffix
@@ -145,9 +149,6 @@ export function ActionFilterRow({
 
     // Only use the funnel results when in funnel context
     const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
-
-    // DWH events are not supported in inline events yet
-    const canCombine = showCombine && !singleFilter && filter.type !== EntityTypes.DATA_WAREHOUSE
 
     const {
         setNodeRef,
@@ -168,6 +169,7 @@ export function ActionFilterRow({
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
+    const defaultMathHogQLExpression = getDefaultMathHogQLExpression(insightType)
 
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
@@ -176,6 +178,95 @@ export function ActionFilterRow({
     const onPropertyChange = useCallback(
         (properties: AnyPropertyFilter[]) => updateFilterProperty({ properties, index }),
         [updateFilterProperty, index]
+    )
+
+    /**
+     * Shared selection handler for both the legacy `TaxonomicPopover` and the
+     * new `TaxonomicFilterMenu` / `TaxonomicAutocomplete`. The pseudo-event
+     * groups (Pageview / Screen / Autocapture events) and quick filters don't
+     * map to a plain `EntityType` — they expand into a base event plus a
+     * property filter. Keeping one handler guarantees the new picker behaves
+     * identically to the legacy one.
+     */
+    const applyTaxonomicSelection = useCallback(
+        (
+            taxonomicGroupType: TaxonomicFilterGroupType,
+            changedValue: string | number | null | undefined,
+            item: any
+        ): void => {
+            if (isQuickFilterItem(item)) {
+                if (item.eventName) {
+                    updateFilter({ type: EntityTypes.EVENTS, id: item.eventName, name: item.eventName, index })
+                }
+                updateFilterProperty({ index, properties: quickFilterToPropertyFilters(item) })
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
+                updateFilter({ type: EntityTypes.EVENTS, id: '$pageview', name: '$pageview', index })
+                updateFilterProperty({
+                    index,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: changedValue ? String(changedValue) : '',
+                            operator: PropertyOperator.IContains,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
+                updateFilter({ type: EntityTypes.EVENTS, id: '$screen', name: '$screen', index })
+                updateFilterProperty({
+                    index,
+                    properties: [
+                        {
+                            key: '$screen_name',
+                            value: changedValue ? String(changedValue) : '',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
+                updateFilter({ type: EntityTypes.EVENTS, id: '$autocapture', name: '$autocapture', index })
+                updateFilterProperty({
+                    index,
+                    properties: [
+                        {
+                            key: '$el_text',
+                            value: changedValue ? String(changedValue) : '',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                })
+                return
+            }
+            const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
+            if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                const extraValues = Object.fromEntries(dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]]))
+                updateFilter({
+                    type: groupType,
+                    id: changedValue ? String(changedValue) : null,
+                    name: item?.name ?? '',
+                    table_name: item?.name,
+                    index,
+                    ...extraValues,
+                })
+            } else {
+                updateFilter({
+                    type: groupType || undefined,
+                    id: changedValue ? String(changedValue) : null,
+                    name: item?.name ?? '',
+                    index,
+                })
+            }
+        },
+        [updateFilter, updateFilterProperty, index, dataWarehousePopoverFields]
     )
 
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
@@ -187,7 +278,7 @@ export function ActionFilterRow({
                     : undefined
             const math_hogql =
                 mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                    ? (mathHogQL ?? 'count()')
+                    ? (mathHogQL ?? defaultMathHogQLExpression)
                     : undefined
             mathProperties = {
                 ...mathTypeToApiValues(selectedMath),
@@ -248,10 +339,13 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
 
-    const initialGroupType =
-        filter.type === EntityTypes.DATA_WAREHOUSE
-            ? TaxonomicFilterGroupType.DataWarehouse
-            : TaxonomicFilterGroupType.SuggestedFilters
+    const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
+    const initialGroupType = isDataWarehouseFilter
+        ? TaxonomicFilterGroupType.DataWarehouse
+        : TaxonomicFilterGroupType.SuggestedFilters
+
+    // DWH events are not supported in inline events yet
+    const canCombine = showCombine && !singleFilter && !isDataWarehouseFilter
 
     const filterElement = (
         <TaxonomicPopover
@@ -261,104 +355,12 @@ export function ActionFilterRow({
             groupType={initialGroupType}
             value={getValue(value, filter)}
             filter={filter}
-            onChange={(changedValue, taxonomicGroupType, item) => {
-                if (isQuickFilterItem(item)) {
-                    if (item.eventName) {
-                        updateFilter({
-                            type: EntityTypes.EVENTS,
-                            id: item.eventName,
-                            name: item.eventName,
-                            index,
-                        })
-                    }
-                    updateFilterProperty({
-                        index,
-                        properties: quickFilterToPropertyFilters(item),
-                    })
-                    return
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.PageviewEvents) {
-                    updateFilter({
-                        type: EntityTypes.EVENTS,
-                        id: '$pageview',
-                        name: '$pageview',
-                        index,
-                    })
-                    updateFilterProperty({
-                        index,
-                        properties: [
-                            {
-                                key: '$current_url',
-                                value: changedValue ? String(changedValue) : '',
-                                operator: PropertyOperator.IContains,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })
-                    return
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.ScreenEvents) {
-                    updateFilter({
-                        type: EntityTypes.EVENTS,
-                        id: '$screen',
-                        name: '$screen',
-                        index,
-                    })
-                    updateFilterProperty({
-                        index,
-                        properties: [
-                            {
-                                key: '$screen_name',
-                                value: changedValue ? String(changedValue) : '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })
-                    return
-                }
-                if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
-                    updateFilter({
-                        type: EntityTypes.EVENTS,
-                        id: '$autocapture',
-                        name: '$autocapture',
-                        index,
-                    })
-                    updateFilterProperty({
-                        index,
-                        properties: [
-                            {
-                                key: '$el_text',
-                                value: changedValue ? String(changedValue) : '',
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    })
-                    return
-                }
-                const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
-                if (groupType === EntityTypes.DATA_WAREHOUSE) {
-                    const extraValues = Object.fromEntries(
-                        dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]])
-                    )
-                    updateFilter({
-                        type: groupType,
-                        id: changedValue ? String(changedValue) : null,
-                        name: item?.name ?? '',
-                        table_name: item?.name,
-                        index,
-                        ...extraValues,
-                    })
-                } else {
-                    updateFilter({
-                        type: groupType || undefined,
-                        id: changedValue ? String(changedValue) : null,
-                        name: item?.name ?? '',
-                        index,
-                    })
-                }
-            }}
+            suggestedFiltersLabel={suggestedFiltersLabel}
+            enableKeywordShortcuts
+            selectingKeyOnly
+            onChange={(changedValue, taxonomicGroupType, item) =>
+                applyTaxonomicSelection(taxonomicGroupType, changedValue, item)
+            }
             renderValue={() => <EntityFilterInfo filter={filter} showIcon />}
             groupTypes={effectiveActionsTaxonomicGroupTypes}
             placeholder="All events"
@@ -436,9 +438,8 @@ export function ActionFilterRow({
         <LemonButton
             key="combine-inline"
             icon={<IconGroupIntersect />}
-            title="Count multiple events as a single event"
             data-attr={`show-prop-combine-${index}`}
-            noPadding
+            noPadding={!enablePopup}
             onClick={() => {
                 convertFilterToGroup(index)
                 posthog.capture('combine_events', {
@@ -446,14 +447,18 @@ export function ActionFilterRow({
                     team_id: currentTeamId,
                 })
             }}
-            tooltip="Combine events"
+            tooltip="Count multiple events as a single event"
             tooltipDocLink={inlineEventsDocLink}
-        />
+            fullWidth={enablePopup}
+        >
+            {enablePopup ? 'Combine' : undefined}
+        </LemonButton>
     )
 
     const deleteButton = (
         <LemonButton
             key="delete"
+            status={enablePopup ? 'danger' : 'default'}
             icon={<IconTrash />}
             title="Delete graph series"
             data-attr={`delete-prop-filter-${index}`}
@@ -472,9 +477,13 @@ export function ActionFilterRow({
         showSeriesIndicator && <div key="series-indicator">{seriesIndicator}</div>,
     ].filter(Boolean)
 
-    // Check if popup would have any menu items (excluding filter and combine buttons which are always outside the menu)
+    // Check if popup would have any menu items (excluding filter button which is always outside the menu)
     const hasMenuItems =
-        isFunnelContext || !hideRename || (!hideDuplicate && !singleFilter) || (!hideDeleteBtn && !singleFilter)
+        isFunnelContext ||
+        !hideRename ||
+        (!hideDuplicate && !singleFilter) ||
+        (!hideDeleteBtn && !singleFilter) ||
+        canCombine
     const showPopupMenu = !readOnly && enablePopup && hasMenuItems
 
     // When not using popup, show elements inline
@@ -563,15 +572,29 @@ export function ActionFilterRow({
                                             mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                                 MathCategory.PropertyValue && (
                                                 <PropertyValueMathSelector
-                                                    mathPropertyType={mathPropertyType}
+                                                    mathPropertyType={
+                                                        mathPropertyType ||
+                                                        (isDataWarehouseFilter
+                                                            ? TaxonomicFilterGroupType.DataWarehouseProperties
+                                                            : TaxonomicFilterGroupType.NumericalEventProperties)
+                                                    }
+                                                    mathPropertyTypes={
+                                                        isDataWarehouseFilter
+                                                            ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                                            : [
+                                                                  TaxonomicFilterGroupType.NumericalEventProperties,
+                                                                  TaxonomicFilterGroupType.SessionProperties,
+                                                                  TaxonomicFilterGroupType.PersonProperties,
+                                                                  TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                                              ]
+                                                    }
                                                     mathProperty={mathProperty}
                                                     mathName={name}
                                                     index={index}
                                                     onMathPropertySelect={onMathPropertySelect}
                                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                                     schemaColumns={
-                                                        filter.type == TaxonomicFilterGroupType.DataWarehouse &&
-                                                        filter.name
+                                                        isDataWarehouseFilter && filter.name
                                                             ? Object.values(
                                                                   dataWarehouseTablesMap[filter.name]?.fields ?? []
                                                               )
@@ -597,7 +620,6 @@ export function ActionFilterRow({
                                 {showPopupMenu ? (
                                     <>
                                         {!hideFilter && propertyFiltersButton}
-                                        {canCombine && combineInlineButton}
                                         <ActionFilterRowMenu
                                             index={index}
                                             isTrendsContext={isTrendsContext}
@@ -625,6 +647,7 @@ export function ActionFilterRow({
                                             renameRowButton={renameRowButton}
                                             duplicateRowButton={duplicateRowButton}
                                             deleteButton={deleteButton}
+                                            combineButton={canCombine ? combineInlineButton : null}
                                         />
                                     </>
                                 ) : (
@@ -645,7 +668,7 @@ export function ActionFilterRow({
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
                         metadataSource={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? {
                                       kind: NodeKind.HogQLQuery,
                                       query: `select ${filter.aggregation_target_field} from ${filter.table_name}`,
@@ -653,7 +676,7 @@ export function ActionFilterRow({
                                 : undefined
                         }
                         taxonomicGroupTypes={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                            isDataWarehouseFilter
                                 ? [
                                       TaxonomicFilterGroupType.DataWarehouseProperties,
                                       TaxonomicFilterGroupType.HogQLExpression,
@@ -668,20 +691,17 @@ export function ActionFilterRow({
                                   : []
                         }
                         schemaColumns={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
+                            isDataWarehouseFilter && filter.name
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
-                        dataWarehouseTableName={
-                            filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? (filter.name ?? undefined)
-                                : undefined
-                        }
+                        dataWarehouseTableName={isDataWarehouseFilter ? (filter.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                     />
+                    <SaveAsActionBanner filter={filter} />
                 </div>
             )}
         </li>

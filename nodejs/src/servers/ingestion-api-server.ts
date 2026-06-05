@@ -2,7 +2,6 @@ import { Message } from 'node-rdkafka'
 import { Counter, Histogram } from 'prom-client'
 
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { InternalCaptureService } from '~/common/services/internal-capture'
 
 import { initializePrometheusLabels } from '../api/router'
 import {
@@ -13,10 +12,8 @@ import {
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
 import { CommonConfig } from '../common/config'
-import { defaultConfig } from '../config/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
 import { createCookielessRedisConnectionConfig, createIngestionRedisConnectionConfig } from '../config/redis-pools'
-import { INGESTION_OUTPUT_DEFINITIONS } from '../ingestion/analytics/config/outputs'
-import { PRODUCER_CONFIG_MAP, ProducerName } from '../ingestion/analytics/config/producers'
 import {
     JoinedIngestionPipelineConfig,
     JoinedIngestionPipelineContext,
@@ -24,20 +21,33 @@ import {
     JoinedIngestionPipelineInput,
     createJoinedIngestionPipeline,
 } from '../ingestion/analytics/joined-ingestion-pipeline'
+import { createOutputsRegistry } from '../ingestion/analytics/outputs/registry'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
+import {
+    KafkaIngestionProducerEnvConfig,
+    KafkaProducerEnvConfig,
+    KafkaWarpstreamProducerEnvConfig,
+    getDefaultKafkaIngestionProducerEnvConfig,
+    getDefaultKafkaProducerEnvConfig,
+    getDefaultKafkaWarpstreamProducerEnvConfig,
+} from '../ingestion/common/config'
 import { EventFilterManager } from '../ingestion/common/event-filters'
+import { ProducerName } from '../ingestion/common/outputs'
+import { createProducerRegistry } from '../ingestion/common/outputs/registry'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
+    IngestionOutputsConfig,
     KafkaBrokerConfig,
     KafkaConsumerBaseConfig,
     PersonHogConfig,
     RedisConnectionsConfig,
+    getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
 import { CookielessManager } from '../ingestion/cookieless/cookieless-manager'
 import { parseSplitAiEventsConfig } from '../ingestion/event-processing/split-ai-events-step'
-import { KafkaProducerRegistry, resolveIngestionOutputs } from '../ingestion/outputs'
+import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '../ingestion/personhog'
 import { createOkContext } from '../ingestion/pipelines/helpers'
 import { TopHog } from '../ingestion/tophog'
@@ -66,7 +76,11 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
+    IngestionOutputsConfig &
     HogTransformerServiceConfig &
+    KafkaProducerEnvConfig &
+    KafkaWarpstreamProducerEnvConfig &
+    KafkaIngestionProducerEnvConfig &
     KafkaBrokerConfig &
     DatabaseConnectionConfig &
     RedisConnectionsConfig &
@@ -81,7 +95,6 @@ export type IngestionApiServerConfig = BaseServerConfig &
         | 'CAPTURE_INTERNAL_URL'
         | 'LAZY_LOADER_DEFAULT_BUFFER_MS'
         | 'LAZY_LOADER_MAX_SIZE'
-        | 'TASKS_PER_WORKER'
         | 'TASK_TIMEOUT'
         | 'POSTHOG_API_KEY'
         | 'POSTHOG_HOST_URL'
@@ -108,6 +121,11 @@ const messagesProcessed = new Counter({
 const batchErrors = new Counter({
     name: 'ingestion_api_batch_errors_total',
     help: 'Total number of batch processing errors',
+})
+
+const batchCapacityRejections = new Counter({
+    name: 'ingestion_api_batch_capacity_rejections_total',
+    help: 'Total number of batches rejected because the pipeline was at concurrent batch capacity',
 })
 
 /**
@@ -139,7 +157,14 @@ export class IngestionApiServer implements NodeServer {
     private topHog!: TopHog
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
-        this.config = { ...defaultConfig, ...config }
+        this.config = {
+            ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultKafkaProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaIngestionProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultIngestionOutputsConfig()),
+            ...config,
+        }
         this.lifecycle = new ServerLifecycle(this.config)
     }
 
@@ -190,6 +215,7 @@ export class IngestionApiServer implements NodeServer {
             personhogClient,
             postgresPersonRepository,
             this.config.PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
         const postgresGroupRepository = new PostgresGroupRepository(this.postgres)
@@ -198,12 +224,12 @@ export class IngestionApiServer implements NodeServer {
             personhogClient,
             postgresGroupRepository,
             this.config.PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE,
+            this.config.PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS,
             clientLabel
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
         const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
-        const internalCaptureService = new InternalCaptureService(this.config)
 
         // 3. Ingestion-specific services
         logger.info('🤔', 'Connecting to cookieless Redis...')
@@ -218,11 +244,8 @@ export class IngestionApiServer implements NodeServer {
         const groupTypeManager = new GroupTypeManager(groupRepository, teamManager)
 
         // 4. Kafka producers for pipeline outputs (not consuming from Kafka)
-        this.ingestionProducerRegistry = new KafkaProducerRegistry(this.config.KAFKA_CLIENT_RACK, PRODUCER_CONFIG_MAP)
-        const ingestionOutputs = await resolveIngestionOutputs(
-            this.ingestionProducerRegistry,
-            INGESTION_OUTPUT_DEFINITIONS
-        )
+        this.ingestionProducerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const ingestionOutputs = createOutputsRegistry().build(this.ingestionProducerRegistry, this.config)
         const clickhouseGroupRepository = new ClickhouseGroupRepository(ingestionOutputs)
 
         const topicFailures = await ingestionOutputs.checkTopics()
@@ -239,7 +262,6 @@ export class IngestionApiServer implements NodeServer {
             integrationManager,
             monitoringOutputs: ingestionOutputs,
             teamManager,
-            internalCaptureService,
         }
         this.hogTransformer = createHogTransformerService(this.config, hogTransformerDeps)
         await this.hogTransformer.start()
@@ -312,7 +334,8 @@ export class IngestionApiServer implements NodeServer {
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -322,6 +345,7 @@ export class IngestionApiServer implements NodeServer {
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
+            concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore,
@@ -358,7 +382,9 @@ export class IngestionApiServer implements NodeServer {
 
     private async handleIngestRequest(
         req: { body: IngestBatchRequest },
-        res: { status: (code: number) => { json: (body: IngestBatchResponse) => void } }
+        res: {
+            status: (code: number) => { json: (body: IngestBatchResponse) => void }
+        }
     ): Promise<void> {
         const { batch_id, messages: serializedMessages } = req.body
 
@@ -375,6 +401,29 @@ export class IngestionApiServer implements NodeServer {
             const batch = messages.map((message) => createOkContext({ message }, { message }))
             const feedResult = await this.joinedPipeline.feed(batch)
             if (!feedResult.ok) {
+                // Capacity rejection should not happen under correct consumer
+                // behavior — the Rust consumer holds a per-worker Semaphore
+                // sized to INGESTION_WORKER_CONCURRENT_BATCHES and is supposed
+                // to wait (natural backpressure) before sending a batch that
+                // would exceed the worker's capacity. If we land here, the
+                // consumer's tracking is wrong or its env-var value disagrees
+                // with ours. Respond 503 so the consumer surfaces it as a
+                // distinct error (TransportError::WorkerBusy) and the alarm is
+                // visible in `ingestion_api_batch_capacity_rejections_total`.
+                // Use the typed `kind` discriminator (not the human-readable
+                // `reason` string) so a future BatchingPipeline message tweak
+                // can't silently downgrade us to a fall-through 500 — which
+                // the Rust transport treats as retriable.
+                if (feedResult.kind === 'at_capacity') {
+                    batchCapacityRejections.inc()
+                    res.status(503).json({
+                        batch_id: batch_id ?? '',
+                        status: 'error',
+                        accepted: 0,
+                        error: feedResult.reason,
+                    })
+                    return
+                }
                 throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
             }
 
@@ -388,9 +437,6 @@ export class IngestionApiServer implements NodeServer {
 
             // Wait for all side effects — the HTTP response is the ACK to the
             // Rust consumer, so all work must finish before responding.
-            // Note: the joined pipeline has a hardcoded concurrency of 1, so
-            // feed() will reject if a batch is already being processed. This
-            // is fine for now since we process each request sequentially.
             await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
 
             batchesProcessed.inc()

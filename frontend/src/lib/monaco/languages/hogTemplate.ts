@@ -131,7 +131,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
 })
 
 export function initHogTemplateLanguage(monaco: Monaco): void {
-    if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogTemplate')) {
+    if (!monaco.languages.getLanguages().some(({ id }: { id: string }) => id === 'hogTemplate')) {
         monaco.languages.register({
             id: 'hogTemplate',
             mimetypes: ['application/hog+template'],

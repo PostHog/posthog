@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.test import override_settings
@@ -16,7 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
-from posthog.permissions import AccessControlPermission
+from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
 from products.error_tracking.backend.models import ErrorTrackingIssue
@@ -38,8 +38,8 @@ class TestAccessControlPermission(BaseTest):
         super().setUp()
         self.organization.available_product_features = [
             {
-                "key": AvailableFeature.ADVANCED_PERMISSIONS,
-                "name": AvailableFeature.ADVANCED_PERMISSIONS,
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
             },
             {
                 "key": AvailableFeature.ROLE_BASED_ACCESS,
@@ -605,7 +605,68 @@ class TestOAuthAccessTokenAPIScopePermission(BaseTest):
         self.access_token.save()
         response = self._do_request(f"/api/projects/{self.team.id}/search")
         self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
+
+    def test_forbids_wildcard_scope_for_internal_viewset(self):
+        """`*` does not satisfy INTERNAL viewsets — explicit scope required."""
+        self.access_token.scope = "*"
+        self.access_token.save()
+        response = self._do_request("/api/query_performance_proxy/execute-test/", method="POST")
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("clickhouse_test_cluster_perf:read", response.json()["detail"])
+
+    def test_allows_explicit_scope_for_internal_viewset(self):
+        self.access_token.scope = "clickhouse_test_cluster_perf:read"
+        self.access_token.save()
+        response = self._do_request(
+            "/api/query_performance_proxy/execute-test/", method="POST", data={"sql": "SELECT 1"}
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_forbids_wildcard_scope_for_internal_required_scope_on_public_viewset(self):
+        """Regression: when a viewset's `scope_object` is public (e.g. `signal_scout`) but a
+        specific action's `required_scopes` targets an INTERNAL_API_SCOPE_OBJECTS object
+        (e.g. `signal_scout_internal:write`), `*` must NOT satisfy that action. Otherwise
+        a user-consented `*` token could write durable scout memory or emit findings —
+        bypassing the threat model that those scopes are sandbox-only.
+        """
+        self.access_token.scope = "*"
+        self.access_token.save()
+        response = self._do_request(
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
+            method="POST",
+            data={"key": "noop"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("signal_scout_internal:write", response.json()["detail"])
+
+    def test_allows_explicit_internal_write_scope_on_public_viewset(self):
+        """Sibling to the above: a token with explicit `signal_scout_internal:write` reaches
+        the same endpoint (validated_data parses, the forget tool reports deleted=false)."""
+        self.access_token.scope = "signal_scout_internal:write"
+        self.access_token.save()
+        response = self._do_request(
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
+            method="POST",
+            data={"key": "noop"},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"deleted": False})
+
+    def test_session_auth_cannot_satisfy_internal_write_scope(self):
+        """Session auth must NOT bypass an internal-scope requirement. A logged-in team member
+        POSTing to a scout internal-write action (`signal_scout_internal:write`) via browser
+        session is denied — otherwise any member could write durable scout scratchpad, which is
+        read verbatim into the scout's prompt. No bearer token here, so SessionAuthentication is
+        the successful authenticator and must hit the internal-scope guard."""
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/signals/scout/scratchpad/forget/",
+            data={"key": "noop"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertIn("internal scope", response.json()["detail"])
 
     def test_allows_derived_scope_for_read(self):
         """OAuth token with feature_flag:read can read feature flags"""
@@ -1002,3 +1063,106 @@ class TestOAuthAccessTokenUserMembership(BaseTest):
             headers={"authorization": f"Bearer {other_team_token.token}"},
         )
         self.assertEqual(response.status_code, 403)  # Forbidden - user not in org
+
+
+class TestPostHogFeatureFlagPermission(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.permission = PostHogFeatureFlagPermission()
+        self.factory = APIRequestFactory()
+
+    def _create_mock_request(self):
+        request = self.factory.get("/")
+        request.user = self.user
+        return request
+
+    def _create_mock_view(self, flag="test-flag", action="list"):
+        view = Mock()
+        view.posthog_feature_flag = flag
+        view.action = action
+        view.organization = self.organization
+        view.team = self.team
+        # get_organization_from_view looks for these attributes
+        view.organization_id = str(self.organization.id)
+        return view
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_delegates_to_posthoganalytics_by_default(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+        mock_ff.assert_called_once()
+        self.assertEqual(mock_ff.call_args[0][0], "my-flag")
+        kwargs = mock_ff.call_args[1]
+        self.assertEqual(
+            kwargs["groups"],
+            {"organization": str(self.organization.id), "project": str(self.team.id)},
+        )
+        self.assertEqual(
+            kwargs["group_properties"],
+            {
+                "organization": {"id": str(self.organization.id)},
+                "project": {"id": str(self.team.id)},
+            },
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_feature_flag_evaluation_passes_organization_only_when_view_has_no_team(self, mock_ff):
+        class OrgOnlyView:
+            posthog_feature_flag = "my-flag"
+            action = "list"
+            organization = self.organization
+            organization_id = str(self.organization.id)
+
+        request = self._create_mock_request()
+        view = OrgOnlyView()
+
+        self.assertTrue(self.permission.has_permission(request, view))
+        kwargs = mock_ff.call_args[1]
+        self.assertEqual(kwargs["groups"], {"organization": str(self.organization.id)})
+        self.assertEqual(kwargs["group_properties"], {"organization": {"id": str(self.organization.id)}})
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_denies_when_flag_disabled(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertFalse(result)
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"my-flag"}))
+    @patch("posthoganalytics.feature_enabled")
+    def test_force_enabled_bypasses_posthoganalytics(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+        mock_ff.assert_not_called()
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"flag-a", "flag-b", "flag-c"}))
+    @patch("posthoganalytics.feature_enabled")
+    def test_force_enabled_supports_multiple_flags(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="flag-b")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertTrue(result)
+        mock_ff.assert_not_called()
+
+    @patch("posthog.permissions._FORCE_ENABLED_FLAGS", frozenset({"other-flag"}))
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_force_enabled_does_not_affect_unlisted_flags(self, mock_ff):
+        request = self._create_mock_request()
+        view = self._create_mock_view(flag="my-flag")
+
+        result = self.permission.has_permission(request, view)
+
+        self.assertFalse(result)
+        mock_ff.assert_called_once()

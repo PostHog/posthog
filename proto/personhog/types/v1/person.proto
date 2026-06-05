@@ -54,6 +54,7 @@ message GetPersonResponse {
 
 message GetPersonsRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated int64 person_ids = 2;
   ReadOptions read_options = 3;
 }
@@ -71,6 +72,7 @@ message GetPersonByUuidRequest {
 
 message GetPersonsByUuidsRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated string uuids = 2;
   ReadOptions read_options = 3;
 }
@@ -83,6 +85,7 @@ message GetPersonByDistinctIdRequest {
 
 message GetPersonsByDistinctIdsInTeamRequest {
   int64 team_id = 1;
+  // Max 250 per request.
   repeated string distinct_ids = 2;
   ReadOptions read_options = 3;
 }
@@ -92,6 +95,7 @@ message PersonsByDistinctIdsInTeamResponse {
 }
 
 message GetPersonsByDistinctIdsRequest {
+  // Max 250 per request.
   repeated TeamDistinctId team_distinct_ids = 1;
   ReadOptions read_options = 2;
 }
@@ -161,5 +165,20 @@ message DeletePersonsRequest {
 }
 
 message DeletePersonsResponse {
+  int64 deleted_count = 1;
+}
+
+// DeletePersonsBatchForTeamRequest deletes up to batch_size persons for a team.
+// Also deletes associated posthog_persondistinctid rows (FK is NO ACTION).
+// posthog_featureflaghashkeyoverride rows cascade automatically at the DB level.
+// Callers should loop until deleted_count is 0.
+message DeletePersonsBatchForTeamRequest {
+  int64 team_id = 1;
+  // Max persons to delete per call. Must be > 0 and <= 50000.
+  int64 batch_size = 2;
+}
+
+message DeletePersonsBatchForTeamResponse {
+  // Number of persons deleted. 0 means no more persons to delete.
   int64 deleted_count = 1;
 }

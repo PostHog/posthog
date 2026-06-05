@@ -34,7 +34,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { GraphsHog, PopUpBinocularsHog } from 'lib/components/hedgehogs'
-import { NotFound } from 'lib/components/NotFound'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -49,7 +48,6 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -159,6 +157,7 @@ const STATUS_LABELS: Record<SignalReportStatus, string> = {
     [SignalReportStatus.IN_PROGRESS]: 'In progress',
     [SignalReportStatus.PENDING_INPUT]: 'Pending input',
     [SignalReportStatus.READY]: 'Ready',
+    [SignalReportStatus.RESOLVED]: 'Resolved',
     [SignalReportStatus.FAILED]: 'Failed',
 }
 
@@ -306,6 +305,7 @@ function ReportListPane(): JSX.Element {
                         loading={reportsLoading}
                         onClick={() => loadReports()}
                         tooltip="Refresh reports"
+                        className="bg-surface-primary"
                     />
                 </div>
                 {hasNoSources && filteredReports.length > 0 && (
@@ -531,7 +531,6 @@ function ReportDetailPane(): JSX.Element {
         selectedReportReviewers,
     } = useValues(inboxSceneLogic)
     const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
-    const { user } = useValues(userLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
@@ -630,27 +629,23 @@ function ReportDetailPane(): JSX.Element {
                                 overlay={
                                     <LemonMenuOverlay
                                         items={[
-                                            ...(user?.is_staff
-                                                ? [
-                                                      {
-                                                          label: 'Re-ingest signals',
-                                                          onClick: () =>
-                                                              LemonDialog.open({
-                                                                  title: `Re-ingest signals from "${selectedReport.title}"?`,
-                                                                  className: 'max-w-120',
-                                                                  description:
-                                                                      'This will delete the report, then re-run all its signals through the grouping pipeline. Signals may end up in different reports.',
-                                                                  primaryButton: {
-                                                                      children: 'Re-ingest signals',
-                                                                      onClick: () => reingestReport(selectedReport.id),
-                                                                  },
-                                                                  secondaryButton: {
-                                                                      children: 'Cancel',
-                                                                  },
-                                                              }),
-                                                      },
-                                                  ]
-                                                : []),
+                                            {
+                                                label: 'Re-ingest signals',
+                                                onClick: () =>
+                                                    LemonDialog.open({
+                                                        title: `Re-ingest signals from "${selectedReport.title}"?`,
+                                                        className: 'max-w-120',
+                                                        description:
+                                                            'This will delete the report, then re-run all its signals through the grouping pipeline. Signals may end up in different reports.',
+                                                        primaryButton: {
+                                                            children: 'Re-ingest signals',
+                                                            onClick: () => reingestReport(selectedReport.id),
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                        },
+                                                    }),
+                                            },
                                             {
                                                 label: 'Delete report & signals',
                                                 status: 'danger',
@@ -746,7 +741,24 @@ export function InboxScene(): JSX.Element {
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
 
     if (!isProductAutonomyEnabled) {
-        return <NotFound object="page" caption="Check back later." />
+        return (
+            <div className="flex flex-col items-center justify-center max-w-[50rem] px-4 mx-auto text-center text-balance h-full">
+                <GraphsHog className="w-36 mb-2" />
+                <h1 className="text-2xl font-bold mt-4 mb-0">Inbox is now available in the PostHog Code desktop app</h1>
+                <p className="text-sm font-semibold italic mt-3 mb-0">
+                    PostHog Code brings Inbox and agentic development right to your desktop.
+                </p>
+                <div className="flex justify-center mt-4">
+                    <LemonButton
+                        type="primary"
+                        to="https://posthog.com/code?utm_source=app&utm_medium=in-product&utm_campaign=inbox-cta"
+                        targetBlank
+                    >
+                        Download here
+                    </LemonButton>
+                </div>
+            </div>
+        )
     }
 
     return (

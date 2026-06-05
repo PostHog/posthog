@@ -67,6 +67,10 @@ class MarketingAnalyticsConfig:
     id_field: str = MarketingSourceAdapter.campaign_id_field
     source_field: str = MarketingSourceAdapter.source_name_field
     match_key_field: str = MarketingSourceAdapter.match_key_field
+    ad_group_name_field: str = MarketingSourceAdapter.ad_group_name_field
+    ad_group_id_field: str = MarketingSourceAdapter.ad_group_id_field
+    ad_name_field: str = MarketingSourceAdapter.ad_name_field
+    ad_id_field: str = MarketingSourceAdapter.ad_id_field
 
     # Column aliases for output
     campaign_column_alias: str = MarketingAnalyticsBaseColumns.CAMPAIGN
@@ -99,6 +103,8 @@ class MarketingAnalyticsConfig:
     attribution_window_days: int = 90
     attribution_mode: AttributionMode = AttributionMode.LAST_TOUCH
 
+    conversion_goal_precomputation_enabled: bool = False
+
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
         """Create config instance with team-specific attribution settings"""
@@ -107,6 +113,14 @@ class MarketingAnalyticsConfig:
             ma_config = team.marketing_analytics_config
             config.attribution_window_days = ma_config.attribution_window_days
             config.attribution_mode = AttributionMode(ma_config.attribution_mode)
+
+        # Gate precomputation behind feature flag
+        config.conversion_goal_precomputation_enabled = posthoganalytics.feature_enabled(
+            "marketing-analytics-precomputation",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
 
         # Gate multi-touch attribution behind feature flag
         if config.attribution_mode in MULTI_TOUCH_MODES:
@@ -144,16 +158,41 @@ class MarketingAnalyticsConfig:
     @property
     def group_by_fields(self) -> list[str]:
         """Get the list of fields to group by based on drill-down level.
-        At channel/source level, we repurpose the standard field names since
-        the CTE already maps them to the correct values.
+        At channel/source/ad-group/ad level, we repurpose the standard field names
+        since the CTE already maps them to the correct values.
         """
         if self.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
             # CTE repurposes campaign_name to hold the channel value
             return [self.campaign_field]
         elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.SOURCE:
             return [self.source_field]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.AD_GROUP:
+            # All non-aggregate columns must be in GROUP BY. The CTE emits the parent
+            # campaign hierarchy plus the ad-group fields; group by all of them.
+            return [
+                self.campaign_field,
+                self.id_field,
+                self.source_field,
+                self.ad_group_name_field,
+                self.ad_group_id_field,
+            ]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.AD:
+            return [
+                self.campaign_field,
+                self.id_field,
+                self.source_field,
+                self.ad_group_name_field,
+                self.ad_group_id_field,
+                self.ad_name_field,
+                self.ad_id_field,
+            ]
+        elif self.drill_down_level in (
+            MarketingAnalyticsDrillDownLevel.MEDIUM,
+            MarketingAnalyticsDrillDownLevel.CONTENT,
+            MarketingAnalyticsDrillDownLevel.TERM,
+        ):
+            return [self.campaign_field]
         else:
-            # Campaign level (default) — group by campaign name, id, and source
             return [self.campaign_field, self.id_field, self.source_field]
 
     def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:

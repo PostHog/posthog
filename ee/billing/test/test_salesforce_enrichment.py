@@ -214,6 +214,7 @@ class TestHarmonicDataTransformation(BaseTest):
         # Load and transform fixture data
         harmonic_response = load_harmonic_fixture()
         transformed_data = transform_harmonic_data(harmonic_response)
+        assert transformed_data is not None
         account_id = "001EXAMPLE123"
 
         # Prepare Salesforce update data

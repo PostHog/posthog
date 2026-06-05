@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { FullScreen } from 'lib/components/FullScreen'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -14,23 +13,16 @@ import { DashboardMode } from '~/types'
 import { EditModeActions, FullscreenModeActions, ViewModeActions } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardModals } from './DashboardModals'
+import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
 import { DashboardScenePanel } from './DashboardScenePanel'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
-    const {
-        dashboard,
-        dashboardLoading,
-        dashboardMode,
-        canEditDashboard,
-        canGenerateDashboardAiMetadata,
-        generatedDashboardMetadataLoading,
-    } = useValues(dashboardLogic)
-    const { setDashboardMode, loadDashboard, generateDashboardMetadata } = useActions(dashboardLogic)
+    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
-    const canAccessDashboardsAiMetadataGeneration = useFeatureFlag('DASHBOARDS_AI_METADATA_GENERATION')
 
     if (!dashboard && !dashboardLoading) {
         return null
@@ -45,6 +37,7 @@ export function DashboardHeader(): JSX.Element | null {
             {dashboard && <DashboardModals dashboard={dashboard} />}
 
             <DashboardScenePanel />
+            <DashboardSceneMenuBar />
 
             <SceneTitleSection
                 name={dashboard?.name}
@@ -58,16 +51,6 @@ export function DashboardHeader(): JSX.Element | null {
                 onDescriptionChange={(value) => {
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
                 }}
-                onGenerateMetadata={
-                    canAccessDashboardsAiMetadataGeneration && canGenerateDashboardAiMetadata && dashboard
-                        ? generateDashboardMetadata
-                        : undefined
-                }
-                isGeneratingMetadata={
-                    canAccessDashboardsAiMetadataGeneration &&
-                    canGenerateDashboardAiMetadata &&
-                    generatedDashboardMetadataLoading
-                }
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}

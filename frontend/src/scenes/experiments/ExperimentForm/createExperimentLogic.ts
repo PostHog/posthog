@@ -2,10 +2,9 @@ import { actions, connect, events, kea, key, listeners, path, props, reducers, s
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -91,8 +90,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
         values: [
             variantsPanelLogic({ experiment: { ...NEW_EXPERIMENT }, disabled: false, tabId: props.tabId }),
             ['featureFlagKeyValidation', 'featureFlagKeyValidationLoading'],
-            featureFlagLogic,
-            ['featureFlags'],
             projectLogic,
             ['currentProjectId'],
         ],
@@ -343,12 +340,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             actions.saveExperimentStarted()
 
             try {
-                // Make experiment eligible for timeseries
-                const schedulingConfig = {
-                    ...values.experiment?.scheduling_config,
-                    timeseries: true,
-                }
-
                 const savedMetrics = [
                     ...values.sharedMetrics.primary.map((metric) => ({
                         id: metric.sharedMetricId!,
@@ -366,10 +357,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                 const experimentPayload: Experiment = {
                     ...values.experiment,
-                    scheduling_config: schedulingConfig,
                     saved_metrics_ids: savedMetrics,
-                    exposure_preaggregation_enabled:
-                        !!values.featureFlags[FEATURE_FLAGS.EXPERIMENT_QUERY_PREAGGREGATION],
                 }
 
                 const response = (await api.create(
@@ -395,6 +383,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     actions.createExperimentSuccess()
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateExperiment)
                     lemonToast.success('Experiment created successfully!')
+                    tryShowMCPHint('experiments.create', {
+                        derivedPrompt: response.name ? `Create an A/B experiment called ${response.name}` : undefined,
+                    })
                     // Don't reset - we just set the fresh data above
 
                     actions.saveExperimentSuccess()

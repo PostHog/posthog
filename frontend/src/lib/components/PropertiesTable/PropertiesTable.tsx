@@ -56,7 +56,20 @@ function EditTextValueComponent({
     initialValue: any
     onChange: (newValue: any) => void
 }): JSX.Element {
-    const [value, setValue] = useState(initialValue)
+    const isText =
+        typeof initialValue === 'string' || typeof initialValue === 'number' || typeof initialValue === 'bigint'
+    const [value, setValue] = useState(isText ? String(initialValue) : '')
+
+    const save = (raw: string): void => {
+        if (typeof initialValue === 'number' && raw.trim() !== '') {
+            const asNumber = Number(raw)
+            if (Number.isFinite(asNumber)) {
+                onChange(asNumber)
+                return
+            }
+        }
+        onChange(raw)
+    }
 
     return (
         <LemonInput
@@ -64,7 +77,7 @@ function EditTextValueComponent({
             value={value}
             onChange={setValue}
             onBlur={() => onChange(initialValue)}
-            onPressEnter={() => onChange(value)}
+            onPressEnter={() => save(value)}
             autoComplete="off"
             autoCapitalize="off"
             size="xsmall"
@@ -147,6 +160,10 @@ function ValueDisplay({
                                     onClick: () => handleValueChange(null),
                                     status: 'danger',
                                 },
+                                {
+                                    label: 'Type as text…',
+                                    onClick: () => setEditing(true),
+                                },
                             ]}
                         >
                             {valueComponent}
@@ -200,6 +217,8 @@ export interface PropertiesTableProps extends BasePropertyType {
     useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
+    /** Controls the highlight style for highlighted rows. Default: 'default' uses var(--mark), 'subtle' uses a more subtle background. */
+    highlightVariant?: 'default' | 'subtle'
     type: PropertyDefinitionType
     /**
      * The container for these properties e.g. the event name of the event the properties are on
@@ -222,6 +241,7 @@ export function PropertiesTable({
     useDetectedPropertyType,
     tableProps,
     highlightedKeys,
+    highlightVariant = 'default',
     type,
     parent,
 }: PropertiesTableProps): JSX.Element {
@@ -570,7 +590,9 @@ export function PropertiesTable({
                     onRow={(record) =>
                         highlightedKeys?.includes(record[0])
                             ? {
-                                  style: { background: 'var(--mark)' },
+                                  style: {
+                                      background: highlightVariant === 'subtle' ? 'var(--bg-3000)' : 'var(--mark)',
+                                  },
                               }
                             : {}
                     }

@@ -39,8 +39,15 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         effectiveWidth,
         scalePercent,
     } = useValues(logic)
-    const { setName, updateHeatmap, onIframeLoad, setScreenshotLoaded, exportHeatmap, setContainerWidth } =
-        useActions(logic)
+    const {
+        setName,
+        changeCaptureMethod,
+        updateHeatmap,
+        onIframeLoad,
+        setScreenshotLoaded,
+        exportHeatmap,
+        setContainerWidth,
+    } = useActions(logic)
 
     const measureRef = useRef<HTMLDivElement | null>(null)
     useEffect(() => {
@@ -101,10 +108,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                     type === 'screenshot' && !screenshotUrl ? 'Screenshot is not ready' : undefined
                                 }
                             >
-                                Export{' '}
-                                <LemonTag type="warning" className="ml-2">
-                                    BETA
-                                </LemonTag>
+                                Export
                             </LemonButton>
                         </>
                     }
@@ -127,13 +131,11 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         disabledReason: !displayUrl ? 'Select a URL first' : undefined,
                     }}
                 >
-                    You're viewing {type === 'screenshot' ? 'a' : 'an'}{' '}
-                    <LemonTag type="highlight">{type === 'screenshot' ? 'Screenshot' : 'Iframe'}</LemonTag> heatmap. We
-                    recommend trying both methods to see which works best for your site. You can also open your website
-                    using the toolbar and verify results there (useful for auth-protected pages).
+                    You can also open your website using the toolbar and verify results there (useful for auth-protected
+                    pages).
                 </LemonBanner>
                 <HeatmapHeader />
-                <FilterPanel />
+                <FilterPanel captureMethod={type} onCaptureMethodChange={changeCaptureMethod} />
                 <SceneDivider />
                 <div ref={measureRef} className="w-full">
                     <div

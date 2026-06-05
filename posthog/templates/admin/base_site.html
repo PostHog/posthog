@@ -2,3 +2,39 @@
 {% block extrahead %}
     <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2023-07-07">
 {% endblock %}
+{% block extrastyle %}
+    {{ block.super }}
+    {% if is_impersonated_session %}
+    <style>
+        .impersonation-banner {
+            background: #fff3cd;
+            border-bottom: 2px solid #f0c000;
+            color: #5a4500;
+            padding: 10px 16px;
+            font-size: 13px;
+            text-align: center;
+            line-height: 1.4;
+        }
+        .impersonation-banner strong { color: #5a4500; }
+        .impersonation-banner a.impersonation-stop {
+            color: #5a4500 !important;
+            text-decoration: underline !important;
+            font-weight: 700;
+            margin-left: 6px;
+        }
+        .impersonation-banner a.impersonation-stop:hover {
+            color: #000 !important;
+        }
+    </style>
+    {% endif %}
+{% endblock %}
+{% block header %}
+    {% if is_impersonated_session and impersonated_user %}
+    <div class="impersonation-banner">
+        Acting as <strong>{{ user.email }}</strong> in admin while impersonating
+        <strong>{{ impersonated_user.email }}</strong>.
+        <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
+    </div>
+    {% endif %}
+    {{ block.super }}
+{% endblock %}

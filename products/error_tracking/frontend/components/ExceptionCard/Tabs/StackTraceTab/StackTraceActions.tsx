@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import posthog from 'posthog-js'
 
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+import { IconChevronDown, IconInfo, IconMagicWand, IconWrench } from '@posthog/icons'
 
+import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,9 +18,10 @@ import {
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
+import { useStacktraceDisplay } from '../../../../hooks/use-stacktrace-display'
 import { useErrorTrackingExplainIssue } from '../../../ExplainIssueTool'
+import { buildExplainPrompt, buildFixPrompt } from '../../aiPrompts'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
-import { FixModal } from '../../FixModal'
 
 export interface StackTraceActionsProps {
     issue: ErrorTrackingRelationalIssue
@@ -28,37 +30,55 @@ export interface StackTraceActionsProps {
 export function StackTraceActions({ issue }: StackTraceActionsProps): JSX.Element {
     const { exceptionList } = useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
-    const [showFixModal, setShowFixModal] = useState(false)
+    const { stacktraceText } = useStacktraceDisplay()
     const { openMax } = useErrorTrackingExplainIssue(issue.id)
 
     return (
-        <ButtonGroupPrimitive size="sm">
+        <div className="flex items-center gap-1">
             {showFixButton && (
+                <AgentPromptButton
+                    storageKey="error-tracking-issue"
+                    data-attr="error-tracking-fix-with-ai"
+                    actions={[
+                        {
+                            key: 'fix',
+                            label: 'Fix',
+                            icon: <IconWrench />,
+                            buildPrompt: () => buildFixPrompt(stacktraceText, issue.id),
+                        },
+                        {
+                            key: 'explain',
+                            label: 'Explain',
+                            icon: <IconInfo />,
+                            buildPrompt: () => buildExplainPrompt(stacktraceText, issue.id),
+                        },
+                    ]}
+                    onRun={({ actionKey, agentKey }) =>
+                        posthog.capture('error_tracking_prompt_used', {
+                            issue_id: issue.id,
+                            mode: actionKey,
+                            agent: agentKey,
+                        })
+                    }
+                />
+            )}
+            <ButtonGroupPrimitive size="sm">
                 <ButtonPrimitive
-                    onClick={() => setShowFixModal(true)}
+                    onClick={() => openMax()}
                     className="px-2 h-[1.4rem]"
-                    tooltip="Generate AI prompt to fix this error"
+                    tooltip="Ask PostHog AI for an explanation of this issue"
                 >
                     <IconMagicWand />
-                    Get AI prompt
+                    Explain
                 </ButtonPrimitive>
-            )}
-            <ButtonPrimitive
-                onClick={() => openMax()}
-                className="px-2 h-[1.4rem]"
-                tooltip="Ask PostHog AI for an explanation of this issue"
-            >
-                <IconMagicWand />
-                Explain
-            </ButtonPrimitive>
-            <ShowDropDownMenu>
-                <ButtonPrimitive className="px-2 h-[1.4rem]">
-                    Show
-                    <IconChevronDown />
-                </ButtonPrimitive>
-            </ShowDropDownMenu>
-            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} issueId={issue.id} />
-        </ButtonGroupPrimitive>
+                <ShowDropDownMenu>
+                    <ButtonPrimitive className="px-2 h-[1.4rem]">
+                        Show
+                        <IconChevronDown />
+                    </ButtonPrimitive>
+                </ShowDropDownMenu>
+            </ButtonGroupPrimitive>
+        </div>
     )
 }
 

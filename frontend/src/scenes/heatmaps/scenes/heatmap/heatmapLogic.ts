@@ -7,7 +7,7 @@ import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { DEFAULT_HEATMAP_WIDTH } from 'lib/components/IframedToolbarBrowser/utils'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { heatmapsBrowserLogic } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
+import { heatmapsBrowserLogic, isUrlPattern } from 'scenes/heatmaps/components/heatmapsBrowserLogic'
 import { heatmapsSceneLogic } from 'scenes/heatmaps/scenes/heatmaps/heatmapsSceneLogic'
 
 import { HeatmapStatus, HeatmapType } from '~/types'
@@ -15,6 +15,35 @@ import { HeatmapStatus, HeatmapType } from '~/types'
 import type { heatmapLogicType } from './heatmapLogicType'
 
 const DEFAULT_HEATMAP_NAME = 'Untitled heatmap'
+
+function isValidPageUrl(url: string | null): boolean {
+    if (!url) {
+        return true
+    }
+    if (isUrlPattern(url)) {
+        return false
+    }
+    try {
+        new URL(url)
+        return url.includes('://')
+    } catch {
+        return false
+    }
+}
+
+// Screenshot heatmaps store a same-origin API path as `screenshotUrl`; the export backend's
+// SSRF validation rejects URLs without an http(s) scheme, so we resolve it to an absolute URL.
+export function resolveHeatmapExportUrl(
+    type: HeatmapType,
+    screenshotUrl: string | null,
+    displayUrl: string | null,
+    origin: string = window.location.origin
+): string {
+    if (type === 'screenshot') {
+        return screenshotUrl ? new URL(screenshotUrl, origin).toString() : ''
+    }
+    return displayUrl ?? ''
+}
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmap', 'heatmapLogic']),
@@ -36,7 +65,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
         actions: [
             heatmapsBrowserLogic,
-            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad'],
+            ['setDataUrl', 'setDisplayUrl', 'onIframeLoad', 'setDataUrlUserTouched'],
             heatmapsSceneLogic,
             ['loadSavedHeatmaps'],
             heatmapDataLogic({ context: 'in-app' }),
@@ -51,6 +80,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         updateHeatmap: true,
         setLoading: (loading: boolean) => ({ loading }),
         setType: (type: HeatmapType) => ({ type }),
+        changeCaptureMethod: (type: HeatmapType) => ({ type }),
         setWidth: (width: number) => ({ width }),
         setName: (name: string) => ({ name }),
         setScreenshotUrl: (url: string | null) => ({ url }),
@@ -62,6 +92,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
         regenerateScreenshot: true,
         exportHeatmap: true,
         setContainerWidth: (containerWidth: number | null) => ({ containerWidth }),
+        snapshotSavedDisplayUrl: (displayUrl: string | null) => ({ displayUrl }),
+        setPageUrlDraft: (value: string) => ({ value }),
+        applyPageUrlDraft: true,
     }),
     reducers({
         type: ['screenshot' as HeatmapType, { setType: (_, { type }) => type }],
@@ -77,8 +110,26 @@ export const heatmapLogic = kea<heatmapLogicType>([
         heatmapId: [null as number | null, { setHeatmapId: (_, { id }) => id }],
         screenshotLoaded: [false, { setScreenshotLoaded: (_, { screenshotLoaded }) => screenshotLoaded }],
         containerWidth: [null as number | null, { setContainerWidth: (_, { containerWidth }) => containerWidth }],
+        savedDisplayUrl: [null as string | null, { snapshotSavedDisplayUrl: (_, { displayUrl }) => displayUrl }],
+        pageUrlDraft: [
+            '' as string,
+            {
+                setPageUrlDraft: (_, { value }) => value,
+                setDisplayUrl: (_, { url }) => url ?? '',
+            },
+        ],
     }),
     listeners(({ actions, values, props }) => ({
+        changeCaptureMethod: async ({ type }) => {
+            actions.setType(type)
+            if (!values.heatmapId) {
+                return
+            }
+            await actions.updateHeatmap()
+            if (type === 'screenshot' && !values.screenshotUrl) {
+                actions.regenerateScreenshot()
+            }
+        },
         load: async () => {
             if (!props.id || String(props.id) === 'new') {
                 return
@@ -88,8 +139,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 const item = await api.savedHeatmaps.get(props.id)
                 actions.setHeatmapId(item.id)
                 actions.setName(item.name)
+                actions.setDataUrlUserTouched(true)
                 actions.setDisplayUrl(item.url)
                 actions.setDataUrl(item.data_url)
+                actions.snapshotSavedDisplayUrl(item.url ?? null)
                 actions.setType(item.type)
                 if (item.type === 'screenshot') {
                     const desiredWidth = values.widthOverride
@@ -124,9 +177,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
         pollScreenshotStatus: async ({ id, width }, breakpoint) => {
             let attempts = 0
             actions.setGeneratingScreenshot(true)
-            const maxAttempts = 60
+            // Multi-width renders open one Browserless session per width and can take a few minutes,
+            // so poll for up to 5 minutes before giving up (the backend marks failures sooner).
+            const pollIntervalMs = 2000
+            const maxAttempts = (5 * 60 * 1000) / pollIntervalMs
             while (attempts < maxAttempts) {
-                await breakpoint(2000)
+                await breakpoint(pollIntervalMs)
                 try {
                     const contentResponse = await api.heatmapScreenshots.getContent(id)
                     if (contentResponse.success) {
@@ -165,7 +221,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
             if (attempts >= maxAttempts) {
                 actions.setGeneratingScreenshot(false)
-                actions.setScreenshotError('Screenshot generation timed out')
+                actions.setScreenshotError('Screenshot is still generating — refresh to check, or try fewer widths.')
             }
         },
         regenerateScreenshot: async () => {
@@ -203,6 +259,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
         updateHeatmap: async () => {
             actions.setLoading(true)
+            const previousSavedUrl = values.savedDisplayUrl
             try {
                 const data = {
                     name: values.name || DEFAULT_HEATMAP_NAME,
@@ -210,11 +267,40 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     data_url: values.dataUrl,
                     type: values.type,
                 }
-                await api.savedHeatmaps.update(props.id, data)
+                const updated = await api.savedHeatmaps.update(props.id, data)
+                actions.snapshotSavedDisplayUrl(updated.url ?? null)
+                if (values.type === 'screenshot' && updated.url !== previousSavedUrl) {
+                    actions.setScreenshotUrl(null)
+                    actions.setScreenshotLoaded(false)
+                    actions.setScreenshotError(null)
+                    if (values.heatmapId) {
+                        actions.pollScreenshotStatus(values.heatmapId, values.widthOverride)
+                    }
+                }
             } catch (error: any) {
+                if (values.displayUrl !== previousSavedUrl) {
+                    actions.setDisplayUrl(previousSavedUrl)
+                }
                 lemonToast.error(error.detail || 'Failed to update heatmap')
             } finally {
                 actions.setLoading(false)
+            }
+        },
+        applyPageUrlDraft: () => {
+            if (!values.isPageUrlDraftValid) {
+                return
+            }
+            const next = values.pageUrlDraft.trim()
+            if (!next) {
+                return
+            }
+            if (next !== values.displayUrl) {
+                actions.setDisplayUrl(next)
+                actions.updateHeatmap()
+                return
+            }
+            if (values.type === 'screenshot') {
+                actions.regenerateScreenshot()
             }
         },
         exportHeatmap: () => {
@@ -222,7 +308,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 return
             }
             actions.startHeatmapExport({
-                heatmap_url: values.type === 'screenshot' ? (values.screenshotUrl ?? '') : (values.displayUrl ?? ''),
+                heatmap_url: resolveHeatmapExportUrl(values.type, values.screenshotUrl, values.displayUrl),
                 heatmap_data_url: values.dataUrl ?? '',
                 heatmap_type: values.type,
                 width: values.widthOverride,
@@ -235,27 +321,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
         },
     })),
     selectors({
-        isDisplayUrlValid: [
-            (s) => [s.displayUrl],
-            (displayUrl: string | null) => {
-                if (!displayUrl) {
-                    // an empty dataUrl is valid
-                    // since we just won't do anything with it
-                    return true
-                }
-
-                try {
-                    // must be something that can be parsed as a URL
-                    new URL(displayUrl)
-                    // and must be a valid URL that our redirects can cope with
-                    // this is a very loose check, but `http:/blaj` is not valid for PostHog
-                    // but survives new URL(http:/blaj)
-                    return displayUrl.includes('://')
-                } catch {
-                    return false
-                }
-            },
+        isDisplayUrlValid: [(s) => [s.displayUrl], (displayUrl: string | null) => isValidPageUrl(displayUrl)],
+        displayUrlIsPattern: [(s) => [s.displayUrl], (displayUrl: string | null) => isUrlPattern(displayUrl ?? '')],
+        isPageUrlDraftValid: [
+            (s) => [s.pageUrlDraft],
+            (pageUrlDraft: string) => isValidPageUrl(pageUrlDraft.trim() || null),
         ],
+        pageUrlDraftIsPattern: [(s) => [s.pageUrlDraft], (pageUrlDraft: string) => isUrlPattern(pageUrlDraft)],
         desiredNumericWidth: [
             (s) => [s.widthOverride, s.containerWidth],
             (widthOverride: number, containerWidth: number | null) => {

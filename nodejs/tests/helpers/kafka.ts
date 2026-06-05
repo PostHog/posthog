@@ -2,7 +2,6 @@ import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka
 
 import { defaultConfig, overrideWithEnv } from '../../src/config/config'
 import {
-    KAFKA_APP_METRICS,
     KAFKA_APP_METRICS_2,
     KAFKA_BUFFER,
     KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
@@ -13,7 +12,6 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_TOPHOG,
     KAFKA_COHORT_MEMBERSHIP_CHANGED,
-    KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
     KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
     KAFKA_EVENTS_DEAD_LETTER_QUEUE,
     KAFKA_EVENTS_JSON,
@@ -35,55 +33,16 @@ import {
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
 
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
+function buildKafkaConfig(extraServerConfig?: Partial<PluginsServerConfig>) {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
-
-    const kafkaConfig = {
+    return {
         'client.id': 'nodejs-test',
         'metadata.broker.list': (config.KAFKA_HOSTS || '').split(',').join(','),
     }
-
-    await createTopics(kafkaConfig, [
-        KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
-        KAFKA_EVENTS_JSON,
-        KAFKA_EVENTS_PLUGIN_INGESTION,
-        KAFKA_BUFFER,
-        KAFKA_GROUPS,
-        KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-        KAFKA_PERFORMANCE_EVENTS,
-        KAFKA_PERSON,
-        KAFKA_PERSON_UNIQUE_ID,
-        KAFKA_PERSON_DISTINCT_ID,
-        KAFKA_PERSON_DISTINCT_ID_OVERRIDES,
-        KAFKA_PLUGIN_LOG_ENTRIES,
-        KAFKA_EVENTS_DEAD_LETTER_QUEUE,
-        KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-        KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-        KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
-        KAFKA_INGESTION_WARNINGS,
-        KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
-        KAFKA_APP_METRICS,
-        KAFKA_APP_METRICS_2,
-        KAFKA_PERSON,
-        KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
-        KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-        KAFKA_LOG_ENTRIES,
-        KAFKA_EVENTS_RECENT_JSON,
-        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
-        KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
-        KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
-        KAFKA_COHORT_MEMBERSHIP_CHANGED,
-        KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
-        KAFKA_CLICKHOUSE_TOPHOG,
-    ])
 }
 
-export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
-    const client = AdminClient.create(kafkaConfig)
+async function createTopicsWithClient(client: ReturnType<typeof AdminClient.create>, topics: string[]): Promise<void> {
     const timeout = 10000
-
-    await deleteAllTopics(kafkaConfig)
-
     for (const topic of topics) {
         await new Promise<void>((resolve, reject) => {
             client.createTopic(
@@ -104,7 +63,62 @@ export async function createTopics(kafkaConfig: any, topics: string[]): Promise<
             )
         })
     }
+}
 
+export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
+    const kafkaConfig = buildKafkaConfig(extraServerConfig)
+    await createTopics(kafkaConfig, [
+        KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
+        KAFKA_EVENTS_JSON,
+        KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_BUFFER,
+        KAFKA_GROUPS,
+        KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+        KAFKA_PERFORMANCE_EVENTS,
+        KAFKA_PERSON,
+        KAFKA_PERSON_UNIQUE_ID,
+        KAFKA_PERSON_DISTINCT_ID,
+        KAFKA_PERSON_DISTINCT_ID_OVERRIDES,
+        KAFKA_PLUGIN_LOG_ENTRIES,
+        KAFKA_EVENTS_DEAD_LETTER_QUEUE,
+        KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
+        KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+        KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC,
+        KAFKA_INGESTION_WARNINGS,
+        KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
+        KAFKA_APP_METRICS_2,
+        KAFKA_PERSON,
+        KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+        KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+        KAFKA_LOG_ENTRIES,
+        KAFKA_EVENTS_RECENT_JSON,
+        KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES,
+        KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES,
+        KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS,
+        KAFKA_COHORT_MEMBERSHIP_CHANGED,
+        KAFKA_CLICKHOUSE_TOPHOG,
+    ])
+}
+
+export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
+    const client = AdminClient.create(kafkaConfig)
+    await deleteAllTopics(kafkaConfig)
+    await createTopicsWithClient(client, topics)
+    client.disconnect()
+}
+
+/**
+ * Create Kafka topics if they don't already exist, without deleting existing topics.
+ * Unlike resetKafka, this preserves ClickHouse Kafka engine consumer connections,
+ * avoiding the slow reconnection cycle that causes flaky tests.
+ */
+export async function ensureKafkaTopics(
+    topics: string[],
+    extraServerConfig?: Partial<PluginsServerConfig>
+): Promise<void> {
+    const kafkaConfig = buildKafkaConfig(extraServerConfig)
+    const client = AdminClient.create(kafkaConfig)
+    await createTopicsWithClient(client, topics)
     client.disconnect()
 }
 

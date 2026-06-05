@@ -3,6 +3,10 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
@@ -15,7 +19,9 @@ import {
     mockGetEventDefinitions,
     mockGetPropertyDefinitions,
 } from '~/test/mocks'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -119,6 +125,20 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('taxonomic-tab-actions')).toBeInTheDocument()
         })
 
+        it.each([
+            { label: 'Suggested series', description: 'series context' },
+            { label: 'Suggested step', description: 'step context' },
+        ])('allows overriding the Suggested filters label with "$label" in $description', async ({ label }) => {
+            renderFilter({
+                suggestedFiltersLabel: label,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent(label)
+            })
+        })
+
         it('applies custom width and height via style', async () => {
             const { container } = renderFilter({ width: 500, height: 300 })
 
@@ -167,6 +187,19 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(screen.getByText('Connect external data')).toBeInTheDocument()
             })
+        })
+
+        it('shows a loading empty state while data warehouse properties are still loading', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.DataWarehouseProperties],
+                schemaColumnsLoading: true,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Loading data warehouse tables')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Connect external data')).not.toBeInTheDocument()
         })
     })
 
@@ -333,6 +366,59 @@ describe('TaxonomicFilter', () => {
             expect(value).toBe(3)
         })
 
+        it.each([
+            {
+                name: 'browse — clicking a row in the events tab with no search query',
+                searchQuery: null,
+                rowIndex: 1,
+                expected: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    sourceGroupType: TaxonomicFilterGroupType.Events,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
+                    hadSearchInput: false,
+                    position: 1,
+                },
+            },
+            {
+                name: 'search_result — typing a query then clicking the top match',
+                searchQuery: 'event',
+                rowIndex: 0,
+                expected: {
+                    groupType: TaxonomicFilterGroupType.Events,
+                    sourceGroupType: TaxonomicFilterGroupType.Events,
+                    wasFromPinnedList: false,
+                    wasFromRecents: false,
+                    wasQuickFilter: false,
+                    hadSearchInput: true,
+                    position: 0,
+                },
+            },
+        ])('captures `taxonomic filter item selected`: $name', async ({ searchQuery, rowIndex, expected }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId(`prop-filter-events-${rowIndex}`)).toBeInTheDocument()
+            })
+
+            if (searchQuery) {
+                await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), searchQuery)
+                await waitFor(() => {
+                    expect(screen.getByTestId(`prop-filter-events-${rowIndex}`)).toBeInTheDocument()
+                })
+            }
+
+            await userEvent.click(screen.getByTestId(`prop-filter-events-${rowIndex}`))
+
+            await waitFor(() => {
+                const call = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter item selected')
+                expect(call).not.toBeUndefined()
+                expect(call?.[1]).toMatchObject(expected)
+            })
+        })
+
         it('selecting different items in the same group calls onChange each time', async () => {
             renderFilter()
 
@@ -351,6 +437,62 @@ describe('TaxonomicFilter', () => {
 
             await waitFor(() => {
                 expect(onChangeMock).toHaveBeenCalledTimes(2)
+            })
+        })
+    })
+
+    describe('`taxonomic filter closed` capture', () => {
+        // The TaxonomicFilter logic mounts in many contexts where the picker isn't visibly opened
+        // (popovers that render before the popover opens, side panels tied to scene lifecycle...).
+        // Without gating, every involuntary mount/unmount fires the close event with
+        // hadSelection=false and inflates the abandonment metric. These tests pin the gate.
+        it('does not fire when the logic mounts and unmounts with no user interaction', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { unmount } = renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            unmount()
+
+            const closedCalls = captureSpy.mock.calls.filter((c) => c[0] === 'taxonomic filter closed')
+            expect(closedCalls).toHaveLength(0)
+        })
+
+        it.each([
+            {
+                name: 'fires when the user typed in the search input before closing',
+                interact: async () => {
+                    await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+                },
+                expected: { hadSelection: false },
+            },
+            {
+                name: 'fires when the user selected an item before closing',
+                interact: async () => {
+                    await userEvent.click(screen.getByTestId('prop-filter-events-0'))
+                },
+                expected: { hadSelection: true },
+            },
+        ])('$name', async ({ interact, expected }) => {
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            const { unmount } = renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            await interact()
+
+            unmount()
+
+            const closedCall = captureSpy.mock.calls.find((c) => c[0] === 'taxonomic filter closed')
+            expect(closedCall).not.toBeUndefined()
+            expect(closedCall?.[1]).toMatchObject({
+                ...expected,
+                dwellMs: expect.any(Number),
+                groupType: expect.any(String),
             })
         })
     })
@@ -736,7 +878,9 @@ describe('TaxonomicFilter', () => {
             },
             {
                 eventNames: ['$pageview'],
-                expectedItems: [],
+                // Pageview's taxonomy primary property ($pathname) bubbles up here so the
+                // user can filter by the property the team chose to highlight for that event.
+                expectedItems: ['Path name'],
             },
         ])(
             'SuggestedFilters shows $expectedItems.length items when eventNames=$eventNames',
@@ -806,5 +950,462 @@ describe('TaxonomicFilter', () => {
                 expect(elementsIndex).toBeGreaterThan(eventPropsIndex)
             }
         })
+    })
+
+    describe('enableKeywordShortcuts', () => {
+        it('threads the prop from TaxonomicFilter through to the shortcut row', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                enableKeywordShortcuts: true,
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'click')
+
+            // The shortcut row carries a unique data-attr so the assertion isn't fooled by the
+            // definition popover which renders the same label text.
+            await waitFor(() => {
+                expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).not.toBeNull()
+            })
+        })
+
+        it('does not render shortcut rows when enableKeywordShortcuts is omitted', async () => {
+            const user = userEvent.setup()
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            })
+
+            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
+            await user.type(searchInput, 'click')
+
+            // Give the infinite list a moment to settle then assert the row is absent.
+            await waitFor(() => expect(searchInput).toHaveValue('click'))
+            expect(document.querySelector('[data-attr="taxonomic-shortcut-click-series"]')).toBeNull()
+        })
+    })
+
+    describe('category dropdown A/B test', () => {
+        let unmountFeatureFlagLogic: (() => void) | null = null
+
+        beforeEach(() => {
+            unmountFeatureFlagLogic = featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            unmountFeatureFlagLogic?.()
+            unmountFeatureFlagLogic = null
+        })
+
+        function setVariant(variant: string): void {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+            })
+        }
+
+        it('control variant: renders the categories column and no in-input affordance', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByText('Categories')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+        })
+
+        it('pill variant with hideSearchInput: does not render the categories column or an in-filter dropdown; the host is expected to render CategoryDropdown inside its own input', async () => {
+            setVariant('pill')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                hideSearchInput: true,
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+            expect(screen.queryByTestId(/taxonomic-category-dropdown-trigger-/)).not.toBeInTheDocument()
+        })
+
+        it('control variant: default suggested-filters label is "Suggestions"', async () => {
+            setVariant('control')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toHaveTextContent('Suggestions')
+            })
+        })
+
+        it('pill variant: default suggested-filters label is "All" (seen in the dropdown items)', async () => {
+            setVariant('pill')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+
+            const item = await screen.findByTestId('taxonomic-category-dropdown-item-suggested_filters')
+            expect(item).toHaveTextContent('All')
+        })
+
+        it('pill variant: hides the categories column and renders the in-input affordance', async () => {
+            setVariant('pill')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('Categories')).not.toBeInTheDocument()
+        })
+
+        it('pill variant: opening the dropdown and picking a category switches the visible results', async () => {
+            setVariant('pill')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-category-dropdown-trigger-pill'))
+
+            await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-item-actions'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
+            })
+        })
+
+        it('pill variant: pressing Tab in the search input does not switch category', async () => {
+            setVariant('pill')
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            const trigger = screen.getByTestId('taxonomic-category-dropdown-trigger-pill')
+            expect(trigger).toHaveAttribute('aria-label', expect.stringContaining('Events'))
+
+            const input = screen.getByTestId('taxonomic-filter-searchfield') as HTMLInputElement
+            input.focus()
+            await userEvent.keyboard('{Tab}')
+
+            expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveAttribute(
+                'aria-label',
+                expect.stringContaining('Events')
+            )
+        })
+    })
+
+    describe('log attribute value-match indicator', () => {
+        const mockLogAttributes = {
+            results: [
+                { name: 'service.name', propertyFilterType: 'log_resource_attribute', matchedOn: 'key' },
+                { name: 'k8s.pod.name', propertyFilterType: 'log_resource_attribute', matchedOn: 'key' },
+                {
+                    name: 'k8s.deployment.name',
+                    propertyFilterType: 'log_resource_attribute',
+                    matchedOn: 'value',
+                    matchedValue: 'argo-rollouts-dashboard',
+                },
+            ],
+            count: 3,
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/actions': { results: [] },
+                    '/api/environments/:team/logs/attributes': mockLogAttributes,
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+        })
+
+        it('renders the value-match indicator only on rows matched by value', async () => {
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.LogResourceAttributes] })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'argo')
+
+            await waitFor(() => {
+                expect(screen.getByText('k8s.deployment.name')).toBeInTheDocument()
+            })
+
+            const indicators = screen.queryAllByLabelText('Matched on value')
+            expect(indicators).toHaveLength(1)
+            const indicator = indicators[0]
+            // Badge shows the (possibly truncated) matched value
+            expect(indicator.textContent).toContain('argo-rollouts-dashboard')
+            const row = indicator.closest('.taxonomic-list-row, [data-attr*="prop-filter"]') ?? indicator.parentElement
+            expect(row?.textContent).toContain('k8s.deployment.name')
+            expect(row?.textContent).not.toContain('service.name')
+        })
+
+        it('orders key matches above value matches in the rendered list', async () => {
+            renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.LogResourceAttributes] })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'argo')
+
+            await waitFor(() => {
+                expect(screen.getAllByText('service.name').length).toBeGreaterThan(0)
+            })
+
+            // Anchor on the row data-attr so we ignore tooltips / titles that duplicate the text.
+            const rowText = (name: string): string =>
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-log_resource_attributes-"]'))
+                    .find((el) => el.textContent?.includes(name))
+                    ?.getAttribute('data-attr') ?? ''
+
+            const serviceIdx = rowText('service.name')
+            const podIdx = rowText('k8s.pod.name')
+            const deploymentIdx = rowText('k8s.deployment.name')
+            expect(serviceIdx).not.toBe('')
+            expect(podIdx).not.toBe('')
+            expect(deploymentIdx).not.toBe('')
+            // data-attr ends with the row index; key matches (0,1) come before value matches (2)
+            expect(parseInt(serviceIdx.split('-').pop() as string)).toBeLessThan(
+                parseInt(deploymentIdx.split('-').pop() as string)
+            )
+            expect(parseInt(podIdx.split('-').pop() as string)).toBeLessThan(
+                parseInt(deploymentIdx.split('-').pop() as string)
+            )
+        })
+    })
+
+    describe('excludedOperators', () => {
+        const seedRecents = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 1,
+                item: { name: 'Power Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 1,
+                    operator: PropertyOperator.In,
+                    cohort_name: 'Power Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Cohorts,
+                groupName: 'Cohorts',
+                value: 2,
+                item: { name: 'Trial Users' },
+                propertyFilter: {
+                    type: PropertyFilterType.Cohort,
+                    key: 'id',
+                    value: 2,
+                    operator: PropertyOperator.NotIn,
+                    cohort_name: 'Trial Users',
+                },
+            })
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.EventProperties,
+                groupName: 'Event properties',
+                value: '$browser',
+                item: { name: '$browser' },
+                propertyFilter: {
+                    type: PropertyFilterType.Event,
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                },
+            })
+        }
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/cohorts/': { results: [], next: null, count: 0 },
+                    '/api/projects/:team/actions': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            localStorage.clear()
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecents()
+        })
+
+        it.each([
+            {
+                name: 'hides cohort recents whose operator is denylisted but keeps other recents',
+                excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
+                expectInRecent: ['User in Power Users', 'Browser = Chrome'],
+                expectNotInRecent: ['User not in Trial Users'],
+            },
+            {
+                name: 'keeps every recent when no operators are denylisted',
+                excludedOperators: undefined,
+                expectInRecent: ['User in Power Users', 'User not in Trial Users', 'Browser = Chrome'],
+                expectNotInRecent: [],
+            },
+        ])('$name', async ({ excludedOperators, expectInRecent, expectNotInRecent }) => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.EventProperties,
+                        ]}
+                        excludedOperators={excludedOperators}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            const recentRowText = (): string =>
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-recent_filters-"]'))
+                    .map((el) => el.textContent ?? '')
+                    .join('||')
+
+            await waitFor(() => {
+                for (const expected of expectInRecent) {
+                    expect(recentRowText()).toContain(expected)
+                }
+            })
+
+            const allText = recentRowText()
+            for (const forbidden of expectNotInRecent) {
+                expect(allText).not.toContain(forbidden)
+            }
+        })
+    })
+
+    describe('reveal barrier and recent matches in SuggestedFilters search', () => {
+        // These tests cover the SuggestedFilters tab's two-phase reveal: matching recents
+        // surface immediately while every non-meta group renders as a skeleton, then when
+        // either every remote group resolves or the 5s timer fires the barrier opens and
+        // real results replace the skeletons.
+        const seedRecentEvent = (): void => {
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.recordRecentFilter({
+                groupType: TaxonomicFilterGroupType.Events,
+                groupName: 'Events',
+                value: 'onboarding_completed_recent',
+                item: { id: 'recent-onboarding', name: 'onboarding_completed_recent' },
+            })
+        }
+
+        beforeEach(() => {
+            localStorage.clear()
+            // Slow the events endpoint so the barrier-closed state survives at least one paint
+            // — the default mock resolves synchronously, which collapses the close-then-open
+            // cycle inside a single React batch, making the transient skeleton state invisible
+            // to the DOM in CI. Production latency exceeds this comfortably.
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': async (req) => {
+                        await new Promise((resolve) => setTimeout(resolve, 100))
+                        return mockGetEventDefinitions(req)
+                    },
+                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
+                    '/api/projects/:team/actions': { results: [mockActionDefinition] },
+                    '/api/environments/:team/persons/properties': [
+                        { id: 1, name: 'location', count: 1 },
+                        { id: 2, name: 'role', count: 2 },
+                        { id: 3, name: 'height', count: 3 },
+                    ],
+                },
+                post: {
+                    '/api/environments/:team/query': { results: [] },
+                },
+            })
+            const recentLogic = recentTaxonomicFiltersLogic.build()
+            recentLogic.mount()
+            recentLogic.actions.clearRecentFilters()
+            seedRecentEvent()
+        })
+
+        const renderWithSuggested = (): void => {
+            render(
+                <Provider>
+                    <TaxonomicFilter
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.SuggestedFilters,
+                            TaxonomicFilterGroupType.Events,
+                            TaxonomicFilterGroupType.Actions,
+                        ]}
+                        onChange={onChangeMock}
+                        onClose={onCloseMock}
+                    />
+                </Provider>
+            )
+        }
+
+        const findSuggestedSkeleton = (): Element | null =>
+            document.querySelector('[data-attr^="prop-skeleton-suggested_filters-"]')
+
+        it('renders a skeleton row per non-meta group while the reveal barrier is closed, then replaces them with real results', async () => {
+            renderWithSuggested()
+
+            const searchField = await screen.findByTestId('taxonomic-filter-searchfield')
+            await userEvent.type(searchField, 'event')
+
+            await waitFor(() => {
+                if (!findSuggestedSkeleton()) {
+                    throw new Error('expected at least one suggested_filters skeleton row')
+                }
+            })
+
+            const testEventRows = await screen.findAllByText('test event', undefined, { timeout: 6000 })
+            expect(testEventRows.length).toBeGreaterThanOrEqual(1)
+
+            await waitFor(
+                () => {
+                    if (findSuggestedSkeleton()) {
+                        throw new Error('expected suggested_filters skeletons to be removed once the barrier opens')
+                    }
+                },
+                { timeout: 6000 }
+            )
+        }, 10000)
+
+        it('a recent that matches the search appears in the SuggestedFilters list even though the barrier gates other groups', async () => {
+            renderWithSuggested()
+
+            const searchField = await screen.findByTestId('taxonomic-filter-searchfield')
+            await userEvent.type(searchField, 'onboarding_completed_recent')
+
+            const matches = await screen.findAllByText('onboarding_completed_recent', undefined, { timeout: 6000 })
+            expect(matches.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
     })
 })

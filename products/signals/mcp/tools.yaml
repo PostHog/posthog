@@ -1,0 +1,282 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Signals
+feature: signals
+url_prefix: /inbox
+ui_apps: {}
+tools:
+    inbox-processing-list:
+        operation: signals_processing_list
+        enabled: false
+    inbox-processing-pause-destroy:
+        operation: signals_processing_pause_destroy
+        enabled: false
+    inbox-processing-pause-update:
+        operation: signals_processing_pause_update
+        enabled: false
+    inbox-reports-list:
+        operation: signals_reports_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List signal reports
+        description: >
+            List signal reports for the current project. A signal report is a cluster of related observations (signals)
+            that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
+            by status (potential, candidate, in_progress, pending_input, ready, failed, suppressed), free-text search
+            across title and summary, source_product (e.g. error_tracking, session_replay), and suggested_reviewers
+            (PostHog user UUIDs). Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by
+            default.
+        response:
+            include:
+                - id
+                - title
+                - summary
+                - status
+                - priority
+                - actionability
+                - already_addressed
+                - signal_count
+                - total_weight
+                - source_products
+                - is_suggested_reviewer
+                - implementation_pr_url
+                - created_at
+                - updated_at
+    inbox-reports-retrieve:
+        operation: signals_reports_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get signal report
+        description: >
+            Get a single signal report by ID. Returns the full report including title, summary, status, priority and
+            actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
+            if one has been opened. To inspect the underlying signals or judgment artefacts, follow up with a HogQL
+            query (see the 'signals' skill) — those endpoints are not yet exposed via MCP.
+    inbox-reports-set-state:
+        operation: signals_reports_state_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{id}'
+        title: Dismiss or snooze a signal report
+        description: >
+            Transition a signal report to a new state. Use 'suppressed' to dismiss the report from the inbox (the user
+            has reviewed it and decided no action is needed), or 'potential' to snooze it back into the pipeline for
+            later review. Optionally include a `dismissal_reason` (a short string code owned by the caller, e.g.
+            'not_a_bug', 'wont_fix', 'duplicate') and a `dismissal_note` (free-form text, up to 4000 chars) — both are
+            persisted as a DISMISSAL artefact on the report so the rationale is preserved even if the report transitions
+            again later. Returns 409 if the transition is not allowed from the report's current status.
+    inbox-source-configs-create:
+        operation: signals_source_configs_create
+        enabled: false
+    inbox-source-configs-destroy:
+        operation: signals_source_configs_destroy
+        enabled: false
+    inbox-source-configs-list:
+        operation: signals_source_configs_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List signal source configs
+        description: >
+            List the configured signal sources for the current project. A signal source ties a product (e.g.
+            error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and
+            configuration. The 'status' field reflects the current state of the underlying data import or workflow
+            (running, completed, failed) when applicable.
+        response:
+            include:
+                - id
+                - source_product
+                - source_type
+                - enabled
+                - status
+                - created_at
+                - updated_at
+    inbox-source-configs-partial-update:
+        operation: signals_source_configs_partial_update
+        enabled: false
+    inbox-source-configs-retrieve:
+        operation: signals_source_configs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get signal source config
+        description: >
+            Get a single signal source config by ID. Returns the full record including source_product, source_type,
+            enabled flag, configuration JSON, and current status of the underlying data import or workflow.
+    inbox-source-configs-update:
+        operation: signals_source_configs_update
+        enabled: false
+    signals-scout-config-list:
+        operation: signals_scout_config_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scout configs
+        description: >
+            List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
+            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
+            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
+            them.
+    signals-scout-config-update:
+        operation: signals_scout_config_update
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Update a scout config
+        description: >
+            Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or
+            `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
+            Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+    signals-scout-emit-signal:
+        operation: signals_scout_emit_signal
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Emit a finding for a run
+        description: >
+            Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic
+            `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with
+            the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.
+    signals-scout-project-profile-get:
+        operation: signals_scout_project_profile_get
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get the project profile
+        description: >
+            Return a deterministic snapshot of "what's true about this project" — products in use, product intents
+            (stuck onboardings), connected integrations, warehouse sources, signal source configs (split
+            enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the
+            newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after
+            `llma-skill-get`) to orient on the team in one tool call instead of paginating through
+            `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
+            `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
+            scout's inferred learnings.
+    signals-scout-runs-list:
+        operation: signals_scout_runs_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List recent scout runs
+        description: >
+            Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
+            to dedupe against work other runs already covered. Pass `text` for a case-insensitive substring match on the
+            run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to`
+            (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at
+            100.
+    signals-scout-runs-retrieve:
+        operation: signals_scout_runs_retrieve
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a scout run by ID
+        description: >
+            Return the full `SignalScoutRun` row, including the agent's end-of-run `summary`. Status, timestamps, and
+            error flow from the linked `tasks.TaskRun`; emitted findings live as `Signal` rows queryable by `source_id =
+            run:<run_id>:finding:<finding_id>`. Strictly team-scoped — a UUID belonging to another team returns 404.
+    signals-scout-scratchpad-forget:
+        operation: signals_scout_scratchpad_forget
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Forget a scratchpad entry by key
+        description: |
+            Delete a scratchpad entry by key. Returns `deleted=false` if no row matched — the call is idempotent.
+    signals-scout-scratchpad-remember:
+        operation: signals_scout_scratchpad_remember
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Remember a scratchpad entry
+        description: >
+            Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so
+            this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.
+    signals-scout-scratchpad-search:
+        operation: signals_scout_scratchpad_search
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Search the scout scratchpad
+        description: >
+            Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive
+            substring match on the entry's `content` and `key`. Results capped at 100.
+    users-signal-autonomy-create:
+        operation: users_signal_autonomy_create
+        enabled: false
+    users-signal-autonomy-destroy:
+        operation: users_signal_autonomy_destroy
+        enabled: false
+    users-signal-autonomy-retrieve:
+        operation: users_signal_autonomy_retrieve
+        enabled: false

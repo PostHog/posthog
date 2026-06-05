@@ -7,17 +7,19 @@ from typing import cast
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import StreamingHttpResponse
+from django.utils import timezone
 
 import pydantic
 import structlog
 from asgiref.sync import async_to_sync as asgi_async_to_sync
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import Throttled
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
+from rest_framework.mixins import DestroyModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -48,8 +50,10 @@ from posthog.temporal.ai.research_agent import (
     ResearchAgentWorkflowInputs,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.hogai.api.serializers import ConversationSerializer
+from ee.hogai.api.serializers import ConversationMinimalSerializer, ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
@@ -58,7 +62,6 @@ from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
 from ee.hogai.utils.types import PartialAssistantState
-from ee.models.assistant import Conversation
 
 logger = structlog.get_logger(__name__)
 
@@ -185,7 +188,9 @@ class QueueMessageUpdateSerializer(serializers.Serializer):
 
 
 @extend_schema(tags=["max"])
-class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
+class ConversationViewSet(
+    TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, DestroyModelMixin, GenericViewSet
+):
     scope_object = "conversation"
     serializer_class = ConversationSerializer
     queryset = Conversation.objects.all()
@@ -202,7 +207,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def _ensure_queue_access(self, request: Request, conversation_id: str) -> Response | None:
         try:
             # nosemgrep: idor-lookup-without-team (instance scoped to team via get_queryset)
-            conversation = Conversation.objects.get(id=conversation_id)
+            conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id)
         except Conversation.DoesNotExist:
             return Response({"error": "Conversation not found"}, status=status.HTTP_404_NOT_FOUND)
         if conversation.user != request.user or conversation.team != self.team:
@@ -213,6 +218,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         return Response({"messages": queue, "max_queue_messages": queue_store.max_messages})
 
     def safely_get_queryset(self, queryset):
+        queryset = queryset.select_related("user").exclude(deleted=True)
+
         # Only single retrieval of a specific conversation is allowed for other users' conversations (if ID known)
         if self.action != "retrieve":
             queryset = queryset.filter(user=self.request.user)
@@ -226,6 +233,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             if not is_impersonated_session(self.request):
                 queryset = queryset.filter(is_internal=False)
             queryset = queryset.order_by("-updated_at")
+        if self.action == "list":
+            queryset = queryset.defer("approval_decisions", "messages_json", "sandbox_task_id", "sandbox_run_id")
         return queryset
 
     def get_throttles(self):
@@ -245,7 +254,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         conversation_id = request.data.get("conversation")
         if conversation_id:
             try:
-                conversation = Conversation.objects.get(id=conversation_id, team=self.team)
+                conversation = Conversation.objects.exclude(deleted=True).get(id=conversation_id, team=self.team)
                 if conversation.type == Conversation.Type.DEEP_RESEARCH:
                     return True
             except (Conversation.DoesNotExist, ValidationError):
@@ -301,6 +310,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             return MessageSerializer
         if self.action == "append_message":
             return MessageMinimalSerializer
+        if self.action == "list":
+            return ConversationMinimalSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self):
@@ -340,6 +351,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                 return Response(
                     {"error": "Cannot access other users' conversations"}, status=status.HTTP_400_BAD_REQUEST
                 )
+            if conversation.deleted:
+                return Response({"error": "Conversation does not exist"}, status=status.HTTP_404_NOT_FOUND)
         except Conversation.DoesNotExist:
             # Conversation doesn't exist, create it if we have a message
             if not has_message:
@@ -521,6 +534,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
 
         return self._queue_response(queue_store, queue)
 
+    @extend_schema(parameters=[OpenApiParameter("queue_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
     @action(detail=True, methods=["PATCH", "DELETE"], url_path=r"queue/(?P<queue_id>[^/.]+)")
     def queue_item(self, request: Request, queue_id: str, *args, **kwargs):
         conversation_id = self._queue_conversation_id()
@@ -573,6 +587,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             logger.exception("Failed to cancel conversation", conversation_id=conversation.id, error=str(e))
             return Response({"error": "Failed to cancel conversation"}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        description="Delete a conversation.",
+        responses={204: None},
+    )
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        instance: Conversation = self.get_object()
+        Conversation.objects.filter(pk=instance.pk).update(deleted=True, deleted_at=timezone.now())
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["POST"], url_path="append_message")

@@ -7,7 +7,7 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 
-from posthog.models import Cohort, FeatureFlag
+from posthog.models import Cohort
 from posthog.models.utils import convert_legacy_metrics
 
 from products.experiments.backend.models.experiment import (
@@ -16,6 +16,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 class ExperimentAdminForm(ModelForm):
@@ -119,6 +120,7 @@ def fix_metric_properties(metric):
     return metric
 
 
+@admin.register(Experiment)
 class ExperimentAdmin(admin.ModelAdmin):
     form = ExperimentAdminForm
     list_display = (
@@ -172,13 +174,13 @@ class ExperimentAdmin(admin.ModelAdmin):
         if experiment.stats_config and "migrated_from" in experiment.stats_config:
             return format_html(
                 '<a href="{}">Migrated From: {}</a>',
-                reverse("admin:posthog_experiment_change", args=[experiment.stats_config["migrated_from"]]),
+                reverse("admin:experiments_experiment_change", args=[experiment.stats_config["migrated_from"]]),
                 experiment.stats_config["migrated_from"],
             )
         if experiment.stats_config and "migrated_to" in experiment.stats_config:
             return format_html(
                 '<a href="{}">Migrated To: {}</a>',
-                reverse("admin:posthog_experiment_change", args=[experiment.stats_config["migrated_to"]]),
+                reverse("admin:experiments_experiment_change", args=[experiment.stats_config["migrated_to"]]),
                 experiment.stats_config["migrated_to"],
             )
         return ""
@@ -191,29 +193,41 @@ class ExperimentAdmin(admin.ModelAdmin):
         obj = self.get_object(request, object_id)
         if obj is None:
             messages.error(request, "Experiment not found")
-            return redirect("admin:posthog_experiment_changelist")
+            return redirect("admin:experiments_experiment_changelist")
 
         all_metrics = (obj.metrics or []) + (obj.metrics_secondary or [])
-        extra_context["show_migration"] = has_legacy_metric(all_metrics)
         extra_context["show_fix_properties"] = has_malformed_properties(all_metrics)
 
         # Get all related ExperimentSavedMetric objects
         shared_metrics = obj.saved_metrics.all()
         shared_metrics_status = []
+        has_legacy_shared_metric = False
+        has_unmigrated_legacy_shared_metric = False
         for metric in shared_metrics:
             kind = metric.query.get("kind") if metric.query else None
             is_legacy = kind in ("ExperimentFunnelsQuery", "ExperimentTrendsQuery")
-            migrated = bool(metric.metadata and "migrated_to" in metric.metadata)
+            if is_legacy:
+                has_legacy_shared_metric = True
+            migrated_to_id = metric.metadata.get("migrated_to") if metric.metadata else None
+            migrated = migrated_to_id is not None
+            if is_legacy and not migrated:
+                has_unmigrated_legacy_shared_metric = True
             shared_metrics_status.append(
                 {
                     "id": metric.id,
                     "name": metric.name,
                     "is_legacy": is_legacy,
                     "migrated": migrated,
-                    "migrate_url": reverse("admin:posthog_experimentsavedmetric_change", args=[metric.id]),
+                    "migrate_url": reverse("admin:experiments_experimentsavedmetric_change", args=[metric.id]),
+                    "migrated_to_id": migrated_to_id,
+                    "migrated_to_url": reverse("admin:experiments_experimentsavedmetric_change", args=[migrated_to_id])
+                    if migrated_to_id
+                    else None,
                 }
             )
         extra_context["shared_metrics_status"] = shared_metrics_status
+        extra_context["show_migration"] = has_legacy_metric(all_metrics) or has_legacy_shared_metric
+        extra_context["can_migrate"] = not has_unmigrated_legacy_shared_metric
 
         return super().change_view(request, object_id, form_url, extra_context=extra_context)
 
@@ -240,7 +254,7 @@ class ExperimentAdmin(admin.ModelAdmin):
 
                 if original.stats_config and original.stats_config.get("migrated_to"):
                     messages.warning(request, f"Experiment already migrated to {original.stats_config['migrated_to']}")
-                    return redirect("admin:posthog_experiment_change", original.stats_config["migrated_to"])
+                    return redirect("admin:experiments_experiment_change", original.stats_config["migrated_to"])
 
                 new_experiment = Experiment()
 
@@ -302,13 +316,13 @@ class ExperimentAdmin(admin.ModelAdmin):
                 original.save(update_fields=["stats_config"])
 
             messages.success(request, "Experiment migrated successfully")
-            return redirect("admin:posthog_experiment_change", new_experiment.pk)
+            return redirect("admin:experiments_experiment_change", new_experiment.pk)
         except Experiment.DoesNotExist:
             messages.error(request, "Experiment not found")
-            return redirect("admin:posthog_experiment_changelist")
+            return redirect("admin:experiments_experiment_changelist")
         except Exception as e:
             messages.error(request, f"Error migrating experiment: {e}")
-            return redirect("admin:posthog_experiment_change", object_id)
+            return redirect("admin:experiments_experiment_change", object_id)
 
     def fix_malformed_properties(self, request, object_id):
         try:
@@ -318,7 +332,7 @@ class ExperimentAdmin(admin.ModelAdmin):
             all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
             if not has_malformed_properties(all_metrics):
                 messages.info(request, "No malformed properties found")
-                return redirect("admin:posthog_experiment_change", object_id)
+                return redirect("admin:experiments_experiment_change", object_id)
 
             # Fix metrics
             if experiment.metrics:
@@ -330,13 +344,13 @@ class ExperimentAdmin(admin.ModelAdmin):
 
             experiment.save(update_fields=["metrics", "metrics_secondary"])
             messages.success(request, "Fixed malformed properties in experiment metrics")
-            return redirect("admin:posthog_experiment_change", object_id)
+            return redirect("admin:experiments_experiment_change", object_id)
         except Experiment.DoesNotExist:
             messages.error(request, "Experiment not found")
-            return redirect("admin:posthog_experiment_changelist")
+            return redirect("admin:experiments_experiment_changelist")
         except Exception as e:
             messages.error(request, f"Error fixing properties: {e}")
-            return redirect("admin:posthog_experiment_change", object_id)
+            return redirect("admin:experiments_experiment_change", object_id)
 
     @admin.action(description="Fix malformed metric properties")
     def fix_malformed_properties_bulk(self, request, queryset):

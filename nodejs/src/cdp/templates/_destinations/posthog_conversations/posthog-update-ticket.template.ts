@@ -6,7 +6,8 @@ export const template: HogFunctionTemplate = {
     type: 'destination',
     id: 'template-posthog-update-ticket',
     name: 'Update conversation ticket',
-    description: 'Update the status, priority, SLA, assignee, or tags of a conversation ticket',
+    description:
+        'Update the status, priority, SLA, assignee, or tags of a conversation ticket. Tags are additive by default.',
     icon_url: '/static/posthog-icon.svg',
     category: ['Custom'],
     code_language: 'hog',
@@ -29,13 +30,20 @@ if (inputs.sla_amount == 'clear') {
   updates.sla_due_at := null
 } else if (not empty(inputs.sla_amount)) {
   let amount := toFloat(inputs.sla_amount)
-  let unit := inputs.sla_unit ?? 'hour'
 
   if (amount == null or amount <= 0) {
     throw Error(f'Invalid SLA amount: {inputs.sla_amount}. Must be a positive number or "clear".')
   }
-  let deadline := dateAdd(unit, amount, now())
-  updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
+  let unit := inputs.sla_unit ?? 'hour'
+
+  if (empty(inputs.sla_business_hours)) {
+    let deadline := dateAdd(unit, amount, now())
+    updates.sla_due_at := formatDateTime(deadline, '%Y-%m-%dT%H:%i:%SZ')
+  } else {
+    updates.sla_amount := amount
+    updates.sla_unit := unit
+    updates.sla_business_hours := inputs.sla_business_hours
+  }
 }
 
 if (not empty(inputs.assignee)) {
@@ -44,6 +52,7 @@ if (not empty(inputs.assignee)) {
 
 if (not empty(inputs.tags)) {
   updates.tags := inputs.tags
+  updates.tags_mode := (not empty(inputs.tags_mode)) ? inputs.tags_mode : 'add'
 }
 
 let response := postHogUpdateTicket({
@@ -118,6 +127,15 @@ return response.body
             description: 'Time unit for the SLA deadline.',
         },
         {
+            key: 'sla_business_hours',
+            type: 'posthog_business_hours',
+            label: 'Working hours',
+            secret: false,
+            required: false,
+            description:
+                'Days, time of day, and timezone the SLA clock runs during. Defaults to all days / any time (calendar hours).',
+        },
+        {
             key: 'assignee',
             type: 'posthog_assignee',
             label: 'Assignee',
@@ -131,7 +149,22 @@ return response.body
             label: 'Tags',
             secret: false,
             required: false,
-            description: 'Set tags on the ticket. Leave empty to keep current tags.',
+            description: 'Tags to apply to the ticket. Leave empty to keep current tags.',
+        },
+        {
+            key: 'tags_mode',
+            type: 'choice',
+            label: 'Tag mode',
+            secret: false,
+            required: false,
+            default: 'add',
+            choices: [
+                { label: 'Add to existing tags', value: 'add' },
+                { label: 'Replace all tags', value: 'set' },
+                { label: 'Remove these tags', value: 'remove' },
+            ],
+            description:
+                'How the tags above are applied. Add (default) is safe when multiple workflows tag the same ticket.',
         },
     ],
 }

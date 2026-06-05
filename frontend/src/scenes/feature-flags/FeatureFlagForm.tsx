@@ -33,6 +33,7 @@ import {
 } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonCollapse,
     LemonDivider,
     LemonInput,
@@ -49,13 +50,11 @@ import {
 
 import { approvalsGateLogic } from 'lib/approvals/approvalsGateLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import 'lib/lemon-ui/Lettermark'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { alphabet } from 'lib/utils'
 import { ApprovalActionKey } from 'scenes/approvals/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
@@ -70,6 +69,7 @@ import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
+import { PercentageInput } from './PercentageInput'
 
 interface SortableVariantHeaderProps {
     variant: MultivariateFlagVariant
@@ -102,7 +102,7 @@ function SortableVariantHeader({
             <div className="flex gap-2 items-center">
                 <Lettermark name={alphabet[index] ?? String(index + 1)} color={LettermarkColor.Gray} size="small" />
                 <span className="text-sm font-medium">{variant.key || `Variant ${index + 1}`}</span>
-                <span className="text-xs text-muted">({variant.rollout_percentage || 0}%)</span>
+                <span className="text-xs text-muted tabular-nums">({variant.rollout_percentage || 0}%)</span>
             </div>
             <div className="flex gap-1 items-center ml-auto">
                 <LemonButton
@@ -159,6 +159,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         openVariants,
         payloadExpanded,
         expandAdvancedOnEdit,
+        hasEncryptedPayloadBeenSaved,
     } = useValues(featureFlagLogic)
     const {
         setMultivariateEnabled,
@@ -175,15 +176,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setShowImplementation,
         setOpenVariants,
         setPayloadExpanded,
-        setBucketingIdentifier,
+        resetEncryptedPayload,
     } = useActions(featureFlagLogic)
     const { tags: availableTags } = useValues(tagsModel)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const hasEvaluationContexts = useFeatureFlag('FLAG_EVALUATION_TAGS') // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
-    const featureFlagsV2Enabled = !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2]
-    const showBucketingIdentifierUI = !!featureFlags[FEATURE_FLAGS.FLAG_BUCKETING_IDENTIFIER]
-
     const isNewFeatureFlag = id === 'new' || id === undefined
     const implementationRef = useRef<HTMLDivElement>(null)
 
@@ -195,6 +192,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 block: 'start',
             })
         }, 150)
+    }
+
+    const confirmEncryptedPayloadReset = (): void => {
+        LemonDialog.open({
+            title: 'Reset payload?',
+            description: 'The existing payload will not be reset until the feature flag is saved.',
+            primaryButton: {
+                children: 'Reset',
+                onClick: resetEncryptedPayload,
+                size: 'small',
+                status: 'danger',
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
     }
 
     const updateVariant = (
@@ -244,6 +259,14 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
           : 'boolean'
 
     const onSelectFlagType = (value: string): void => {
+        // Leaving remote config: the backend invariant requires
+        // has_encrypted_payloads=true only on remote config flags,
+        // and the prior ciphertext is no longer valid.
+        const wasLeavingRemoteConfig =
+            featureFlag?.is_remote_configuration === true &&
+            value !== 'remote_config' &&
+            featureFlag?.has_encrypted_payloads
+
         if (value === 'remote_config') {
             setFeatureFlag({
                 ...featureFlag,
@@ -266,6 +289,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 is_remote_configuration: false,
             })
             setMultivariateEnabled(false)
+        }
+
+        if (wasLeavingRemoteConfig) {
+            resetEncryptedPayload()
         }
     }
 
@@ -358,7 +385,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                         type: featureFlag.active ? 'feature_flag' : 'feature_flag_off',
                     }}
                     forceBackTo={
-                        isNewFeatureFlag && featureFlagsV2Enabled
+                        isNewFeatureFlag
                             ? {
                                   key: 'FeatureFlagTemplates',
                                   name: 'Templates',
@@ -629,37 +656,42 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     />
                                                 </LemonField>
 
-                                                <LemonDivider className="my-1" />
+                                                {/* Persistence - hide when device ID bucketing is selected */}
+                                                {featureFlag.bucketing_identifier !==
+                                                    FeatureFlagBucketingIdentifier.DEVICE_ID && (
+                                                    <>
+                                                        <LemonDivider className="my-1" />
 
-                                                {/* Persistence */}
-                                                <LemonField
-                                                    name="ensure_experience_continuity"
-                                                    label="Persistence"
-                                                    labelClassName="text-sm font-medium"
-                                                    info={
-                                                        <>
-                                                            Keep flag values consistent before and after login. Requires
-                                                            anonymous user profiles.{' '}
-                                                            <Link
-                                                                to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
-                                                                target="_blank"
-                                                            >
-                                                                Learn more
-                                                            </Link>
-                                                        </>
-                                                    }
-                                                >
-                                                    {({ value, onChange }) => (
-                                                        <LemonSwitch
-                                                            checked={value}
-                                                            onChange={onChange}
-                                                            bordered
-                                                            fullWidth
-                                                            label="Persist flag across authentication steps"
-                                                            data-attr="feature-flag-persist-across-auth"
-                                                        />
-                                                    )}
-                                                </LemonField>
+                                                        <LemonField
+                                                            name="ensure_experience_continuity"
+                                                            label="Persistence"
+                                                            labelClassName="text-sm font-medium"
+                                                            info={
+                                                                <>
+                                                                    Keep flag values consistent before and after login.
+                                                                    Requires anonymous user profiles.{' '}
+                                                                    <Link
+                                                                        to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                                        target="_blank"
+                                                                    >
+                                                                        Learn more
+                                                                    </Link>
+                                                                </>
+                                                            }
+                                                        >
+                                                            {({ value, onChange }) => (
+                                                                <LemonSwitch
+                                                                    checked={value}
+                                                                    onChange={onChange}
+                                                                    bordered
+                                                                    fullWidth
+                                                                    label="Persist flag across authentication steps"
+                                                                    data-attr="feature-flag-persist-across-auth"
+                                                                />
+                                                            )}
+                                                        </LemonField>
+                                                    </>
+                                                )}
                                             </div>
                                         ),
                                     },
@@ -819,25 +851,21 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     data-attr={`feature-flag-variant-key-${index}`}
                                                                 />
                                                                 {variantErrors[index]?.key && (
-                                                                    <span className="text-danger text-xs">
+                                                                    <span className="Field--error text-danger text-xs">
                                                                         {variantErrors[index].key}
                                                                     </span>
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <LemonInput
-                                                                    type="number"
-                                                                    min={0}
-                                                                    max={100}
-                                                                    value={variant.rollout_percentage || 0}
+                                                                <PercentageInput
+                                                                    value={variant.rollout_percentage}
                                                                     onChange={(value) =>
                                                                         updateVariant(
                                                                             index,
                                                                             'rollout_percentage',
-                                                                            parseInt(value?.toString() || '0')
+                                                                            value
                                                                         )
                                                                     }
-                                                                    suffix={<span>%</span>}
                                                                     data-attr={`feature-flag-variant-rollout-${index}`}
                                                                 />
 
@@ -910,7 +938,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             <span className="text-sm font-medium">
                                                                 {getActiveVariant()?.key || 'Variant'}
                                                             </span>
-                                                            <span className="text-xs text-muted">
+                                                            <span className="text-xs text-muted tabular-nums">
                                                                 ({getActiveVariant()?.rollout_percentage || 0}%)
                                                             </span>
                                                         </div>
@@ -940,13 +968,56 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </LemonLabel>
                                         <div className="text-secondary text-xs mb-1">
                                             Remote config flags always return the payload. Access it via{' '}
-                                            <code className="text-xs">getFeatureFlagPayload</code>.
+                                            <code className="text-xs">
+                                                {featureFlag.has_encrypted_payloads
+                                                    ? 'getRemoteConfigPayload'
+                                                    : 'getFeatureFlagPayload'}
+                                            </code>
+                                            . Using standard SDK methods such as{' '}
+                                            <code className="text-xs">getFeatureFlag</code> or{' '}
+                                            <code className="text-xs">isFeatureEnabled</code> will always return{' '}
+                                            <code className="text-xs">true</code>.
                                         </div>
-                                        <Group name={['filters', 'payloads']}>
-                                            <LemonField name="true">
-                                                <JSONEditorInput placeholder='Examples: "A string", 2500, {"key": "value"}' />
-                                            </LemonField>
-                                        </Group>
+                                        <LemonField name="has_encrypted_payloads">
+                                            {({ value, onChange }) => (
+                                                <LemonCheckbox
+                                                    id="flag-payload-encrypted-checkbox"
+                                                    label="Encrypt remote configuration payload"
+                                                    onChange={() => onChange(!value)}
+                                                    checked={value}
+                                                    data-attr="feature-flag-payload-encrypted-checkbox"
+                                                    disabledReason={
+                                                        hasEncryptedPayloadBeenSaved &&
+                                                        'An encrypted payload has already been saved for this flag. Reset the payload or create a new flag to create an unencrypted configuration payload.'
+                                                    }
+                                                />
+                                            )}
+                                        </LemonField>
+                                        <div className="flex gap-2 min-w-0">
+                                            <Group name={['filters', 'payloads']}>
+                                                <LemonField name="true" className="grow min-w-0">
+                                                    <JSONEditorInput
+                                                        readOnly={
+                                                            featureFlag.has_encrypted_payloads &&
+                                                            Boolean(featureFlag.filters?.payloads?.['true'])
+                                                        }
+                                                        placeholder='Examples: "A string", 2500, {"key": "value"}'
+                                                    />
+                                                </LemonField>
+                                            </Group>
+                                            {featureFlag.has_encrypted_payloads && (
+                                                <LemonButton
+                                                    className="shrink-0"
+                                                    icon={<IconTrash />}
+                                                    type="secondary"
+                                                    size="small"
+                                                    status="danger"
+                                                    onClick={confirmEncryptedPayloadReset}
+                                                >
+                                                    Reset
+                                                </LemonButton>
+                                            )}
+                                        </div>
                                     </div>
                                 )}
                                 {!multivariateEnabled && !featureFlag.is_remote_configuration && (
@@ -994,15 +1065,24 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         onChange={setFeatureFlagFilters}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
-                                        bucketingIdentifier={
-                                            showBucketingIdentifierUI ? featureFlag.bucketing_identifier : undefined
-                                        }
-                                        onBucketingIdentifierChange={
-                                            showBucketingIdentifierUI
-                                                ? (value: FeatureFlagBucketingIdentifier | null) =>
-                                                      setBucketingIdentifier(value)
-                                                : undefined
-                                        }
+                                        bucketingIdentifier={featureFlag.bucketing_identifier}
+                                        onBucketingIdentifierChange={(value: FeatureFlagBucketingIdentifier | null) => {
+                                            // Always go through setFeatureFlag so this caller and
+                                            // FeatureFlagReleaseConditions use the same shape — listeners on
+                                            // setBucketingIdentifier (variant reset, telemetry, autosave) won't
+                                            // silently fire on one path and not the other. Switching to device
+                                            // bucketing also disables persist across auth, since the two are
+                                            // incompatible.
+                                            const ensureContinuity =
+                                                value === FeatureFlagBucketingIdentifier.DEVICE_ID
+                                                    ? false
+                                                    : featureFlag.ensure_experience_continuity
+                                            setFeatureFlag({
+                                                ...featureFlag,
+                                                bucketing_identifier: value,
+                                                ensure_experience_continuity: ensureContinuity,
+                                            })
+                                        }}
                                         evaluationRuntime={featureFlag.evaluation_runtime}
                                     />
                                 </div>

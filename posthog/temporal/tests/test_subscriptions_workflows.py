@@ -1,56 +1,108 @@
 import uuid
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from slack_sdk.errors import SlackApiError
 from temporalio.client import Client
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models.exported_asset import ExportedAsset
-from posthog.models.insight import Insight
 from posthog.models.instance_setting import set_instance_setting
+from posthog.models.integration import Integration
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
-from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
-from posthog.temporal.subscriptions.activities import (
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
+from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
+    create_delivery_record,
     create_export_assets,
     deliver_subscription,
     fetch_due_subscriptions_activity,
+    update_delivery_record,
+    validate_subscription_for_delivery,
 )
-from posthog.temporal.subscriptions.types import (
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
+    DeliveryStatus,
+    FetchDueSubscriptionsActivityInputs,
+    GenerateAIReportInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
+    UpdateDeliveryRecordInputs,
 )
-from posthog.temporal.subscriptions.workflows import (
+from products.exports.backend.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
+    ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
+from products.product_analytics.backend.models.insight import Insight
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
-
+from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
+from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+_GENERATE_MARKDOWN = (
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_ai_subscription_markdown"
+)
+
+SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
+    Sequence[Callable[..., Any]],
+    [
+        fetch_due_subscriptions_activity,
+        create_delivery_record,
+        validate_subscription_for_delivery,
+        create_export_assets,
+        export_asset_activity,
+        deliver_subscription,
+        generate_ai_subscription_report,
+        update_delivery_record,
+        advance_next_delivery_date,
+    ],
+)
+
+SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
+    Sequence[Callable[..., Any]],
+    [
+        create_delivery_record,
+        validate_subscription_for_delivery,
+        create_export_assets,
+        export_asset_activity,
+        deliver_subscription,
+        generate_ai_subscription_report,
+        update_delivery_record,
+        advance_next_delivery_date,
+    ],
+)
 
 
 @pytest_asyncio.fixture
@@ -64,14 +116,9 @@ async def subscriptions_worker(temporal_client: Client):
             ScheduleAllSubscriptionsWorkflow,
             HandleSubscriptionValueChangeWorkflow,
             ProcessSubscriptionWorkflow,
+            ProcessAISubscriptionWorkflow,
         ],
-        activities=[
-            fetch_due_subscriptions_activity,
-            create_export_assets,
-            export_asset_activity,
-            deliver_subscription,
-            advance_next_delivery_date,
-        ],
+        activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
         interceptors=[SloInterceptor()],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ):
@@ -81,7 +128,7 @@ async def subscriptions_worker(temporal_client: Client):
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_subscription_delivery_scheduling(
@@ -135,13 +182,7 @@ async def test_subscription_delivery_scheduling(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                fetch_due_subscriptions_activity,
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -163,8 +204,10 @@ async def test_subscription_delivery_scheduling(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch(
+    "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
+)
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_does_not_schedule_subscription_if_item_is_deleted(
@@ -208,13 +251,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                fetch_due_subscriptions_activity,
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -233,7 +270,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_handle_subscription_value_change_email(
     mock_send_email: MagicMock,
@@ -265,12 +302,7 @@ async def test_handle_subscription_value_change_email(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -295,33 +327,58 @@ async def test_handle_subscription_value_change_email(
 
     # SLO events emitted exactly once (child only, not parent)
     started_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_started"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(started_calls) == 1
 
     completed_calls = [
-        c for c in mock_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
 
 
+@patch(
+    "products.exports.backend.temporal.subscriptions.activities.send_slack_message_with_integration_async",
+    new_callable=AsyncMock,
+)
+@patch("products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team")
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
 @pytest.mark.asyncio
 async def test_deliver_subscription_report_slack(
-    mock_send_slack: MagicMock,
     mock_metric_meter: MagicMock,
     mock_analytics: MagicMock,
     mock_exporter: MagicMock,
+    mock_get_slack: MagicMock,
+    mock_send_slack_async: AsyncMock,
     temporal_client: Client,
     subscriptions_worker,
     team,
     user,
 ):
+    mock_integration = MagicMock()
+    mock_integration.kind = "slack"
+    mock_get_slack.return_value = mock_integration
+    mock_send_slack_async.return_value = SlackDeliveryResult(
+        main_message_sent=True,
+        total_thread_messages=0,
+        failed_thread_message_indices=[],
+    )
+
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="abc999", name="Insight")
+    integration = await sync_to_async(Integration.objects.create)(
+        team=team,
+        kind="slack",
+        config={"team": {"id": "T123", "name": "Test"}},
+    )
 
     subscription = await sync_to_async(create_subscription)(
         team=team,
@@ -329,6 +386,7 @@ async def test_deliver_subscription_report_slack(
         created_by=user,
         target_type="slack",
         target_value="C12345|#test-channel",
+        integration_id=integration.id,
     )
 
     def fake_export(asset_obj, **kwargs):
@@ -342,12 +400,7 @@ async def test_deliver_subscription_report_slack(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -364,7 +417,464 @@ async def test_deliver_subscription_report_slack(
                 task_queue=settings.TEMPORAL_TASK_QUEUE,
             )
 
-    assert mock_send_slack.call_count == 1
+    assert mock_send_slack_async.await_count == 1
+
+
+@patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch(
+    "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
+)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_process_subscription_records_missing_slack_integration_failure(
+    mock_get_slack: MagicMock,
+    mock_build_snapshot: MagicMock,
+    mock_send_notification: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slk001", name="Slack fail")
+    mock_build_snapshot.return_value = {
+        "id": insight.id,
+        "short_id": str(insight.short_id),
+        "name": insight.name or "",
+        "dashboard_tile_id": None,
+        "query_hash": "mock_cache_key",
+        "cache_key": "mock_cache_key",
+        "query_results": {"result": []},
+    }
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+    await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/slack-fail.png",
+    )
+
+    # Missing Slack integration_id is caught by the workflow's validation step
+    # which auto-disables before the export pipeline runs. The team-fallback in
+    # `deliver_subscription` is no longer reachable for this scenario.
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.filter(subscription_id=subscription.id).latest)("created_at")
+    # Validate auto-disabled the sub: row is FAILED with the disable reason in
+    # recipient_results so support/debugging can read the failure detail directly.
+    assert row.status == SubscriptionDelivery.Status.FAILED
+    assert row.recipient_results == [
+        {
+            "recipient": "C12345|#test-channel",
+            "status": "failed",
+            "error": {
+                "message": "Slack integration disconnected",
+                "type": "missing_integration",
+            },
+        }
+    ]
+    mock_get_slack.assert_not_called()
+
+    # Subscription is auto-disabled and owner is notified.
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    mock_send_notification.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case_label, target_type, target_value, expected_error",
+    [
+        (
+            "missing_slack_integration",
+            "slack",
+            "C12345|#test-channel",
+            {"message": "Slack integration disconnected", "type": "missing_integration"},
+        ),
+        (
+            "unsupported_target",
+            "webhook",
+            "https://example.com/hook",
+            {"message": "Unsupported delivery channel", "type": "unsupported_target"},
+        ),
+    ],
+)
+async def test_deliver_subscription_auto_disables_invalid_subscriptions(
+    team, user, case_label, target_type, target_value, expected_error
+):
+    """Activity-level auto-disable for permanently-broken targets. `no_assets` is
+    deliberately excluded — empty-assets-at-delivery is transient (the workflow short-
+    circuits to SKIPPED before `deliver_subscription` runs when assets are genuinely
+    deleted). See test_no_assets_does_not_auto_disable.
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"dis-{case_label[:5]}", name=case_label)
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location=f"s3://bucket/{case_label}.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type=target_type,
+        target_value=target_value,
+        enabled=True,
+    )
+
+    env = ActivityEnvironment()
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        # Always patched — only consulted on the slack branch, harmless otherwise.
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
+            return_value=None,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
+    ):
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[asset.id],
+                total_insight_count=1,
+            ),
+        )
+
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    send_mock.assert_called_once()
+    capture_mock.assert_called_once()
+    # Must return cleanly — NOT raise
+    assert result is not None
+    assert result.recipient_results[0].status == "failed"
+    assert result.recipient_results[0].error == expected_error
+
+
+@pytest.mark.asyncio
+async def test_no_assets_does_not_auto_disable(team, user):
+    """Empty `assets` at delivery time is a transient export-pipeline failure
+    (genuine deletion is filtered upstream). Subscription stays enabled, the next
+    scheduled cycle retries. The failure is surfaced via the per-recipient result
+    on the SubscriptionDelivery record and a `subscription_delivery_failed` analytics
+    event — SLO outcome is owned by the workflow (asset-level errors only) so it
+    isn't asserted at this activity boundary."""
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis-noast", name="no_assets")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="email",
+        target_value="owner@example.com",
+        enabled=True,
+    )
+
+    env = ActivityEnvironment()
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
+        ) as capture_mock,
+    ):
+        # Bogus id ensures `assets` resolves empty.
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[99_999_999],
+                total_insight_count=1,
+            ),
+        )
+
+    await sync_to_async(subscription.refresh_from_db)()
+    # Subscription stays enabled — transient failure, retries can recover.
+    assert subscription.enabled is True
+    disable_mock.assert_not_called()
+    # `subscription_delivery_failed` analytics still fires so existing dashboards see it.
+    capture_mock.assert_called_once()
+    # Returns cleanly — workflow records the per-recipient failure but SLO outcome
+    # stays success; the next scheduled delivery retries.
+    assert result is not None
+    assert result.recipient_results[0].status == "failed"
+    error = result.recipient_results[0].error
+    assert error is not None
+    assert error["type"] == "no_assets"
+
+
+@pytest.mark.asyncio
+async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, user):
+    """Simulates a Temporal redispatch after a successful auto-disable: first call
+    auto-disables, second call must observe the entry guard and return without
+    re-firing the disable email or analytics. UUID4 campaign keys mean
+    MessagingRecord wouldn't dedup the duplicate email otherwise."""
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="retry-skip", name="retry idempotency")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team, insight=insight, export_format="image/png", content_location="s3://bucket/retry.png"
+    )
+    # webhook is unsupported, so the first call hits the auto-disable branch.
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="webhook",
+        target_value="https://example.com/hook",
+        enabled=True,
+    )
+
+    env = ActivityEnvironment()
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id, exported_asset_ids=[asset.id], total_insight_count=1
+    )
+
+    # First call: unsupported_target triggers auto-disable + per-recipient failure.
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
+    ):
+        first_result = await env.run(deliver_subscription, inputs)
+
+    assert first_result.recipient_results[0].status == "failed"
+    error = first_result.recipient_results[0].error
+    assert error is not None
+    assert error["type"] == "unsupported_target"
+    send_mock.assert_called_once()
+    capture_mock.assert_called_once()
+
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+
+    # Second call simulates the Temporal redispatch — the entry guard short-circuits
+    # so the disable email and analytics event do NOT fire again.
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
+    ):
+        second_result = await env.run(deliver_subscription, inputs)
+
+    assert second_result.recipient_results == []
+    send_mock.assert_not_called()
+    capture_mock.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "label,target_type,target_value,initial_enabled,expected_aborts,expects_failed_recipient,expected_final_enabled",
+    [
+        ("valid_email_no_abort", "email", "ok@example.com", True, False, False, True),
+        ("unsupported_webhook_auto_disables", "webhook", "https://example.com/hook", True, True, True, False),
+        ("already_disabled_short_circuits", "email", "dis@example.com", False, True, False, False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_validate_subscription_for_delivery(
+    team,
+    user,
+    label,
+    target_type,
+    target_value,
+    initial_enabled,
+    expected_aborts,
+    expects_failed_recipient,
+    expected_final_enabled,
+):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id=f"vld-{label[:5]}", name=label)
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type=target_type,
+        target_value=target_value,
+        enabled=initial_enabled,
+    )
+
+    env = ActivityEnvironment()
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
+        ) as capture_mock,
+    ):
+        abort_info = await env.run(validate_subscription_for_delivery, subscription.id)
+
+    if expected_aborts:
+        assert abort_info is not None
+        if expects_failed_recipient:
+            assert abort_info.failed_recipient is not None
+            assert abort_info.failed_recipient.recipient == target_value
+            assert abort_info.failed_recipient.status == "failed"
+        else:
+            assert abort_info.failed_recipient is None
+    else:
+        assert abort_info is None
+    assert send_mock.called is expects_failed_recipient
+    assert capture_mock.called is expects_failed_recipient
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is expected_final_enabled
+
+
+@pytest.mark.asyncio
+async def test_deliver_subscription_short_circuits_when_already_disabled(team, user):
+    """Activity retries that fire after the subscription is disabled must return
+    cleanly — re-entering the missing-integration branch would re-fire the
+    auto-disable side effects (event capture, email notification).
+    """
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="dis02", name="Already Disabled")
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/already-disabled.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=False,
+    )
+
+    env = ActivityEnvironment()
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.activities.disable_invalid_subscription"
+    ) as disable_mock:
+        result = await env.run(
+            deliver_subscription,
+            DeliverSubscriptionInputs(
+                subscription_id=subscription.id,
+                exported_asset_ids=[asset.id],
+                total_insight_count=1,
+            ),
+        )
+
+    assert result.recipient_results == []
+    disable_mock.assert_not_called()
+
+
+async def _setup_slack_delivery_test_case(
+    team, user, slack_error_code: str
+) -> tuple[Subscription, DeliverSubscriptionInputs, MagicMock, SlackApiError]:
+    insight = await sync_to_async(Insight.objects.create)(
+        team=team, short_id=f"slk-{slack_error_code[:5]}", name=slack_error_code
+    )
+    asset = await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location=f"s3://bucket/{slack_error_code}.png",
+    )
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+        enabled=True,
+    )
+    mock_integration = MagicMock()
+    mock_integration.kind = "slack"
+    slack_error = SlackApiError("Slack API error", response={"error": slack_error_code, "ok": False})
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[asset.id],
+        total_insight_count=1,
+    )
+    return subscription, inputs, mock_integration, slack_error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "slack_error_code, expect_auto_disable",
+    [
+        # User-config errors won't self-heal without user action — auto-disable.
+        ("invalid_auth", True),
+        ("account_inactive", True),
+        ("token_revoked", True),
+        ("is_archived", True),
+        ("channel_not_found", True),
+        ("not_in_channel", True),
+        # Transient errors propagate so Temporal retries.
+        ("internal_error", False),
+        ("rate_limited", False),
+    ],
+)
+async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_error_code, expect_auto_disable):
+    subscription, inputs, mock_integration, slack_error = await _setup_slack_delivery_test_case(
+        team, user, slack_error_code
+    )
+
+    with (
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
+            return_value=mock_integration,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities.send_slack_message_with_integration_async",
+            new_callable=AsyncMock,
+            side_effect=slack_error,
+        ),
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
+    ):
+        if expect_auto_disable:
+            result = await ActivityEnvironment().run(deliver_subscription, inputs)
+        else:
+            with pytest.raises(SlackApiError):
+                await ActivityEnvironment().run(deliver_subscription, inputs)
+            result = None
+
+    await sync_to_async(subscription.refresh_from_db)()
+    if expect_auto_disable:
+        # Two captures: the real SlackApiError, and the synthetic Exception from the auto-disable helper.
+        assert capture_mock.call_count == 2
+        assert subscription.enabled is False
+        send_mock.assert_called_once()
+        assert result is not None
+        assert result.recipient_results[0].status == "failed"
+        assert result.recipient_results[0].error == {
+            "message": "PostHog can no longer post to this Slack channel",
+            "type": "slack_permission_revoked",
+        }
+    else:
+        capture_mock.assert_called_once()
+        assert subscription.enabled is True
+        send_mock.assert_not_called()
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -393,8 +903,251 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
 
-    # SLO started is emitted by the interceptor, not this activity
+    # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
+    # calls during snapshot build emit query_service SLO events — those are unrelated.
+    subscription_slo_calls = [
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert subscription_slo_calls == []
+    assert any(
+        c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
+        for c in mock_analytics.capture.call_args_list
+    )
+
+
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch("posthog.slo.events.posthoganalytics")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_export_assets_persists_insight_snapshots_to_delivery_content(
+    mock_analytics: MagicMock,
+    mock_build_snapshot: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # Insight snapshots are persisted directly to SubscriptionDelivery.content_snapshot
+    # from within the activity — they no longer traverse the Temporal payload boundary.
+    mock_build_snapshot.return_value = {
+        "id": 1,
+        "short_id": "snap01",
+        "name": "Snap Test",
+        "dashboard_tile_id": None,
+        "query_hash": "cache_key_test",
+        "cache_key": "cache_key_test",
+        "query_results": {"result": []},
+    }
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="prep01", name="Prep Test")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            temporal_workflow_id="wf-prep-1",
+            idempotency_key="idem-prep-1",
+        ),
+    )
+    result = await env.run(
+        create_export_assets,
+        CreateExportAssetsInputs(subscription_id=subscription.id, delivery_id=delivery_id),
+    )
+
+    assert len(result.exported_asset_ids) == 1
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert delivery.content_snapshot["total_insight_count"] == 1
+    assert len(delivery.content_snapshot["insights"]) == 1
+    assert delivery.content_snapshot["insights"][0]["query_hash"] == "cache_key_test"
+    mock_build_snapshot.assert_called_once()
     mock_analytics.capture.assert_not_called()
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_create_delivery_record_persists_row_and_idempotency_key_dedupes(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="delrec01", name="Delivery record")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    inputs = CreateDeliveryRecordInputs(
+        subscription_id=subscription.id,
+        team_id=team.id,
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        temporal_workflow_id="wf-delivery-1",
+        idempotency_key="idem-dedupe",
+        scheduled_at="2022-02-02T08:55:00+00:00",
+    )
+    delivery_id = await env.run(create_delivery_record, inputs)
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.subscription_id == subscription.id
+    assert row.team_id == team.id
+    assert row.status == SubscriptionDelivery.Status.STARTING
+    assert row.idempotency_key == "idem-dedupe"
+    assert row.temporal_workflow_id == "wf-delivery-1"
+    assert row.trigger_type == SubscriptionTriggerType.SCHEDULED
+    assert row.scheduled_at is not None
+    assert row.content_snapshot["total_insight_count"] == 0
+    assert len(row.content_snapshot["insights"]) == 1
+    assert row.content_snapshot["insights"][0]["short_id"] == "delrec01"
+
+    inputs_retry = CreateDeliveryRecordInputs(
+        subscription_id=subscription.id,
+        team_id=team.id,
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        temporal_workflow_id="wf-delivery-retry",
+        idempotency_key="idem-dedupe",
+        scheduled_at="2022-02-02T08:55:00+00:00",
+    )
+    delivery_id_again = await env.run(create_delivery_record, inputs_retry)
+    assert delivery_id_again == delivery_id
+    assert await sync_to_async(SubscriptionDelivery.objects.filter(idempotency_key="idem-dedupe").count)() == 1
+    row_after = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row_after.temporal_workflow_id == "wf-delivery-1"
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_patches_status_and_results_without_touching_content(team, user):
+    # update_delivery_record is the observability finalizer; create_export_assets
+    # owns the content_snapshot write. This pins that update_delivery_record does
+    # not touch the snapshot column — it only patches status/asset_ids/recipient_results.
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="upd01", name="Update delivery")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-upd",
+            idempotency_key="idem-upd",
+            scheduled_at=None,
+        ),
+    )
+    # Snapshot the content written by create_delivery_record so we can assert
+    # update_delivery_record does not modify it.
+    original_row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    initial_content_snapshot = original_row.content_snapshot
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[101, 102],
+            recipient_results=[{"recipient": "r@example.com", "status": "success"}],
+            error=None,
+            finished=True,
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.status == SubscriptionDelivery.Status.COMPLETED
+    assert row.exported_asset_ids == [101, 102]
+    assert row.recipient_results == [{"recipient": "r@example.com", "status": "success"}]
+    assert row.content_snapshot == initial_content_snapshot
+    assert row.finished_at is not None
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_none_omits_collection_fields(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="omit01", name="Omit fields")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-omit",
+            idempotency_key="idem-omit",
+            scheduled_at=None,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[42],
+            recipient_results=[{"recipient": "a@b.com", "status": "success"}],
+            finished=True,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.FAILED,
+            error={"message": "downstream", "type": "RuntimeError"},
+            finished=True,
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.status == SubscriptionDelivery.Status.FAILED
+    assert row.exported_asset_ids == [42]
+    assert row.recipient_results == [{"recipient": "a@b.com", "status": "success"}]
+
+
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_update_delivery_record_empty_lists_persist(team, user):
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="empty01", name="Empty lists")
+    subscription = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
+
+    env = ActivityEnvironment()
+    delivery_id = await env.run(
+        create_delivery_record,
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            trigger_type=SubscriptionTriggerType.MANUAL,
+            temporal_workflow_id="wf-empty",
+            idempotency_key="idem-empty",
+            scheduled_at=None,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[1, 2],
+            recipient_results=[{"recipient": "x@y.com", "status": "success"}],
+            finished=True,
+        ),
+    )
+
+    await env.run(
+        update_delivery_record,
+        UpdateDeliveryRecordInputs(
+            delivery_id=delivery_id,
+            status=DeliveryStatus.COMPLETED,
+            exported_asset_ids=[],
+            recipient_results=[],
+            finished=True,
+        ),
+    )
+
+    row = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery_id)
+    assert row.exported_asset_ids == []
+    assert row.recipient_results == []
 
 
 @patch("posthog.slo.events.posthoganalytics")
@@ -420,8 +1173,18 @@ async def test_create_export_assets_dashboard_with_multiple_insights(
     )
 
     assert len(result.exported_asset_ids) == 3
-    # SLO started is emitted by the interceptor, not this activity
-    mock_analytics.capture.assert_not_called()
+    # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
+    # calls during snapshot build emit query_service SLO events — those are unrelated.
+    subscription_slo_calls = [
+        c
+        for c in mock_analytics.capture.call_args_list
+        if c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    assert subscription_slo_calls == []
+    assert any(
+        c.kwargs.get("properties", {}).get("operation") == SloOperation.QUERY_SERVICE
+        for c in mock_analytics.capture.call_args_list
+    )
 
 
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -496,7 +1259,7 @@ async def test_create_export_assets_empty_dashboard(team, user):
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_deliver_subscription_sends_email(
@@ -532,7 +1295,7 @@ async def test_deliver_subscription_sends_email(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_deliver_subscription_workflow_end_to_end(
@@ -558,12 +1321,7 @@ async def test_deliver_subscription_workflow_end_to_end(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -592,12 +1350,18 @@ async def test_deliver_subscription_workflow_end_to_end(
 
     # Both started and completed events flow through posthog.slo.events
     started_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_started"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_started"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(started_calls) == 1
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
@@ -606,7 +1370,7 @@ async def test_deliver_subscription_workflow_end_to_end(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_new_subscription_sends_invite_email(
     mock_send_email: MagicMock,
@@ -638,12 +1402,7 @@ async def test_new_subscription_sends_invite_email(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -675,7 +1434,7 @@ async def test_new_subscription_sends_invite_email(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_manual_send_uses_regular_template_not_invite(
     mock_send_email: MagicMock,
@@ -702,12 +1461,7 @@ async def test_manual_send_uses_regular_template_not_invite(
             activity_environment.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=50),
@@ -740,7 +1494,7 @@ async def test_manual_send_uses_regular_template_not_invite(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_scheduled_delivery_updates_next_delivery_date(
@@ -767,12 +1521,7 @@ async def test_scheduled_delivery_updates_next_delivery_date(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -833,7 +1582,7 @@ def _make_export_counter(fail_count: int, error_factory):
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_export_error_slo_outcome(
@@ -860,12 +1609,7 @@ async def test_export_error_slo_outcome(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -892,16 +1636,38 @@ async def test_export_error_slo_outcome(
     assert state["calls"] == expected_calls
 
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     assert completed_calls[0].kwargs["properties"]["outcome"] == expected_outcome
 
 
+@pytest.mark.parametrize(
+    "error_factory,expected_outcome,expected_error_type,expected_error_msg",
+    [
+        pytest.param(
+            lambda: RuntimeError("ClickHouse connection timeout"),
+            SloOutcome.FAILURE,
+            "PartialExportFailure",
+            "1 export(s) failed: RuntimeError",
+            id="non_user_error_sets_slo_error_type",
+        ),
+        pytest.param(
+            lambda: QueryError("Invalid HogQL query"),
+            SloOutcome.SUCCESS,
+            None,
+            None,
+            id="user_error_keeps_slo_success",
+        ),
+    ],
+)
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_partial_export_failure_delivers_successful_assets(
@@ -912,6 +1678,10 @@ async def test_partial_export_failure_delivers_successful_assets(
     temporal_client: Client,
     team,
     user,
+    error_factory,
+    expected_outcome: SloOutcome,
+    expected_error_type: str | None,
+    expected_error_msg: str | None,
 ):
     dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="partial fail", created_by=user)
     insights = []
@@ -922,12 +1692,11 @@ async def test_partial_export_failure_delivers_successful_assets(
 
     subscription = await sync_to_async(create_subscription)(team=team, dashboard=dashboard, created_by=user)
 
-    # First insight fails with a system error, the other two succeed
     fail_insight_id = insights[0].id
 
     def fake_export(asset_obj, **kwargs):
         if asset_obj.insight_id == fail_insight_id:
-            raise RuntimeError("ClickHouse connection timeout")
+            raise error_factory()
         asset_obj.content_location = "s3://bucket/ok.png"
         asset_obj.save(update_fields=["content_location"])
 
@@ -938,12 +1707,7 @@ async def test_partial_export_failure_delivers_successful_assets(
             env.client,
             task_queue=settings.TEMPORAL_TASK_QUEUE,
             workflows=[ProcessSubscriptionWorkflow],
-            activities=[
-                create_export_assets,
-                export_asset_activity,
-                deliver_subscription,
-                advance_next_delivery_date,
-            ],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
             interceptors=[SloInterceptor()],
             workflow_runner=UnsandboxedWorkflowRunner(),
             activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -973,12 +1737,500 @@ async def test_partial_export_failure_delivers_successful_assets(
         delivered_assets = call[0][2]  # third positional arg is assets list
         assert len(delivered_assets) == 3
 
-    # One subscription-level SLO event: failure (system error is a real SLO failure)
     completed_calls = [
-        c for c in mock_slo_analytics.capture.call_args_list if c.kwargs.get("event") == "slo_operation_completed"
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
     ]
     assert len(completed_calls) == 1
     props = completed_calls[0].kwargs["properties"]
-    assert props["outcome"] == SloOutcome.FAILURE
+    assert props["outcome"] == expected_outcome
     assert props["assets_with_content"] == 2
     assert props["total_assets"] == 3
+
+    # Non-user errors populate top-level error_type/error_message and asset_errors;
+    # user errors are reclassified as SUCCESS and filtered out of both.
+    if expected_error_type:
+        assert props["error_type"] == expected_error_type
+        assert props["error_message"] == expected_error_msg
+        assert len(props["asset_errors"]) == 1
+        assert "Traceback" in props["asset_errors"][0]["error_trace"]
+    else:
+        assert "error_type" not in props
+        assert props["asset_errors"] == []
+
+
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@pytest.mark.asyncio
+async def test_workflow_survives_large_insight_snapshot(
+    mock_build_snapshot: MagicMock,
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    # Regression test for Temporal payload size limit (TMPRL1103, ~2 MiB).
+    # A raw HogQL query with `LIMIT 50000` over 7 narrow columns produces ~4.4 MB
+    # of serialized query results. If those results are shuttled through an activity
+    # return value, the workflow fails before emails are ever dispatched.
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="bigrpt", name="Large Report")
+
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_value="test@posthog.com",
+    )
+
+    # Mirror the production repro: 50k rows of 7 short column values. Each row
+    # serializes to ~85-90 bytes, yielding a ~4 MB payload — about 2x Temporal's limit.
+    rows = [["01-Apr-26", "google", "cpc", "campaign-slug-1234", "TXN1234567", 1, 12.34] for _ in range(50_000)]
+    mock_build_snapshot.return_value = {
+        "id": insight.id,
+        "short_id": insight.short_id,
+        "name": insight.name,
+        "query_hash": "fake_hash",
+        "cache_key": "fake_cache_key",
+        "comparison_enabled": False,
+        "query_results": {
+            "columns": ["Date", "source", "medium", "campaign", "transactionID", "Orders", "Revenue"],
+            "results": rows,
+        },
+    }
+
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/big.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    trigger_type=SubscriptionTriggerType.MANUAL,
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Workflow must complete end-to-end despite the ~4 MB snapshot.
+    assert mock_send_email.call_count == 1
+
+    def _fetch_deliveries() -> list[SubscriptionDelivery]:
+        return list(SubscriptionDelivery.objects.filter(subscription=subscription).order_by("-created_at"))
+
+    deliveries = await sync_to_async(_fetch_deliveries)()
+    assert len(deliveries) == 1
+    assert deliveries[0].status == DeliveryStatus.COMPLETED
+
+    # Content snapshot must be persisted with full fidelity — the whole point of the
+    # SubscriptionDelivery history feature. Postgres JSONB has no 2 MiB ceiling.
+    content = deliveries[0].content_snapshot
+    assert "insights" in content
+    assert len(content["insights"]) == 1
+    assert len(content["insights"][0]["query_results"]["results"]) == 50_000
+
+
+async def test_fetch_due_subscriptions_excludes_disabled(team, user):
+    dashboard = await sync_to_async(Dashboard.objects.create)(team=team, name="dashboard", created_by=user)
+
+    now = datetime.now(tz=ZoneInfo("UTC"))
+
+    enabled_sub = await sync_to_async(Subscription.objects.create)(
+        team=team,
+        dashboard=dashboard,
+        title="enabled sub",
+        target_type="email",
+        target_value="vasco@posthog.com",
+        frequency="daily",
+        start_date=now,
+        enabled=True,
+    )
+    disabled_sub = await sync_to_async(Subscription.objects.create)(
+        team=team,
+        dashboard=dashboard,
+        title="disabled sub",
+        target_type="email",
+        target_value="vasco@posthog.com",
+        frequency="daily",
+        start_date=now,
+        enabled=False,
+    )
+
+    # The model's save() advances next_delivery_date to the future via rrule.
+    # Force both subs into the "due" window so the buffer alone doesn't filter them out.
+    await sync_to_async(Subscription.objects.filter(id__in=[enabled_sub.id, disabled_sub.id]).update)(
+        next_delivery_date=now,
+    )
+
+    env = ActivityEnvironment()
+    result = await env.run(
+        fetch_due_subscriptions_activity,
+        FetchDueSubscriptionsActivityInputs(buffer_minutes=15),
+    )
+    fetched_ids = {sub.subscription_id for sub in result}
+
+    assert enabled_sub.id in fetched_ids
+    assert disabled_sub.id not in fetched_ids
+
+
+@patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch(
+    "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
+)
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("posthog.slo.events.posthoganalytics")
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_deliver_subscription_emits_success_slo_when_disabling(
+    mock_slo_analytics: MagicMock,
+    mock_exporter: MagicMock,
+    mock_get_slack: MagicMock,
+    mock_build_snapshot: MagicMock,
+    mock_send_notification: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # The slack-missing-integration branch auto-disables and returns cleanly, so
+    # the SLO interceptor records outcome=success. Locks in as a regression invariant.
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="slo-d1", name="SLO disable")
+    mock_build_snapshot.return_value = {
+        "id": insight.id,
+        "short_id": str(insight.short_id),
+        "name": insight.name or "",
+        "dashboard_tile_id": None,
+        "query_hash": "mock_cache_key",
+        "cache_key": "mock_cache_key",
+        "query_results": {"result": []},
+    }
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="slack",
+        target_value="C12345|#test-channel",
+    )
+    await sync_to_async(ExportedAsset.objects.create)(
+        team=team,
+        insight=insight,
+        export_format="image/png",
+        content_location="s3://bucket/slo-disable.png",
+    )
+
+    # Stub out the actual export — the test insight has no series, so the
+    # real exporter would raise ValidationError and pollute the SLO outcome
+    # with PartialExportFailure before deliver_subscription even runs.
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/slo-disable.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=10),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ProcessSubscriptionWorkflow.run,
+                TrackedSubscriptionInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    slo=SloConfig(
+                        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+                        area=SloArea.ANALYTIC_PLATFORM,
+                        team_id=subscription.team_id,
+                        resource_id=str(subscription.id),
+                        distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                    ),
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # Sanity: auto-disable wired correctly.
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.enabled is False
+    mock_send_notification.assert_called_once()
+
+    delivery_completed_calls = [
+        c
+        for c in mock_slo_analytics.capture.call_args_list
+        if c.kwargs.get("event") == "slo_operation_completed"
+        and c.kwargs.get("properties", {}).get("operation") == SloOperation.SUBSCRIPTION_DELIVERY
+    ]
+    # At least one subscription_delivery completion was recorded.
+    assert delivery_completed_calls, "expected an slo_operation_completed event for subscription_delivery"
+
+    for call in delivery_completed_calls:
+        props = call.kwargs["properties"]
+        assert props["outcome"] == SloOutcome.SUCCESS, (
+            f"subscription_delivery SLO must stay success after auto-disable, got {props}"
+        )
+
+
+@sync_to_async
+def _create_ai_subscription(team, user, *, target_type="email", target_value="ai@posthog.com") -> Subscription:
+    return create_subscription(
+        team=team,
+        created_by=user,
+        prompt="Top events",
+        title="AI report",
+        target_type=target_type,
+        target_value=target_value,
+    )
+
+
+@sync_to_async
+def _create_ai_delivery(subscription: Subscription, *, report: str | None = None) -> SubscriptionDelivery:
+    return SubscriptionDelivery.objects.create(
+        subscription=subscription,
+        team=subscription.team,
+        temporal_workflow_id="wf-test",
+        idempotency_key=str(uuid.uuid4()),
+        trigger_type="scheduled",
+        target_type=subscription.target_type,
+        target_value=subscription.target_value,
+        content_snapshot={"ai_report": report} if report is not None else {},
+    )
+
+
+@sync_to_async
+def _set_ai_consent(team, approved: bool) -> None:
+    org = team.organization
+    org.is_ai_data_processing_approved = approved
+    org.save(update_fields=["is_ai_data_processing_approved"])
+
+
+def _ai_delivery_inputs(subscription_id: int, delivery_id) -> DeliverSubscriptionInputs:
+    return DeliverSubscriptionInputs(
+        subscription_id=subscription_id, exported_asset_ids=[], total_insight_count=0, delivery_id=delivery_id
+    )
+
+
+async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team, user):
+    await _set_ai_consent(team, False)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is True
+    error = result.recipient_results[0].error
+    assert error is not None and error["type"] == AI_CONSENT_REVOKED_DISABLE_REASON.key
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is False
+
+
+async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team, user):
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with (
+        patch(_GENERATE_MARKDOWN, side_effect=PromptRejectedError("Prompt is empty.")),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is True
+    # The PromptRejectedError detail must reach the delivery record, not be swallowed.
+    assert any(r.error and r.error.get("type") == "PromptRejectedError" for r in result.recipient_results), (
+        "prompt-rejected abort must carry the rejection detail in recipient_results"
+    )
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is False
+
+
+async def test_generate_ai_report_persists_report_for_delivery(team, user):
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with patch(_GENERATE_MARKDOWN, return_value="# Report"):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is False
+    # The report is handed to delivery via the row, not the activity return value.
+    refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
+    assert refreshed.content_snapshot["ai_report"] == "# Report"
+
+
+async def test_deliver_ai_subscription_sends_persisted_report_to_email(team, user):
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report"
+    ) as mock_send:
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    mock_send.assert_called_once()
+    assert mock_send.call_args.kwargs["markdown"] == "# Report"
+    assert result.recipient_results[0].status == "success"
+
+
+async def test_deliver_ai_subscription_missing_slack_integration_auto_disables(team, user):
+    sub = await _create_ai_subscription(team, user, target_type="slack", target_value="C123|#channel")
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
+            return_value=None,
+        ),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    error = result.recipient_results[0].error
+    assert error is not None and error["type"] == SLACK_DISCONNECTED_DISABLE_REASON.key
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is False
+
+
+async def test_deliver_ai_subscription_missing_report_raises_for_retry(team, user):
+    # Generation persists the report before delivery is scheduled; a missing report
+    # means the row was lost, so delivery must fail loudly rather than send an empty report.
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report=None)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+    # Non-retryable is the load-bearing behavior: re-running delivery can't regenerate the
+    # report, so Temporal must not retry.
+    assert exc_info.value.non_retryable is True
+
+
+async def test_deliver_ai_subscription_without_delivery_id_raises(team, user):
+    # The AI workflow always creates the delivery row before delivery; a None reference is
+    # a wiring bug, so it must fail rather than silently no-op.
+    sub = await _create_ai_subscription(team, user)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, None))
+    assert exc_info.value.non_retryable is True
+
+
+async def test_generate_ai_report_skips_regeneration_when_already_persisted(team, user):
+    # Idempotency on Temporal redispatch: a prior attempt already wrote the report, so the
+    # LLM pipeline must not run again (no re-bill).
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report="# Already here")
+
+    with patch(_GENERATE_MARKDOWN) as mock_generate:
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is False
+    mock_generate.assert_not_called()
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
+@patch(
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.generate_ai_subscription_markdown",
+    return_value="# AI Report",
+)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_schedule_routes_ai_subscription_through_full_workflow(
+    mock_generate: MagicMock,
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # End-to-end: the scheduler fans a due AI sub out to ProcessAISubscriptionWorkflow,
+    # which runs create-record -> validate -> generate (persist) -> deliver -> finalize.
+    # Activity-level tests don't catch wrong activity sequencing / input wiring; this does.
+    sub = await _create_ai_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # The LLM ran once, the report was shipped, and the delivery record landed COMPLETED.
+    mock_generate.assert_called_once()
+    mock_send_email.assert_called_once()
+    assert mock_send_email.call_args.kwargs["markdown"] == "# AI Report"
+    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
+    assert delivery.status == SubscriptionDelivery.Status.COMPLETED
+
+
+async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user):
+    sub = await _create_ai_subscription(team, user)
+    # `Subscription.save` recomputes next_delivery_date from the rrule, so write a past
+    # value via `.update()` to make it due.
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs(buffer_minutes=15)
+    )
+
+    match = next((s for s in fetched if s.subscription_id == sub.id), None)
+    assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
+    assert match.resource_type == Subscription.ResourceType.AI_PROMPT

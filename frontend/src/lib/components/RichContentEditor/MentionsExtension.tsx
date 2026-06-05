@@ -1,7 +1,6 @@
 import { PluginKey } from '@tiptap/pm/state'
 import { Editor, Extension, ReactRenderer } from '@tiptap/react'
 import Suggestion from '@tiptap/suggestion'
-import Fuse from 'fuse.js'
 import { useValues } from 'kea'
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from 'react'
 
@@ -9,6 +8,7 @@ import { LemonButton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { Popover } from 'lib/lemon-ui/Popover'
 import { isKeyOf } from 'lib/utils'
+import { createFuse } from 'lib/utils/fuseSearch'
 import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { OrganizationMemberType } from '~/types'
@@ -43,9 +43,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
     const [selectedHorizontalIndex, setSelectedHorizontalIndex] = useState(0)
 
     const fuse = useMemo(() => {
-        return new Fuse(meFirstMembers, {
+        return createFuse(meFirstMembers, {
             keys: ['id', 'user.email', 'user.first_name', 'user.last_name'],
-            threshold: 0.3,
         })
     }, [meFirstMembers])
 
@@ -61,8 +60,8 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
         setSelectedHorizontalIndex(0)
     }, [query])
 
-    const execute = async (member: OrganizationMemberType): Promise<void> => {
-        if (editor) {
+    const execute = async (member: OrganizationMemberType | undefined): Promise<void> => {
+        if (editor && member) {
             editor
                 .chain()
                 .focus()
@@ -81,15 +80,31 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
         }
     }
 
-    const onPressEnter = async (): Promise<void> => {
+    const onPressEnter = (): boolean => {
         const member = filteredMembers[selectedIndex]
-        await execute(member)
+        // No match (e.g. members still loading or no results) — let the editor
+        // handle Enter normally instead of swallowing it.
+        if (!member) {
+            return false
+        }
+        void execute(member)
+        return true
     }
-    const onPressUp = (): void => {
-        setSelectedIndex(Math.max(selectedIndex - 1, -1))
+    const onPressUp = (): boolean => {
+        const count = filteredMembers.length
+        if (count === 0) {
+            return true
+        }
+        setSelectedIndex((selectedIndex - 1 + count) % count)
+        return true
     }
-    const onPressDown = (): void => {
-        setSelectedIndex(Math.min(selectedIndex + 1, filteredMembers.length - 1))
+    const onPressDown = (): boolean => {
+        const count = filteredMembers.length
+        if (count === 0) {
+            return true
+        }
+        setSelectedIndex((selectedIndex + 1) % count)
+        return true
     }
 
     const onKeyDown = useCallback(
@@ -101,8 +116,7 @@ export const Mentions = forwardRef<MentionsRef, MentionsProps>(function SlashCom
             }
 
             if (isKeyOf(event.key, keyMappings)) {
-                keyMappings[event.key]()
-                return true
+                return keyMappings[event.key]()
             }
 
             return false

@@ -115,7 +115,7 @@ function isErrorMessage(message: ThreadMessage): boolean {
 }
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
-    const { conversationLoading, conversationId } = useValues(maxLogic)
+    const { conversationLoading, messagesLoading, conversationId } = useValues(maxLogic)
     const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
     const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
@@ -137,7 +137,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 className
             )}
         >
-            {conversationLoading && threadGrouped.length === 0 ? (
+            {(conversationLoading || messagesLoading) && threadGrouped.length === 0 ? (
                 <>
                     <MessageGroupSkeleton groupType="human" />
                     <MessageGroupSkeleton groupType="ai" className="opacity-80" />
@@ -1599,11 +1599,11 @@ function SuccessActions({
                 )}
                 {(user?.is_staff || isDev) && traceId && (
                     <LemonButton
-                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.llmAnalyticsTrace(traceId)}`}
+                        to={`${preflight?.region === Region.EU ? 'https://us.posthog.com/project/2' : ''}${urls.aiObservabilityTrace(traceId)}`}
                         icon={<IconEye />}
                         type="tertiary"
                         size="xsmall"
-                        tooltip="View trace in LLM analytics"
+                        tooltip="View trace in AI observability"
                     />
                 )}
             </div>

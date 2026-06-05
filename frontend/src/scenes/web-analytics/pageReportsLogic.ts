@@ -14,6 +14,7 @@ import {
     WebAnalyticsPropertyFilters,
     WebPageURLSearchQuery,
     WebStatsBreakdown,
+    WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -41,6 +42,7 @@ import {
     WebTileLayout,
     parseWebAnalyticsURL,
 } from './common'
+import { PROPERTY_PATHNAME } from './constants'
 import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
@@ -210,16 +212,47 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             {
                 loadPagesUrls: async ({ searchTerm }: { searchTerm: string }, breakpoint) => {
                     await breakpoint(100) // debounce the typing
+                    const dateRange = {
+                        date_from: values.dateFilter.dateFrom,
+                        date_to: values.dateFilter.dateTo,
+                    }
+
+                    if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
+                        const response = await api.query<WebStatsTableQuery>(
+                            setLatestVersionsOnQuery({
+                                kind: NodeKind.WebStatsTableQuery,
+                                breakdownBy: WebStatsBreakdown.Page,
+                                includeHost: true,
+                                dateRange,
+                                properties: searchTerm
+                                    ? [
+                                          {
+                                              type: PropertyFilterType.Event,
+                                              key: PROPERTY_PATHNAME,
+                                              operator: PropertyOperator.IContains,
+                                              value: searchTerm,
+                                          },
+                                      ]
+                                    : [],
+                                limit: 100,
+                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                            })
+                        )
+                        breakpoint()
+                        return (response.results ?? []).flatMap((row): PageURLSearchResult[] => {
+                            const url = Array.isArray(row) ? row[0] : null
+                            return typeof url === 'string' && url ? [{ url }] : []
+                        })
+                    }
+
                     const response = await api.query<WebPageURLSearchQuery>(
                         setLatestVersionsOnQuery({
                             kind: NodeKind.WebPageURLSearchQuery,
                             searchTerm: searchTerm,
                             stripQueryParams: true,
-                            dateRange: {
-                                date_from: values.dateFilter.dateFrom,
-                                date_to: values.dateFilter.dateTo,
-                            },
+                            dateRange,
                             properties: [],
+                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                         })
                     )
                     breakpoint() // ensure that if more typing has happened since we sent the request, we don't update the state
@@ -732,7 +765,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         ],
     },
 
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         setPageUrlSearchTerm: ({ searchTerm }) => {
             actions.loadPages(searchTerm)
         },
@@ -741,6 +774,11 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         },
         loadPages: ({ searchTerm }) => {
             actions.loadPagesUrls({ searchTerm })
+        },
+        setDates: () => {
+            if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
+                actions.loadPages(values.pageUrlSearchTerm)
+            }
         },
     }),
 

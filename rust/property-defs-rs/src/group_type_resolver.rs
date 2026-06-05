@@ -1,9 +1,10 @@
 use personhog_proto::personhog::{
     service::v1::person_hog_service_client::PersonHogServiceClient,
-    types::v1::GetGroupTypeMappingsByTeamIdsRequest,
+    types::v1::{ConsistencyLevel, GetGroupTypeMappingsByTeamIdsRequest, ReadOptions},
 };
 use quick_cache::sync::Cache;
 use std::collections::HashMap;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::Channel;
 use tracing::{info, warn};
 
@@ -38,7 +39,10 @@ impl GroupTypeResolver {
                         connect_timeout_ms = config.personhog_connect_timeout_ms,
                         "Created personhog gRPC client"
                     );
-                    Some(PersonHogServiceClient::new(channel))
+                    Some(
+                        PersonHogServiceClient::new(channel)
+                            .accept_compressed(CompressionEncoding::Gzip),
+                    )
                 }
                 Err(e) => {
                     warn!(
@@ -140,13 +144,29 @@ impl GroupTypeResolver {
             ids.into_iter().map(|id| id as i64).collect()
         };
 
+        let consistency = ConsistencyLevel::Eventual;
         let mut request = tonic::Request::new(GetGroupTypeMappingsByTeamIdsRequest {
             team_ids: unique_team_ids,
-            read_options: None,
+            read_options: Some(ReadOptions {
+                consistency: consistency.into(),
+                ..Default::default()
+            }),
         });
-        request
-            .metadata_mut()
-            .insert("x-client-name", "property-defs-rs".parse().unwrap());
+        let metadata = request.metadata_mut();
+        metadata.insert("x-client-name", "property-defs-rs".parse().unwrap());
+        metadata.insert(
+            "x-caller-tag",
+            "property-defs/group-type-resolution".parse().unwrap(),
+        );
+        metadata.insert(
+            "x-read-consistency",
+            match consistency {
+                ConsistencyLevel::Strong => "strong",
+                _ => "eventual",
+            }
+            .parse()
+            .unwrap(),
+        );
 
         let response = client.get_group_type_mappings_by_team_ids(request).await?;
 

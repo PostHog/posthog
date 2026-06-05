@@ -160,6 +160,8 @@ mod tests {
                 skip_person_processing: false,
                 redirect_to_dlq: false,
                 redirect_to_topic: None,
+                skip_heatmap_processing: false,
+                overflow_reason: None,
             },
         };
 
@@ -209,6 +211,8 @@ mod tests {
                 skip_person_processing: false,
                 redirect_to_dlq: false,
                 redirect_to_topic: None,
+                skip_heatmap_processing: false,
+                overflow_reason: None,
             },
         };
 

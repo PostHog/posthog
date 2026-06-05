@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import React from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -7,16 +6,13 @@ import {
     LemonCheckbox,
     LemonInput,
     LemonSelect,
-    LemonFileInput,
     LemonTextArea,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { BatchExportConfigurationForm } from './types'
 
@@ -97,9 +93,6 @@ export function BatchExportsEditFields({
     batchExportConfigForm: BatchExportConfigurationForm
     configurationChanged: boolean
 }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const bigQueryIntegrationEnabled = featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
-
     return (
         <div className="flex flex-col gap-y-4 max-w-200">
             {batchExportConfigForm.destination === 'S3' ? (
@@ -140,7 +133,8 @@ export function BatchExportsEditFields({
                                     { value: 'me-central-1', label: 'Middle East (Riyadh)' },
                                     { value: 'sa-east-1', label: 'South America (São Paulo)' },
                                     // GCP
-                                    { value: 'us-central1', label: 'US Central (Iowa)' },
+                                    { value: 'us-central1', label: 'GCP — US Central (Iowa)' },
+                                    { value: 'europe-west4', label: 'GCP — Europe (Netherlands)' },
                                     // Cloudflare R2
                                     { value: 'auto', label: 'Automatic (AUTO)' },
                                     { value: 'apac', label: 'Asia Pacific (APAC)' },
@@ -290,11 +284,18 @@ export function BatchExportsEditFields({
 
                     <div className="flex gap-4">
                         <LemonField name="aws_access_key_id" label="AWS Access Key ID" className="flex-1">
-                            <LemonInput placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'} />
+                            <LemonInput
+                                placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
+                                autoComplete="off"
+                            />
                         </LemonField>
 
                         <LemonField name="aws_secret_access_key" label="AWS Secret Access Key" className="flex-1">
-                            <LemonInput placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'} type="password" />
+                            <LemonInput
+                                placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
+                                type="password"
+                                autoComplete="new-password"
+                            />
                         </LemonField>
 
                         {batchExportConfigForm.encryption == 'aws:kms' && (
@@ -579,7 +580,10 @@ export function BatchExportsEditFields({
                                     label="AWS Access Key ID"
                                     className="flex-1"
                                 >
-                                    <LemonInput placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'} />
+                                    <LemonInput
+                                        placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
+                                        autoComplete="off"
+                                    />
                                 </LemonField>
 
                                 <LemonField
@@ -590,6 +594,7 @@ export function BatchExportsEditFields({
                                     <LemonInput
                                         placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
                                         type="password"
+                                        autoComplete="new-password"
                                     />
                                 </LemonField>
                             </div>
@@ -630,6 +635,7 @@ export function BatchExportsEditFields({
                                     >
                                         <LemonInput
                                             placeholder={isNew ? 'e.g. AKIAIOSFODNN7EXAMPLE' : 'Leave unchanged'}
+                                            autoComplete="off"
                                         />
                                     </LemonField>
 
@@ -641,6 +647,7 @@ export function BatchExportsEditFields({
                                         <LemonInput
                                             placeholder={isNew ? 'e.g. secret-key' : 'Leave unchanged'}
                                             type="password"
+                                            autoComplete="new-password"
                                         />
                                     </LemonField>
                                 </div>
@@ -650,21 +657,15 @@ export function BatchExportsEditFields({
                 </>
             ) : batchExportConfigForm.destination === 'BigQuery' ? (
                 <>
-                    {bigQueryIntegrationEnabled ? (
-                        <LemonField name="integration_id" label="Integration">
-                            {({ value, onChange }) => (
-                                <IntegrationChoice
-                                    integration="google-cloud-service-account"
-                                    value={value}
-                                    onChange={onChange}
-                                />
-                            )}
-                        </LemonField>
-                    ) : (
-                        <LemonField name="json_config_file" label="Google Cloud JSON key file">
-                            <LemonFileInput accept=".json" multiple={false} />
-                        </LemonField>
-                    )}
+                    <LemonField name="integration_id" label="Integration">
+                        {({ value, onChange }) => (
+                            <IntegrationChoice
+                                integration="google-cloud-service-account"
+                                value={value}
+                                onChange={onChange}
+                            />
+                        )}
+                    </LemonField>
 
                     <LemonField name="table_id" label="Table ID">
                         <LemonInput placeholder="events" />
@@ -729,6 +730,7 @@ export function BatchExportsEditFields({
                                         <span className="flex gap-2 items-center">
                                             Use VARIANT type for storing JSON data
                                             <Tooltip
+                                                interactive
                                                 title={
                                                     <>
                                                         Using VARIANT for storing JSON data is{' '}

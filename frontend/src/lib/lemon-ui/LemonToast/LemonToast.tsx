@@ -3,10 +3,9 @@ import { toast, type ToastOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
+import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { isChristmas } from 'lib/holidays'
 import { hashCodeForString } from 'lib/utils'
-
-import { getIncidentStatus, INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
 
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
@@ -99,7 +98,7 @@ function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
     return (
         <>
             <span className="block">{message}</span>
-            <Link className="block text-xs mt-1 opacity-75" to={INCIDENT_IO_STATUS_PAGE_BASE} target="_blank">
+            <Link className="block text-xs mt-1 opacity-75" to={STATUS_PAGE_BASE} target="_blank">
                 There is an ongoing incident that may be related.
             </Link>
         </>

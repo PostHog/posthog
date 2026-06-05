@@ -16,6 +16,7 @@ import {
     IconHide,
     IconLeave,
     IconLive,
+    IconMessage,
     IconNight,
     IconPieChart,
     IconQuestion,
@@ -36,6 +37,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 
 import { ActionsToolbarMenu } from '~/toolbar/actions/ActionsToolbarMenu'
+import { AuthConfirmModal } from '~/toolbar/bar/AuthConfirmModal'
 import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
@@ -48,6 +50,9 @@ import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToo
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
 import { ScreenshotUploadModal } from '~/toolbar/screenshot-upload/ScreenshotUploadModal'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
+import { SurveySidebar } from '~/toolbar/surveys/SurveySidebar'
+import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
+import { SurveysToolbarMenu } from '~/toolbar/surveys/SurveysToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { WebVitalsToolbarMenu } from '~/toolbar/web-vitals/WebVitalsToolbarMenu'
@@ -314,11 +319,11 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
     const { isAuthenticated } = useValues(toolbarConfigLogic)
 
-    const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
-    const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
-
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const showSurveys = surveysFlag
 
     const content = minimized ? null : visibleMenu === 'flags' ? (
         <FlagsToolbarMenu />
@@ -330,10 +335,12 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <EventDebugMenu />
     ) : visibleMenu === 'web-vitals' ? (
         <WebVitalsToolbarMenu />
-    ) : visibleMenu === 'experiments' && showExperiments ? (
+    ) : visibleMenu === 'experiments' ? (
         <ExperimentsToolbarMenu />
     ) : visibleMenu === 'product-tours' && showProductTours ? (
         <ProductToursToolbarMenu />
+    ) : visibleMenu === 'surveys' && showSurveys ? (
+        <SurveysToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -379,15 +386,18 @@ export function Toolbar(): JSX.Element | null {
         useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred, completeGracefulExit } =
         useActions(toolbarLogic)
-    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible } = useValues(toolbarConfigLogic)
-    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal } = useActions(toolbarConfigLogic)
+    const { isAuthenticated, userIntent, authStatus, uiHostConfigModalVisible, authConfirmModalVisible } =
+        useValues(toolbarConfigLogic)
+    const { authenticate, openUiHostConfigModal, closeUiHostConfigModal, closeAuthConfirmModal } =
+        useActions(toolbarConfigLogic)
     const { selectedTourId, isPreviewing } = useValues(productToursLogic)
-
-    const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
-    const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
+    const { isCreating: isSurveyCreating } = useValues(surveysToolbarLogic)
 
     const productToursFlag = useToolbarFeatureFlag('product-tours-2025')
     const showProductTours = inStorybook() || inStorybookTestRunner() || productToursFlag
+
+    const surveysFlag = useToolbarFeatureFlag('surveys-toolbar')
+    const showSurveys = surveysFlag
 
     useEffect(() => {
         setElement(ref.current)
@@ -423,11 +433,12 @@ export function Toolbar(): JSX.Element | null {
         return null
     }
 
-    const showSidebar = selectedTourId !== null && !isPreviewing
+    const showToursSidebar = selectedTourId !== null && !isPreviewing
 
     return (
         <>
-            {showSidebar && <ProductToursSidebar />}
+            {showToursSidebar && <ProductToursSidebar />}
+            {isSurveyCreating && <SurveySidebar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -435,8 +446,9 @@ export function Toolbar(): JSX.Element | null {
                     'Toolbar--minimized': minimized,
                     'Toolbar--hedgehog-mode': hedgehogMode,
                     'Toolbar--dragging': isDragging,
-                    'Toolbar--extra-buttons-1': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 1,
-                    'Toolbar--extra-buttons-2': (showExperiments ? 1 : 0) + (showProductTours ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-1': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 1,
+                    'Toolbar--extra-buttons-2': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 2,
+                    'Toolbar--extra-buttons-3': 1 + (showProductTours ? 1 : 0) + (showSurveys ? 1 : 0) === 3,
                 })}
                 onMouseDown={(e) => onMouseOrTouchDown(e.nativeEvent)}
                 onTouchStart={(e) => onMouseOrTouchDown(e.nativeEvent)}
@@ -480,14 +492,17 @@ export function Toolbar(): JSX.Element | null {
                         <ToolbarButton menuId="web-vitals" title="Web vitals">
                             <IconPieChart />
                         </ToolbarButton>
-                        {showExperiments && (
-                            <ToolbarButton menuId="experiments" title="Experiments">
-                                <IconFlask />
-                            </ToolbarButton>
-                        )}
+                        <ToolbarButton menuId="experiments" title="Experiments">
+                            <IconFlask />
+                        </ToolbarButton>
                         {showProductTours && (
                             <ToolbarButton menuId="product-tours" title="Product tours">
                                 <IconSpotlight />
+                            </ToolbarButton>
+                        )}
+                        {showSurveys && (
+                            <ToolbarButton menuId="surveys" title="Surveys">
+                                <IconMessage />
                             </ToolbarButton>
                         )}
                     </>
@@ -513,6 +528,7 @@ export function Toolbar(): JSX.Element | null {
                     </ToolbarButton>
                 )}
                 <UiHostConfigModal visible={uiHostConfigModalVisible} onClose={closeUiHostConfigModal} />
+                <AuthConfirmModal visible={authConfirmModalVisible} onClose={closeAuthConfirmModal} />
 
                 <MoreMenu />
             </div>

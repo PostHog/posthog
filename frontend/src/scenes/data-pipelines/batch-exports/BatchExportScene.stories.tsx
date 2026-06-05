@@ -31,6 +31,9 @@ const meta: Meta = {
                 '/api/environments/:team_id/batch_exports/test/': { steps: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/runs/`]: { results: [] },
                 [`/api/environments/:team_id/batch_exports/${EXISTING_EXPORT.id}/backfills/`]: { results: [] },
+                // Integration-backed destinations (Databricks, AzureBlob, BigQuery) render IntegrationChoice.
+                '/api/environments/:team_id/integrations': { results: [] },
+                '/api/projects/:team_id/integrations': { results: [] },
             },
         }),
     ],
@@ -39,9 +42,55 @@ export default meta
 
 type Story = StoryObj<{}>
 
+// One new-export story per destination so visual regression covers each destination's
+// edit form (the per-destination `Fields` components in destinations/). The default
+// configuration drives any conditional UI: Redshift defaults to COPY (shows the S3
+// staging section), Snowflake to password auth.
 export const NewS3Export: Story = {
     parameters: {
         pageUrl: urls.batchExportNew('s3'),
+    },
+}
+
+export const NewSnowflakeExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('snowflake'),
+    },
+}
+
+export const NewPostgresExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('postgres'),
+    },
+}
+
+export const NewRedshiftExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('redshift'),
+    },
+}
+
+export const NewHTTPExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('http'),
+    },
+}
+
+export const NewDatabricksExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('databricks'),
+    },
+}
+
+export const NewAzureBlobExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('azureblob'),
+    },
+}
+
+export const NewBigQueryExport: Story = {
+    parameters: {
+        pageUrl: urls.batchExportNew('bigquery'),
     },
 }
 
@@ -146,6 +195,8 @@ const MOCK_RUNS: RawBatchExportRun[] = [
         data_interval_start: '2024-01-15T08:00:00Z',
         data_interval_end: '2024-01-15T09:00:00Z',
         last_updated_at: '2024-01-15T09:04:00Z',
+        latest_error:
+            'NotFound: 404 POST https://bigquery.googleapis.com/bigquery/v2/projects/posthog-301601/datasets/BatchExports/tables?prettyPrint=false: Not found: Dataset posthog-301601:BatchExports',
     },
     {
         id: 'run-004',

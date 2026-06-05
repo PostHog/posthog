@@ -3,10 +3,8 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'scenes/data-warehouse/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -31,6 +29,8 @@ import {
     shouldQueryBeAsync,
 } from '~/queries/utils'
 import { ExportContext, InsightLogicProps, InsightType } from '~/types'
+
+import { DATAWAREHOUSE_EDITOR_ITEM_ID } from 'products/data_warehouse/frontend/utils'
 
 import { teamLogic } from '../teamLogic'
 import type { insightDataLogicType } from './insightDataLogicType'
@@ -73,7 +73,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setInsight', 'setInsightMetadata'],
+            ['setInsight', 'setInsightMetadata', 'loadInsightSuccess'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
         ],
@@ -122,7 +122,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
                     try {
                         const query =
-                            insightQuery.kind === NodeKind.ActorsQuery
+                            insightQuery.kind === NodeKind.ActorsQuery ||
+                            insightQuery.kind === NodeKind.EventsQuery ||
+                            insightQuery.kind === NodeKind.GroupsQuery
                                 ? insightQuery
                                 : { kind: NodeKind.InsightVizNode, source: insightQuery }
                         const response = await api.insights.generateMetadata(query)
@@ -132,7 +134,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                         return { name: response.name, description: response.description }
                     } catch (e) {
                         eventUsageLogic.actions.reportInsightMetadataAiGenerationFailed(insightQuery.kind)
-                        lemonToast.error('Failed to generate name and description')
                         throw e
                     }
                 },
@@ -252,6 +253,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return undefined
             },
         ],
+        canEditInSqlEditor: [
+            (s) => [s.hogQL, s.query],
+            (hogQL, query): boolean =>
+                // We need a resolved hogql string, and the insight must not already be SQL-authored
+                // (otherwise "Edit in SQL editor" is a no-op).
+                hogQL != null &&
+                !isHogQLQuery(query) &&
+                !(isDataVisualizationNode(query) && isHogQLQuery(query.source)),
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -278,6 +288,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             if (result) {
                 actions.setInsightData({ ...values.insightData, result })
+            }
+        },
+        loadInsightSuccess: ({ insight }) => {
+            // `internalQuery` wins over `insight.query` in the `query` selector, and the SQL editor
+            // updates a different logic instance — so a reload alone leaves this scene on the stale
+            // query until a hard refresh. Re-sync the override to the freshly loaded query.
+            if (insight.query && !objectsEqual(insight.query, values.query)) {
+                actions.syncQueryFromProps(insight.query)
             }
         },
         cancelChanges: () => {

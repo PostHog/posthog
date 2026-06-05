@@ -102,6 +102,11 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.STRING, 'bla', op.CALL_GLOBAL, 'toFloat', 1], options)).toBe(null)
         expect(execSync(['_h', op.STRING, 'asd', op.CALL_GLOBAL, 'toUUID', 1], options)).toBe('asd')
 
+        const r = execSync(['_h', op.CALL_GLOBAL, 'randomFloat', 0], options) as number
+        expect(typeof r).toBe('number')
+        expect(r).toBeGreaterThanOrEqual(0)
+        expect(r).toBeLessThan(1)
+
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.EQ], options)).toBe(false)
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
     })
@@ -389,6 +394,11 @@ describe('hogvm execute', () => {
             (await execAsync(['_h', op.STRING, '2', op.CALL_GLOBAL, 'stringify', 1, op.RETURN], { asyncFunctions }))
                 .result
         ).toBe('zero')
+    })
+
+    test.each(['hasOwnProperty', 'constructor', '__proto__'])('global dispatch rejects inherited name %s', (name) => {
+        const bytecode = ['_h', op.CALL_GLOBAL, name, 0, op.RETURN]
+        expect(() => execSync(bytecode, { asyncFunctions: {} })).toThrow(`Unsupported function call: ${name}`)
     })
 
     test('bytecode variable assignment', async () => {
@@ -1911,7 +1921,7 @@ describe('hogvm execute', () => {
     test('ternary', () => {
         const values: any[] = []
         const functions = {
-            noisy_print: (e) => {
+            noisy_print: (e: any) => {
                 values.push(e)
                 return e
             },
@@ -1953,7 +1963,7 @@ describe('hogvm execute', () => {
     test('ifNull', () => {
         const values: any[] = []
         const functions = {
-            noisy_print: (e) => {
+            noisy_print: (e: any) => {
                 values.push(e)
                 return e
             },

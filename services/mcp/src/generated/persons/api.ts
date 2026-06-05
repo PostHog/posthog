@@ -79,7 +79,7 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
                                         '* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte\n* `is_set` - is_set\n* `is_not_set` - is_not_set\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before\n* `in` - in\n* `not_in` - not_in'
                                     ),
                                 zod.enum(['']),
-                                zod.literal(null),
+                                zod.null(),
                             ])
                             .default(personsListQueryPropertiesItemValuesItemOperatorDefault),
                         type: zod

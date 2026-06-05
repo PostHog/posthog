@@ -23,8 +23,10 @@ export enum TaskRunEnvironment {
 }
 
 export interface TaskRunArtifact {
+    id?: string
     name: string
     type: string
+    source?: string
     size?: number
     content_type?: string
     storage_path: string
@@ -58,6 +60,7 @@ export interface Task {
     repository: string | null
     github_integration: number | null
     json_schema: Record<string, any> | null
+    internal: boolean
     latest_run: TaskRun | null
     created_at: string
     updated_at: string
@@ -74,6 +77,17 @@ export type TaskUpsertProps = Optional<
     Pick<Task, 'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'>,
     'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'
 >
+
+export interface TaskListParams {
+    created_by?: number
+    repository?: string
+    organization?: string
+    stage?: string
+    origin_product?: string
+    internal?: boolean
+    search?: string
+    status?: TaskRunStatus
+}
 
 export interface KanbanColumn {
     id: string

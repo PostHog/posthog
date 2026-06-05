@@ -8,10 +8,10 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import EventSource
-from posthog.models import FeatureFlag
 
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.utils.types import AssistantState
 
@@ -165,8 +165,10 @@ class TestCreateExperimentTool(APIBaseTest):
             "metrics_count": 0,
             "secondary_metrics_count": 0,
             "has_description": False,
+            "has_conclusion_comment": False,
             "variant_count": 2,
             "created_at": ANY,
+            "creation_mode": "new",
             "source": EventSource.POSTHOG_AI,
         }
         assert mock_report_user_action.call_args.kwargs["team"] == self.team

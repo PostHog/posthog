@@ -9,7 +9,8 @@ import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { TimeSensitiveAuthenticationModal } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { GlobalCustomUnitModal } from 'lib/components/UnitPicker/GlobalCustomUnitModal'
 import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
-import { TwoFactorSetupModal } from 'scenes/authentication/TwoFactorSetupModal'
+import { bindModalToUrl } from 'lib/logic/bindModalToUrl'
+import { TwoFactorSetupModal } from 'scenes/authentication/two-factor-setup/TwoFactorSetupModal'
 import { PaymentEntryModal } from 'scenes/billing/PaymentEntryModal'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { CreateProjectModal } from 'scenes/project/CreateProjectModal'
@@ -17,12 +18,18 @@ import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/Sessi
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
+import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
+import { promotedProductLogic } from '~/layout/panel-layout/ai-first/promotedProductLogic'
+
+import { ComposeTicketModal } from 'products/conversations/frontend/components/ComposeTicket'
 import { LogsViewerModal } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal'
 
 import type { globalModalsLogicType } from './GlobalModalsType'
 import { navigationLogic } from './navigation/navigationLogic'
-import { ConfigurePinnedTabsModal } from './scenes/ConfigurePinnedTabsModal'
+import { ConfigureHomeModal } from './scenes/ConfigureHomeModal'
+import { ConfigurePromotedProductModal } from './scenes/ConfigurePromotedProductModal'
+import { GoodbyeTabsModal } from './scenes/GoodbyeTabsModal'
 
 export const globalModalsLogic = kea<globalModalsLogicType>([
     path(['layout', 'navigation', 'globalModalsLogic']),
@@ -48,6 +55,12 @@ export const globalModalsLogic = kea<globalModalsLogicType>([
             },
         ],
     }),
+    bindModalToUrl({
+        urlKey: 'create-organization',
+        openActionKey: 'showCreateOrganizationModal',
+        closeActionKey: 'hideCreateOrganizationModal',
+        isOpenKey: 'isCreateOrganizationModalShown',
+    }),
 ])
 
 export function GlobalModals(): JSX.Element {
@@ -56,8 +69,10 @@ export function GlobalModals(): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
     const { superpowersEnabled } = useValues(superpowersLogic)
-    const { isConfigurePinnedTabsModalOpen } = useValues(navigationLogic)
-    const { hideConfigurePinnedTabsModal } = useActions(navigationLogic)
+    const { isConfigureHomeModalOpen } = useValues(navigationLogic)
+    const { hideConfigureHomeModal } = useActions(navigationLogic)
+    const { isConfigureModalOpen: isConfigurePromotedProductModalOpen } = useValues(promotedProductLogic)
+    const { hideConfigureModal: hideConfigurePromotedProductModal } = useActions(promotedProductLogic)
 
     return (
         <>
@@ -77,7 +92,14 @@ export function GlobalModals(): JSX.Element {
             <LinkToModal />
             <ItemSelectModal />
             {superpowersEnabled && <SuperpowersModal />}
-            <ConfigurePinnedTabsModal isOpen={isConfigurePinnedTabsModalOpen} onClose={hideConfigurePinnedTabsModal} />
+            <ConfigureHomeModal isOpen={isConfigureHomeModalOpen} onClose={hideConfigureHomeModal} />
+            <ConfigurePromotedProductModal
+                isOpen={isConfigurePromotedProductModalOpen}
+                onClose={hideConfigurePromotedProductModal}
+            />
+            <GoodbyeTabsModal />
+            <MaybeWelcomeDialog />
+            <ComposeTicketModal />
         </>
     )
 }

@@ -7,17 +7,16 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
+import { ReactInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
         <CodeSnippet language={Language.Bash}>
-            {[
-                `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`,
-                `VITE_PUBLIC_POSTHOG_HOST=${apiHostOrigin()}`,
-            ].join('\n')}
+            {[`VITE_POSTHOG_PROJECT_TOKEN=${currentTeam?.api_token}`, `VITE_POSTHOG_HOST=${apiHostOrigin()}`].join(
+                '\n'
+            )}
         </CodeSnippet>
     )
 }
@@ -29,16 +28,16 @@ function ReactSetupSnippet(): JSX.Element {
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { PostHogProvider } from 'posthog-js/react'
+import { PostHogProvider } from '@posthog/react'
 
 const options = {
-  api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+  api_host: import.meta.env.VITE_POSTHOG_HOST,
   defaults: '${SDK_DEFAULTS_DATE}',
 } as const
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <PostHogProvider apiKey={import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN} options={options}>
+    <PostHogProvider apiKey={import.meta.env.VITE_POSTHOG_PROJECT_TOKEN} options={options}>
       <App />
     </PostHogProvider>
   </StrictMode>
@@ -52,7 +51,7 @@ export function SDKInstallReactInstructions({ hideWizard }: { hideWizard?: boole
         <>
             <SetupWizardBanner integrationName="React" hide={hideWizard} />
             <h3>Install the package</h3>
-            <JSInstallSnippet />
+            <ReactInstallSnippet />
             <h3>Add environment variables</h3>
             <ReactEnvVarsSnippet />
             <h3>Initialize</h3>

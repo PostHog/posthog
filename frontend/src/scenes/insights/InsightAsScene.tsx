@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -11,7 +11,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
 import { Node } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isInsightVizNode } from '~/queries/utils'
+import { containsHogQLQuery, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { teamLogic } from '../teamLogic'
@@ -41,7 +41,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         filtersOverride,
         variablesOverride,
     })
-    const { insightProps, accessDeniedToInsight } = useValues(logic)
+    const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
 
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
@@ -56,8 +56,6 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
     // other logics
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
-
-    const editorPanelsEnabled = useFeatureFlag('PRODUCT_ANALYTICS_SIMPLE_EDITOR', 'test')
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
@@ -76,13 +74,13 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
         return null
     }
 
-    const fullHeightEdit = editorPanelsEnabled && insightMode === ItemMode.Edit
+    const isEditing = insightMode === ItemMode.Edit
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
-            <SceneContent className={clsx('Insight', fullHeightEdit && '!gap-0')}>
-                {fullHeightEdit ? (
+            <SceneContent className={clsx('Insight', isEditing && '!gap-0')}>
+                {isEditing ? (
                     <div className="flex flex-col gap-y-4 shrink-0">
                         <InsightSceneHeader insightLogicProps={insightProps} />
                     </div>
@@ -90,21 +88,26 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
                     <InsightSceneHeader insightLogicProps={insightProps} />
                 )}
 
-                <Query
-                    attachTo={attachTo}
-                    query={isInsightVizNode(query) ? { ...query, full: true } : query}
-                    setQuery={setQuery}
-                    readOnly={insightMode !== ItemMode.Edit}
-                    editMode={insightMode === ItemMode.Edit}
-                    context={{
-                        showOpenEditorButton: false,
-                        showQueryEditor: actuallyShowQueryEditor,
-                        showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
-                        insightProps,
-                    }}
-                    filtersOverride={filtersOverride}
-                    variablesOverride={variablesOverride}
-                />
+                {isDataVisualizationNode(query) && insightLoading ? (
+                    // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
+                    <LemonSkeleton className="h-100 w-full" />
+                ) : (
+                    <Query
+                        attachTo={attachTo}
+                        query={isInsightVizNode(query) ? { ...query, full: true } : query}
+                        setQuery={setQuery}
+                        readOnly={insightMode !== ItemMode.Edit}
+                        editMode={insightMode === ItemMode.Edit}
+                        context={{
+                            showOpenEditorButton: false,
+                            showQueryEditor: actuallyShowQueryEditor,
+                            showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                            insightProps,
+                        }}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                    />
+                )}
             </SceneContent>
         </BindLogic>
     )

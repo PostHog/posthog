@@ -12,6 +12,7 @@ import structlog
 import posthoganalytics
 from dateutil import parser
 from drf_spectacular.utils import extend_schema, inline_serializer
+from opentelemetry import trace
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -20,24 +21,30 @@ from rest_framework.response import Response
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.documentation import _FallbackSerializer
+from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.batch_exports.models import BatchExportRun
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
-from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.security.outbound_proxy import internal_requests as _internal_requests
 from posthog.utils import convert_property_value, flatten
 
-from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -45,72 +52,85 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     API endpoints for data warehouse aggregate statistics and operations.
     """
 
-    scope_object = "INTERNAL"
+    # warehouse_view inherits from warehouse_objects; reads require viewer access,
+    # write actions (see required_scopes below) require editor access.
+    scope_object = "warehouse_view"
+    serializer_class = _FallbackSerializer
 
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def property_values(self, request: Request, **kwargs) -> Response:
-        key = request.GET.get("key")
-        table_name = request.GET.get("table_name")
-        value = request.GET.get("value")
+        with (
+            PROPERTY_VALUES_DURATION.labels(endpoint_type="data_warehouse").time(),
+            tracer.start_as_current_span("data_warehouse_api_property_values") as span,
+        ):
+            key = request.GET.get("key")
+            table_name = request.GET.get("table_name")
+            value = request.GET.get("value")
 
-        if not key:
-            raise serializers.ValidationError("You must provide a key")
-        if not table_name:
-            raise serializers.ValidationError("You must provide a table name")
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("property_key", key or "")
+            span.set_attribute("table_name", table_name or "")
+            span.set_attribute("has_value_filter", value is not None)
 
-        table = get_view_or_table_by_name(self.team, table_name)
-        if table is None:
-            return Response(status=status.HTTP_404_NOT_FOUND, data={"error": "Data warehouse table not found"})
+            if not key:
+                raise serializers.ValidationError("You must provide a key")
+            if not table_name:
+                raise serializers.ValidationError("You must provide a table name")
 
-        columns = table.columns or table.get_columns()
-        if key not in columns:
-            raise serializers.ValidationError("The provided key does not exist on this table")
+            table = get_view_or_table_by_name(self.team, table_name)
+            if table is None:
+                return Response(status=status.HTTP_404_NOT_FOUND, data={"error": "Data warehouse table not found"})
 
-        chain: list[str | int] = cast(list[str | int], key.split("."))
-        conditions: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq,
-                left=ast.Field(chain=chain),
-                right=ast.Constant(value=None),
-            )
-        ]
+            columns = table.columns or table.get_columns()
+            if key not in columns:
+                raise serializers.ValidationError("The provided key does not exist on this table")
 
-        if value:
-            conditions.append(
+            chain: list[str | int] = cast(list[str | int], key.split("."))
+            conditions: list[ast.Expr] = [
                 ast.CompareOperation(
-                    op=ast.CompareOperationOp.ILike,
-                    left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{value}%"),
-                )
-            )
-
-        order_by = []
-        if value:
-            order_by = [
-                ast.OrderExpr(
-                    expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
-                    order="ASC",
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=chain),
+                    right=ast.Constant(value=None),
                 )
             ]
 
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=chain)],
-            distinct=True,
-            select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table.name_chain))),
-            where=ast.And(exprs=conditions),
-            order_by=order_by,
-            limit=ast.Constant(value=10),
-        )
+            if value:
+                conditions.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.ILike,
+                        left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
+                        right=ast.Constant(value=f"%{value}%"),
+                    )
+                )
 
-        tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
-        result = execute_hogql_query(query, team=self.team)
+            order_by = []
+            if value:
+                order_by = [
+                    ast.OrderExpr(
+                        expr=ast.Call(name="length", args=[ast.Call(name="toString", args=[ast.Field(chain=chain)])]),
+                        order="ASC",
+                    )
+                ]
 
-        values = [row[0] for row in result.results]
-        resp = Response(
-            {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
-        )
-        resp["Cache-Control"] = "max-age=10"
-        return resp
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=chain)],
+                distinct=True,
+                select_from=ast.JoinExpr(table=ast.Field(chain=cast(list[str | int], table.name_chain))),
+                where=ast.And(exprs=conditions),
+                order_by=order_by,
+                limit=ast.Constant(value=10),
+            )
+
+            tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
+            result = execute_hogql_query(query, team=self.team)
+
+            values = [row[0] for row in result.results]
+            span.set_attribute("result_count", len(values))
+            resp = Response(
+                {"results": [{"name": convert_property_value(value)} for value in flatten(values)], "refreshing": False}
+            )
+            resp["Cache-Control"] = "max-age=10"
+            return resp
 
     @action(methods=["GET"], detail=False)
     def total_rows_stats(self, request: Request, **kwargs) -> Response:
@@ -644,13 +664,13 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             for run in failed_runs:
                 results.append(
                     {
-                        "id": str(run.batch_export.id),
-                        "name": run.batch_export.name,
+                        "id": str(run.parent.id),
+                        "name": getattr(run.parent, "name", "Batch export on demand"),
                         "type": "destination",
                         "status": "failed",
                         "error": run.latest_error,
                         "failed_at": run.finished_at.isoformat() if run.finished_at else None,
-                        "url": f"/pipeline/batch-exports/{run.batch_export.id}",
+                        "url": f"/pipeline/batch-exports/{run.parent.id}",
                     }
                 )
 
@@ -757,7 +777,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["warehouse_view:write"])
     def data_ops_dashboard(self, request: Request, **kwargs) -> Response:
         """
         Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
@@ -833,7 +853,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             headers["X-Duckgres-Internal-Secret"] = token
 
         try:
-            resp = http_requests.request(method, url, json=json_body, params=params, headers=headers, timeout=timeout)
+            resp = _internal_requests.request(
+                method, url, json=json_body, params=params, headers=headers, timeout=timeout
+            )
         except http_requests.Timeout:
             logger.warning("Provisioning API timeout", method=method, path=path, team_id=team_id)
             return Response({"error": "Provisioning service timed out"}, status=status.HTTP_504_GATEWAY_TIMEOUT)
@@ -880,7 +902,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def provision(self, request: Request, **kwargs) -> Response:
         """Start provisioning a managed warehouse for this team."""
         database_name = request.data.get("database_name")
@@ -906,7 +928,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
     def deprovision(self, request: Request, **kwargs) -> Response:
         """Start deprovisioning the managed warehouse for this team."""
         return self._provisioning_request("POST", "/deprovision")
@@ -951,7 +973,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         },
     )
-    @action(methods=["POST"], detail=False, url_path="reset-password")
+    @action(methods=["POST"], detail=False, url_path="reset-password", required_scopes=["warehouse_view:write"])
     def reset_password(self, request: Request, **kwargs) -> Response:
         """Reset the root password for the managed warehouse."""
         return self._provisioning_request("POST", "/reset-password")

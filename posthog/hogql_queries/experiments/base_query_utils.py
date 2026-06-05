@@ -24,6 +24,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
@@ -31,9 +32,9 @@ from posthog.hogql_queries.experiments.hogql_aggregation_utils import (
 )
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.models.experiment import Experiment
 
 
@@ -135,11 +136,13 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             # Extract the inner expression from the HogQL expression
             math_hogql = source.math_hogql
             if math_hogql:
+                tag_contains_user_hogql()
                 _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
         if metric_property:
+            tag_contains_user_hogql()
             return parse_expr(metric_property)
 
     # Default to count - emit 1 so we can easily sum it up
@@ -350,6 +353,7 @@ def get_source_aggregation_expr(
         elif math_type == ExperimentMetricMathType.HOGQL:
             math_hogql = getattr(source, "math_hogql", None)
             if math_hogql is not None:
+                tag_contains_user_hogql()
                 aggregation_function, _, params, distinct = extract_aggregation_and_inner_expr(math_hogql)
                 if aggregation_function:
                     inner_value_expr = parse_expr(f"{table_alias}.value")
@@ -371,11 +375,25 @@ def get_source_aggregation_expr(
     return parse_expr(f"sum(coalesce(toFloat({table_alias}.value), 0))")
 
 
-def funnel_steps_to_filter(team: Team, funnel_steps: list[EventsNode | ActionsNode]) -> ast.Expr:
+def funnel_steps_to_filter(
+    team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
+) -> ast.Expr:
     """
     Returns the OR expression for a list of funnel steps. Will match if any of the funnel steps are true.
+
+    Note: This function filters out ExperimentDataWarehouseNode entries since they cannot be
+    evaluated as boolean filters (they require separate UNION ALL query pattern).
     """
-    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in funnel_steps])
+    # Filter out DW nodes - they require UNION ALL pattern, not boolean filters
+    event_and_action_steps = [step for step in funnel_steps if not isinstance(step, ExperimentDataWarehouseNode)]
+
+    # Guard against empty list (all DW nodes case)
+    if not event_and_action_steps:
+        # Return a constant false expression - this prevents empty ast.Or
+        # This case should be caught earlier by validation, but we guard defensively
+        return ast.Constant(value=False)
+
+    return ast.Or(exprs=[event_or_action_to_filter(team, funnel_step) for funnel_step in event_and_action_steps])
 
 
 def funnel_evaluation_expr(
@@ -437,12 +455,15 @@ def funnel_evaluation_expr(
                 '{funnel_order_type}',
                 array(array('')),
                 [],
-                arraySort(t -> t.1, groupArray(tuple(
-                    toFloat({timestamp_field}),
-                    {uuid_field},
-                    array(''),
-                    arrayFilter(x -> x > 0, [{step_conditions_str}])
-                )))
+                arraySort(t -> t.1, arrayFilter(
+                    t -> isNotNull(t.1) AND isNotNull(t.2),
+                    groupArray(tuple(
+                        toFloat({timestamp_field}),
+                        {uuid_field},
+                        array(''),
+                        arrayFilter(x -> x > 0, [{step_conditions_str}])
+                    ))
+                ))
             )
         )
     )[1]

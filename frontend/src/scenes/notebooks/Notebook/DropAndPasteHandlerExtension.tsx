@@ -1,10 +1,17 @@
 import { JSONContent } from '@tiptap/core'
+import { Link } from '@tiptap/extension-link'
+import { TaskItem, TaskList } from '@tiptap/extension-list'
+import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
+import { MarkdownManager } from '@tiptap/markdown'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Extension } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 import Papa from 'papaparse'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
+
+import { expandFlattenedMarkdownTables } from 'lib/utils/expandFlattenedMarkdownTables'
 
 import { NotebookNodeType } from '../types'
 
@@ -57,6 +64,46 @@ export function parseTabularDataToTipTapTable(text: string, delimiter: string = 
     })
 
     return { type: 'table', content: tableRows }
+}
+
+// Block-level markdown signals. Inline-only markers like `**bold**` are intentionally
+// excluded so plain prose that happens to contain `*` is not silently transformed.
+const MARKDOWN_BLOCK_PATTERNS: RegExp[] = [
+    /^#{1,6} \S/m, // ATX heading: "# Title"
+    /^>\s+\S/m, // Blockquote: "> text"
+    /^[-*+] \S/m, // Unordered list: "- item"
+    /^\d+\.\s+\S/m, // Ordered list: "1. item"
+    /^```/m, // Fenced code block
+    /^(?:-{3,}|\*{3,}|_{3,})\s*$/m, // Horizontal rule
+    /^\|.+\|/m, // Table row
+]
+
+export function detectMarkdown(text: string): boolean {
+    if (!text) {
+        return false
+    }
+    return MARKDOWN_BLOCK_PATTERNS.some((pattern) => pattern.test(text))
+}
+
+const markdownManager = new MarkdownManager({
+    extensions: [
+        StarterKit.configure({ link: false }),
+        Link,
+        Table,
+        TableRow,
+        TableHeader,
+        TableCell,
+        TaskList,
+        TaskItem.configure({ nested: true }),
+    ],
+})
+
+export function parseMarkdownToTipTap(markdown: string): JSONContent[] {
+    if (!markdown || markdown.trim() === '') {
+        return []
+    }
+    const doc = markdownManager.parse(expandFlattenedMarkdownTables(markdown)) as JSONContent
+    return (doc.content as JSONContent[]) || []
 }
 
 export const DropAndPasteHandlerExtension = Extension.create({
@@ -172,6 +219,25 @@ export const DropAndPasteHandlerExtension = Extension.create({
                                 source: format,
                             })
                             return true
+                        }
+
+                        // Detect markdown source in plain-text pastes. Only run when there is no
+                        // rich HTML representation — if HTML is present, tiptap's default paste
+                        // already preserves the rendered structure.
+                        if (!html && text && detectMarkdown(text)) {
+                            try {
+                                const parsed = parseMarkdownToTipTap(text)
+                                if (parsed.length > 0) {
+                                    this.editor.chain().focus().insertContent(parsed).run()
+                                    posthog.capture('notebook markdown pasted', {
+                                        length: text.length,
+                                        blocks: parsed.length,
+                                    })
+                                    return true
+                                }
+                            } catch {
+                                // Fall through to default plain-text paste if markdown parsing fails
+                            }
                         }
 
                         // Special handling for pasting files such as images

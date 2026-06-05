@@ -83,6 +83,14 @@ if (typeof Element.prototype.scrollIntoView !== 'function') {
     Element.prototype.scrollIntoView = () => {}
 }
 
+// maplibre-gl probes window.URL.createObjectURL at module-eval time, but jsdom
+// doesn't implement it. Provide a noop so importing modules that transitively
+// pull in maplibre-gl (e.g. NotebookNodeMap) doesn't throw.
+if (typeof window !== 'undefined' && typeof window.URL.createObjectURL !== 'function') {
+    window.URL.createObjectURL = () => ''
+    window.URL.revokeObjectURL = () => {}
+}
+
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
 if (typeof (globalThis as any).CSS === 'undefined') {
     ;(globalThis as any).CSS = {}
@@ -99,6 +107,14 @@ mockIntersectionObserver.mockReturnValue({
     disconnect: () => null,
 })
 ;(globalThis as any).IntersectionObserver = mockIntersectionObserver
+
+const mockResizeObserver = jest.fn()
+mockResizeObserver.mockReturnValue({
+    observe: () => null,
+    unobserve: () => null,
+    disconnect: () => null,
+})
+;(globalThis as any).ResizeObserver = mockResizeObserver
 
 // Tell React Testing Library to use "data-attr" as the test ID attribute
 configure({ testIdAttribute: 'data-attr' })
@@ -137,6 +153,7 @@ jest.mock('posthog-js', () => {
         identify: jest.fn(),
         getFeatureFlag: jest.fn(),
         getFeatureFlagPayload: jest.fn(),
+        getFeatureFlagResult: jest.fn(),
         getAllFlags: jest.fn(),
         isFeatureEnabled: jest.fn(),
         getEarlyAccessFeatures: jest.fn(),

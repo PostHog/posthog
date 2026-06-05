@@ -10,7 +10,8 @@ use limiters::global_rate_limiter::{
     EvalResult, GlobalRateLimitResponse, GlobalRateLimiter as CommonGlobalRateLimiter,
     GlobalRateLimiterConfig, GlobalRateLimiterImpl as CommonGlobalRateLimiterImpl,
 };
-use tracing::{error, info};
+use metrics::counter;
+use tracing::{error, info, warn};
 
 #[cfg(test)]
 use chrono::DateTime;
@@ -25,6 +26,7 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 }
 
 pub enum GlobalRateLimitKey<'a> {
+    /// Token-only key. Not currently used in production call sites.
     Token(&'a str),
     TokenDistinctId(&'a str, &'a str),
 }
@@ -42,24 +44,21 @@ impl<'a> GlobalRateLimitKey<'a> {
 
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
+    dry_run: bool,
 }
 
 impl GlobalRateLimiter {
-    /// Build both rate limiter instances from the capture config, sharing a single
-    /// Redis client. If a dedicated Redis URL is configured, creates a separate client
-    /// (optionally with read/write split). Falls back to `shared_redis` when no
+    /// Build the token+distinct_id rate limiter from the capture config, sharing a
+    /// single Redis client. If a dedicated Redis URL is configured, creates a separate
+    /// client (optionally with read/write split). Falls back to `shared_redis` when no
     /// dedicated URL is set.
-    ///
-    /// Returns `(token_distinct_id_limiter, token_limiter)`.
     pub async fn try_from_config(
         config: &Config,
         shared_redis: Arc<dyn Client + Send + Sync>,
-    ) -> anyhow::Result<(Self, Self)> {
+    ) -> anyhow::Result<Self> {
         let redis_client = Self::build_redis_client(config, shared_redis).await?;
         let redis_instances = vec![redis_client];
-        let td_limiter = Self::new_token_distinct_id(config, redis_instances.clone())?;
-        let token_limiter = Self::new_token(config, redis_instances)?;
-        Ok((td_limiter, token_limiter))
+        Self::new_token_distinct_id(config, redis_instances)
     }
 
     /// Create a per-(token, distinct_id) rate limiter sharing the given Redis instances.
@@ -86,6 +85,7 @@ impl GlobalRateLimiter {
     }
 
     /// Create a per-token rate limiter sharing the given Redis instances.
+    /// Not currently wired into production call sites -- retained for future use.
     pub fn new_token(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
@@ -124,6 +124,8 @@ impl GlobalRateLimiter {
             ..Default::default()
         };
 
+        let dry_run = config.global_rate_limit_dry_run;
+
         let limiter = match CommonGlobalRateLimiterImpl::new(grl_config, redis_instances) {
             Ok(l) => l,
             Err(e) => {
@@ -132,19 +134,48 @@ impl GlobalRateLimiter {
             }
         };
 
+        if dry_run {
+            info!("GlobalRateLimiter initialized in dry-run mode (evaluating but not enforcing)");
+        }
+
         Ok(Self {
             limiter: Box::new(limiter),
+            dry_run,
         })
     }
 
     /// Check if a key is rate limited. Routes to custom or global check based on
     /// whether the key is registered in the custom_keys map. Exactly one check
     /// fires per call — no double-enqueue to the Redis batch channel.
+    ///
+    /// In dry-run mode the underlying limiter is still evaluated (counts are
+    /// tracked, Redis is synced) but the result is suppressed: metrics and a
+    /// warn log are emitted, then `None` is returned so callers never enforce.
     pub async fn is_limited(&self, key: &str, count: u64) -> Option<GlobalRateLimitResponse> {
-        if self.limiter.is_custom_key(key) {
+        let result = if self.limiter.is_custom_key(key) {
             self.is_custom_key_limited(key, count).await
         } else {
             self.is_global_key_limited(key, count).await
+        };
+
+        match (result, self.dry_run) {
+            (Some(response), true) => {
+                counter!(
+                    "capture_global_rate_limiter_dry_run",
+                    "key_type" => if response.is_custom_limited { "custom" } else { "global" },
+                )
+                .increment(1);
+                warn!(
+                    key = key,
+                    current_count = response.current_count,
+                    threshold = response.threshold,
+                    is_custom_limited = response.is_custom_limited,
+                    dry_run = true,
+                    "global rate limiter would have limited (dry run)"
+                );
+                None
+            }
+            (result, _) => result,
         }
     }
 
@@ -233,7 +264,71 @@ impl GlobalRateLimiter {
     pub(crate) fn new_with(limiter: impl CommonGlobalRateLimiter + 'static) -> Self {
         Self {
             limiter: Box::new(limiter),
+            dry_run: false,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_dry_run(limiter: impl CommonGlobalRateLimiter + 'static) -> Self {
+        Self {
+            limiter: Box::new(limiter),
+            dry_run: true,
+        }
+    }
+
+    /// Test helper: build a `GlobalRateLimiter` that returns `Limited` for any
+    /// key in `limited_keys` and `Allowed` otherwise. Custom limits always
+    /// return `NotApplicable`. Shared across capture pipeline tests that need
+    /// to simulate per-key global rate limiting.
+    #[cfg(test)]
+    pub(crate) fn mock_limiting(limited_keys: &[&str]) -> Self {
+        use async_trait::async_trait;
+        use std::collections::HashSet;
+
+        struct MockLimitingLimiter {
+            limited_keys: HashSet<String>,
+        }
+
+        #[async_trait]
+        impl CommonGlobalRateLimiter for MockLimitingLimiter {
+            async fn check_limit(
+                &self,
+                key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                if self.limited_keys.contains(key) {
+                    EvalResult::Limited(GlobalRateLimitResponse {
+                        key: key.to_string(),
+                        current_count: 100.0,
+                        threshold: 10,
+                        window_interval: std::time::Duration::from_secs(60),
+                        sync_interval: std::time::Duration::from_secs(15),
+                        is_custom_limited: false,
+                    })
+                } else {
+                    EvalResult::Allowed
+                }
+            }
+
+            async fn check_custom_limit(
+                &self,
+                _key: &str,
+                _count: u64,
+                _timestamp: Option<DateTime<Utc>>,
+            ) -> EvalResult {
+                EvalResult::NotApplicable
+            }
+
+            fn is_custom_key(&self, _key: &str) -> bool {
+                false
+            }
+
+            fn shutdown(&mut self) {}
+        }
+
+        let limited_keys: HashSet<String> = limited_keys.iter().map(|k| k.to_string()).collect();
+        Self::new_with(MockLimitingLimiter { limited_keys })
     }
 
     // In capture deploys, the custom keys and rate limit thresholds should be
@@ -503,5 +598,85 @@ mod tests {
         let key2 = GlobalRateLimitKey::TokenDistinctId("t", &distinct_id_129);
         let result2 = key2.to_cache_key();
         assert_eq!(&*result2, &format!("t:{prefix_129}"));
+    }
+
+    // --- dry-run mode tests ---
+
+    #[tokio::test]
+    async fn test_dry_run_global_limited_returns_none() {
+        let (mock, calls) = MockLimiter::new(
+            HashSet::new(),
+            make_limited_response(false),
+            EvalResult::NotApplicable,
+        );
+        let wrapper = GlobalRateLimiter::new_with_dry_run(mock);
+
+        let result = wrapper.is_limited("some_key", 1).await;
+
+        assert!(
+            result.is_none(),
+            "dry-run should suppress Limited → None, got {result:?}"
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["is_custom_key", "check_limit"],
+            "underlying limiter must still be called in dry-run mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dry_run_custom_limited_returns_none() {
+        let (mock, calls) = MockLimiter::new(
+            HashSet::from(["custom_key".to_string()]),
+            EvalResult::Allowed,
+            make_limited_response(true),
+        );
+        let wrapper = GlobalRateLimiter::new_with_dry_run(mock);
+
+        let result = wrapper.is_limited("custom_key", 1).await;
+
+        assert!(
+            result.is_none(),
+            "dry-run should suppress custom Limited → None, got {result:?}"
+        );
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec!["is_custom_key", "check_custom_limit"],
+            "underlying limiter must still be called in dry-run mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dry_run_allowed_stays_none() {
+        let (mock, _calls) = MockLimiter::new(
+            HashSet::new(),
+            EvalResult::Allowed,
+            EvalResult::NotApplicable,
+        );
+        let wrapper = GlobalRateLimiter::new_with_dry_run(mock);
+
+        let result = wrapper.is_limited("some_key", 1).await;
+
+        assert!(
+            result.is_none(),
+            "allowed result should remain None in dry-run mode"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_non_dry_run_limited_still_returns_some() {
+        let (mock, _calls) = MockLimiter::new(
+            HashSet::new(),
+            make_limited_response(false),
+            EvalResult::NotApplicable,
+        );
+        let wrapper = GlobalRateLimiter::new_with(mock);
+
+        let result = wrapper.is_limited("some_key", 1).await;
+
+        assert!(
+            result.is_some(),
+            "non-dry-run should return Some(response) when limited"
+        );
     }
 }

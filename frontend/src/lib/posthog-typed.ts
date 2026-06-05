@@ -683,6 +683,7 @@ interface EventSchemas {
     'definition save failed': Record<string, any>
     'definition save succeeded': Record<string, any>
     'delete person': Record<string, any>
+    detached_elements: Record<string, any>
     demo_requested: Record<string, any>
     'demo time': Record<string, any>
     'demo warning dismissed': Record<string, any>

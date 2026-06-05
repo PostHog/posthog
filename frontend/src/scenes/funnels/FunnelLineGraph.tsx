@@ -2,19 +2,23 @@ import { useValues } from 'kea'
 
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, shortTimeZone } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { getFormattedDate } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { getDatumTitle } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
+import { cohortsModel } from '~/models/cohortsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { FunnelsActorsQuery, NodeKind, TrendsFilter } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { ChartParams, GraphDataset, GraphType } from '~/types'
+import { BreakdownKeyType, ChartParams, GraphDataset, GraphType } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelPersonsModalLogic } from './funnelPersonsModalLogic'
+import { hasBreakdown } from './funnelUtils'
 
 const LineGraphWrapper = ({ inCardView, children }: { inCardView?: boolean; children: JSX.Element }): JSX.Element => {
     if (inCardView) {
@@ -40,10 +44,13 @@ export function FunnelLineGraph({
         insightData,
         showValuesOnSeries,
         funnelsFilter,
+        breakdownFilter,
         labelGroupType,
     } = useValues(funnelDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     if (!isInsightQueryNode(querySource)) {
         return null
@@ -65,22 +72,11 @@ export function FunnelLineGraph({
                 showTrendLines={funnelsFilter?.showTrendLines ?? false}
                 goalLines={goalLines ?? []}
                 tooltip={{
-                    showHeader: false,
-                    hideColorCol: true,
                     renderSeries: (_, datum) => {
-                        if (!indexedSteps?.[0]?.days) {
-                            return 'Trend'
+                        if (hasBreakdown(datum.breakdown_value)) {
+                            return <div className="datum-label-column">{getDatumTitle(datum, breakdownFilter)}</div>
                         }
-                        return (
-                            getFormattedDate(indexedSteps[0].days?.[datum.dataIndex], {
-                                interval,
-                                dateRange: insightData?.resolved_date_range,
-                                timezone: insightData?.timezone,
-                                weekStartDay,
-                            }) +
-                            ' ' +
-                            (insightData?.timezone ? shortTimeZone(insightData.timezone) : 'UTC')
-                        )
+                        return <div className="datum-label-column">Conversion</div>
                     },
                     renderCount: (count) => {
                         return `${count}%`
@@ -98,6 +94,16 @@ export function FunnelLineGraph({
                                   ? points.pointsIntersectingClick[0].dataset
                                   : points.pointsIntersectingLine[0].dataset
                               const day = dataset?.days?.[index] ?? ''
+                              const breakdownValue = (dataset as { breakdown_value?: BreakdownKeyType })
+                                  ?.breakdown_value
+                              const breakdownLabel = hasBreakdown(breakdownValue)
+                                  ? formatBreakdownLabel(
+                                        breakdownValue,
+                                        breakdownFilter,
+                                        allCohorts.results,
+                                        formatPropertyValueForDisplay
+                                    )
+                                  : null
 
                               const title = (
                                   <>
@@ -109,6 +115,7 @@ export function FunnelLineGraph({
                                           weekStartDay={weekStartDay}
                                           date={day?.toString() || ''}
                                       />
+                                      {breakdownLabel ? <> • {breakdownLabel}</> : null}
                                   </>
                               )
 
@@ -118,6 +125,7 @@ export function FunnelLineGraph({
                                   funnelTrendsDropOff: false,
                                   includeRecordings: true,
                                   funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
+                                  ...(hasBreakdown(breakdownValue) ? { funnelStepBreakdown: breakdownValue } : {}),
                               }
                               openPersonsModal({
                                   title,
@@ -125,7 +133,7 @@ export function FunnelLineGraph({
                               })
                           }
                 }
-                hideAnnotations={inSharedMode}
+                hideAnnotations={inSharedMode || funnelsFilter?.showAnnotations === false}
             />
         </LineGraphWrapper>
     )

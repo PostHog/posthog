@@ -7,14 +7,13 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval, EventsNode, TrendsQuery
+from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.models.insight_variable import InsightVariable
-
-from products.data_warehouse.backend.models import DataWarehouseTable
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
+from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
@@ -73,7 +72,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Enable materialization via API
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -1209,7 +1208,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # Enabling materialization should succeed for multiple equality variables
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1238,7 +1237,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
-            {"is_materialized": True, "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR},
+            {"is_materialized": True, "data_freshness_seconds": 86400},
             format="json",
         )
 
@@ -1795,7 +1794,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNone(results[1][0])
 
     def test_inline_insight_cleans_other_sentinel_and_alerts(self):
-        from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_OTHER_STRING_LABEL
+        from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 
         for event_name in [f"event_{i}" for i in range(30)]:
             _create_event(
@@ -1821,7 +1820,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Patch the limit to a low value so the 30 distinct breakdown values exceed it
         with (
-            mock.patch("products.endpoints.backend.api.ENDPOINT_BREAKDOWN_LIMIT", 5),
+            mock.patch("products.endpoints.backend.materialization.ENDPOINT_BREAKDOWN_LIMIT", 5),
             mock.patch("products.endpoints.backend.api.capture_exception") as mock_capture,
         ):
             response = self.client.post(
@@ -1991,3 +1990,203 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # cte2 filters by event_name, so should return count for $pageleave only
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0][0], 10)
+
+    # =========================================================================
+    # METRICS
+    # =========================================================================
+
+    def _make_simple_hogql_endpoint(self, name: str):
+        return create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events",
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+
+    def test_execution_metric_records_query_kind_label(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_query_kind")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_execution_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_validation_error_metric_unknown_variable(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_unknown_var",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    str(self.event_name_var.id): {
+                        "variableId": str(self.event_name_var.id),
+                        "code_name": "event_name",
+                        "value": "$pageview",
+                    }
+                },
+            },
+            created_by=self.user,
+            is_active=True,
+        )
+        labels = {"reason": "unknown_variable"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"variables": {"nonexistent": "x"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_validation_error_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_observed_on_success(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_result_rows")
+        labels = {"execution_type": "inline"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_hogql_result_rows_count", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_hogql_result_rows_metric_not_observed_for_insight_endpoint(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = create_endpoint_with_version(
+            name="metric_insight_no_rows",
+            team=self.team,
+            query=TrendsQuery(series=[EventsNode(event="$pageview")]).model_dump(),
+            created_by=self.user,
+            is_active=True,
+        )
+
+        def total_count() -> float:
+            total = 0.0
+            for metric in REGISTRY.collect():
+                if metric.name != "posthog_endpoint_hogql_result_rows":
+                    continue
+                for sample in metric.samples:
+                    if sample.name.endswith("_count"):
+                        total += sample.value
+            return total
+
+        before = total_count()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = total_count()
+        self.assertEqual(after - before, 0.0)
+
+    def test_cache_outcome_metric_records_miss_on_first_execution(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_cache_outcome")
+        labels = {"execution_type": "inline", "query_kind": "hogql", "outcome": "miss"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+            {"refresh": "force"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_cache_result_total", labels) or 0.0
+        self.assertEqual(after - before, 1.0)
+
+    def test_cache_outcome_only_uses_hit_or_miss_labels(self):
+        from prometheus_client import REGISTRY
+
+        endpoint = self._make_simple_hogql_endpoint("metric_no_stale_served")
+        for _ in range(2):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        observed_outcomes: set[str] = set()
+        for metric in REGISTRY.collect():
+            if metric.name != "posthog_endpoint_cache_result_total":
+                continue
+            for sample in metric.samples:
+                outcome = sample.labels.get("outcome")
+                if outcome and sample.value > 0:
+                    observed_outcomes.add(outcome)
+
+        self.assertTrue(observed_outcomes.issubset({"hit", "miss"}), f"Unexpected outcomes: {observed_outcomes}")
+        self.assertNotIn("stale_served", observed_outcomes)
+
+    def test_disable_materialization_no_op_does_not_increment_counter(self):
+        from prometheus_client import REGISTRY
+
+        from products.endpoints.backend.api import EndpointViewSet
+
+        endpoint = self._make_simple_hogql_endpoint("metric_disable_no_op")
+        labels = {"action": "disable", "status": "success"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+
+        viewset = EndpointViewSet()
+        viewset.team_id = self.team.id
+        viewset._disable_materialization(endpoint, mock.MagicMock())
+
+        after = REGISTRY.get_sample_value("posthog_endpoint_materialization_event_total", labels) or 0.0
+        self.assertEqual(after - before, 0.0)
+
+    def test_inline_endpoint_failure_emits_signal(self):
+        """When inline execution raises, we emit a Signal for self-driving diagnostics."""
+        endpoint = self._make_simple_hogql_endpoint("failure_emits_signal")
+        boom = RuntimeError("synthetic failure")
+
+        with (
+            mock.patch("products.endpoints.backend.api.process_query_model", side_effect=boom),
+            mock.patch("products.endpoints.backend.api._emit_endpoint_failure_signal") as mock_emit,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/",
+                {"refresh": "force"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
+        mock_emit.assert_called_once()
+        args, kwargs = mock_emit.call_args
+        self.assertEqual(args[0].id, self.team.id)
+        self.assertEqual(args[1].name, endpoint.name)
+        self.assertIs(args[2], boom)
+        self.assertFalse(kwargs["materialized"])
+
+    def test_emit_failure_signal_swallows_errors(self):
+        """Signal emission must never mask the original exception."""
+        from products.endpoints.backend.api import _emit_endpoint_failure_signal
+
+        endpoint = self._make_simple_hogql_endpoint("failure_signal_swallow")
+
+        with mock.patch(
+            "products.signals.backend.facade.api.emit_signal",
+            side_effect=RuntimeError("signal layer exploded"),
+        ):
+            _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)

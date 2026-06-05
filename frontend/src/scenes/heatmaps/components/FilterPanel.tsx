@@ -2,17 +2,37 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconGear, IconLaptop, IconPhone, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
 import { SectionSetting } from 'lib/components/heatmaps/HeatMapsSettings'
 import { heatmapDateOptions } from 'lib/components/IframedToolbarBrowser/utils'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
+
+import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
+
+const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
+    ids.map((id) => ({
+        type: PropertyFilterType.Cohort,
+        key: 'id',
+        value: id,
+        operator: PropertyOperator.In,
+    }))
+
+const propertyFiltersToCohortIds = (filters: AnyPropertyFilter[]): number[] =>
+    filters
+        .filter((f): f is CohortPropertyFilter => f.type === PropertyFilterType.Cohort)
+        .map((f) => f.value)
+        .filter((v): v is number => typeof v === 'number')
 
 const useDebounceLoading = (loading: boolean, delay = 200): boolean => {
     const [debouncedLoading, setDebouncedLoading] = useState(false)
@@ -98,7 +118,13 @@ export function ViewportChooser(): JSX.Element {
  * values and actions are passed as props because they are different
  * between fixed and embedded mode
  */
-export function FilterPanel(): JSX.Element {
+export function FilterPanel({
+    captureMethod,
+    onCaptureMethodChange,
+}: {
+    captureMethod?: HeatmapType
+    onCaptureMethodChange?: (type: HeatmapType) => void
+}): JSX.Element {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false)
     const {
         heatmapFilters,
@@ -113,6 +139,8 @@ export function FilterPanel(): JSX.Element {
     const { patchHeatmapFilters, setHeatmapColorPalette, setHeatmapFixedPositionMode, setCommonFilters } = useActions(
         heatmapDataLogic({ context: 'in-app' })
     )
+
+    const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
 
     const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
 
@@ -137,6 +165,25 @@ export function FilterPanel(): JSX.Element {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
+                    {cohortFilterEnabled && (
+                        <div className="mt-2 md:mt-0">
+                            <PropertyFilters
+                                pageKey="heatmap-cohorts"
+                                propertyFilters={cohortIdsToPropertyFilters(commonFilters?.cohort_ids ?? [])}
+                                onChange={(filters) =>
+                                    setCommonFilters?.({
+                                        ...commonFilters,
+                                        cohort_ids: propertyFiltersToCohortIds(filters),
+                                    })
+                                }
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.Cohorts]}
+                                buttonText="Filter by cohort"
+                                addText="Add cohort filter"
+                                buttonSize="small"
+                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
+                            />
+                        </div>
+                    )}
                     <div className="mt-2 md:mt-0">
                         <Popover
                             overlay={
@@ -150,6 +197,28 @@ export function FilterPanel(): JSX.Element {
                                         heatmapFixedPositionMode={heatmapFixedPositionMode}
                                         setHeatmapFixedPositionMode={setHeatmapFixedPositionMode}
                                     />
+                                    {captureMethod && onCaptureMethodChange && (
+                                        <SectionSetting
+                                            title="Capture method"
+                                            info="Screenshot generates a full-page screenshot. Iframe loads your site directly."
+                                        >
+                                            <LemonSegmentedButton
+                                                onChange={onCaptureMethodChange}
+                                                value={captureMethod}
+                                                options={[
+                                                    {
+                                                        value: 'screenshot',
+                                                        label: 'Screenshot',
+                                                    },
+                                                    {
+                                                        value: 'iframe',
+                                                        label: 'Iframe',
+                                                    },
+                                                ]}
+                                                size="small"
+                                            />
+                                        </SectionSetting>
+                                    )}
                                     <SectionSetting
                                         title="Internal and test users filter"
                                         info="Filter out internal and test users"

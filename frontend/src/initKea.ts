@@ -10,8 +10,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
+import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
 
@@ -78,7 +78,7 @@ export function initKea({
                 return addProjectIdIfMissing(path)
             },
             pathFromWindowToRoutes: (path) => {
-                return removeProjectIdIfPresent(path)
+                return stripTrailingSlash(removeProjectIdIfPresent(path))
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
@@ -86,11 +86,13 @@ export function initKea({
                 // This state is persisted into window.history
                 const logic = sceneLogic.findMounted()
                 if (logic) {
+                    // Strip sceneParams etc. — they are not JSON-safe and break structuredClone (cyclic/deep graphs)
+                    const tabs = getTabsSnapshotForHistory(logic.values.tabs)
                     if (typeof structuredClone !== 'undefined') {
-                        return { tabs: structuredClone(logic.values.tabs) }
+                        return { tabs: structuredClone(tabs) }
                     }
                     // structuredClone fails in jest for some reason, despite us being on the right versions
-                    return { tabs: JSON.parse(JSON.stringify(logic.values.tabs)) || [] }
+                    return { tabs: JSON.parse(JSON.stringify(tabs)) || [] }
                 }
                 return undefined
             },
@@ -98,6 +100,12 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
+                // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
+                // condition already suppresses the toast for load actions, and write actions
+                // get a toast with the read-only `detail` as the message. The
+                // `posthog.captureException` event is dropped by the central
+                // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (

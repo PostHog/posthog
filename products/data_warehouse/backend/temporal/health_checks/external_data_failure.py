@@ -3,10 +3,10 @@ from django.db.models import Q
 from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 class ExternalDataFailureCheck(HealthCheck):
@@ -16,6 +16,15 @@ class ExternalDataFailureCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "15 7 * * *"
     active_since_days = 30
+
+    @classmethod
+    def render_alert(cls, issue: HealthIssue) -> AlertContent:
+        name = issue.payload.get("pipeline_name") or issue.payload.get("source_type", "an external data sync")
+        return AlertContent(
+            title="External data sync failed",
+            summary=f"{name} is failing to sync",
+            link="/health/pipeline-status",
+        )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         issues: dict[int, list[HealthCheckResult]] = {}

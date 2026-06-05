@@ -1,9 +1,13 @@
 from posthog.temporal import ai
-from posthog.temporal.ai.video_segment_clustering import (
-    VIDEO_SEGMENT_CLUSTERING_ACTIVITIES,
-    VIDEO_SEGMENT_CLUSTERING_WORKFLOWS,
+from posthog.temporal.ai_observability import (
+    ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
+    WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
-from posthog.temporal.session_replay import session_summary
+from posthog.temporal.session_replay import session_summary, session_summary_group
+from posthog.temporal.session_replay.summarization_sweep import (
+    SUMMARIZATION_SWEEP_ACTIVITIES,
+    SUMMARIZATION_SWEEP_WORKFLOWS,
+)
 
 from products.signals.backend.temporal import (
     ACTIVITIES as SIGNALS_PRODUCT_ACTIVITIES,
@@ -22,7 +26,9 @@ class TestAITemporalModuleIntegrity:
             "SummarizeLLMTracesWorkflow",
             "SlackConversationRunnerWorkflow",
             "PostHogCodeSlackMentionWorkflow",
+            "PostHogCodeSlackMentionCommandWorkflow",
             "PostHogCodeSlackTerminateTaskWorkflow",
+            "AnomalyInvestigationWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -49,19 +55,25 @@ class TestAITemporalModuleIntegrity:
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
             "process_slack_conversation_activity",
+            "enforce_posthog_code_billing_quota_activity",
             "resolve_posthog_code_slack_user_activity",
             "handle_posthog_code_rules_command_activity",
+            "handle_posthog_code_slack_mention_command_activity",
+            "resolve_posthog_code_slack_command_user_activity",
             "collect_posthog_code_thread_messages_activity",
             "create_posthog_code_routing_rule_activity",
-            "select_posthog_code_repository_activity",
+            "cascade_posthog_code_repository_activity",
+            "discover_posthog_code_repository_via_agent_activity",
             "classify_posthog_code_task_needs_repo_activity",
             "post_posthog_code_no_repos_activity",
             "post_posthog_code_repo_picker_activity",
+            "block_posthog_code_task_if_no_personal_github_activity",
             "create_posthog_code_task_for_repo_activity",
             "forward_posthog_code_followup_activity",
             "post_posthog_code_picker_timeout_activity",
             "post_posthog_code_internal_error_activity",
             "process_posthog_code_terminate_task_activity",
+            "investigate_anomaly_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -103,9 +115,7 @@ class TestSessionSummaryTemporalModuleIntegrity:
     def test_session_summary_workflows(self):
         """Ensure all expected session summary workflows are present."""
         expected_workflows = [
-            "SummarizeSingleSessionStreamWorkflow",
             "SummarizeSingleSessionWorkflow",
-            "SummarizeSessionGroupWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in session_summary.SESSION_SUMMARY_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -120,20 +130,17 @@ class TestSessionSummaryTemporalModuleIntegrity:
     def test_session_summary_activities(self):
         """Ensure all expected session summary activities are present."""
         expected_activities = [
-            "stream_llm_single_session_summary_activity",
+            "check_summary_exists_activity",
             "get_llm_single_session_summary_activity",
-            "fetch_session_batch_events_activity",
-            "extract_session_group_patterns_activity",
-            "assign_events_to_patterns_activity",
             "fetch_session_data_activity",
-            "combine_patterns_from_chunks_activity",
-            "split_session_summaries_into_chunks_for_patterns_extraction_activity",
-            "validate_llm_single_session_summary_with_videos_activity",
             "prep_session_video_asset_activity",
             "upload_video_to_gemini_activity",
+            "slice_session_data_for_segments_activity",
             "analyze_video_segment_activity",
             "embed_and_store_segments_activity",
+            "emit_session_problem_signals_activity",
             "store_video_session_summary_activity",
+            "tag_and_highlight_session_activity",
             "cleanup_gemini_file_activity",
             "consolidate_video_segments_activity",
             "capture_timing_activity",
@@ -149,40 +156,77 @@ class TestSessionSummaryTemporalModuleIntegrity:
             )
 
 
-class TestVideoSegmentClusteringModuleIntegrity:
-    def test_workflows_remain_unchanged(self):
-        """Ensure all expected video segment clustering workflows are present."""
+class TestSessionSummaryGroupTemporalModuleIntegrity:
+    def test_session_summary_group_workflows(self):
+        """Ensure all expected session summary group workflows are present."""
         expected_workflows = [
-            "VideoSegmentClusteringWorkflow",
-            "VideoSegmentClusteringCoordinatorWorkflow",
+            "SummarizeSessionGroupWorkflow",
         ]
-        actual_workflow_names = [w.__name__ for w in VIDEO_SEGMENT_CLUSTERING_WORKFLOWS]
+        actual_workflow_names = [w.__name__ for w in session_summary_group.SESSION_SUMMARY_GROUP_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
             f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
             "If you're adding/removing workflows, update this test accordingly."
         )
         for expected in expected_workflows:
             assert expected in actual_workflow_names, (
-                f"Workflow '{expected}' is missing from VIDEO_SEGMENT_CLUSTERING_WORKFLOWS."
+                f"Workflow '{expected}' is missing from SESSION_SUMMARY_GROUP_WORKFLOWS."
             )
 
-    def test_activities_remain_unchanged(self):
-        """Ensure all expected video segment clustering activities are present."""
+    def test_session_summary_group_activities(self):
+        """Ensure all expected session summary group activities are present."""
         expected_activities = [
-            "get_sessions_to_prime_activity",
-            "fetch_segments_activity",
-            "cluster_segments_activity",
-            "emit_signals_from_clusters_activity",
-            "get_proactive_tasks_enabled_team_ids_activity",
+            "fetch_session_batch_events_activity",
+            "split_session_summaries_into_chunks_for_patterns_extraction_activity",
+            "extract_session_group_patterns_activity",
+            "combine_patterns_from_chunks_activity",
+            "assign_events_to_patterns_activity",
         ]
-        actual_activity_names = [a.__name__ for a in VIDEO_SEGMENT_CLUSTERING_ACTIVITIES]
+        actual_activity_names = [a.__name__ for a in session_summary_group.SESSION_SUMMARY_GROUP_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
             f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
             "If you're adding/removing activities, update this test accordingly."
         )
         for expected in expected_activities:
             assert expected in actual_activity_names, (
-                f"Activity '{expected}' is missing from VIDEO_SEGMENT_CLUSTERING_ACTIVITIES."
+                f"Activity '{expected}' is missing from SESSION_SUMMARY_GROUP_ACTIVITIES."
+            )
+
+
+class TestSummarizationSweepModuleIntegrity:
+    def test_workflows_remain_unchanged(self):
+        """Ensure all expected summarization sweep workflows are present."""
+        expected_workflows = [
+            "SummarizeTeamSessionsWorkflow",
+            "ReconcileSummarizationSchedulesWorkflow",
+        ]
+        actual_workflow_names = [w.__name__ for w in SUMMARIZATION_SWEEP_WORKFLOWS]
+        assert len(actual_workflow_names) == len(expected_workflows), (
+            f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
+            "If you're adding/removing workflows, update this test accordingly."
+        )
+        for expected in expected_workflows:
+            assert expected in actual_workflow_names, (
+                f"Workflow '{expected}' is missing from SUMMARIZATION_SWEEP_WORKFLOWS."
+            )
+
+    def test_activities_remain_unchanged(self):
+        """Ensure all expected summarization sweep activities are present."""
+        expected_activities = [
+            "find_sessions_for_team_activity",
+            "delete_team_schedule_activity",
+            "list_enabled_teams_activity",
+            "list_summarization_schedule_team_ids_activity",
+            "upsert_team_schedule_activity",
+            "consume_summary_quota_activity",
+        ]
+        actual_activity_names = [a.__name__ for a in SUMMARIZATION_SWEEP_ACTIVITIES]
+        assert len(actual_activity_names) == len(expected_activities), (
+            f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
+            "If you're adding/removing activities, update this test accordingly."
+        )
+        for expected in expected_activities:
+            assert expected in actual_activity_names, (
+                f"Activity '{expected}' is missing from SUMMARIZATION_SWEEP_ACTIVITIES."
             )
 
 
@@ -197,8 +241,12 @@ class TestSignalsProductModuleIntegrity:
             "SignalEmitterWorkflow",
             "SignalReportSummaryWorkflow",
             "SignalReportReingestionWorkflow",
+            "TeamSignalReingestionWorkflow",
             "SignalReportDeletionWorkflow",
             "EmitEvalSignalWorkflow",
+            "RunSignalsScoutWorkflow",
+            "SignalsScoutCoordinatorWorkflow",
+            "CustomSignalAgentWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -213,6 +261,7 @@ class TestSignalsProductModuleIntegrity:
     def test_activities_remain_unchanged(self):
         """Ensure all expected signals product activities are present."""
         expected_activities = [
+            "dispatch_inbox_slack_notifications_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
@@ -233,8 +282,13 @@ class TestSignalsProductModuleIntegrity:
             "mark_report_pending_input_activity",
             "mark_report_ready_activity",
             "publish_report_completed_activity",
+            "delete_team_reports_activity",
+            "get_grouping_paused_state_activity",
+            "pause_grouping_until_activity",
+            "process_team_signals_batch_activity",
             "reingest_signals_activity",
             "reset_report_to_potential_activity",
+            "restore_grouping_pause_activity",
             "run_agentic_report_activity",
             "run_signal_semantic_search_activity",
             "report_safety_judge_activity",
@@ -243,6 +297,10 @@ class TestSignalsProductModuleIntegrity:
             "soft_delete_report_signals_activity",
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
+            "fetch_enabled_signals_scout_runs_activity",
+            "stamp_dispatched_signals_scout_runs_activity",
+            "run_signals_scout_activity",
+            "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -253,3 +311,79 @@ class TestSignalsProductModuleIntegrity:
             assert expected in actual_activity_names, (
                 f"Activity '{expected}' is missing from SIGNALS_PRODUCT_ACTIVITIES."
             )
+
+
+class TestAIObservabilityModuleIntegrity:
+    def test_workflows_remain_unchanged(self):
+        """Ensure all expected LLMA-worker workflows are present."""
+        expected_workflows = [
+            "BatchTraceSummarizationWorkflow",
+            "BatchTraceSummarizationCoordinatorWorkflow",
+            "DailyTraceClusteringWorkflow",
+            "TraceClusteringCoordinatorWorkflow",
+            "ScheduleAllEvalReportsWorkflow",
+            "CheckCountTriggeredReportsWorkflow",
+            "GenerateAndDeliverEvalReportWorkflow",
+            "EmitEvalReportSignalWorkflow",
+            "AIObservabilityEvaluationSamplerCoordinatorWorkflow",
+            "AIObservabilityEvaluationSamplerWorkflow",
+            "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
+            "AIObservabilityEvaluationClusteringWorkflow",
+            "ClassifySentimentWorkflow",
+            "RunEvaluationWorkflow",
+        ]
+        actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
+        assert len(actual_workflow_names) == len(expected_workflows), (
+            f"Workflow count mismatch. Expected {len(expected_workflows)}, got {len(actual_workflow_names)}. "
+            "If you're adding/removing workflows, update this test accordingly."
+        )
+        for expected in expected_workflows:
+            assert expected in actual_workflow_names, f"Workflow '{expected}' is missing from LLM_ANALYTICS_WORKFLOWS."
+
+    def test_activities_remain_unchanged(self):
+        """Ensure all expected LLMA-worker activities are present."""
+        expected_activities = [
+            "get_team_ids_for_ai_observability",
+            "sample_items_in_window_activity",
+            "fetch_and_format_activity",
+            "summarize_and_save_activity",
+            "fetch_all_clustering_filters_activity",
+            "fetch_all_clustering_jobs_activity",
+            "perform_clustering_compute_activity",
+            "generate_cluster_labels_activity",
+            "compute_cluster_aggregates_activity",
+            "emit_cluster_events_activity",
+            "fetch_due_eval_reports_activity",
+            "fetch_count_triggered_eval_reports_activity",
+            "prepare_report_context_activity",
+            "run_eval_report_agent_activity",
+            "store_report_run_activity",
+            "deliver_report_activity",
+            "update_next_delivery_date_activity",
+            "emit_eval_report_signal_activity",
+            "sample_and_embed_for_job_activity",
+            "perform_evaluation_clustering_compute_activity",
+            "fetch_evaluation_metadata_activity",
+            "generate_evaluation_cluster_labels_activity",
+            "compute_evaluation_cluster_aggregates_activity",
+            "emit_evaluation_cluster_events_activity",
+            "classify_sentiment_activity",
+            "fetch_evaluation_activity",
+            "increment_trial_eval_count_activity",
+            "disable_evaluation_activity",
+            "send_trial_usage_email_activity",
+            "send_evaluation_disabled_email_activity",
+            "update_key_state_activity",
+            "execute_llm_judge_activity",
+            "execute_hog_eval_activity",
+            "emit_evaluation_event_activity",
+            "emit_internal_telemetry_activity",
+            "emit_eval_signal_activity",
+        ]
+        actual_activity_names = [a.__name__ for a in LLM_ANALYTICS_ACTIVITIES]
+        assert len(actual_activity_names) == len(expected_activities), (
+            f"Activity count mismatch. Expected {len(expected_activities)}, got {len(actual_activity_names)}. "
+            "If you're adding/removing activities, update this test accordingly."
+        )
+        for expected in expected_activities:
+            assert expected in actual_activity_names, f"Activity '{expected}' is missing from LLM_ANALYTICS_ACTIVITIES."

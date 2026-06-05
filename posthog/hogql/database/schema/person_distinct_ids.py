@@ -16,7 +16,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.persons import join_with_persons_table
 from posthog.hogql.errors import ResolutionError
 
-PERSON_DISTINCT_IDS_FIELDS = {
+PERSON_DISTINCT_IDS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
     "person_id": StringDatabaseField(name="person_id", nullable=False),

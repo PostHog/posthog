@@ -2,12 +2,15 @@ from datetime import UTC, datetime
 from typing import cast
 
 from posthog.test.base import _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     EventsNode,
+    ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
     ExperimentQuery,
@@ -78,7 +81,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
     ) -> tuple[ExperimentQueryResponse, ExperimentQueryResponse]:
         """Run the same experiment through both paths and assert identical results."""
         # Path A: direct events scan
-        experiment.exposure_preaggregation_enabled = False
+        self._disable_precomputation()
         experiment.save()
         direct_result = self._run_experiment(experiment, metric)
 
@@ -95,7 +98,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         )
 
         # Path B: lazy-computed
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.save()
         lazy_result = self._run_experiment(experiment, metric)
 
@@ -246,12 +249,12 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         )
 
         # Run through runner with lazy computation enabled
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.save()
         lazy_result = self._run_experiment(experiment, metric)
 
         # Run through runner without lazy computation
-        experiment.exposure_preaggregation_enabled = False
+        self._disable_precomputation()
         experiment.save()
         direct_result = self._run_experiment(experiment, metric)
 
@@ -280,7 +283,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 5),
         )
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
 
         metric = ExperimentMeanMetric(
             source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
@@ -363,7 +366,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 5),
         )
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.exposure_criteria = {"multiple_variant_handling": "first_seen"}
 
         metric = ExperimentMeanMetric(
@@ -521,7 +524,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
             placeholders=placeholders,
         )
 
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -680,18 +683,24 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         assert direct_result.variant_results is not None
         assert direct_result.variant_results[0].number_of_samples == 1
 
-    def test_falls_back_to_events_scan_on_lazy_computation_failure(self):
+    @parameterized.expand(
+        [
+            ("exposure", "_ensure_exposures_precomputed", "_ensure_metric_events_precomputed"),
+            ("metric_events", "_ensure_metric_events_precomputed", "_ensure_exposures_precomputed"),
+        ]
+    )
+    def test_falls_back_to_events_scan_on_lazy_computation_failure(self, expected_path, failing_method, other_method):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag,
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 5),
         )
-        experiment.exposure_preaggregation_enabled = True
+        self._enable_precomputation()
 
-        metric = ExperimentMeanMetric(
-            source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL),
-        )
+        # An ordered funnel metric reaches both precomputation paths (exposures and metric events),
+        # so a single test body can cover either failure by parameterizing which one raises.
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
         experiment.metrics = [metric.model_dump(mode="json")]
         experiment.save()
 
@@ -723,10 +732,21 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
                 properties={feature_flag_property: "test"},
             )
 
-        with patch.object(ExperimentQueryRunner, "_ensure_exposures_precomputed", side_effect=Exception("boom")):
+        with (
+            patch.object(ExperimentQueryRunner, failing_method, side_effect=Exception("boom")),
+            # The non-failing path returns "not ready" so it neither errors nor hits ClickHouse,
+            # keeping the assertion scoped to the single failure under test.
+            patch.object(ExperimentQueryRunner, other_method, return_value=MagicMock(ready=False)),
+            patch("posthog.hogql_queries.experiments.experiment_query_runner.capture_exception") as mock_capture,
+        ):
             result = self._run_experiment(experiment, metric)
 
         assert result.baseline is not None
         assert result.baseline.number_of_samples == 3
         assert result.variant_results is not None
         assert result.variant_results[0].number_of_samples == 3
+
+        # The fallback keeps the query working, but the precomputation failure must still
+        # be surfaced to error tracking rather than silently masked.
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["additional_properties"]["precomputation_path"] == expected_path

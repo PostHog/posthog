@@ -22,6 +22,8 @@ use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
 use common_redis::Client;
+use limiters::overflow::OverflowLimiter;
+use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
@@ -39,9 +41,12 @@ pub struct State {
     pub timesource: Arc<dyn TimeSource + Send + Sync>,
     pub redis: Arc<dyn Client + Send + Sync>,
     pub global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
-    pub global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     pub quota_limiter: Arc<CaptureQuotaLimiter>,
     pub token_dropper: Arc<TokenDropper>,
+    /// Restriction service scoped to all pipelines this capture deployment
+    /// produces to (e.g. `[Analytics, ErrorTracking]` for the events
+    /// deployment). Callers select the pipeline per event when looking up
+    /// restrictions — see `events::analytics::process_events`.
     pub event_restriction_service: Option<EventRestrictionService>,
     pub event_payload_size_limit: usize,
     pub historical_cfg: HistoricalConfig,
@@ -51,9 +56,35 @@ pub struct State {
     pub ai_blob_storage: Option<Arc<dyn BlobStorage>>,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
+    pub capture_v1_max_compressed_body_bytes: usize,
+    pub capture_v1_max_decompressed_body_bytes: usize,
+    /// In-process overflow limiter (governor-backed) for `DataType::AnalyticsMain`
+    /// events. When present, every handler that emits analytics events runs
+    /// the shared `events::overflow_stamping::stamp_overflow_reason` helper,
+    /// which calls `is_limited` per event and stamps
+    /// `ProcessedEventMetadata::overflow_reason` with `ForceLimited` or
+    /// `RateLimited { .. }` so the kafka sink can route to the overflow topic.
+    /// Call sites that consult this limiter:
+    /// * `events::analytics::process_events` (analytics batch path)
+    /// * `ai_endpoint::ai_handler` (`/i/v0/ai`)
+    /// * `otel::otel_handler` (`/i/v0/ai/otel`)
+    ///
+    /// This lives in `State` (not in the sink) so routing policy sits in the
+    /// pipeline alongside every other routing decision, and so the sink stays
+    /// a pure mechanism layer with cheap Arc-based clones.
+    pub overflow_limiter: Option<Arc<OverflowLimiter>>,
+    /// Redis-backed replay overflow limiter for session recording sessions.
+    /// When present, the recordings pipeline calls `is_limited(session_id)`
+    /// and stamps `ProcessedEventMetadata::overflow_reason = ReplayLimited` so
+    /// the kafka sink can route to the replay overflow topic. Same rationale
+    /// as `overflow_limiter` above.
+    pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
+    /// V1 sink router for the new capture analytics pipeline.
+    /// When present, the v1 analytics handler publishes events through this.
+    pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct HistoricalConfig {
     pub enable_historical_rerouting: bool,
     pub historical_rerouting_threshold_days: i64,
@@ -97,7 +128,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     sink: Arc<dyn sinks::Event + Send + Sync>,
     redis: Arc<R>,
     global_rate_limiter_token_distinctid: Option<Arc<GlobalRateLimiter>>,
-    global_rate_limiter_token: Option<Arc<GlobalRateLimiter>>,
     quota_limiter: CaptureQuotaLimiter,
     token_dropper: TokenDropper,
     event_restriction_service: Option<EventRestrictionService>,
@@ -115,13 +145,17 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     request_timeout_seconds: Option<u64>,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
+    capture_v1_max_compressed_body_bytes: usize,
+    capture_v1_max_decompressed_body_bytes: usize,
+    overflow_limiter: Option<Arc<OverflowLimiter>>,
+    replay_overflow_limiter: Option<Arc<RedisLimiter>>,
+    v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
 ) -> Router {
     let state = State {
         sink,
         timesource: Arc::new(timesource),
         redis,
         global_rate_limiter_token_distinctid,
-        global_rate_limiter_token,
         quota_limiter: Arc::new(quota_limiter),
         event_payload_size_limit,
         token_dropper: Arc::new(token_dropper),
@@ -136,6 +170,11 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_blob_storage,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
+        capture_v1_max_compressed_body_bytes,
+        capture_v1_max_decompressed_body_bytes,
+        overflow_limiter,
+        replay_overflow_limiter,
+        v1_sink_router,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -297,12 +336,25 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         .layer(DefaultBodyLimit::max(otel::OTEL_BODY_SIZE));
 
     let mut router = match capture_mode {
-        CaptureMode::Events | CaptureMode::Ai => Router::new()
-            .merge(batch_router)
-            .merge(event_router)
-            .merge(test_router)
-            .merge(ai_router)
-            .merge(otel_router),
+        CaptureMode::Events | CaptureMode::Ai => {
+            let mut events_router = Router::new()
+                .merge(batch_router)
+                .merge(event_router)
+                .merge(test_router)
+                .merge(ai_router)
+                .merge(otel_router);
+            // The v1 analytics endpoint is only routable when a v1 sink is
+            // configured. Without a sink the handler can't publish, so we keep
+            // the path unregistered (404) rather than advertising an endpoint
+            // that can only ever return 503. This also isolates the route to
+            // deployments that opt in via CAPTURE_V1_SINKS.
+            if state.v1_sink_router.is_some() {
+                events_router = events_router.merge(crate::v1::analytics::router::router().layer(
+                    DefaultBodyLimit::max(state.capture_v1_max_compressed_body_bytes),
+                ));
+            }
+            events_router
+        }
         CaptureMode::Recordings => Router::new().merge(recordings_router),
     };
 

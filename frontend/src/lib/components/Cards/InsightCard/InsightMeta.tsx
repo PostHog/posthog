@@ -25,7 +25,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -125,17 +124,21 @@ export function InsightMeta({
     onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
+    const tileFiltersOverride = tile?.filters_overrides
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         dashboardId,
         cachedInsight: insight,
         filtersOverride: filtersOverride ?? null,
         variablesOverride: variablesOverride ?? null,
-        tileFiltersOverride: tile?.filters_overrides ?? null,
+        tileFiltersOverride: tileFiltersOverride ?? null,
     }
-    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const {
+        insightFeedback,
+        canToggleDisplayLabelsForInsight,
+        canToggleLegendForInsight,
+        canToggleAnnotationsForInsight,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -146,7 +149,7 @@ export function InsightMeta({
             deferInitialAlertsLoad: true,
         })
     )
-    const { samplingFactor } = useValues(insightVizDataLogic(insightLogicProps))
+    const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { copyToDestinations } = useValues(
         dashboardWidgetMenusLogic({
@@ -169,13 +172,15 @@ export function InsightMeta({
         placement === DashboardPlacement.Public ||
         placement === DashboardPlacement.Builtin
     const isSqlInsight = isDataVisualizationNode(insight.query)
-    const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
+    const showCompactHeading = !showCompactTile || !isSqlInsight
 
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
-        hasTileOverrides: Object.keys(tile?.filters_overrides ?? {}).length > 0,
+        hasTileOverrides: Object.keys(tileFiltersOverride ?? {}).length > 0,
         resolvedDateRange: insightData?.resolved_date_range,
+        dateFromOverride: tileFiltersOverride?.date_from ?? filtersOverride?.date_from,
+        dateToOverride: tileFiltersOverride?.date_to ?? filtersOverride?.date_to,
     }
 
     const summary = useSummarizeInsight()(insight.query)
@@ -197,6 +202,7 @@ export function InsightMeta({
 
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
+    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -294,7 +300,14 @@ export function InsightMeta({
         ) : null
 
     const metaDetailsEl = showDetailsControls ? (
-        <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+        <InsightDetails
+            query={insight.query}
+            footerInfo={insight}
+            variablesOverride={variablesOverride}
+            filtersOverride={filtersOverride}
+            tileFiltersOverride={tileFiltersOverride ?? null}
+            hasDataWarehouseSeries={hasDataWarehouseSeries}
+        />
     ) : null
 
     const onMetaSave = canEditInsight
@@ -328,7 +341,7 @@ export function InsightMeta({
                             dashboardId,
                             variablesOverride,
                             filtersOverride,
-                            tile?.filters_overrides
+                            tileFiltersOverride
                         )}
                         title={name}
                         fallbackTitle={summary}
@@ -368,7 +381,7 @@ export function InsightMeta({
                                     dashboardId,
                                     variablesOverride,
                                     filtersOverride,
-                                    tile?.filters_overrides
+                                    tileFiltersOverride
                                 )}
                                 fullWidth
                             >
@@ -430,11 +443,14 @@ export function InsightMeta({
                             dashboardId={dashboardId}
                             canToggleDisplayLabels={canToggleDisplayLabels}
                             canToggleLegend={canToggleLegend}
+                            canToggleAnnotations={canToggleAnnotations}
                         />
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -446,7 +462,9 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -646,34 +664,36 @@ export function InsightMetaContent({
     showDescription?: boolean
     infoPopover?: JSX.Element | null
 }): JSX.Element {
-    let titleEl: JSX.Element = (
+    const titleContent = (
+        <>
+            <span className={clsx(infoPopover && 'truncate text-primary')}>
+                {title || <i>{fallbackTitle || 'Untitled'}</i>}
+            </span>
+            {(loading || loadingQueued) && (
+                <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
+                    <Spinner className="mr-1.5 text-base" textColored />
+                    {loading ? 'Loading' : 'Waiting to load'}
+                </span>
+            )}
+        </>
+    )
+
+    const titleEl = (
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
             className={clsx(infoPopover && 'inline-flex items-center overflow-visible')}
         >
-            <span className={clsx(infoPopover && 'truncate')}>{title || <i>{fallbackTitle || 'Untitled'}</i>}</span>
-            {(loading || loadingQueued) && (
-                <Tooltip
-                    title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
-                    placement="top-end"
-                >
-                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
-                        <Spinner className="mr-1.5 text-base" textColored />
-                        {loading ? 'Loading' : 'Waiting to load'}
-                    </span>
-                </Tooltip>
+            {link ? (
+                <Link to={link} className="max-w-full truncate">
+                    {titleContent}
+                </Link>
+            ) : (
+                titleContent
             )}
             {infoPopover}
         </h4>
     )
-    if (link) {
-        titleEl = (
-            <Link to={link} className="max-w-full truncate">
-                {titleEl}
-            </Link>
-        )
-    }
 
     return (
         <>

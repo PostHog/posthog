@@ -56,8 +56,10 @@ class SourceInputs:
     job_id: str
     logger: FilteringBoundLogger
     reset_pipeline: bool
+    enabled_columns: Optional[list[str]] = None
 
 
 class PipelineResult(TypedDict):
     should_trigger_cdp_producer: bool
     consumer_manages_job_status: NotRequired[bool]
+    skip_post_import_activities: NotRequired[bool]

@@ -434,6 +434,13 @@ impl KafkaDeduplicatorService {
             kafka_tls: self.config.kafka_tls,
             kafka_client_rack: String::new(),
             kafka_client_id: String::new(),
+            kafka_producer_batch_size: None,
+            kafka_producer_batch_num_messages: None,
+            kafka_producer_enable_idempotence: None,
+            kafka_producer_max_in_flight_requests_per_connection: None,
+            kafka_producer_topic_metadata_refresh_interval_ms: None,
+            kafka_producer_message_max_bytes: None,
+            kafka_producer_sticky_partitioning_linger_ms: None,
         };
 
         // Normalize empty strings to None for optional topic configs

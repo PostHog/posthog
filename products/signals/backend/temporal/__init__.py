@@ -1,4 +1,13 @@
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
+from products.signals.backend.temporal.agentic.scout_coordinator import (
+    SignalsScoutCoordinatorWorkflow,
+    fetch_enabled_signals_scout_runs_activity,
+    stamp_dispatched_signals_scout_runs_activity,
+)
+from products.signals.backend.temporal.agentic.scout_scheduler import (
+    RunSignalsScoutWorkflow,
+    run_signals_scout_activity,
+)
 from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
@@ -11,6 +20,7 @@ from products.signals.backend.temporal.buffer import (
     signal_with_start_grouping_v2_activity,
     submit_signal_to_buffer_activity,
 )
+from products.signals.backend.temporal.custom_agent import CustomSignalAgentWorkflow, run_custom_signal_agent_activity
 from products.signals.backend.temporal.deletion import SignalReportDeletionWorkflow
 from products.signals.backend.temporal.emit_eval_signal import EmitEvalSignalWorkflow, emit_eval_signal_activity
 from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
@@ -26,8 +36,14 @@ from products.signals.backend.temporal.grouping import (
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
+    TeamSignalReingestionWorkflow,
     delete_report_activity,
+    delete_team_reports_activity,
+    get_grouping_paused_state_activity,
+    pause_grouping_until_activity,
+    process_team_signals_batch_activity,
     reingest_signals_activity,
+    restore_grouping_pause_activity,
     soft_delete_report_signals_activity,
 )
 from products.signals.backend.temporal.report_safety_judge import report_safety_judge_activity
@@ -40,6 +56,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
+    dispatch_inbox_slack_notifications_activity,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -56,13 +73,20 @@ WORKFLOWS = [
     SignalEmitterWorkflow,
     SignalReportSummaryWorkflow,
     SignalReportReingestionWorkflow,
+    TeamSignalReingestionWorkflow,
     SignalReportDeletionWorkflow,
     EmitEvalSignalWorkflow,
+    CustomSignalAgentWorkflow,
+    RunSignalsScoutWorkflow,
+    SignalsScoutCoordinatorWorkflow,
 ]
 
 ACTIVITIES = [
+    dispatch_inbox_slack_notifications_activity,
     emit_backfill_signal_activity,
     fetch_error_tracking_issues_activity,
+    fetch_enabled_signals_scout_runs_activity,
+    stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     delete_report_activity,
     emit_eval_signal_activity,
@@ -81,10 +105,17 @@ ACTIVITIES = [
     mark_report_pending_input_activity,
     mark_report_ready_activity,
     publish_report_completed_activity,
+    delete_team_reports_activity,
+    get_grouping_paused_state_activity,
+    pause_grouping_until_activity,
+    process_team_signals_batch_activity,
     reingest_signals_activity,
     reset_report_to_potential_activity,
+    restore_grouping_pause_activity,
     run_agentic_report_activity,
+    run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
+    run_signals_scout_activity,
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,

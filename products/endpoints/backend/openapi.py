@@ -2,9 +2,8 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
-from posthog.models.insight_variable import InsightVariable
-
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
     InsightVariable.Type.STRING: {"type": "string"},
@@ -27,7 +26,7 @@ def generate_openapi_spec(
         version: Specific version to generate spec for. If None, uses current version.
     """
     base_url = settings.SITE_URL
-    run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
+    run_path = f"/api/projects/{team_id}/endpoints/{endpoint.name}/run"
     target_version = version or endpoint.get_version()
     description = target_version.description
 
@@ -238,7 +237,7 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
 
 
 # Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "FunnelsQuery", "RetentionQuery"}
+BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
 
 
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:

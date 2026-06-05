@@ -10,19 +10,25 @@ from urllib import parse
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.files.uploadedfile import UploadedFile
+from django.db import IntegrityError, transaction
+from django.forms import ModelForm, ValidationError
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
 
 from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
+from posthog.admin.inlines.team_experiments_config_inline import TeamExperimentsConfigInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
@@ -33,6 +39,7 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 from posthog.temporal.session_replay.delete_recordings.object_storage import store_session_id_chunks
 from posthog.temporal.session_replay.delete_recordings.types import (
     DeletionConfig,
@@ -52,7 +59,25 @@ class ReplayActivityContext(ActivityContextBase):
     reason: str
 
 
+class TeamAdminForm(ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["test_account_filters"].required = False
+        self.fields["test_account_filters"].help_text = "list: Default value is an empty `[]`"
+
+    def clean_test_account_filters(self):
+        value = self.cleaned_data.get("test_account_filters")
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
+        return value
+
+
+@admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
+    form = TeamAdminForm
+
     list_display = (
         "id",
         "name",
@@ -81,7 +106,6 @@ class TeamAdmin(admin.ModelAdmin):
         "organization",
         "project",
         "primary_dashboard",
-        "test_account_filters",
         "created_at",
         "updated_at",
         "internal_properties",
@@ -89,10 +113,19 @@ class TeamAdmin(admin.ModelAdmin):
         "export_individual_replay",
         "import_individual_replay",
         "delete_recordings",
+        "api_token_display",
+        "admit_state",
+        "ai_gateway_actions",
+        "policy_cache_blob",
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [OrganizationMemberForRelatedInline, TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [
+        OrganizationMemberForRelatedInline,
+        TeamMarketingAnalyticsConfigInline,
+        TeamExperimentsConfigInline,
+        UserProductListInline,
+    ]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -118,11 +151,10 @@ class TeamAdmin(admin.ModelAdmin):
             {
                 "classes": ["collapse"],
                 "fields": [
-                    "api_token",
+                    "api_token_display",
                     "timezone",
                     "week_start_day",
                     "base_currency",
-                    "slack_incoming_webhook",
                     "primary_dashboard",
                 ],
             },
@@ -202,6 +234,25 @@ class TeamAdmin(admin.ModelAdmin):
                 ],
             },
         ),
+        (
+            "AI Gateway",
+            {
+                "fields": [
+                    "llm_gateway_enabled_at",
+                    "llm_gateway_revoked_at",
+                    "admit_state",
+                    "ai_gateway_actions",
+                    "policy_cache_blob",
+                ],
+                "description": mark_safe(
+                    "<strong>Per-region change.</strong> Applies to the current region only. "
+                    "If you want the team enabled or revoked in the other region too, flip the "
+                    "matching Team row there. The gateway admits a team only when "
+                    "<code>llm_gateway_enabled_at</code> is set and "
+                    "<code>llm_gateway_revoked_at</code> is null."
+                ),
+            },
+        ),
     ]
 
     def organization_link(self, team: Team):
@@ -269,6 +320,17 @@ class TeamAdmin(admin.ModelAdmin):
             )
         )
 
+    @admin.display(description="API token")
+    def api_token_display(self, team: Team):
+        if not team.pk:
+            return "-"
+        set_url = reverse("admin:posthog_team_set_api_token", args=[team.pk])
+        return format_html(
+            '<span>{}</span> &nbsp; <a class="button" href="{}">Set API token</a>',
+            team.api_token,
+            set_url,
+        )
+
     @admin.display(description="Delete recordings")
     def delete_recordings(self, team: Team):
         if not team.pk:
@@ -296,6 +358,144 @@ class TeamAdmin(admin.ModelAdmin):
                 },
             )
         )
+
+    def _resolve_ai_gateway_team(self, request, object_id):
+        if request.method != "POST":
+            return None, HttpResponseNotAllowed(["POST"])
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+        return team, None
+
+    def enable_ai_gateway_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
+        if team.llm_gateway_enabled_at is None:
+            team.llm_gateway_enabled_at = timezone.now()
+            team.save()
+            logger.info(
+                "admin_enable_ai_gateway",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+            self.message_user(
+                request,
+                f"Enabled AI gateway access for team '{team.name}'.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was already enabled (since {team.llm_gateway_enabled_at.isoformat()}).",
+                level=messages.INFO,
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def revoke_ai_gateway_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
+        if team.llm_gateway_revoked_at is None:
+            team.llm_gateway_revoked_at = timezone.now()
+            team.save()
+            logger.info(
+                "admin_revoke_ai_gateway",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+            self.message_user(
+                request,
+                f"Revoked AI gateway access for team '{team.name}'.",
+                level=messages.WARNING,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was already revoked (since {team.llm_gateway_revoked_at.isoformat()}).",
+                level=messages.INFO,
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    def clear_ai_gateway_revoke_view(self, request, object_id):
+        team, response = self._resolve_ai_gateway_team(request, object_id)
+        if response is not None:
+            return response
+        if team.llm_gateway_revoked_at is not None:
+            team.llm_gateway_revoked_at = None
+            team.save()
+            logger.info(
+                "admin_clear_ai_gateway_revoke",
+                team_id=team.id,
+                triggered_by=request.user.email,
+            )
+            self.message_user(
+                request,
+                f"Cleared AI gateway revoke for team '{team.name}'.",
+                level=messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                f"Team '{team.name}' was not revoked.",
+                level=messages.INFO,
+            )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+    @admin.display(description="Actions")
+    def ai_gateway_actions(self, team: Team):
+        if not team.pk:
+            return "-"
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/ai_gateway_actions.html",
+                {
+                    "team": team,
+                    "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
+                    "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
+                    "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
+                    "team_name_escaped": escapejs(team.name),
+                    "is_enabled": team.llm_gateway_enabled_at is not None,
+                    "is_revoked": team.llm_gateway_revoked_at is not None,
+                },
+            )
+        )
+
+    @admin.display(description="Admit state")
+    def admit_state(self, team: Team):
+        if not team.pk:
+            return "-"
+        if team.llm_gateway_revoked_at:
+            return format_html(
+                '<span style="color:red"><strong>Revoked</strong></span> at {}',
+                team.llm_gateway_revoked_at.isoformat(),
+            )
+        if team.llm_gateway_enabled_at:
+            return format_html(
+                '<span style="color:green"><strong>Enrolled</strong></span> since {}',
+                team.llm_gateway_enabled_at.isoformat(),
+            )
+        return format_html("<em>Not enrolled</em>")
+
+    @admin.display(description="Policy cache blob (what the gateway sees)")
+    def policy_cache_blob(self, team: Team):
+        if not team.pk:
+            return "-"
+        from posthog.storage.team_llm_gateway_policy_cache import get_team_llm_gateway_policy_from_redis
+
+        try:
+            blob, source = get_team_llm_gateway_policy_from_redis(team)
+        except Exception as exc:
+            return format_html("<em>(cache read failed: {})</em>", str(exc))
+        if source == "absent":
+            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+        if source == "redis_negative":
+            return format_html(
+                "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
+                "until the entry expires, default 24h)</em>"
+            )
+        return format_html("<pre>{}</pre>", json.dumps(blob, indent=2, default=str))
 
     def get_urls(self):
         urls = super().get_urls()
@@ -331,6 +531,11 @@ class TeamAdmin(admin.ModelAdmin):
                 name="posthog_team_download_export",
             ),
             path(
+                "<path:object_id>/set-api-token/",
+                self.admin_site.admin_view(self.set_api_token_view),
+                name="posthog_team_set_api_token",
+            ),
+            path(
                 "<path:object_id>/delete-recordings/",
                 self.admin_site.admin_view(self.delete_recordings_view),
                 name="posthog_team_delete_recordings",
@@ -350,8 +555,63 @@ class TeamAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.delete_recordings_workflows_fragment),
                 name="posthog_team_delete_recordings_workflows",
             ),
+            path(
+                "<path:object_id>/enable-ai-gateway/",
+                self.admin_site.admin_view(self.enable_ai_gateway_view),
+                name="posthog_team_enable_ai_gateway",
+            ),
+            path(
+                "<path:object_id>/revoke-ai-gateway/",
+                self.admin_site.admin_view(self.revoke_ai_gateway_view),
+                name="posthog_team_revoke_ai_gateway",
+            ),
+            path(
+                "<path:object_id>/clear-ai-gateway-revoke/",
+                self.admin_site.admin_view(self.clear_ai_gateway_revoke_view),
+                name="posthog_team_clear_ai_gateway_revoke",
+            ),
         ]
         return custom_urls + urls
+
+    def set_api_token_view(self, request, object_id):
+        team = Team.objects.get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+
+        if request.method == "GET":
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "title": f"Set API token - {team.name}",
+            }
+            return render(request, "admin/posthog/team/set_api_token_form.html", context)
+
+        new_token = request.POST.get("new_token", "").strip()
+        if not new_token:
+            messages.error(request, "New API token is required")
+            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
+
+        try:
+            with transaction.atomic():
+                team.set_token_and_save(
+                    new_token=new_token,
+                    user=request.user,
+                    is_impersonated_session=False,
+                )
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
+        except IntegrityError:
+            messages.error(request, "Another team already owns this API token. Pick a different value.")
+            return redirect(reverse("admin:posthog_team_set_api_token", args=[object_id]))
+
+        logger.info(
+            "admin_set_api_token",
+            team_id=team.id,
+            triggered_by=request.user.email,
+        )
+        messages.success(request, f"API token updated for team '{team.name}'.")
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def export_replay_view(self, request, object_id):
         team = Team.objects.get(pk=object_id)
@@ -599,12 +859,20 @@ class TeamAdmin(admin.ModelAdmin):
         """Fetch recent delete-recordings workflows for this team from Temporal."""
         try:
             temporal = sync_connect()
-            prefix = f"delete-recordings-{team_id}-"
-            query = f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~"'
+            # Use the PostHogTeamId search attribute (indexed) instead of WorkflowId range scan.
+            # WorkflowId range queries (>=, <) are not efficiently indexed and cause 30s+ timeouts.
+            workflow_types = [
+                "delete-recordings-with-person",
+                "delete-recordings-with-team",
+                "delete-recordings-with-query",
+                "delete-recordings-with-session-ids",
+            ]
+            type_clauses = " OR ".join(f'WorkflowType = "{wt}"' for wt in workflow_types)
+            query = f"PostHogTeamId = {team_id} AND ({type_clauses})"
 
             async def fetch_workflows():
                 workflows = []
-                async for wf in temporal.list_workflows(query=query):
+                async for wf in temporal.list_workflows(query=query, rpc_timeout=timedelta(seconds=5)):
                     workflows.append(
                         {
                             "id": wf.id,
@@ -663,6 +931,9 @@ class TeamAdmin(admin.ModelAdmin):
             temporal = sync_connect()
             workflow_id = f"delete-recordings-{team.id}-{uuid.uuid4()}"
             config = DeletionConfig(reason=reason, dry_run=dry_run, deleted_by=request.user.email)
+            team_search_attrs = TypedSearchAttributes(
+                search_attributes=[SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.id)]
+            )
 
             if workflow_type == "person":
                 distinct_ids_raw = request.POST.get("distinct_ids", "").strip()
@@ -683,6 +954,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -712,6 +984,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -734,6 +1007,14 @@ class TeamAdmin(admin.ModelAdmin):
 
                 date_from = request.POST.get("date_from", "").strip()
                 date_to = request.POST.get("date_to", "").strip()
+
+                # Relative dates need a "d" suffix (e.g. "-360d") — bare integers
+                # like "-360" get parsed as ints by query_as_params_to_dict and
+                # fail Pydantic validation downstream.
+                if date_from.lstrip("-").isdigit():
+                    date_from = f"{date_from}d"
+                if date_to.lstrip("-").isdigit():
+                    date_to = f"{date_to}d"
                 duration_min = request.POST.get("duration_min", "").strip()
                 duration_max = request.POST.get("duration_max", "").strip()
                 person_uuid = request.POST.get("person_uuid", "").strip()
@@ -805,6 +1086,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 
@@ -872,6 +1154,7 @@ class TeamAdmin(admin.ModelAdmin):
                             maximum_attempts=2,
                             initial_interval=timedelta(minutes=1),
                         ),
+                        search_attributes=team_search_attrs,
                     )
                 )
 

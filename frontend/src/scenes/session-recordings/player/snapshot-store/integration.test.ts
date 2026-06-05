@@ -1,5 +1,6 @@
+import { EventType, IncrementalSource } from 'posthog-js/rrweb-types'
+
 import { LoadBatch, SnapshotStore } from '@posthog/replay-shared'
-import { EventType, IncrementalSource } from '@posthog/rrweb-types'
 
 import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
@@ -468,8 +469,8 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
             })
 
             // Sources 0-26 are still unloaded — this is the gap the user would seek back into
-            const startIdx = store.getSourceIndexForTimestamp(tsForMinute(5))
-            const endIdx = store.getSourceIndexForTimestamp(tsForMinute(20))
+            const startIdx = store.getSourceIndexForTimestamp(tsForMinute(5))!
+            const endIdx = store.getSourceIndexForTimestamp(tsForMinute(20))!
             const unloaded = store.getUnloadedIndicesInRange(startIdx, endIdx)
             expect(unloaded.length).toBeGreaterThan(0)
 
@@ -487,8 +488,8 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
             }
 
             // All loaded — gaps here are real inactivity, not pending data
-            const startIdx = store.getSourceIndexForTimestamp(tsForMinute(3))
-            const endIdx = store.getSourceIndexForTimestamp(tsForMinute(7))
+            const startIdx = store.getSourceIndexForTimestamp(tsForMinute(3))!
+            const endIdx = store.getSourceIndexForTimestamp(tsForMinute(7))!
             expect(store.getUnloadedIndicesInRange(startIdx, endIdx).length).toBe(0)
         })
     })

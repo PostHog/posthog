@@ -1,6 +1,6 @@
 import { JSONContent } from '@tiptap/core'
 
-import { IconCopy, IconLock } from '@posthog/icons'
+import { IconCopy, IconLock, IconWarning } from '@posthog/icons'
 import { LemonButton, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -49,7 +49,7 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                         <div
                             className={`border py-2 px-3 rounded-lg ${
                                 isPrivate ? 'bg-warning-highlight border-warning' : 'bg-surface-primary'
-                            } [&_.SupportMarkdown__image]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
+                            } [&_img]:max-h-64 [&_.SupportEditor__image]:max-h-64`}
                         >
                             {isPrivate && (
                                 <div className="flex items-center justify-end">
@@ -73,10 +73,21 @@ export function Message({ message, isCustomer, deliveryStatus }: MessageProps): 
                             )}
                         </div>
                         <div className="flex items-center justify-end gap-1">
-                            {deliveryStatus && (
-                                <span className="text-xs text-muted-alt">
-                                    {deliveryStatus === 'read' ? 'Read' : 'Sent'}
-                                </span>
+                            {message.emailDeliveryStatus === 'failed' ? (
+                                <Tooltip title="We couldn't deliver this email reply. Please check the email channel settings and contact support if the issue persists.">
+                                    <span className="inline-flex items-center gap-0.5 text-xs text-danger">
+                                        <IconWarning className="text-xs" />
+                                        Failed to send
+                                    </span>
+                                </Tooltip>
+                            ) : message.emailDeliveryStatus === 'sending' ? (
+                                <span className="text-xs text-muted-alt">Sending…</span>
+                            ) : (
+                                deliveryStatus && (
+                                    <span className="text-xs text-muted-alt">
+                                        {deliveryStatus === 'read' ? 'Read' : 'Sent'}
+                                    </span>
+                                )
                             )}
                         </div>
                     </div>

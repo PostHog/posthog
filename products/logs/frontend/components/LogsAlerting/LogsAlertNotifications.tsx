@@ -1,50 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconExternal, IconTrash } from '@posthog/icons'
+import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
 import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, SlackChannelType } from '~/types'
-
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
+    getHogFunctionEventKind,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     PendingLogsAlertNotification,
+    resolveGroupLabel,
 } from './logsAlertUtils'
 
-function resolveSlackChannelName(channelValue: string, slackChannels: SlackChannelType[]): string | null {
-    const channelId = channelValue.split('|')[0]
-    return slackChannels.find((c) => c.id === channelId)?.name ?? null
-}
-
-function getHogFunctionDestination(
-    hf: HogFunctionType,
-    slackChannels: SlackChannelType[]
-): { type: string; detail: string | null } {
-    const channelValue = hf.inputs?.channel?.value
-    if (channelValue && typeof channelValue === 'string') {
-        const channelName = resolveSlackChannelName(channelValue, slackChannels)
-        return { type: 'Slack', detail: channelName ? `#${channelName}` : null }
-    }
-    if (channelValue) {
-        return { type: 'Slack', detail: null }
-    }
-    const urlValue = hf.inputs?.url?.value
-    if (urlValue && typeof urlValue === 'string') {
-        return { type: 'Webhook', detail: urlValue }
-    }
-    return { type: hf.name, detail: null }
-}
-
-export function LogsAlertNotifications(): JSX.Element {
+export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.Element {
     const {
-        existingHogFunctions,
         existingHogFunctionsLoading,
+        destinationGroups,
         pendingNotifications,
         firstSlackIntegration,
         selectedType,
@@ -54,7 +30,7 @@ export function LogsAlertNotifications(): JSX.Element {
     const {
         addPendingNotification,
         removePendingNotification,
-        deleteExistingHogFunction,
+        deleteExistingDestination,
         setSelectedType,
         setSlackChannelValue,
         setWebhookUrl,
@@ -104,45 +80,56 @@ export function LogsAlertNotifications(): JSX.Element {
     }
 
     return (
-        <div className="space-y-4">
-            {(existingHogFunctionsLoading || existingHogFunctions.length > 0) && (
+        <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-alt m-0">
+                Each destination delivers notifications for all alert events — firing, resolved, and broken.
+            </p>
+            {(existingHogFunctionsLoading || destinationGroups.length > 0) && (
                 <div>
                     {existingHogFunctionsLoading ? (
                         <LemonSkeleton className="h-8" repeat={2} />
-                    ) : existingHogFunctions.length > 0 ? (
+                    ) : destinationGroups.length > 0 ? (
                         <div className="space-y-2">
-                            {existingHogFunctions.map((hf) => {
-                                const { type: destType, detail } = getHogFunctionDestination(hf, slackChannels)
+                            {destinationGroups.map((group) => {
+                                const detailHogFunctionId =
+                                    group.hogFunctions.find((hf) => getHogFunctionEventKind(hf) === 'firing')?.id ??
+                                    group.hogFunctions[0]?.id
+                                const detailUrl =
+                                    alertId && detailHogFunctionId
+                                        ? urls.logsAlertNotificationDetail(alertId, detailHogFunctionId)
+                                        : undefined
                                 return (
                                     <div
-                                        key={hf.id}
+                                        key={group.key}
                                         className="flex items-center justify-between border rounded p-2 gap-2"
                                     >
                                         <div className="flex-1 min-w-0">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-sm font-medium">{destType}</span>
-                                                <LemonTag type={hf.enabled ? 'success' : 'default'} size="small">
-                                                    {hf.enabled ? 'Active' : 'Paused'}
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="text-sm font-medium truncate">
+                                                    {resolveGroupLabel(group, slackChannels)}
+                                                </span>
+                                                <LemonTag type={group.enabled ? 'success' : 'default'} size="small">
+                                                    {group.enabled ? 'Active' : 'Paused'}
                                                 </LemonTag>
                                             </div>
-                                            {detail && (
-                                                <span className="text-xs text-muted-alt truncate block">{detail}</span>
-                                            )}
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
                                             <LemonButton
-                                                icon={<IconExternal />}
                                                 size="xsmall"
-                                                to={urls.hogFunction(hf.id)}
-                                                targetBlank
-                                                hideExternalLinkIcon
-                                                tooltip="Open destination"
-                                            />
+                                                type="secondary"
+                                                to={detailUrl}
+                                                disabledReason={
+                                                    detailUrl ? undefined : 'Save the alert to view details'
+                                                }
+                                                data-attr="logs-alert-destination-view"
+                                            >
+                                                View
+                                            </LemonButton>
                                             <LemonButton
                                                 icon={<IconTrash />}
                                                 size="xsmall"
                                                 status="danger"
-                                                onClick={() => deleteExistingHogFunction(hf)}
+                                                onClick={() => deleteExistingDestination(group)}
                                                 tooltip="Delete notification"
                                             />
                                         </div>
@@ -167,7 +154,9 @@ export function LogsAlertNotifications(): JSX.Element {
                         >
                             <span className="text-sm min-w-0 truncate flex flex-col">
                                 {getNotificationLabel(notification)}{' '}
-                                <span className="text-muted-alt">(pending - click Save to apply)</span>
+                                <span className="text-muted-alt">
+                                    {alertId ? '(saving…)' : '(pending — save alert to apply)'}
+                                </span>
                             </span>
                             <LemonButton
                                 icon={<IconTrash />}

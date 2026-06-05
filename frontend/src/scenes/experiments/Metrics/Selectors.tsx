@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSelectOption, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -189,7 +189,7 @@ export function FunnelAttributionSelect({
             <div className="flex">
                 <span>Attribution type</span>
                 <Tooltip
-                    closeDelayMs={200}
+                    docLink="https://posthog.com/docs/product-analytics/funnels#attribution-types"
                     title={
                         <div className="deprecated-space-y-2">
                             <div>
@@ -210,12 +210,6 @@ export function FunnelAttributionSelect({
                                 </li>
                                 <li>Specific step: only the property value seen at the selected step is chosen.</li>
                             </ul>
-                            <div>
-                                Read more in the{' '}
-                                <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
-                                    documentation.
-                                </Link>
-                            </div>
                         </div>
                     }
                 >

@@ -90,6 +90,41 @@ describe('mergeSplitPersonLogic', () => {
         })
     })
 
+    describe('partial split', () => {
+        it('defaults to the "all" split mode with an empty distinct ID list', async () => {
+            await expectLogic(logic).toMatchValues({
+                splitMode: 'all',
+                distinctIdsToSplit: [],
+            })
+        })
+
+        it('tracks mode changes and selected distinct IDs', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSplitMode('partial')
+                logic.actions.setDistinctIdsToSplit(['user-456'])
+            }).toMatchValues({
+                splitMode: 'partial',
+                distinctIdsToSplit: ['user-456'],
+            })
+        })
+
+        it('executes successfully when partial mode has a selection', async () => {
+            personsLogicInstance.actions.setSplitMergeModalShown(true)
+            logic.actions.setSplitMode('partial')
+            logic.actions.setDistinctIdsToSplit(['user-456'])
+
+            await expectLogic(logic, () => {
+                logic.actions.execute()
+            })
+                .toDispatchActions(['execute', 'executeSuccess'])
+                .toFinishListeners()
+
+            await expectLogic(personsLogicInstance).toMatchValues({
+                splitMergeModalShown: false,
+            })
+        })
+    })
+
     describe('urlId matching', () => {
         it('connects to the correct personsLogic instance based on urlId', async () => {
             const differentPersonsLogic = personsLogic({ syncWithUrl: true, urlId: 'different-user' })

@@ -6,6 +6,7 @@ from django.db import models
 from django.db.models import Q
 from django.db.models.functions.comparison import Coalesce
 
+import re2
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
 
@@ -34,6 +35,7 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
     SessionPropertyFilter,
     SpanPropertyFilter,
+    WorkflowVariablePropertyFilter,
 )
 
 from posthog.hogql import ast
@@ -42,22 +44,23 @@ from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Action, Cohort, Property, PropertyDefinition, Team
-from posthog.models.action.action import ActionStepJSON
+from posthog.models import Cohort, Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
-from products.data_warehouse.backend.models import DataWarehouseJoin
-from products.data_warehouse.backend.models.util import get_view_or_table_by_name
+from products.actions.backend.models.action import Action, ActionStepJSON
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
+from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -87,6 +90,27 @@ def parse_semver(value: str) -> tuple[str, str, str]:
     return (major, minor, patch)
 
 
+# Anchored, strict-semver validator used to gate semver comparisons. We can't rely on
+# `sortableSemver` returning NULL for invalid input because ClickHouse forbids
+# `Nullable(Array(...))`, and an `Array(Nullable(Int64))` with a NULL element sorts
+# as the *greatest* array — which would incorrectly include invalid versions in
+# `>= filter` queries. Instead we gate every semver comparison on this regex
+# matching the property side, so invalid values are dropped before the array
+# comparison happens. Matches Rust `semver::Version::parse` (X.Y.Z, no leading
+# zeros, optional 'v' prefix, optional pre-release / build suffix).
+STRICT_SEMVER_REGEX = r"^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+][^\s]*)?\s*$"
+
+
+def _gate_on_valid_semver(expr: ast.Expr, comparison: ast.Expr) -> ast.And:
+    """Wrap a semver comparison so it only fires on rows where `expr` is strict semver."""
+    return ast.And(
+        exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
+            comparison,
+        ]
+    )
+
+
 def semver_range_compare(
     expr: ast.Expr,
     value: ast.Any,
@@ -103,7 +127,7 @@ def semver_range_compare(
         bounds_calculator: Function that takes the value and returns (lower_bound, upper_bound)
 
     Returns:
-        AST node representing: sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
+        AST node representing: match(expr, valid_semver) AND sortableSemver(expr) >= sortableSemver(lower) AND sortableSemver(expr) < sortableSemver(upper)
     """
     if not isinstance(value, str):
         raise QueryError(f"{operator_name} operator requires a semver string value")
@@ -115,6 +139,7 @@ def semver_range_compare(
 
     return ast.And(
         exprs=[
+            ast.Call(name="match", args=[expr, ast.Constant(value=STRICT_SEMVER_REGEX)]),
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
                 left=ast.Call(name="sortableSemver", args=[expr]),
@@ -194,6 +219,22 @@ def _wildcard_bounds(value: str) -> tuple[str, str]:
 
 
 GROUP_KEY_PATTERN = re.compile(r"^\$group_[0-4]$")
+
+
+def _stringify_group_key_value(value: object) -> str | list[str]:
+    """Group keys ($group_0–$group_4) are always stored as strings. A numeric filter
+    value would produce equals(<string column>, <number>), which ClickHouse rejects
+    with NO_COMMON_TYPE — so coerce a group-key filter value to its string form."""
+
+    def _scalar(v: object) -> str:
+        # An integer-valued float ('13.0') stringifies to the plain integer ('13')
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    if isinstance(value, list):
+        return [_scalar(v) for v in value]
+    return _scalar(value)
 
 
 def has_aggregation(expr: AST) -> bool:
@@ -281,9 +322,10 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         prop_type = None
 
         table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
-        if table_or_view:
+        if table_or_view and table_or_view.columns is not None:
             prop_type_dict = table_or_view.columns.get(property.key, None)
-            prop_type = prop_type_dict.get("hogql")
+            if prop_type_dict is not None:
+                prop_type = prop_type_dict.get("hogql")
 
         if not table_or_view:
             raise Exception(f"Could not find table or view for key {key}")
@@ -323,6 +365,69 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
+    """Resolve a date value for IS_DATE_* operators.
+
+    Relative dates (e.g. ``-7d``, ``-10m`` for months, ``-10M`` for minutes) are
+    resolved against the team timezone and rendered as a naive ``YYYY-MM-DD HH:MM:SS``
+    wall-clock string — the printer's constant-folding fast-path then lowers that
+    to ``toDateTime(str, <team_tz>)``, which interprets it in the team timezone.
+    Because ``relative_date_parse`` already computed the wall clock in the team
+    timezone, the round-trip is correct.
+
+    Absolute values are returned untouched. In particular, ISO 8601 strings with
+    an explicit ``T``/``Z`` (e.g. ``2026-03-19T14:00:00Z``) are preserved so that
+    ClickHouse's ``parseDateTime64BestEffort`` — which honors the embedded offset
+    — can parse them to the correct UTC moment regardless of the team's timezone.
+    Stripping the ``Z`` and fast-pathing to ``toDateTime`` would silently reinterpret
+    the value in the team timezone and shift it by the offset.
+    """
+    if not isinstance(value, str):
+        return value
+
+    relative_regex = r"^-?[0-9]+[hdwmqysHDWMQY]"
+    if re.match(relative_regex, value):
+        from posthog.utils import relative_date_parse
+
+        resolved = relative_date_parse(value, team.timezone_info)
+        return resolved.strftime("%Y-%m-%d %H:%M:%S")
+
+    return value
+
+
+def _force_datetime(expr: ast.Expr) -> ast.Expr:
+    """Coerce ``expr`` to DateTime for chronological IS_DATE_* comparison.
+
+    PropertySwapper only wraps the LHS of a comparison in ``toDateTime()``
+    when a DateTime PropertyDefinition exists for the property. Without one,
+    the LHS stays as a raw JSON-extracted String, and a String-vs-String
+    comparison becomes lexicographic — which silently diverges from
+    chronological order when one side uses the ISO 8601 ``T``/``Z`` form and
+    the other the normalized MySQL form (``'T'`` = 0x54 sorts after
+    ``' '`` = 0x20).
+
+    Wrapping both sides in HogQL's ``toDateTime`` forces ClickHouse to parse
+    and compare as DateTime regardless of the underlying column type.
+
+    The ``toString`` hop on non-constant expressions is load-bearing: when
+    PropertySwapper *does* wrap the LHS (DateTime PropertyDefinition exists),
+    HogQL's overload resolution for the outer ``toDateTime`` cannot see
+    through PropertySwapper's freshly created Call node and falls back to
+    the default ``parseDateTime64BestEffortOrNull`` mapping. That function
+    rejects DateTime64 input (``ILLEGAL_TYPE_OF_ARGUMENT``), so we must
+    stringify first. String constants already skip the hop because
+    ``toString('x')`` is pointless and omitting it lets the printer apply
+    its ``parseDateTime64BestEffortOrNull`` → ``toDateTime`` constant
+    folding optimization.
+    """
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return ast.Call(name="toDateTime", args=[expr])
+    return ast.Call(
+        name="toDateTime",
+        args=[ast.Call(name="toString", args=[expr])],
+    )
+
+
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
@@ -353,6 +458,18 @@ def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
             ast.Array(exprs=[ast.Constant(value=str(v)) for v in value]),
         ],
     )
+
+
+def _validate_regex(value: ValueT) -> None:
+    """Reject an invalid regular expression with a clear user-facing error rather
+    than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
+    same RE2 engine ClickHouse uses validates the pattern here."""
+    if not isinstance(value, str):
+        return
+    try:
+        re2.compile(value)
+    except re2.error as err:
+        raise QueryError(f"Invalid regular expression: '{value}'") from err
 
 
 def _expr_to_compare_op(
@@ -409,6 +526,7 @@ def _expr_to_compare_op(
             values_list = cast(list, [value])
         return _multi_search_not_found(_create_multi_search_call(expr, values_list))
     elif operator == PropertyOperator.REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -417,6 +535,7 @@ def _expr_to_compare_op(
             ],
         )
     elif operator == PropertyOperator.NOT_REGEX:
+        _validate_regex(value)
         return ast.Call(
             name="ifNull",
             args=[
@@ -429,11 +548,18 @@ def _expr_to_compare_op(
                 ast.Constant(value=1),
             ],
         )
-    elif operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_DATE_EXACT:
+    elif operator == PropertyOperator.EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+        )
+    elif operator == PropertyOperator.IS_DATE_EXACT:
+        assert isinstance(value, str)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Eq,
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -441,10 +567,24 @@ def _expr_to_compare_op(
             left=expr,
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
-    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
+    elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
-    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
+    elif operator == PropertyOperator.IS_DATE_BEFORE:
+        assert isinstance(value, str)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Lt,
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+        )
+    elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
+    elif operator == PropertyOperator.IS_DATE_AFTER:
+        assert isinstance(value, str)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+        )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
@@ -479,40 +619,58 @@ def _expr_to_compare_op(
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
         return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
     elif operator == PropertyOperator.SEMVER_EQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_NEQ:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.NotEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Gt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_GTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.GtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LT:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.Lt,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_LTE:
-        return ast.CompareOperation(
-            op=ast.CompareOperationOp.LtEq,
-            left=ast.Call(name="sortableSemver", args=[expr]),
-            right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+        return _gate_on_valid_semver(
+            expr,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=ast.Call(name="sortableSemver", args=[expr]),
+                right=ast.Call(name="sortableSemver", args=[ast.Constant(value=value)]),
+            ),
         )
     elif operator == PropertyOperator.SEMVER_TILDE:
         return semver_range_compare(expr, value, "Tilde", _tilde_bounds)
@@ -569,6 +727,7 @@ def property_to_expr(
         | ErrorTrackingIssueFilter
         | LogPropertyFilter
         | SpanPropertyFilter
+        | WorkflowVariablePropertyFilter
     ),
     team: Team,
     scope: Literal[
@@ -648,7 +807,8 @@ def property_to_expr(
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
     if property.type == "hogql":
-        return parse_expr(property.key)
+        tag_contains_user_hogql()
+        return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
@@ -657,6 +817,8 @@ def property_to_expr(
             if len(property.value) > 1:
                 raise QueryError(f"The '{property.key}' property filter only supports one value in 'group' scope")
             value = property.value[0]
+
+        value = _stringify_group_key_value(value)
 
         # For groups table, $group_N filters should match both index and key
         # index should equal N, and key should match the value
@@ -709,7 +871,22 @@ def property_to_expr(
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
         value = property.value
 
-        if property.type == "person" and scope != "person":
+        if property.key and GROUP_KEY_PATTERN.match(str(property.key)):
+            value = _stringify_group_key_value(value)
+
+        if property.type == "person" and property.key == "distinct_id":
+            # distinct_id is not stored in person.properties.
+            # - In event scope, events.distinct_id is a real column — no join needed.
+            # - In person scope, persons.pdi.distinct_id resolves via the lazy join on persons.
+            # Routing through `events.person.pdi` would break under person-on-events mode,
+            # where `events.person` is rebound to the `poe` virtual table which has no `pdi` field.
+            if scope == "event":
+                chain = []
+            elif scope == "person":
+                chain = ["pdi"]
+            else:
+                chain = ["person", "pdi"]
+        elif property.type == "person" and scope != "person":
             chain = ["person", "properties"]
         elif property.type == "event" and scope == "replay_entity":
             chain = ["events", "properties"]
@@ -761,6 +938,9 @@ def property_to_expr(
         elif property.type == "log":
             chain = [property.key]
             property.key = ""
+        elif property.type == "span":
+            chain = [property.key]
+            property.key = ""
         elif scope == "log_resource":
             # log resource attributes are stored in a separate table as `attribute_key` and `attribute_value`
             # columns. The `attribute_key` filter needs to be added separately outside of property_to_expr
@@ -797,7 +977,7 @@ def property_to_expr(
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"
         if is_visited_page_property:
             # Use the all_urls array field to filter for pages visited during recording.
-            all_urls_field = ast.Field(chain=["all_urls"])
+            all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
         is_exception_string_array_property = property.type == "event" and property.key in [
             "$exception_types",
@@ -1015,6 +1195,8 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
+        if not isinstance(property.value, (str, int)):
+            raise ValidationError("Cohort property value must be a cohort ID")
         cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
@@ -1160,8 +1342,9 @@ def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Ex
 def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
+        action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
         try:
-            action = Action.objects.get(pk=entity.id, team=team)
+            action = Action.objects.get(pk=action_id, team=team)
         except Action.DoesNotExist:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         event_expr = action_to_expr(action)

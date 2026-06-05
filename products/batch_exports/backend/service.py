@@ -22,12 +22,12 @@ from temporalio.client import (
     ScheduleRange,
     ScheduleSpec,
     ScheduleState,
+    WorkflowHandle,
 )
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -38,7 +38,87 @@ from posthog.temporal.common.schedule import (
     update_schedule,
 )
 
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
+
 logger = structlog.get_logger(__name__)
+
+
+def align_timestamp_to_interval(timestamp: dt.datetime, batch_export: BatchExport) -> dt.datetime:
+    """Align a timestamp to the batch export's interval boundary.
+
+    For batch exports, intervals can have an offset from the default start time,
+    specified in the batch export's timezone. For example, a daily export might
+    run at 5am US/Pacific instead of midnight UTC.
+
+    Args:
+        timestamp: The timestamp to align (must be timezone-aware, typically UTC).
+        batch_export: The batch export configuration with interval, offset, and timezone.
+
+    Returns:
+        The start of the interval containing the timestamp (in UTC).
+
+    Examples:
+        Daily interval at 5am UTC:
+        - 2021-01-15 10:30:00 UTC aligns to 2021-01-15 05:00:00 UTC
+        - 2021-01-15 04:30:00 UTC aligns to 2021-01-14 05:00:00 UTC
+
+        Daily interval at 1am US/Pacific (PST = UTC-8 in winter):
+        - 2021-01-15 10:00:00 UTC (= 02:00 PST) aligns to 2021-01-15 09:00:00 UTC (= 01:00 PST)
+        - 2021-01-15 08:30:00 UTC (= 00:30 PST) aligns to 2021-01-14 09:00:00 UTC (= 01:00 PST prev day)
+    """
+    interval = batch_export.interval
+    interval_seconds = int(batch_export.interval_time_delta.total_seconds())
+
+    # For hourly or sub-hourly intervals, timezone doesn't matter
+    if interval == "hour" or interval.startswith("every"):
+        ts = timestamp.timestamp()
+        aligned = (ts // interval_seconds) * interval_seconds
+        return dt.datetime.fromtimestamp(aligned, tz=dt.UTC)
+
+    # Convert timestamp to the batch export's timezone for alignment
+    tz = batch_export.timezone_info
+    local_timestamp = timestamp.astimezone(tz)
+    offset_hour = batch_export.offset_hour or 0
+
+    if interval == "day":
+        # Find the start of the current "day" (which starts at offset_hour in local time)
+        day_start = local_timestamp.replace(hour=offset_hour, minute=0, second=0, microsecond=0)
+        if day_start > local_timestamp:
+            day_start -= dt.timedelta(days=1)
+        return day_start.astimezone(dt.UTC)
+
+    elif interval == "week":
+        offset_day = batch_export.offset_day or 0
+
+        # Get current day of week (Monday=0, Sunday=6 in Python)
+        # But batch exports use Sunday=0, so we need to convert
+        python_weekday = local_timestamp.weekday()  # Monday=0
+        batch_export_weekday = (python_weekday + 1) % 7  # Sunday=0
+
+        # Calculate days since the start of the week (at offset_day)
+        days_since_week_start = (batch_export_weekday - offset_day) % 7
+
+        # Find the start of the current "week"
+        week_start_date = local_timestamp.date() - dt.timedelta(days=days_since_week_start)
+        week_start = dt.datetime.combine(
+            week_start_date,
+            dt.time(hour=offset_hour, minute=0, second=0),
+            tzinfo=tz,
+        )
+
+        if week_start > local_timestamp:
+            week_start -= dt.timedelta(weeks=1)
+
+        return week_start.astimezone(dt.UTC)
+
+    else:
+        raise ValueError(f"Unknown interval: {interval}")
 
 
 class BatchExportField(typing.TypedDict):
@@ -171,11 +251,28 @@ class BaseBatchExportInputs:
 class S3BatchExportInputs(BaseBatchExportInputs):
     """Inputs for S3 export workflow.
 
+    This is the canonical input dataclass consumed by the `s3-export` Temporal
+    workflow and is the superset of every S3-family destination's fields. The
+    legacy `type="S3"` batch exports dispatch with this dataclass directly; the
+    refined S3-family types (AwsS3, S3Compatible) dispatch with their own
+    narrower dataclass — Temporal's data converter serializes that to JSON,
+    and on the worker side deserializes into `S3BatchExportInputs`, with any
+    missing fields falling through to the defaults declared here.
+
     Attributes:
         bucket_name: The S3 bucket we are exporting to.
         region: The AWS region where the bucket is located.
         prefix: A prefix for the file name to be created in S3.
+        aws_access_key_id: Access key id used to authenticate with S3.
+        aws_secret_access_key: Secret access key used to authenticate with S3.
+        compression: Compression algorithm to apply to exported files (e.g. "gzip", "brotli"), or None.
+        file_format: File format of exported objects (e.g. "JSONLines", "Parquet"). Defaults to JSONLines.
         max_file_size_mb: The maximum file size in MB for each file to be uploaded.
+        encryption: Server-side encryption algorithm to apply (e.g. "AES256", "aws:kms"), or None. AWS-only.
+        kms_key_id: KMS key id to use when `encryption == "aws:kms"`, or None. AWS-only.
+        endpoint_url: Override endpoint for S3-compatible providers (e.g. MinIO, R2). None for AWS.
+        use_virtual_style_addressing: Whether to use virtual-hosted-style
+            addressing rather than path-style. None for AWS.
     """
 
     bucket_name: str
@@ -184,12 +281,71 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     aws_access_key_id: str
     aws_secret_access_key: str
     compression: str | None = None
+    file_format: str = "JSONLines"
+    max_file_size_mb: int | None = None
     encryption: str | None = None
     kms_key_id: str | None = None
     endpoint_url: str | None = None
+    use_virtual_style_addressing: bool = False
+
+
+@dataclass(kw_only=True)
+class S3FamilyBaseInputs(BaseBatchExportInputs):
+    """Shared fields for every S3-family destination.
+
+    Per-destination dataclasses extend this with provider-specific fields.
+    """
+
+    bucket_name: str
+    region: str
+    prefix: str
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
+
+
+@dataclass(kw_only=True)
+class AwsS3BatchExportInputs(S3FamilyBaseInputs):
+    """Inputs for an AWS S3 batch export."""
+
+    encryption: str | None = None
+    kms_key_id: str | None = None
+
+
+@dataclass(kw_only=True)
+class S3CompatibleBatchExportInputs(S3FamilyBaseInputs):
+    """Inputs for a non-AWS S3-compatible batch export.
+
+    Covers providers like MinIO, DigitalOcean Spaces, Cloudflare R2, Hetzner, OVH,
+    Backblaze, etc. `endpoint_url` is required.
+    """
+
+    endpoint_url: str
     use_virtual_style_addressing: bool = False
+
+
+@dataclass(kw_only=True)
+class FileDownloadBatchExportInputs(BaseBatchExportInputs):
+    """Inputs for a file download batch export workflow.
+
+    Attributes:
+        data_interval_start: Lower bound for the batch export.
+        data_interval_end: Upper bound for the batch export.
+        file_format: File format to use when exporting files. Same as S3.
+        max_file_size_mb: The maximum file size in MB for each file to be uploaded. Same
+            as S3.
+        compression: Compression algorithm, if any. Same as S3.
+        expires_in: Number of seconds to expire the download URLs.
+    """
+
+    data_interval_start: str | None = None
+    batch_export_run_id: UUID | None = None
+    file_format: str = "Parquet"
+    max_file_size_mb: int | None = None
+    compression: str | None = None
+    expires_in_seconds: int = 3600
 
 
 @dataclass(kw_only=True)
@@ -213,13 +369,14 @@ class SnowflakeBatchExportInputs(BaseBatchExportInputs):
 class PostgresBatchExportInputs(BaseBatchExportInputs):
     """Inputs for Postgres export workflow."""
 
-    user: str
-    password: str
-    host: str
     database: str
     schema: str = "public"
     table_name: str = "events"
-    port: int = 5432
+
+    user: str | None = None
+    host: str | None = None
+    port: int | None = 5432
+    password: str | None = None
     has_self_signed_cert: bool = False
 
 
@@ -368,15 +525,20 @@ class NoOpInputs(BaseBatchExportInputs):
 
 
 DESTINATION_WORKFLOWS = {
-    "S3": ("s3-export", S3BatchExportInputs),
-    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
-    "Postgres": ("postgres-export", PostgresBatchExportInputs),
-    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    "AwsS3": ("s3-export", AwsS3BatchExportInputs),
+    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
     "BigQuery": ("bigquery-export", BigQueryBatchExportInputs),
     "Databricks": ("databricks-export", DatabricksBatchExportInputs),
-    "AzureBlob": ("azure-blob-export", AzureBlobBatchExportInputs),
+    "FileDownload": ("file-download-export", FileDownloadBatchExportInputs),
     "HTTP": ("http-export", HttpBatchExportInputs),
     "NoOp": ("no-op", NoOpInputs),
+    "Postgres": ("postgres-export", PostgresBatchExportInputs),
+    "Redshift": ("redshift-export", RedshiftBatchExportInputs),
+    # "S3" is the legacy alias still accepted on input and persisted as-is.
+    # AwsS3 and S3Compatible are the refined types preferred for new rows
+    "S3": ("s3-export", S3BatchExportInputs),
+    "S3Compatible": ("s3-export", S3CompatibleBatchExportInputs),
+    "Snowflake": ("snowflake-export", SnowflakeBatchExportInputs),
     "Workflows": ("workflows-export", WorkflowsBatchExportInputs),
 }
 
@@ -720,6 +882,50 @@ async def start_backfill_batch_export_workflow(
     )
 
     return workflow_id
+
+
+@async_to_sync
+async def start_batch_export_workflow(
+    temporal: Client, name: str, workflow_id: str, inputs: BaseBatchExportInputs
+) -> WorkflowHandle:
+    """Async call to start a batch export workflow."""
+    handle = await temporal.start_workflow(
+        name,
+        inputs,
+        id=workflow_id,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+    )
+
+    return handle
+
+
+def start_file_download_batch_export(
+    batch_export: BatchExportOnDemand,
+    workflow_id: str,
+    data_interval_start: dt.datetime,
+    data_interval_end: dt.datetime,
+    batch_export_run_id: UUID | None = None,
+    compression: str | None = None,
+    format: str = "Parquet",
+    max_size_mb: int = 0,
+    include_events: list[str] | None = None,
+    exclude_events: list[str] | None = None,
+) -> None:
+    inputs = FileDownloadBatchExportInputs(
+        batch_export_id=batch_export.id,
+        batch_export_run_id=batch_export_run_id,
+        team_id=batch_export.team_id,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        compression=compression,
+        file_format=format,
+        max_file_size_mb=max_size_mb,
+        include_events=include_events,
+        exclude_events=exclude_events,
+    )
+    temporal = sync_connect()
+
+    start_batch_export_workflow(temporal, "file-download-export", workflow_id, inputs)
 
 
 def create_batch_export_run(
@@ -1097,6 +1303,7 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    on_demand: bool = False
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.

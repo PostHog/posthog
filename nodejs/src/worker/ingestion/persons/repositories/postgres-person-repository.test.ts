@@ -1,8 +1,11 @@
+import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+
 import { DateTime } from 'luxon'
 
 import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '../../../../../src/config/kafka-topics'
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '../../../../../src/ingestion/analytics/outputs'
 import { IngestionOutputs } from '../../../../../src/ingestion/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '../../../../../src/ingestion/outputs/single-ingestion-output'
 import { createTeam, insertRow, resetTestDatabase } from '../../../../../tests/helpers/sql'
 import { Hub, InternalPerson, PropertyUpdateOperation, Team } from '../../../../types'
 import { closeHub, createHub } from '../../../../utils/db/hub'
@@ -52,10 +55,13 @@ describe('PostgresPersonRepository', () => {
             throw new Error('Failed to create person')
         }
         const personOutputs = new IngestionOutputs({
-            [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-            [PERSON_DISTINCT_IDS_OUTPUT]: [
-                { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-            ],
+            [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
+            [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_DISTINCT_IDS_OUTPUT,
+                KAFKA_PERSON_DISTINCT_ID,
+                mockProducer,
+                'test'
+            ),
         })
         await Promise.all(
             result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
@@ -388,10 +394,13 @@ describe('PostgresPersonRepository', () => {
             const kafkaMessages = result.messages
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-                [PERSON_DISTINCT_IDS_OUTPUT]: [
-                    { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-                ],
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
+                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    KAFKA_PERSON_DISTINCT_ID,
+                    mockProducer,
+                    'test'
+                ),
             })
             await Promise.all(
                 kafkaMessages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null }))
@@ -986,6 +995,42 @@ describe('PostgresPersonRepository', () => {
 
             expect(result).toHaveLength(1)
             expect(result[0].uuid).toBe(person.uuid)
+        })
+    })
+
+    describe('fetchDistinctIdsForPersons', () => {
+        it('returns empty object when no person ids provided', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const result = await repository.fetchDistinctIdsForPersons(team.id, [])
+            expect(result).toEqual({})
+        })
+
+        it('returns distinct_ids keyed by int person_id, capped per person', async () => {
+            const team = await getFirstTeam(hub.postgres)
+            const person1 = await createTestPerson(team.id, 'distinct-1-a', { name: 'Person 1' })
+            await repository.addDistinctId(person1, 'distinct-1-b', 0)
+            await repository.addDistinctId(person1, 'distinct-1-c', 0)
+            const person2 = await createTestPerson(team.id, 'distinct-2-a', { name: 'Person 2' })
+
+            const all = await repository.fetchDistinctIdsForPersons(team.id, [person1.id, person2.id])
+            expect(all[person1.id]).toEqual(expect.arrayContaining(['distinct-1-a', 'distinct-1-b', 'distinct-1-c']))
+            expect(all[person1.id]).toHaveLength(3)
+            expect(all[person2.id]).toEqual(['distinct-2-a'])
+
+            const limited = await repository.fetchDistinctIdsForPersons(team.id, [person1.id], {
+                limitPerPerson: 1,
+            })
+            // Ordered by insertion (id ASC), so the cap keeps the first one
+            expect(limited[person1.id]).toEqual(['distinct-1-a'])
+        })
+
+        it('omits persons that have no distinct_ids in the target team', async () => {
+            const team1 = await getFirstTeam(hub.postgres)
+            const team2Id = await createTeam(postgres, team1.organization_id)
+            const personInTeam2 = await createTestPerson(team2Id, 'team2-only', { name: 'Team 2' })
+
+            const result = await repository.fetchDistinctIdsForPersons(team1.id, [personInTeam2.id])
+            expect(result).toEqual({})
         })
     })
 
@@ -1722,10 +1767,13 @@ describe('PostgresPersonRepository', () => {
             const targetPerson = result2.person
 
             const personOutputs = new IngestionOutputs({
-                [PERSONS_OUTPUT]: [{ topic: KAFKA_PERSON, producer: hub.kafkaProducer, producerName: 'test' }],
-                [PERSON_DISTINCT_IDS_OUTPUT]: [
-                    { topic: KAFKA_PERSON_DISTINCT_ID, producer: hub.kafkaProducer, producerName: 'test' },
-                ],
+                [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
+                [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
+                    PERSON_DISTINCT_IDS_OUTPUT,
+                    KAFKA_PERSON_DISTINCT_ID,
+                    mockProducer,
+                    'test'
+                ),
             })
             await Promise.all(
                 kafkaMessagesSourcePerson.map((msg) =>
@@ -2338,7 +2386,7 @@ describe('PostgresPersonRepository', () => {
                         uuid,
                         { distinctId: 'test-metrics' }
                     )
-                } catch (error) {}
+                } catch {}
 
                 expect(mockInc).toHaveBeenCalledWith({
                     violation_type: 'create_person_size_violation',
@@ -2375,7 +2423,7 @@ describe('PostgresPersonRepository', () => {
                 try {
                     await oversizedRepository.updatePerson(person, createPersonUpdateFields(person, oversizedUpdate))
                     expect(mockInc).toHaveBeenCalledWith({ result: 'success' })
-                } catch (error) {}
+                } catch {}
 
                 mockPersonPropertiesSize.mockRestore()
                 metrics.oversizedPersonPropertiesTrimmedCounter.inc = originalInc

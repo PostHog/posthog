@@ -2,12 +2,13 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconGear, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
+import { MaxTool } from 'scenes/max/MaxTool'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,8 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
+
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import { MarketingAnalyticsFilters } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from '../web-analytics/tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
@@ -76,7 +79,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const { hasSources, hasNoConfiguredSources, loading } = useValues(marketingAnalyticsLogic)
-    const { loadSources } = useActions(externalDataSourcesLogic)
+    const { loadSources } = useActions(sourcesDataLogic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
     const { showOnboarding, currentStep } = useValues(marketingOnboardingLogic)
@@ -111,7 +114,11 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     }, [loading, hasSources, showOnboarding, resetOnboarding]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const feedbackBanner = (
-        <LemonBanner type="info" action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}>
+        <LemonBanner
+            type="info"
+            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            className="mt-4"
+        >
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
             directly to us!
         </LemonBanner>
@@ -210,6 +217,55 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
 }
 
+const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
+    const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
+    const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const aiEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI]
+
+    // Shared context for every Marketing analytics Max tool — consumed by
+    // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.
+    const maxContext = {
+        current_filters: { integrationFilter, compareFilter },
+        current_date_range: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
+        custom_source_mappings_count: Object.keys(marketingAnalyticsConfig?.custom_source_mappings || {}).length,
+        campaign_name_mappings_count: Object.keys(marketingAnalyticsConfig?.campaign_name_mappings || {}).length,
+        existing_goal_count: (conversion_goals || []).length,
+    }
+
+    // Register the follow-up tools so Max can actually call them when the
+    // diagnostic recommends them. Only `marketing_diagnose_setup` gets the
+    // visible MaxTool button below — the rest are data tools with no UI anchor.
+    useMaxTool({ identifier: 'marketing_explain_conversion_goal', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_list_conversion_goals', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_list_data_sources', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext, active: aiEnabled })
+
+    return (
+        <MaxTool
+            identifier="marketing_diagnose_setup"
+            active={aiEnabled}
+            context={maxContext}
+            contextDescription={{
+                text: 'Marketing analytics setup',
+                icon: <IconSparkles />,
+            }}
+            initialMaxPrompt="Diagnose my marketing analytics setup"
+            suggestions={[
+                'Diagnose my marketing analytics setup',
+                'Why are events showing as non-integrated?',
+                'Suggest custom_source_mappings for unmatched UTM values',
+                'Which custom events would make good conversion goals?',
+                'List my conversion goals and their last-30d performance',
+            ]}
+        >
+            <>{children}</>
+        </MaxTool>
+    )
+}
+
 export function MarketingAnalyticsScene(): JSX.Element {
     const { activeTab } = useValues(marketingAnalyticsLogic)
 
@@ -248,7 +304,9 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             </>
                         }
                     />
-                    <MarketingAnalyticsContent />
+                    <MarketingAnalyticsAIToolWrapper>
+                        <MarketingAnalyticsContent />
+                    </MarketingAnalyticsAIToolWrapper>
                 </SceneContent>
             </BindLogic>
         </BindLogic>

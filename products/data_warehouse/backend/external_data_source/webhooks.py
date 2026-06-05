@@ -4,8 +4,6 @@ from typing import Any
 from django.conf import settings
 
 from posthog.models import Team
-from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.sources.common.base import (
     WebhookCreationResult,
     WebhookDeletionResult,
@@ -13,7 +11,9 @@ from posthog.temporal.data_imports.sources.common.base import (
 )
 from posthog.temporal.data_imports.sources.common.config import Config
 
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
 def get_webhook_url(hog_function_id: str) -> str:
@@ -30,6 +30,7 @@ class WebhookSetupResult:
     success: bool
     webhook_url: str = ""
     error: str | None = None
+    pending_inputs: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -59,9 +60,14 @@ def get_or_create_webhook_hog_function(
     for schema in eligible_schemas:
         schema_id_str = str(schema.id)
 
-        object_type = object_type_map.get(schema.name)
-        if object_type:
-            schema_mapping[object_type] = schema_id_str
+        # Fall back to the schema name as the object type when the resource map
+        # doesn't have an explicit entry (e.g. Slack channels use the channel ID
+        # as both the schema name and the webhook event key, so there's nothing
+        # to translate). Callers pre-filter `eligible_schemas` to schemas the
+        # source declared as webhook-eligible, so this fallback only fires for
+        # schemas we genuinely want events routed to.
+        object_type = object_type_map.get(schema.name, schema.name)
+        schema_mapping[object_type] = schema_id_str
 
     db_template = HogFunctionTemplate.get_template(webhook_template.id)
     if not db_template:
@@ -149,6 +155,7 @@ def create_and_register_webhook(
         success=result.success,
         webhook_url=hog_fn_result.webhook_url,
         error=result.error,
+        pending_inputs=list(result.pending_inputs),
     )
 
 

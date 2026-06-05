@@ -115,7 +115,7 @@ test.describe('Dashboards', () => {
         })
     })
 
-    test.skip('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
+    test('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const newTileName = randomString('tile-name')
 
@@ -179,8 +179,12 @@ test.describe('Dashboards', () => {
         await test.step('write query, run, and save as insight', async () => {
             const editor = page.locator('.monaco-editor').first()
             await editor.click()
-            await page.keyboard.press('Meta+a')
-            await page.keyboard.type('SELECT {variables.test_number}', { delay: 10 })
+            await page.keyboard.press('ControlOrMeta+a')
+            // insertText() inserts the whole string at once, so Monaco's bracket
+            // auto-close and autocomplete don't intercept the `{`/`}` mid-type and
+            // produce a malformed query that leaves "Save as insight" disabled.
+            await page.keyboard.insertText('SELECT {variables.test_number}')
+            await page.keyboard.press('Escape')
 
             await page.getByRole('button', { name: 'Run' }).click()
             await expect(page.locator('[data-attr=sql-editor-output-pane-empty-state]')).not.toBeVisible()
@@ -231,13 +235,22 @@ test.describe('Dashboards', () => {
         })
 
         await test.step('verify navigation to dashboards list (not "Not found")', async () => {
-            await expect(page).toHaveURL(/\/dashboard$/)
+            await expect(page).toHaveURL(/\/dashboard(#panel=[a-z]+)?$/)
             await expect(page.getByText('Not found')).not.toBeVisible()
-            await expect(page.getByText(dashboardName)).not.toBeVisible()
+            // Reload so the list is rebuilt from the server, which excludes deleted
+            // dashboards. The in-memory dashboardsModel can keep a stale row visible
+            // (the list selector doesn't filter `deleted`, and an in-flight load can
+            // re-merge it after delayedDeleteDashboard prunes it), so an unscoped or
+            // even table-scoped assertion against live state is racy. Scope to the
+            // table to exclude the "deleted" toast, which also contains the name.
+            await page.reload()
+            await expect(page.getByTestId('dashboards-table')).toBeVisible()
+            await expect(page.getByTestId('dashboards-table').getByText(dashboardName)).not.toBeVisible()
         })
     })
 
     test('Deleting an insight from dashboard redirects back', async ({ page }) => {
+        test.setTimeout(120_000)
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
         const insightName = randomString('dash-trends')
@@ -362,6 +375,62 @@ test.describe('Dashboard duplication', () => {
             await expect(dashboard.dateFilter).toContainText('Last 30 days')
             await expect(dashboard.variableButtons.first()).toContainText('42')
         })
+    })
+})
+
+test.describe('Dashboard link variable and filter overrides', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({
+            use_current_time: true,
+            skip_onboarding: true,
+            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
+            insights: [
+                {
+                    name: 'Variable insight',
+                    query: {
+                        kind: 'DataVisualizationNode',
+                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
+                        chartSettings: {},
+                        tableSettings: {},
+                    },
+                    variable_indexes: [0],
+                },
+            ],
+            dashboards: [
+                {
+                    name: 'URL query variables seed',
+                    insight_indexes: [0],
+                    variable_overrides: { '0': 42 },
+                    filters: { date_from: '-30d' },
+                },
+            ],
+        })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
+    test('Opening a shared dashboard link applies variable and filter overrides from the URL on first load', async ({
+        page,
+    }) => {
+        const dashboard = new DashboardPage(page)
+        const seededDashboardId = workspace!.created_dashboards![0].id
+        const urlOverride = 77
+        const searchParams = new URLSearchParams()
+        searchParams.set('query_variables', JSON.stringify({ test_var: urlOverride }))
+        searchParams.set('query_filters', JSON.stringify({ date_from: '-7d' }))
+
+        await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}?${searchParams.toString()}`, {
+            waitUntil: 'domcontentloaded',
+        })
+
+        await expect(dashboard.insightCards).toBeVisible()
+        await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
+        await expect(dashboard.dateFilter).toContainText('Last 7 days')
+        await expect(dashboard.overridesBanner).toBeVisible()
     })
 })
 

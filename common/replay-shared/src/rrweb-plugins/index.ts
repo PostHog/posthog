@@ -1,4 +1,4 @@
-import { ReplayPlugin, playerConfig } from '@posthog/rrweb'
+import { ReplayPlugin, playerConfig } from 'posthog-js/rrweb'
 
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from '../mobile/transformer/shared'
 
@@ -70,51 +70,81 @@ const shopifyShorthandCSSFix =
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
     triggerFocus: false,
     insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
+    // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
+    // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
+    // recorded content escape the sandbox into the app origin. Canvas is replayed via
+    // CanvasReplayerPlugin instead, which needs no in-frame scripting.
+    UNSAFE_replayCanvas: false,
 }
 
 export { AudioMuteReplayerPlugin } from './audio-mute-plugin'
 export { WindowTitlePlugin } from './window-title-plugin'
 
-export const HLSPlayerPlugin: ReplayPlugin = {
-    onBuild: (node) => {
-        if (node && node.nodeName === 'VIDEO' && node.nodeType === 1) {
-            const videoEl = node as HTMLVideoElement
-            const hlsSrc = videoEl.getAttribute('hls-src')
+export function createHLSPlayerPlugin(): ReplayPlugin & { destroy: () => void } {
+    const instances: Set<{ destroy: () => void }> = new Set()
+    let destroyed = false
 
-            if (videoEl && hlsSrc) {
-                void import('hls.js')
-                    .then(({ default: Hls }) => {
-                        if (Hls.isSupported()) {
-                            const hls = new Hls()
-                            hls.loadSource(hlsSrc)
-                            hls.attachMedia(videoEl)
+    return {
+        onBuild: (node) => {
+            if (node && node.nodeName === 'VIDEO' && node.nodeType === 1) {
+                const videoEl = node as HTMLVideoElement
+                const hlsSrc = videoEl.getAttribute('hls-src')
 
-                            hls.on(Hls.Events.ERROR, (_, data) => {
-                                if (data.fatal) {
-                                    switch (data.type) {
-                                        case Hls.ErrorTypes.NETWORK_ERROR:
-                                            hls.startLoad()
-                                            break
-                                        case Hls.ErrorTypes.MEDIA_ERROR:
-                                            hls.recoverMediaError()
-                                            break
-                                        default:
-                                            hls.destroy()
-                                            break
+                if (videoEl && hlsSrc) {
+                    void import('hls.js')
+                        .then(({ default: Hls }) => {
+                            if (destroyed) {
+                                return
+                            }
+                            if (Hls.isSupported()) {
+                                const hls = new Hls()
+                                instances.add(hls)
+                                hls.loadSource(hlsSrc)
+                                hls.attachMedia(videoEl)
+
+                                hls.on(Hls.Events.ERROR, (_, data) => {
+                                    if (data.fatal) {
+                                        switch (data.type) {
+                                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                                hls.startLoad()
+                                                break
+                                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                                hls.recoverMediaError()
+                                                break
+                                            default:
+                                                hls.destroy()
+                                                instances.delete(hls)
+                                                break
+                                        }
                                     }
-                                }
-                            })
-                        } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-                            videoEl.src = hlsSrc
-                        }
-                    })
-                    .catch(() => {
-                        // Chunk load failure — fall back to native HLS if the browser supports it
-                        if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-                            videoEl.src = hlsSrc
-                        }
-                    })
+                                })
+                            } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+                                videoEl.src = hlsSrc
+                            }
+                        })
+                        .catch(() => {
+                            // Chunk load failure — fall back to native HLS if the browser supports it
+                            if (destroyed) {
+                                return
+                            }
+                            if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+                                videoEl.src = hlsSrc
+                            }
+                        })
+                }
             }
-        }
-    },
+        },
+
+        destroy: () => {
+            destroyed = true
+
+            for (const hls of instances) {
+                hls.destroy()
+            }
+            instances.clear()
+        },
+    }
 }
+
+/** @deprecated Use createHLSPlayerPlugin() for proper lifecycle management */
+export const HLSPlayerPlugin: ReplayPlugin = createHLSPlayerPlugin()

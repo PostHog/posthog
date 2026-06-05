@@ -19,7 +19,7 @@ import {
     PersonRepository,
 } from '../../worker/ingestion/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '../../worker/ingestion/persons/repositories/person-repository-transaction'
-import { PersonHogClient, shouldUseGrpc } from './client'
+import { PersonHogClient, shouldUseGrpcForTeam, shouldUseGrpcForTeamItems } from './client'
 import { timedGrpc, timedPostgres } from './metrics'
 
 export class PersonHogPersonRepository implements PersonRepository {
@@ -27,6 +27,7 @@ export class PersonHogPersonRepository implements PersonRepository {
         private postgres: PersonRepository,
         private grpcClient: PersonHogClient,
         private grpcPercentage: number,
+        private rolloutTeamIds: ReadonlySet<number>,
         private clientLabel: string
     ) {}
 
@@ -35,10 +36,14 @@ export class PersonHogPersonRepository implements PersonRepository {
     async fetchPerson(
         teamId: Team['id'],
         distinctId: string,
-        options?: { forUpdate?: boolean; useReadReplica?: boolean }
+        options?: { forUpdate?: boolean; useReadReplica?: boolean; callerTag?: string }
     ): Promise<InternalPerson | undefined> {
         // Only route to gRPC for eventually-consistent replica reads
-        if (options?.forUpdate || !options?.useReadReplica || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            options?.forUpdate ||
+            !options?.useReadReplica ||
+            !shouldUseGrpcForTeam(this.rolloutTeamIds, teamId, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchPerson', () =>
                 this.postgres.fetchPerson(teamId, distinctId, options)
             )
@@ -46,7 +51,7 @@ export class PersonHogPersonRepository implements PersonRepository {
 
         try {
             const results = await timedGrpc(this.clientLabel, 'fetchPerson', () =>
-                this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }])
+                this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }], options?.callerTag)
             )
             if (results.length === 0) {
                 return undefined
@@ -65,18 +70,22 @@ export class PersonHogPersonRepository implements PersonRepository {
 
     async fetchPersonsByDistinctIds(
         teamPersons: { teamId: TeamId; distinctId: string }[],
-        useReadReplica?: boolean
+        useReadReplica?: boolean,
+        callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
         // Default matches PostgresPersonRepository (useReadReplica=true)
-        if (useReadReplica === false || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            useReadReplica === false ||
+            !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica, callerTag)
             )
         }
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons)
+                this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchPersonsByDistinctIds failed, falling back to Postgres', {
@@ -84,25 +93,29 @@ export class PersonHogPersonRepository implements PersonRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
-                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByDistinctIds(teamPersons, useReadReplica, callerTag)
             )
         }
     }
 
     async fetchPersonsByPersonIds(
         teamPersons: { teamId: TeamId; personId: string }[],
-        useReadReplica?: boolean
+        useReadReplica?: boolean,
+        callerTag?: string
     ): Promise<InternalPerson[]> {
         // Default matches PostgresPersonRepository (useReadReplica=true)
-        if (useReadReplica === false || !shouldUseGrpc(this.grpcPercentage)) {
+        if (
+            useReadReplica === false ||
+            !shouldUseGrpcForTeamItems(this.rolloutTeamIds, teamPersons, this.grpcPercentage)
+        ) {
             return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica, callerTag)
             )
         }
 
         try {
             return await timedGrpc(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons)
+                this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons, callerTag)
             )
         } catch (error) {
             logger.warn('[PersonHog] gRPC fetchPersonsByPersonIds failed, falling back to Postgres', {
@@ -110,7 +123,35 @@ export class PersonHogPersonRepository implements PersonRepository {
                 error: String(error),
             })
             return timedPostgres(this.clientLabel, 'fetchPersonsByPersonIds', () =>
-                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica)
+                this.postgres.fetchPersonsByPersonIds(teamPersons, useReadReplica, callerTag)
+            )
+        }
+    }
+
+    async fetchDistinctIdsForPersons(
+        teamId: TeamId,
+        personIntIds: string[],
+        options?: { limitPerPerson?: number; useReadReplica?: boolean }
+    ): Promise<Record<string, string[]>> {
+        const useReadReplica = options?.useReadReplica ?? true
+
+        if (useReadReplica === false || !shouldUseGrpcForTeam(this.rolloutTeamIds, teamId, this.grpcPercentage)) {
+            return timedPostgres(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
+                this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
+            )
+        }
+
+        try {
+            return await timedGrpc(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
+                this.grpcClient.persons.getDistinctIdsForPersons(teamId, personIntIds, options?.limitPerPerson)
+            )
+        } catch (error) {
+            logger.warn('[PersonHog] gRPC fetchDistinctIdsForPersons failed, falling back to Postgres', {
+                count: personIntIds.length,
+                error: String(error),
+            })
+            return timedPostgres(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
+                this.postgres.fetchDistinctIdsForPersons(teamId, personIntIds, options)
             )
         }
     }

@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from typing import Any, Literal
 
@@ -8,10 +9,16 @@ from pydantic import BaseModel, Field
 from posthog.schema import WebAnalyticsAssistantFilters
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dags.common.owners import JobOwners
 from posthog.models import Team, User
+from posthog.models.health_issue import HealthIssue
 from posthog.queries.property_values import get_person_property_values_for_key, get_property_values_for_key
-from posthog.sync import database_sync_to_async
+from posthog.rbac.user_access_control import AccessControlLevel
+from posthog.scopes import APIScopeObject
+from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.temporal.health_checks.processing import _process_batch_detection
+from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
@@ -56,7 +63,7 @@ logger.setLevel(logging.DEBUG)
 
 
 class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User) -> None:
         super().__init__(team, user)
 
     async def handle_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict[str, str]:
@@ -104,7 +111,12 @@ class WebAnalyticsFilterOptionsToolkit(TaxonomyAgentToolkit):
 
 
 class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]):
-    def __init__(self, team: Team, user: User, toolkit_class: type[WebAnalyticsFilterOptionsToolkit]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        toolkit_class: type[WebAnalyticsFilterOptionsToolkit],
+    ) -> None:
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     @property
@@ -143,7 +155,12 @@ class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgent
 class WebAnalyticsFilterOptionsToolsNode(
     TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]
 ):
-    def __init__(self, team: Team, user: User, toolkit_class: type[WebAnalyticsFilterOptionsToolkit]):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        toolkit_class: type[WebAnalyticsFilterOptionsToolkit],
+    ) -> None:
         super().__init__(team, user, toolkit_class=toolkit_class)
 
     @property
@@ -154,7 +171,7 @@ class WebAnalyticsFilterOptionsToolsNode(
 class WebAnalyticsFilterOptionsGraph(
     TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[WebAnalyticsAssistantFilters]]
 ):
-    def __init__(self, team: Team, user: User):
+    def __init__(self, team: Team, user: User) -> None:
         super().__init__(
             team,
             user,
@@ -188,7 +205,9 @@ class FilterWebAnalyticsTool(MaxTool):
     context_prompt_template: str = "Current web analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterWebAnalyticsArgs
 
-    def get_required_resource_access(self):
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
         return [("web_analytics", "viewer")]
 
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
@@ -216,3 +235,129 @@ class FilterWebAnalyticsTool(MaxTool):
             except Exception as e:
                 raise ValueError(f"Failed to generate WebAnalyticsAssistantFilters: {e}")
         return content, filters
+
+
+WEB_ANALYTICS_DOCTOR_DESCRIPTION = """
+- Diagnose problems with the current team's Web Analytics setup and explain how to fix them.
+- When to use the tool:
+  * When the user asks why their web analytics looks wrong, low, missing, or off
+    - "wrong" synonyms: "broken", "weird", "off", "not right", "messed up"
+    - "low" synonyms: "missing", "no", "few", "zero"
+    - data shape synonyms: "pageviews", "visitors", "sessions", "bounce rate", "traffic"
+  * When the user asks to debug / troubleshoot / diagnose / fix / check their web analytics setup
+  * When the user mentions reverse proxy coverage, host or domain not appearing, missing referrers, scroll depth, or Web Vitals not showing up
+  * When the user asks "is my web analytics set up correctly?" or similar
+- Do NOT use the tool:
+  * When the user is asking about a specific managed reverse proxy record by name or id (use `diagnose_proxy` instead)
+  * When the user just wants to change filters on the page (use `filter_web_analytics` instead)
+""".strip()
+
+
+class WebAnalyticsDoctorArgs(BaseModel):
+    pass
+
+
+class WebAnalyticsDoctorTool(MaxTool):
+    name: str = "web_analytics_doctor"
+    description: str = WEB_ANALYTICS_DOCTOR_DESCRIPTION
+    args_schema: type[BaseModel] = WebAnalyticsDoctorArgs
+
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("web_analytics", "viewer")]
+
+    async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
+        await database_sync_to_async(ensure_registry_loaded)()
+        web_kinds = sorted(kind for kind, reg in HEALTH_CHECKS.items() if reg.owner == JobOwners.TEAM_WEB_ANALYTICS)
+
+        reevaluate_async = database_sync_to_async_pool(_reevaluate_one_check)
+
+        async def reevaluate(kind: str) -> str | None:
+            try:
+                await reevaluate_async(self._team.id, kind)
+                return None
+            except Exception:
+                logger.exception(
+                    "web_analytics_doctor re-evaluation failed",
+                    extra={"kind": kind, "team_id": self._team.id},
+                )
+                return kind
+
+        results = await asyncio.gather(*(reevaluate(kind) for kind in web_kinds))
+        failed_kinds = [k for k in results if k is not None]
+
+        issues = await database_sync_to_async(_load_active_web_issues)(self._team.id, web_kinds)
+
+        content = _format_doctor_content(issues, ran_kinds=web_kinds, failed_kinds=failed_kinds)
+        artifact = {
+            "issues": [_serialize_issue(i) for i in issues],
+            "ran_kinds": web_kinds,
+            "failed_kinds": failed_kinds,
+        }
+        return content, artifact
+
+
+def _reevaluate_one_check(team_id: int, kind: str) -> None:
+    detect_fn = get_detect_fn(kind)
+    _process_batch_detection(team_ids=[team_id], kind=kind, detect_fn=detect_fn)
+
+
+def _load_active_web_issues(team_id: int, kinds: list[str]) -> list[HealthIssue]:
+    return list(
+        HealthIssue.objects.filter(
+            team_id=team_id,
+            kind__in=kinds,
+            status=HealthIssue.Status.ACTIVE,
+            dismissed=False,
+        ).order_by("kind")
+    )
+
+
+def _serialize_issue(issue: HealthIssue) -> dict[str, Any]:
+    return {"kind": issue.kind, "severity": issue.severity, "payload": issue.payload}
+
+
+_SEVERITY_ORDER: dict[str, int] = {
+    HealthIssue.Severity.CRITICAL: 0,
+    HealthIssue.Severity.WARNING: 1,
+    HealthIssue.Severity.INFO: 2,
+}
+
+_SEVERITY_MARKER: dict[str, str] = {
+    HealthIssue.Severity.CRITICAL: "×",
+    HealthIssue.Severity.WARNING: "!",
+    HealthIssue.Severity.INFO: "i",
+}
+
+
+def _format_doctor_content(issues: list[HealthIssue], *, ran_kinds: list[str], failed_kinds: list[str]) -> str:
+    if not issues:
+        kinds_summary = ", ".join(ran_kinds) if ran_kinds else "(no checks registered)"
+        msg = f"Your Web Analytics setup looks healthy — no active issues detected. Checks evaluated: {kinds_summary}."
+        if failed_kinds:
+            msg += f"\n\nNote: {len(failed_kinds)} check(s) could not be re-evaluated: {', '.join(failed_kinds)}."
+        return msg
+
+    sorted_issues = sorted(issues, key=lambda i: (_SEVERITY_ORDER.get(i.severity, 99), i.kind))
+    lines = [f"Found **{len(sorted_issues)}** active Web Analytics issue(s):", ""]
+    for issue in sorted_issues:
+        lines.extend(_format_doctor_issue(issue))
+    if failed_kinds:
+        lines.append("")
+        lines.append(f"Note: {len(failed_kinds)} check(s) could not be re-evaluated: {', '.join(failed_kinds)}.")
+    return "\n".join(lines)
+
+
+def _format_doctor_issue(issue: HealthIssue) -> list[str]:
+    marker = _SEVERITY_MARKER.get(issue.severity, "?")
+    payload = issue.payload or {}
+    reason = payload.get("reason", "(no description provided)")
+    lines = [f"- [{marker}] **{issue.kind}** ({issue.severity}): {reason}"]
+    proxied = payload.get("proxied_hosts")
+    if proxied:
+        lines.append(f"    - proxied hosts: {', '.join(proxied)}")
+    unproxied = payload.get("unproxied_hosts")
+    if unproxied:
+        lines.append(f"    - unproxied hosts: {', '.join(unproxied)}")
+    return lines

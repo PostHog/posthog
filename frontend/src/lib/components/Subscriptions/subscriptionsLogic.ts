@@ -2,13 +2,14 @@ import { BreakPointFunction, actions, afterMount, kea, key, listeners, path, pro
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightId } from 'scenes/insights/utils'
 
 import { SubscriptionType } from '~/types'
 
+import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
+import { toggleSubscriptionEnabled } from './toggleSubscriptionEnabled'
 import { SubscriptionBaseProps } from './utils'
 
 export const subscriptionsLogic = kea<subscriptionsLogicType>([
@@ -22,6 +23,9 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
         deliverSubscriptionFailure: true,
+        setSubscriptionEnabled: (id: number, enabled: boolean) => ({ id, enabled }),
+        setSubscriptionEnabledSuccess: true,
+        setSubscriptionEnabledFailure: true,
     }),
 
     loaders(({ props }) => ({
@@ -57,6 +61,14 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                 deliverSubscriptionFailure: () => null,
             },
         ],
+        togglingEnabledId: [
+            null as number | null,
+            {
+                setSubscriptionEnabled: (_, { id }) => id,
+                setSubscriptionEnabledSuccess: () => null,
+                setSubscriptionEnabledFailure: () => null,
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
@@ -68,19 +80,22 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             })
         },
         deliverSubscription: async ({ id }) => {
-            try {
-                await api.subscriptions.testDelivery(id)
-                lemonToast.success('Test delivery started')
+            const result = await runSubscriptionTestDelivery(() => api.subscriptions.testDelivery(id))
+            if (result === 'success') {
                 actions.deliverSubscriptionSuccess()
-            } catch (e: any) {
-                if (e.status === 409) {
-                    lemonToast.warning('Delivery already in progress')
-                } else {
-                    lemonToast.error('Failed to deliver subscription')
-                }
+            } else {
                 actions.deliverSubscriptionFailure()
             }
         },
+        setSubscriptionEnabled: async ({ id, enabled }) => {
+            const ok = await toggleSubscriptionEnabled(id, enabled)
+            if (ok) {
+                actions.setSubscriptionEnabledSuccess()
+            } else {
+                actions.setSubscriptionEnabledFailure()
+            }
+        },
+        setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
     })),
 
     afterMount(({ actions }) => actions.loadSubscriptions()),

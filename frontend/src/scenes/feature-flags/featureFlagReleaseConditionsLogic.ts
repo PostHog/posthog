@@ -57,7 +57,6 @@ export interface FeatureFlagReleaseConditionsLogicProps {
     readOnly?: boolean
     onChange?: (filters: FeatureFlagFilters, errors: any) => void
     nonEmptyFeatureFlagVariants?: MultivariateFlagVariant[]
-    isSuper?: boolean
     evaluationRuntime?: FeatureFlagEvaluationRuntime
 }
 
@@ -80,10 +79,7 @@ function ensureSortKeys(
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
-    key(({ id, isSuper }) => {
-        const key = `${id ?? 'unknown'}-${isSuper ? 'super' : 'normal'}`
-        return key
-    }),
+    key(({ id }) => id ?? 'unknown'),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
@@ -109,6 +105,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             newVariant,
             newDescription,
         }),
+        setEarlyExit: (earlyExit: boolean) => ({ earlyExit }),
         setConditionAggregation: (index: number, groupTypeIndex: number | null) => ({
             index,
             groupTypeIndex,
@@ -137,6 +134,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
         setIsMixedTargeting: (isMixedTargeting: boolean) => ({ isMixedTargeting }),
+        switchToMixedTargeting: true,
         setMixedGroupTypeIndex: (mixedGroupTypeIndex: number) => ({ mixedGroupTypeIndex }),
         setIsAnyItemDragging: (isAnyItemDragging: boolean) => ({ isAnyItemDragging }),
         setDraggedGroup: (draggedGroup: FeatureFlagGroupType | null) => ({ draggedGroup }),
@@ -165,23 +163,50 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 return { ...filters, groups: groupsWithKeys }
             },
             setAggregationGroupTypeIndex: (state, { value }) => {
-                if (!state || state.aggregation_group_type_index == value) {
+                if (!state) {
                     return state
                 }
 
-                const originalRolloutPercentage = state.groups[0].rollout_percentage
+                const globalUnchanged = state.aggregation_group_type_index == value
+                const hasPerConditionAggregations = state.groups.some((g) => g.aggregation_group_type_index != null)
 
+                if (globalUnchanged && !hasPerConditionAggregations) {
+                    return state
+                }
+
+                // Coming from mixed mode: selectively preserve conditions whose
+                // aggregation scope matches the new target
+                if (hasPerConditionAggregations) {
+                    return {
+                        ...state,
+                        aggregation_group_type_index: value,
+                        groups: state.groups.map((group) => {
+                            const previousEffective =
+                                group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
+                            // Use == to treat null and undefined equivalently
+                            const scopeChanged = previousEffective != value
+                            return {
+                                ...group,
+                                aggregation_group_type_index: undefined,
+                                properties: scopeChanged ? [] : group.properties,
+                            }
+                        }) as FeatureFlagGroupTypeWithSortKey[],
+                    }
+                }
+
+                // Direct transition between incompatible types (user ↔ group):
+                // full reset since property filters from one scope don't apply to another
+                const originalRolloutPercentage = state.groups[0]?.rollout_percentage
                 return {
                     ...state,
                     aggregation_group_type_index: value,
-                    // :TRICKY: We reset property filters after changing what you're aggregating by.
                     groups: [
                         {
                             properties: [],
                             rollout_percentage: originalRolloutPercentage,
                             variant: null,
                             sort_key: uuidv4(),
-                        },
+                        } as FeatureFlagGroupTypeWithSortKey,
                     ],
                 }
             },
@@ -227,6 +252,28 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }
 
                 return { ...state, groups }
+            },
+            setEarlyExit: (state, { earlyExit }) => {
+                if (!state) {
+                    return state
+                }
+                return { ...state, early_exit: earlyExit }
+            },
+            switchToMixedTargeting: (state) => {
+                if (!state) {
+                    return state
+                }
+                const previousGlobal = state.aggregation_group_type_index
+                return {
+                    ...state,
+                    aggregation_group_type_index: null,
+                    // Each condition inherits the global aggregation type as its
+                    // per-condition value, so properties remain valid
+                    groups: state.groups.map((group) => ({
+                        ...group,
+                        aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
+                    })) as FeatureFlagGroupTypeWithSortKey[],
+                }
             },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
                 if (!state) {
@@ -342,6 +389,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             false as boolean,
             {
                 setIsMixedTargeting: (_, { isMixedTargeting }) => isMixedTargeting,
+                switchToMixedTargeting: () => true,
             },
         ],
         mixedGroupTypeIndex: [
@@ -454,6 +502,9 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (newOpenConditions.length !== values.openConditions.length) {
                 actions.setOpenConditions(newOpenConditions)
             }
+        },
+        switchToMixedTargeting: () => {
+            actions.calculateBlastRadius()
         },
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()
@@ -579,11 +630,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
     })),
     selectors({
-        // Get the appropriate groups based on isSuper
-        filterGroups: [
-            (s) => [s.filters, (_, props) => props.isSuper],
-            (filters: FeatureFlagFilters, isSuper: boolean) => (isSuper ? filters.super_groups : filters.groups) || [],
-        ],
+        filterGroups: [(s) => [s.filters], (filters: FeatureFlagFilters) => filters.groups || []],
         taxonomicGroupTypes: [
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes): TaxonomicFilterGroupType[] => {

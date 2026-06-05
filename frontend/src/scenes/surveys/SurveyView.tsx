@@ -2,37 +2,35 @@ import './SurveyView.scss'
 
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import {
-    IconArchive,
-    IconCopy,
-    IconGraph,
-    IconLlmAnalytics,
-    IconThumbsDown,
-    IconThumbsUp,
-    IconTrash,
-} from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, Tooltip } from '@posthog/lemon-ui'
+import { IconArchive, IconCopy, IconGraph, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonDivider, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { SceneDuplicate } from 'lib/components/Scenes/SceneDuplicate'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
-import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
 import { SurveyQuestionVisualization } from 'scenes/surveys/components/question-visualizations/SurveyQuestionVisualization'
 import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveyNotificationModal } from 'scenes/surveys/components/SurveyNotificationModal'
+import { SurveyNotifications } from 'scenes/surveys/components/SurveyNotifications'
+import { SurveyNotificationsCallout } from 'scenes/surveys/components/SurveyNotificationsCallout'
 import { DuplicateToProjectModal } from 'scenes/surveys/DuplicateToProjectModal'
-import { canDeleteSurvey, openArchiveSurveyDialog, openDeleteSurveyDialog } from 'scenes/surveys/surveyDialogs'
+import {
+    canDeleteSurvey,
+    openArchiveSurveyDialog,
+    openDeleteSurveyDialog,
+    openResumeSurveyDialog,
+} from 'scenes/surveys/surveyDialogs'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveyNoResponsesBanner } from 'scenes/surveys/SurveyNoResponsesBanner'
 import { SurveyOverview } from 'scenes/surveys/SurveyOverview'
@@ -52,56 +50,37 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
-import { QueryContextColumn } from '~/queries/types'
 import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
-    PropertyFilterType,
-    PropertyOperator,
     Survey,
     SurveyEventName,
-    SurveyEventProperties,
     SurveyQuestionType,
 } from '~/types'
 
 import { SurveyResultsRefreshStatus } from './components/SurveyResultsRefreshStatus'
 import { NEW_SURVEY } from './constants'
+import { useSurveyResponseColumns } from './hooks/useSurveyResponseColumns'
 import { SurveyHeadline } from './SurveyHeadline'
-import { canUseSurveyWizard, getSurveyResponse, isThumbQuestion } from './utils'
+import { SurveySceneMenuBar } from './SurveySceneMenuBar'
+import { canUseSurveyWizard } from './utils'
 
 const RESOURCE_TYPE = 'survey'
-
-const getTraceIdFromRecord = (record: unknown): string | null => {
-    if (!Array.isArray(record)) {
-        return null
-    }
-    const event = record[0] as { properties?: { $ai_trace_id?: string } } | undefined
-    return event?.properties?.$ai_trace_id ?? null
-}
-
-export const getThumbIcon = (value: unknown): JSX.Element | null => {
-    if (value == '1') {
-        return <IconThumbsUp className="text-brand-blue" />
-    }
-    if (value == '2') {
-        return <IconThumbsDown className="text-warning" />
-    }
-    return null
-}
 
 export function SurveyView({ id }: { id: string }): JSX.Element {
     const isRedesignEnabled = useFeatureFlag('SURVEYS_REDESIGNED_VIEW')
 
-    if (isRedesignEnabled) {
-        return <SurveyViewRedesign />
-    }
-
-    return <SurveyViewLegacy id={id} />
+    return (
+        <>
+            {isRedesignEnabled ? <SurveyViewRedesign /> : <SurveyViewLegacy id={id} />}
+            <SurveyNotificationModal surveyId={id} />
+        </>
+    )
 }
 
 function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
-    const { survey, surveyLoading } = useValues(surveyLogic)
+    const { survey, surveyLoading, surveyNotifications } = useValues(surveyLogic)
     const { preferredEditor } = useValues(surveysLogic)
     const { editingSurvey, updateSurvey, stopSurvey, resumeSurvey, archiveSurvey } = useActions(surveyLogic)
     const { deleteSurvey, duplicateSurvey, setSurveyToDuplicate } = useActions(surveysLogic)
@@ -115,12 +94,6 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
     const [tabKey, setTabKey] = useState(survey.start_date ? 'results' : 'overview')
 
     const surveyId = survey?.id && survey.id !== 'new' ? survey.id : null
-
-    useFileSystemLogView({
-        type: 'survey',
-        ref: surveyId,
-        enabled: Boolean(surveyId && !isInitialSurveyLoad),
-    })
 
     useEffect(() => {
         if (survey.start_date) {
@@ -136,6 +109,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                 <LemonSkeleton />
             ) : (
                 <SceneContent>
+                    <SurveySceneMenuBar id={id} />
                     <ScenePanel>
                         <ScenePanelInfoSection>
                             <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -259,28 +233,7 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                                         <LemonButton
                                             type="secondary"
                                             size="small"
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Resume this survey?',
-                                                    content: (
-                                                        <div className="text-sm text-secondary">
-                                                            Once resumed, the survey will be visible to your users
-                                                            again.
-                                                        </div>
-                                                    ),
-                                                    primaryButton: {
-                                                        children: 'Resume',
-                                                        type: 'primary',
-                                                        onClick: () => resumeSurvey(),
-                                                        size: 'small',
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Cancel',
-                                                        type: 'tertiary',
-                                                        size: 'small',
-                                                    },
-                                                })
-                                            }}
+                                            onClick={() => openResumeSurveyDialog(survey, () => resumeSurvey())}
                                         >
                                             Resume
                                         </LemonButton>
@@ -354,33 +307,21 @@ function SurveyViewLegacy({ id }: { id: string }): JSX.Element {
                             },
                             {
                                 key: 'notifications',
-                                label: 'Notifications',
+                                label: (
+                                    <span className="flex items-center gap-1.5">
+                                        Notifications
+                                        {surveyNotifications.length > 0 && (
+                                            <LemonTag type="completion" size="small">
+                                                {surveyNotifications.length}
+                                            </LemonTag>
+                                        )}
+                                    </span>
+                                ),
                                 content: (
-                                    <div>
-                                        <p>Get notified whenever a survey result is submitted</p>
-                                        <LinkedHogFunctions
-                                            type="destination"
-                                            subTemplateIds={['survey-response']}
-                                            forceFilterGroups={[
-                                                {
-                                                    events: [
-                                                        {
-                                                            id: SurveyEventName.SENT,
-                                                            type: 'events',
-                                                            properties: [
-                                                                {
-                                                                    key: SurveyEventProperties.SURVEY_ID,
-                                                                    type: PropertyFilterType.Event,
-                                                                    value: id,
-                                                                    operator: PropertyOperator.Exact,
-                                                                },
-                                                            ],
-                                                        },
-                                                    ],
-                                                },
-                                            ]}
-                                        />
-                                    </div>
+                                    <SurveyNotifications
+                                        surveyId={id}
+                                        description="Get notified whenever a survey result is submitted."
+                                    />
                                 ),
                             },
                             {
@@ -435,60 +376,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
     } = useValues(surveyLogic)
     const { clearFilters } = useActions(surveyLogic)
     const isInitialSurveyLoad = surveyLoading && survey.id === NEW_SURVEY.id
-
-    /**
-     * custom column renderer that does:
-     * - shows LLM trace button on the first question, if the event has an $ai_trace_id
-     * - shows thumbs up/down icons instead of the raw '1'/'2' data for thumb questions
-     */
-    const surveyColumnRenderers = useMemo(() => {
-        const columns: Record<string, QueryContextColumn> = {}
-
-        survey.questions.forEach((question, index) => {
-            const isThumb = isThumbQuestion(question)
-            const isFirstQuestion = index === 0
-
-            if (!isThumb && !isFirstQuestion) {
-                return
-            }
-
-            const columnName = getSurveyResponse(question, index)
-            columns[columnName] = {
-                render: ({ value, record }) => {
-                    const traceId = isFirstQuestion ? getTraceIdFromRecord(record) : null
-
-                    return (
-                        <span className="flex items-center gap-2">
-                            {/* show LLM trace button on the first question if we have $ai_trace_id */}
-                            {traceId && (
-                                <Tooltip title="View LLM trace">
-                                    <LemonButton
-                                        size="xsmall"
-                                        icon={
-                                            <IconLlmAnalytics className="text-[var(--color-product-llm-analytics-light)]" />
-                                        }
-                                        to={urls.llmAnalyticsTrace(traceId)}
-                                    />
-                                </Tooltip>
-                            )}
-
-                            {/* replace '1' and '2' with thumb icon+text if it's a thumb question */}
-                            {isThumb ? (
-                                <span className="flex items-center gap-1">
-                                    {getThumbIcon(value)}
-                                    Thumbs {value == '1' ? 'up' : 'down'}
-                                </span>
-                            ) : (
-                                String(value)
-                            )}
-                        </span>
-                    )
-                },
-            }
-        })
-
-        return columns
-    }, [survey.questions])
+    const surveyColumnRenderers = useSurveyResponseColumns()
 
     const atLeastOneResponse = !!processedSurveyStats?.[SurveyEventName.SENT].total_count
     const isRefreshingResults = resultsRequeryInProgress || isAnyResultsLoading
@@ -496,6 +384,7 @@ export function SurveyResult({ disableEventsTable }: { disableEventsTable?: bool
         <div className="deprecated-space-y-4">
             {isSurveyHeadlineEnabled && <SurveyHeadline />}
             <SurveyResponseFilters />
+            <SurveyNotificationsCallout surveyId={survey.id} />
             {isRefreshingResults || atLeastOneResponse ? (
                 <>
                     <SurveyResultsRefreshStatus visible={isRefreshingResults} />

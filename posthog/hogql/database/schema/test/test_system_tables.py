@@ -1,48 +1,54 @@
+import uuid
+
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from parameterized import parameterized
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import (
-    Action,
-    Annotation,
-    Cohort,
-    ExportedAsset,
-    FeatureFlag,
-    Group,
-    GroupTypeMapping,
-    Insight,
-    InsightVariable,
-    Organization,
-    Team,
-)
+from posthog.models import Cohort, Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.alert import AlertConfiguration
 from posthog.models.cohort.calculation_history import CohortCalculationHistory
-from posthog.models.hog_flow.hog_flow import HogFlow
-from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.project import Project
+from posthog.models.scoping import team_scope
 
+from products.actions.backend.models.action import Action
+from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
+from products.ai_observability.backend.models.score_definitions import ScoreDefinition
+from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.annotations.backend.models.annotation import Annotation
+from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
+from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.conversations.backend.models import Ticket
+from products.customer_analytics.backend.models.account import Account
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
-from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
-from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import ErrorTrackingIssue
+from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -50,6 +56,9 @@ ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 TEAM_ID_FILTER_PATTERNS = {
     "ingestion_warnings": "ingestion_warnings.team_id",  # ClickHouse-native table, no system__ prefix
     "teams": "system__teams.id",  # team_id is aliased to id column
+    # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
+    "_account_resource_notebooks": "system__accounts.team_id",
+    "_account_tagged_items": "system__accounts.team_id",
 }
 
 
@@ -78,6 +87,10 @@ class TestSystemTablesTeamScoping(BaseTest):
             # ingestion_warnings is a ClickHouse-native table (not backed by PostgreSQL),
             # so it can't be tested with Django model factories.
             "ingestion_warnings",
+            # Hidden junction tables that exist only to back the system.accounts lazy joins;
+            # isolation is covered by TestSystemAccountsLazyJoins.
+            "_account_resource_notebooks",
+            "_account_tagged_items",
         }
 
         untested = all_tables - tested_tables - excluded_tables
@@ -87,16 +100,27 @@ class TestSystemTablesTeamScoping(BaseTest):
             f"or add to excluded_tables with a reason."
         )
 
+    def test_error_tracking_symbol_sets_does_not_expose_storage_internals(self):
+        table = SystemTables().children["error_tracking_symbol_sets"].get()
+        assert isinstance(table, Table)
+
+        assert "storage_ptr" not in table.fields
+        assert "content_hash" not in table.fields
+
 
 def _create_batch_export(team: Team, label: str):
-    from posthog.batch_exports.models import BatchExport, BatchExportDestination
+    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 
     destination = BatchExportDestination.objects.create(type="S3", config={})
     return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
 
 
 def _create_batch_export_backfill(team: Team, label: str):
-    from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination
+    from products.batch_exports.backend.models.batch_export import (
+        BatchExport,
+        BatchExportBackfill,
+        BatchExportDestination,
+    )
 
     destination = BatchExportDestination.objects.create(type="S3", config={})
     batch_export = BatchExport.objects.create(
@@ -112,6 +136,10 @@ def _create_alert(team: Team, label: str) -> AlertConfiguration:
 
 def _create_activity_log(team: Team, label: str) -> ActivityLog:
     return ActivityLog.objects.create(team_id=team.pk, activity="updated", scope="FeatureFlag", item_id=label)
+
+
+def _create_account(team: Team, label: str) -> Account:
+    return Account.objects.unscoped().create(team=team, name=f"account_{label}", external_id=f"ext_{label}")
 
 
 def _create_action(team: Team, label: str) -> Action:
@@ -133,6 +161,12 @@ def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculat
 
 def _create_dashboard(team: Team, label: str) -> Dashboard:
     return Dashboard.objects.create(team=team, name=f"dashboard_{label}")
+
+
+def _create_dashboard_tile(team: Team, label: str) -> DashboardTile:
+    dashboard = Dashboard.objects.create(team=team, name=f"dashboard_for_tile_{label}")
+    insight = Insight.objects.create(team=team, short_id=f"tile_{label}"[:12], name=f"insight_{label}")
+    return DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
 
 def _create_data_modeling_job(team: Team, label: str) -> DataModelingJob:
@@ -246,6 +280,36 @@ def _create_error_tracking_issue_fingerprint(team: Team, label: str):
     return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
 
 
+def _create_error_tracking_assignment_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
+
+    return ErrorTrackingAssignmentRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
+    )
+
+
+def _create_error_tracking_suppression_rule(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
+
+    return ErrorTrackingSuppressionRule.objects.create(
+        team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0, sampling_rate=1.0
+    )
+
+
+def _create_error_tracking_release(team: Team, label: str):
+    from products.error_tracking.backend.models import ErrorTrackingRelease
+
+    return ErrorTrackingRelease.objects.create(
+        team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
+    )
+
+
+def _create_error_tracking_symbol_set(team: Team, label: str) -> ErrorTrackingSymbolSet:
+    return ErrorTrackingSymbolSet.objects.create(
+        team=team, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}"
+    )
+
+
 def _create_hog_flow(team: Team, label: str) -> HogFlow:
     return HogFlow.objects.create(team=team, name=f"flow_{label}")
 
@@ -289,6 +353,20 @@ def _create_integration(team: Team, label: str):
     return Integration.objects.create(team=team, kind="slack", errors="")
 
 
+def _create_integration_repository_cache_entry(team: Team, label: str):
+    from posthog.models.integration import Integration
+    from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+
+    integration = Integration.objects.create(team=team, kind="github", errors="")
+    return IntegrationRepositoryCacheEntry.objects.create(
+        integration=integration,
+        team=team,
+        full_name=f"owner/repo_{label}",
+        default_branch="main",
+        default_branch_sha=f"sha_{label}",
+    )
+
+
 def _create_logs_view(team: Team, label: str) -> LogsView:
     return LogsView.objects.create(team=team, name=f"logs_view_{label}")
 
@@ -298,6 +376,75 @@ def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
         team=team,
         name=f"logs_alert_{label}",
         threshold_count=10,
+    )
+
+
+def _create_review_queue(team: Team, label: str) -> ReviewQueue:
+    user = _get_or_create_user_for_team(team, label)
+    return ReviewQueue.objects.create(team=team, name=f"review_queue_{label}", created_by=user)
+
+
+def _create_review_queue_item(team: Team, label: str) -> ReviewQueueItem:
+    user = _get_or_create_user_for_team(team, label)
+    queue = ReviewQueue.objects.create(team=team, name=f"review_queue_for_item_{label}", created_by=user)
+    return ReviewQueueItem.objects.create(team=team, queue=queue, trace_id=f"trace_{label}", created_by=user)
+
+
+def _create_trace_review(team: Team, label: str) -> TraceReview:
+    user = _get_or_create_user_for_team(team, label)
+    return TraceReview.objects.create(
+        team=team,
+        trace_id=f"trace_review_{label}",
+        created_by=user,
+        reviewed_by=user,
+    )
+
+
+def _create_score_definition(team: Team, label: str) -> ScoreDefinition:
+    user = _get_or_create_user_for_team(team, label)
+    definition = ScoreDefinition.objects.create(
+        team=team,
+        name=f"score_definition_{label}",
+        description="",
+        kind=ScoreDefinition.Kind.BOOLEAN,
+        created_by=user,
+    )
+    definition.create_new_version(
+        config={"true_label": "Yes", "false_label": "No"},
+        created_by=user,
+    )
+    return definition
+
+
+def _create_trace_review_score(team: Team, label: str) -> TraceReviewScore:
+    user = _get_or_create_user_for_team(team, label)
+    review = TraceReview.objects.create(
+        team=team,
+        trace_id=f"trace_review_for_score_{label}",
+        created_by=user,
+        reviewed_by=user,
+    )
+    definition = ScoreDefinition.objects.create(
+        team=team,
+        name=f"score_definition_{label}",
+        description="",
+        kind=ScoreDefinition.Kind.BOOLEAN,
+        created_by=user,
+    )
+    version = definition.create_new_version(
+        config={"true_label": "Yes", "false_label": "No"},
+        created_by=user,
+    )
+
+    return TraceReviewScore.objects.create(
+        team=team,
+        review=review,
+        definition=definition,
+        definition_version=version.id,
+        definition_version_number=version.version,
+        definition_config=version.config,
+        boolean_value=True,
+        created_by=user,
     )
 
 
@@ -313,24 +460,132 @@ def _create_notebook(team: Team, label: str) -> Notebook:
     return Notebook.objects.create(team=team, title=f"notebook_{label}")
 
 
+def _create_session_recording(team: Team, label: str):
+    from posthog.models import SessionRecording
+
+    return SessionRecording.objects.create(team=team, session_id=f"session_{label}")
+
+
+def _create_session_recording_playlist(team: Team, label: str):
+    from posthog.models import SessionRecordingPlaylist
+
+    return SessionRecordingPlaylist.objects.create(team=team, name=f"playlist_{label}", type="collection")
+
+
+def _create_support_ticket(team: Team, label: str) -> Ticket:
+    return Ticket.objects.create_with_number(
+        team=team,
+        channel_source="widget",
+        widget_session_id=f"session_{label}",
+        distinct_id=f"user_{label}",
+        status="new",
+    )
+
+
 def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
+
+
+def _create_task(team: Team, label: str):
+    from products.tasks.backend.models import Task
+
+    return Task.objects.create(
+        team=team,
+        title=f"task_{label}",
+        description="x",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+
+
+def _create_task_run(team: Team, label: str):
+    from products.tasks.backend.models import Task, TaskRun
+
+    task = Task.objects.create(
+        team=team,
+        title=f"task_for_run_{label}",
+        description="x",
+        origin_product=Task.OriginProduct.USER_CREATED,
+    )
+    return TaskRun.objects.create(task=task, team=team, status=TaskRun.Status.QUEUED)
+
+
+def _create_sandbox_environment(team: Team, label: str):
+    from products.tasks.backend.models import SandboxEnvironment
+
+    # private=False so the row is queryable via HogQL — the privacy predicate
+    # excludes private environments. Privacy filtering itself is covered by
+    # TestSystemTablesSandboxEnvironmentPrivacy.
+    return SandboxEnvironment.objects.create(team=team, name=f"env_{label}", private=False)
+
+
+def _create_tag(team: Team, label: str) -> Tag:
+    return Tag.objects.create(team=team, name=f"tag_{label}")
 
 
 def _create_team(team: Team, label: str) -> Team:
     return team
 
 
+def _create_usage_metric(team: Team, label: str) -> GroupUsageMetric:
+    return GroupUsageMetric.objects.create(
+        team=team,
+        group_type_index=0,
+        name=f"metric_{label}",
+        filters={"events": []},
+    )
+
+
+def _create_business_knowledge_source(team: Team, label: str):
+    with team_scope(team.pk):
+        return KnowledgeSource.objects.create(
+            team=team, name=f"bk_source_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+        )
+
+
+def _create_business_knowledge_document(team: Team, label: str):
+    with team_scope(team.pk):
+        source = KnowledgeSource.objects.create(
+            team=team, name=f"bk_source_for_doc_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+        )
+        return KnowledgeDocument.objects.create(
+            team=team, source=source, stable_id=f"stable_{label}", content=f"content_{label}"
+        )
+
+
+def _create_business_knowledge_chunk(team: Team, label: str):
+    with team_scope(team.pk):
+        source = KnowledgeSource.objects.create(
+            team=team, name=f"bk_source_for_chunk_{label}", source_type=SourceType.TEXT, status=SourceStatus.READY
+        )
+        doc = KnowledgeDocument.objects.create(
+            team=team, source=source, stable_id=f"stable_chunk_{label}", content=f"content_{label}"
+        )
+        return KnowledgeChunk.objects.create(
+            id=uuid.uuid4(),
+            team=team,
+            source=source,
+            document=doc,
+            ordinal=0,
+            content=f"chunk_content_{label}",
+            char_count=len(f"chunk_content_{label}"),
+        )
+
+
 SYSTEM_TABLE_FACTORIES = [
+    ("accounts", _create_account),
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_exports", _create_batch_export),
+    ("business_knowledge_chunks", _create_business_knowledge_chunk),
+    ("business_knowledge_documents", _create_business_knowledge_document),
+    ("business_knowledge_sources", _create_business_knowledge_source),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
+    ("dashboard_tiles", _create_dashboard_tile),
     ("data_modeling_jobs", _create_data_modeling_job),
     ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
@@ -338,10 +593,14 @@ SYSTEM_TABLE_FACTORIES = [
     ("early_access_features", _create_early_access_feature),
     ("data_modeling_endpoint_versions", _create_endpoint_version),
     ("data_modeling_endpoints", _create_endpoint),
+    ("error_tracking_assignment_rules", _create_error_tracking_assignment_rule),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
     ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
+    ("error_tracking_releases", _create_error_tracking_release),
+    ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
+    ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("experiments", _create_experiment),
     ("exports", _create_export),
     ("feature_flags", _create_feature_flag),
@@ -352,12 +611,26 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("integrations", _create_integration),
+    ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
     ("logs_views", _create_logs_view),
     ("notebooks", _create_notebook),
+    ("review_queue_items", _create_review_queue_item),
+    ("review_queues", _create_review_queue),
+    ("sandbox_environments", _create_sandbox_environment),
+    ("score_definitions", _create_score_definition),
+    ("session_recording_playlists", _create_session_recording_playlist),
+    ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
+    ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
+    ("tags", _create_tag),
+    ("task_runs", _create_task_run),
+    ("tasks", _create_task),
     ("teams", _create_team),
+    ("trace_review_scores", _create_trace_review_score),
+    ("trace_reviews", _create_trace_review),
+    ("usage_metrics", _create_usage_metric),
 ]
 
 
@@ -383,3 +656,149 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
 
         assert str(obj_team1.pk) in ids
         assert str(obj_team2.pk) not in ids
+
+
+class TestSystemTablesSandboxEnvironmentPrivacy(BaseTest):
+    """Verify the sandbox_environments system table excludes private and internal environments,
+    mirroring the REST API's per-creator visibility filter and internal-use exclusion."""
+
+    def test_generated_sql_includes_private_predicate(self):
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.sandbox_environments"), context, dialect="clickhouse"
+        )
+        assert "system__sandbox_environments.private" in query
+        assert "system__sandbox_environments.internal" in query
+        assert f"equals(system__sandbox_environments.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesSandboxEnvironmentPrivacyIsolation(NonAtomicBaseTest):
+    """End-to-end check that private and internal sandbox environments are never returned via HogQL,
+    even within the creator's own team."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_private_environments_excluded(self):
+        from products.tasks.backend.models import SandboxEnvironment
+
+        public_env = SandboxEnvironment.objects.create(team=self.team, name="public_env", private=False)
+        private_env = SandboxEnvironment.objects.create(team=self.team, name="private_env", private=True)
+
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(public_env.pk) in ids
+        assert str(private_env.pk) not in ids
+
+    def test_internal_environments_excluded(self):
+        from products.tasks.backend.models import SandboxEnvironment
+
+        regular_env = SandboxEnvironment.objects.create(
+            team=self.team, name="regular_env", private=False, internal=False
+        )
+        internal_env = SandboxEnvironment.objects.create(
+            team=self.team, name="internal_env", private=False, internal=True
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.sandbox_environments", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(regular_env.pk) in ids
+        assert str(internal_env.pk) not in ids
+
+
+class TestSystemTablesTaskInternalExclusion(BaseTest):
+    """Verify the tasks system table excludes internal tasks (signals pipeline, etc.)
+    mirroring the REST API's default filter."""
+
+    def test_generated_sql_includes_internal_predicate(self):
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query, _ = prepare_and_print_ast(parse_select("SELECT id FROM system.tasks"), context, dialect="clickhouse")
+        assert "system__tasks.internal" in query
+        assert f"equals(system__tasks.team_id, {self.team.pk})" in query
+
+
+class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
+    """End-to-end check that internal tasks are never returned via HogQL."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_internal_tasks_excluded(self):
+        from products.tasks.backend.models import Task
+
+        regular_task = Task.objects.create(
+            team=self.team,
+            title="regular",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=False,
+        )
+        internal_task = Task.objects.create(
+            team=self.team,
+            title="internal",
+            description="x",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            internal=True,
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.tasks", team=self.team)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(regular_task.pk) in ids
+        assert str(internal_task.pk) not in ids
+
+
+class TestSystemAccountsLazyJoins(NonAtomicBaseTest):
+    """Verify the `accounts.tags.names` and `accounts.notebooks.count` lazy joins."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def test_tags_lazy_join_returns_tag_names_array(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        billing = Tag.objects.create(name="billing", team=self.team)
+        urgent = Tag.objects.create(name="urgent", team=self.team)
+        account.tagged_items.create(tag=billing)
+        account.tagged_items.create(tag=urgent)
+        Account.objects.unscoped().create(team=self.team, name="B")  # untagged
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.tags.names FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert sorted(rows_by_id[str(account.id)]) == ["billing", "urgent"]
+
+    def test_tags_lazy_join_isolated_per_team(self):
+        other_account = Account.objects.unscoped().create(team=self.other_team, name="Theirs")
+        other_tag = Tag.objects.create(name="billing", team=self.other_team)
+        other_account.tagged_items.create(tag=other_tag)
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.tags.names FROM system.accounts AS accounts",
+            team=self.team,
+        )
+        assert response.results == []
+
+    def test_notebooks_lazy_join_returns_count(self):
+        account = Account.objects.unscoped().create(team=self.team, name="A")
+        for label in ("n1", "n2", "n3"):
+            notebook = Notebook.objects.create(team=self.team, title=label)
+            ResourceNotebook.objects.create(notebook=notebook, account=account)
+        Account.objects.unscoped().create(team=self.team, name="B")  # no notebooks
+
+        response = execute_hogql_query(
+            "SELECT id, accounts.notebooks.count FROM system.accounts AS accounts ORDER BY name",
+            team=self.team,
+        )
+        rows_by_id = {str(row[0]): row[1] for row in response.results}
+
+        assert rows_by_id[str(account.id)] == 3

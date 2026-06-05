@@ -72,12 +72,14 @@ function useBoldNumberTooltip({
 
     const elementRef = useRef<HTMLDivElement>(null)
 
-    const { getTooltip } = useInsightTooltip()
-    const [tooltipRoot, tooltipEl] = getTooltip()
+    const { getTooltip, showTooltip, hideTooltip, positionTooltipAt, measureTooltip } = useInsightTooltip()
 
     useLayoutEffect(() => {
-        tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
-
+        if (!isTooltipShown) {
+            hideTooltip()
+            return
+        }
+        const [tooltipRoot] = getTooltip()
         const seriesResult = insightData?.result?.[seriesIndex]
 
         tooltipRoot.render(
@@ -101,6 +103,7 @@ function useBoldNumberTooltip({
                 groupTypeLabel={groupTypeLabel || aggregationLabel(series?.[0]?.math_group_type_index).plural}
             />
         )
+        showTooltip()
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -108,12 +111,11 @@ function useBoldNumberTooltip({
             return
         }
         const elementRect = elementRef.current?.getBoundingClientRect()
-        const tooltipRect = tooltipEl.getBoundingClientRect()
-        if (elementRect) {
-            tooltipEl.style.top = `${
-                window.scrollY + elementRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
-            }px`
-            tooltipEl.style.left = `${elementRect.left + elementRect.width / 2 - tooltipRect.width / 2}px`
+        const tooltipRect = measureTooltip()
+        if (elementRect && tooltipRect) {
+            const top = window.scrollY + elementRect.top - tooltipRect.height - BOLD_NUMBER_TOOLTIP_OFFSET_PX
+            const left = elementRect.left + elementRect.width / 2 - tooltipRect.width / 2
+            positionTooltipAt(left, top)
         }
     }, [isTooltipShown]) // oxlint-disable-line react-hooks/exhaustive-deps
 
@@ -276,7 +278,7 @@ export function HogQLBoldNumber(): JSX.Element {
         return (
             <div className="BoldNumber LemonTable HogQL">
                 <div className="BoldNumber__value">
-                    <Textfit min={32} max={120}>
+                    <Textfit min={32} max={64}>
                         Loading...
                     </Textfit>
                 </div>
@@ -303,7 +305,7 @@ export function HogQLBoldNumber(): JSX.Element {
     return (
         <div className="BoldNumber LemonTable HogQL ph-no-capture">
             <div className="BoldNumber__value">
-                <Textfit min={32} max={120}>
+                <Textfit min={32} max={64}>
                     {String(value ?? 'Error')}
                 </Textfit>
             </div>

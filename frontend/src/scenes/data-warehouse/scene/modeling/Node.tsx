@@ -7,12 +7,13 @@ import { IconActivity, IconClockRewind, IconPlay, IconPlayFilled } from '@postho
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType, DataModelingSyncInterval } from '~/types'
 
-import { syncIntervalToShorthand } from '../../utils'
+import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
+
 import { dataModelingLogic } from '../dataModelingLogic'
 import type { ElkDirection, NodeData, NodeHandle } from './types'
 
@@ -156,7 +157,7 @@ function NodeMetadata({
     lastJobStatus,
 }: {
     type: DataModelingNodeType
-    syncInterval?: DataWarehouseSyncInterval
+    syncInterval?: DataModelingSyncInterval
     lastRunAt?: string
     lastJobStatus?: DataModelingJobStatus | null
 }): JSX.Element | null {
@@ -288,7 +289,6 @@ export const NodeInner = React.memo(function NodeInner({
 const NodeComponent = React.memo(function NodeComponent(props: { id: string; data: NodeData }): JSX.Element | null {
     const { runNode, materializeNode, setHoveredNodeId } = useActions(dataModelingLogic)
     const { layoutDirection, highlightedNodeIds, debouncedSearchTerm, parsedSearch } = useValues(dataModelingLogic)
-    const { newTab } = useActions(sceneLogic)
 
     const { id } = props
     const {
@@ -347,14 +347,14 @@ const NodeComponent = React.memo(function NodeComponent(props: { id: string; dat
         if (type === 'endpoint') {
             const versionMatch = name.match(/^(.+)_v(\d+)$/)
             if (versionMatch) {
-                newTab(urls.endpoint(versionMatch[1], parseInt(versionMatch[2])))
+                newInternalTab(urls.endpoint(versionMatch[1], parseInt(versionMatch[2])))
             } else {
-                newTab(urls.endpoint(name))
+                newInternalTab(urls.endpoint(name))
             }
         } else {
-            newTab(urls.nodeDetail(id))
+            newInternalTab(urls.nodeDetail(id))
         }
-    }, [type, id, newTab, props.data.name, name])
+    }, [type, id, props.data.name, name])
 
     const handleMouseEnter = useCallback(() => setHoveredNodeId(id), [id, setHoveredNodeId])
     const handleMouseLeave = useCallback(() => setHoveredNodeId(null), [setHoveredNodeId])

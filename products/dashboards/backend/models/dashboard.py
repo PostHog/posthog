@@ -5,10 +5,10 @@ from django.db import models
 from django.db.models import QuerySet
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
 from posthog.utils import absolute_uri
 
 if TYPE_CHECKING:
@@ -34,7 +34,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         UNLISTED = (
             "unlisted",
             "Unlisted (product-embedded)",
-        )  # Product dashboards (e.g. LLM Analytics) - hidden from general lists, accessed via tag queries
+        )  # Product dashboards (e.g. AI observability) - hidden from general lists, accessed via tag queries
 
     class RestrictionLevel(models.IntegerChoices):
         """Collaboration restriction level (which is a dashboard setting). Sync with PrivilegeLevel."""
@@ -69,17 +69,14 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         null=True,
         blank=True,
     )
-    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode.choices)
+    creation_mode = models.CharField(max_length=16, default="default", choices=CreationMode)
     restriction_level = models.PositiveSmallIntegerField(
         default=RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT,
-        choices=RestrictionLevel.choices,
+        choices=RestrictionLevel,
     )
     insights = models.ManyToManyField(
-        "posthog.Insight",
-        related_name="dashboards",
-        through="DashboardTile",
-        blank=True,
-    )
+        "product_analytics.Insight", related_name="dashboards", through="DashboardTile", blank=True
+    )  # type: models.ManyToManyField
     quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
@@ -116,19 +113,17 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         return self.name or str(self.id)
 
     def delete(self, *args, **kwargs):
-        from posthog.models.group_type_mapping import GroupTypeMapping
+        from posthog.models.group_type_mapping import clear_dashboard_from_group_type_mapping
 
-        # Handle SET_NULL for GroupTypeMapping.detail_dashboard in persons database
-        # This is needed because GroupTypeMapping is in the persons database
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(detail_dashboard_id=self.id).update(
-            detail_dashboard_id=None
+        clear_dashboard_from_group_type_mapping(
+            team_id=self.team_id, dashboard_id=self.id, project_id=self.team.project_id
         )
         return super().delete(*args, **kwargs)
 
     @classmethod
-    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["Dashboard"]:
+    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Dashboard"]:
         base_qs = cls.objects.filter(team=team, deleted=False).exclude(creation_mode="template")
-        return cls._filter_unfiled_queryset(base_qs, team, type="dashboard", ref_field="id")
+        return cls._filter_unfiled_queryset(base_qs, team, type="dashboard", ref_field="id", surface=surface)
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         should_delete = self.deleted or (self.creation_mode == "template")
@@ -160,6 +155,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         Returns serialized information about the object for analytics reporting.
         """
         return {
+            "dashboard_id": self.pk,
             "pinned": self.pinned,
             "item_count": self.tiles.exclude(insight=None).count(),
             "is_shared": self.is_sharing_enabled,

@@ -52,10 +52,12 @@ impl ValueOperator for ExceptionResolver {
                 move |exc, ctx| async move {
                     let ctx = ctx.clone();
                     if ExceptionResolver::is_java_exception(&exc) {
+                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
                         ctx.symbol_resolver
                             .resolve_java_exception(evt.team_id, exc)
                             .await
                     } else if ExceptionResolver::is_dart_exception(&exc) {
+                        let _permit = ctx.acquire_symbol_resolution_permit().await?;
                         ctx.symbol_resolver
                             .resolve_dart_exception(evt.team_id, exc)
                             .await
@@ -126,7 +128,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(map_id.clone()), // We set the map id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
+            .returning(|_, _| Ok(Some(bytes::Bytes::from(get_symbol_data_bytes()))));
 
         let client = Arc::new(client);
 

@@ -3,7 +3,9 @@ from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
 
-from posthog.models import Insight
+from posthog.admin.filters import DeletedFilter
+
+from products.product_analytics.backend.models.insight import Insight
 
 
 class InsightAdminForm(forms.ModelForm):
@@ -51,6 +53,7 @@ class InsightAdminForm(forms.ModelForm):
         return instance
 
 
+@admin.register(Insight)
 class InsightAdmin(admin.ModelAdmin):
     form = InsightAdminForm
     exclude = ("layouts",)
@@ -64,8 +67,10 @@ class InsightAdmin(admin.ModelAdmin):
         "sampling_factor_display",
         "created_at",
         "created_by",
+        "deleted",
     )
     list_display_links = ("id", "short_id", "effective_name")
+    list_filter = (DeletedFilter,)
     list_select_related = ("team", "team__organization")
     search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
     readonly_fields = (
@@ -77,6 +82,9 @@ class InsightAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("team", "dashboard", "created_by", "last_modified_by")
     ordering = ("-created_at",)
+
+    def get_queryset(self, request):
+        return Insight.objects_including_soft_deleted.all()
 
     fieldsets = (
         (None, {"fields": ("name", "description", "team", "short_id")}),

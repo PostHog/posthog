@@ -1,14 +1,17 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useMemo } from 'react'
 
-import { IconChevronDown, IconRefresh, IconX } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
     LemonBadge,
     LemonButton,
     LemonCheckbox,
     LemonDropdown,
+    LemonInput,
     LemonInputSelect,
+    LemonSelect,
     LemonTable,
     LemonTableColumns,
     LemonTag,
@@ -17,6 +20,7 @@ import {
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -37,16 +41,20 @@ import {
     AssigneeSelect,
 } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
+import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import {
     type Ticket,
     type TicketSlaState,
+    type TicketStatus,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
     statusMultiselectOptions,
+    statusOptionsWithoutAll,
 } from '../../types'
 import { SUPPORT_TICKETS_PAGE_SIZE, supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -119,9 +127,18 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
         title: 'Status',
         key: 'status',
         render: (_, ticket) => (
-            <LemonTag type={ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'}>
-                {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
-            </LemonTag>
+            <span className="flex items-center gap-1">
+                <LemonTag
+                    type={ticket.status === 'resolved' ? 'success' : ticket.status === 'new' ? 'primary' : 'default'}
+                >
+                    {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
+                </LemonTag>
+                {ticket.snoozed_until && (
+                    <span title={`Snoozed until ${new Date(ticket.snoozed_until).toLocaleString()}`}>
+                        <IconClock className="text-muted-alt text-base" />
+                    </span>
+                )}
+            </span>
         ),
     },
     {
@@ -204,15 +221,94 @@ interface SupportTicketsTableProps {
     embedded?: boolean
 }
 
+function SupportTicketsBulkActions(): JSX.Element {
+    const { selectedTicketIds, selectedTickets, bulkUpdating } = useValues(supportTicketsSceneLogic)
+    const { bulkUpdateStatus } = useActions(supportTicketsSceneLogic)
+
+    const hasSelection = selectedTicketIds.length > 0
+    const selectedStatuses = selectedTickets.map((t) => t.status)
+    const currentStatus = selectedStatuses.reduce<TicketStatus | 'mixed' | null>((acc, s) => {
+        if (acc === null) {
+            return s
+        }
+        return acc === s ? acc : 'mixed'
+    }, null)
+
+    return (
+        <LemonSelect
+            onChange={(value) => {
+                if (!value || value === currentStatus) {
+                    return
+                }
+                bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
+            }}
+            value={currentStatus === 'mixed' ? null : currentStatus}
+            placeholder="Mark as"
+            loading={bulkUpdating}
+            disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
+            options={statusOptionsWithoutAll.map((o) => ({ value: o.value, label: o.label }))}
+            size="small"
+        />
+    )
+}
+
 export function SupportTicketsTable({ embedded = false }: SupportTicketsTableProps): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
-    const { filteredTickets, ticketsLoading, currentPage, totalCount, sorting } = useValues(logic)
-    const { setCurrentPage, setSorting } = useActions(logic)
+    const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
+    const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
     const { push } = useActions(router)
+
+    const getKey = useMemo(() => (t: Ticket) => t.id, [])
+    const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
+
+    useEffect(() => {
+        setSelectedTicketIds(bulk.selectedKeys)
+    }, [bulk.selectedKeys])
+
+    // Clear hook selection when kea resets (e.g. after bulk update or page reload)
+    useEffect(() => {
+        if (selectedTicketIds.length === 0 && bulk.selectedKeys.length > 0) {
+            bulk.clearSelection()
+        }
+    }, [selectedTicketIds, bulk.clearSelection])
+
+    const columns = useMemo<LemonTableColumns<Ticket>>(() => {
+        const checkboxCol: LemonTableColumns<Ticket>[number] = {
+            key: '__select__' as any,
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
+                    onChange={bulk.toggleAllOnPage}
+                    stopPropagation
+                />
+            ),
+            render: (_, ticket: Ticket, recordIndex: number) => (
+                <LemonCheckbox
+                    checked={bulk.selectedKeysSet.has(ticket.id)}
+                    onChange={(_value, event) =>
+                        bulk.toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                    }
+                    stopPropagation
+                />
+            ),
+        }
+        const base = embedded
+            ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
+            : SUPPORT_TICKETS_TABLE_COLUMNS
+        return [checkboxCol, ...base]
+    }, [
+        embedded,
+        bulk.isSomeOnPageSelected,
+        bulk.isAllOnPageSelected,
+        bulk.toggleAllOnPage,
+        bulk.selectedKeysSet,
+        bulk.toggleRow,
+    ])
 
     return (
         <LemonTable<Ticket>
-            dataSource={filteredTickets}
+            dataSource={tickets}
             rowKey="id"
             loading={ticketsLoading}
             embedded={embedded}
@@ -256,11 +352,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     'bg-primary-alt-highlight': ticket.unread_team_count > 0,
                 })
             }
-            columns={
-                embedded
-                    ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
-                    : SUPPORT_TICKETS_TABLE_COLUMNS
-            }
+            columns={columns}
         />
     )
 }
@@ -268,6 +360,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 export function SupportTicketsTableFilters(): JSX.Element {
     const logic = useMountedLogic(supportTicketsSceneLogic)
     const {
+        searchQuery,
         statusFilter,
         priorityFilter,
         channelFilter,
@@ -279,6 +372,7 @@ export function SupportTicketsTableFilters(): JSX.Element {
         ticketsLoading,
     } = useValues(logic)
     const {
+        setSearchQuery,
         setStatusFilter,
         setPriorityFilter,
         setChannelFilter,
@@ -293,6 +387,14 @@ export function SupportTicketsTableFilters(): JSX.Element {
     return (
         <div className="flex flex-wrap gap-3 items-center justify-between">
             <div className="flex flex-wrap gap-3 items-center">
+                <LemonInput
+                    type="search"
+                    placeholder="Search by ticket #, name, email, or message..."
+                    value={searchQuery}
+                    onChange={setSearchQuery}
+                    size="small"
+                    className="min-w-64"
+                />
                 <DateFilter
                     dateFrom={dateFrom}
                     dateTo={dateTo}
@@ -474,17 +576,21 @@ export function SupportTicketsTableFilters(): JSX.Element {
                     label="Unassigned only"
                 />
             </div>
-            <LemonButton
-                type="secondary"
-                icon={<IconRefresh />}
-                loading={ticketsLoading}
-                disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
-                onClick={loadTickets}
-                size="small"
-                data-attr="refresh-tickets"
-            >
-                Refresh
-            </LemonButton>
+            <div className="flex items-center gap-2">
+                <SupportTicketsBulkActions />
+                <SavedViewsButton id="SupportTicketsScene" />
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    loading={ticketsLoading}
+                    disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
+                    onClick={loadTickets}
+                    size="small"
+                    data-attr="refresh-tickets"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
         </div>
     )
 }
@@ -501,6 +607,7 @@ export function SupportTicketsScene(): JSX.Element {
                 resourceType={{
                     type: 'conversation',
                 }}
+                actions={<ComposeTicketButton />}
             />
             <ScenesTabs />
             {conversationsDisabled ? <ConversationsDisabledBanner /> : null}

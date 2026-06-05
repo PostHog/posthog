@@ -6,16 +6,17 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 import { SignalSourceProduct, SignalSourceType } from '~/queries/schema/schema-signals'
 import { ExternalDataSource, ExternalDataSourceSchema, RecordingUniversalFilters } from '~/types'
 
+import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
+
 import type { signalSourcesLogicType } from './signalSourcesLogicType'
 import { SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
 
-export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github'
+export type DataWarehouseSource = 'Linear' | 'Zendesk' | 'Github' | 'PgAnalyze'
 
 /** Matches Cymbal `EmitSignalRequest.source_type` + `products.signals.backend.api.emit_signal` checks. */
 export const ERROR_TRACKING_SIGNAL_SOURCE_TYPES: SignalSourceType[] = [
@@ -51,6 +52,12 @@ const DATA_WAREHOUSE_SOURCE_CONFIG: Record<
         requiredTable: 'tickets',
         enableErrorMessage: 'Failed to enable Zendesk Tickets',
     },
+    PgAnalyze: {
+        sourceProduct: SignalSourceProduct.PGANALYZE,
+        sourceType: SignalSourceType.ISSUE,
+        requiredTable: 'issues',
+        enableErrorMessage: 'Failed to enable pganalyze',
+    },
 }
 
 /** Values subset used by data-warehouse source helpers */
@@ -58,6 +65,7 @@ interface SignalSourcesLogicValuesForDw {
     githubIssuesConfig: SignalSourceConfig | null
     linearIssuesConfig: SignalSourceConfig | null
     zendeskTicketsConfig: SignalSourceConfig | null
+    pgAnalyzeIssuesConfig: SignalSourceConfig | null
 }
 
 function getDataWarehouseSourceConfig(
@@ -69,6 +77,9 @@ function getDataWarehouseSourceConfig(
     }
     if (dwSource === 'Linear') {
         return values.linearIssuesConfig
+    }
+    if (dwSource === 'PgAnalyze') {
+        return values.pgAnalyzeIssuesConfig
     }
     return values.zendeskTicketsConfig
 }
@@ -106,8 +117,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     path(['scenes', 'inbox', 'signalSourcesLogic']),
 
     connect(() => ({
-        values: [externalDataSourcesLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
-        actions: [externalDataSourcesLogic, ['loadSources']],
+        values: [sourcesDataLogic, ['dataWarehouseSources', 'dataWarehouseSourcesLoading']],
+        actions: [sourcesDataLogic, ['loadSources']],
     })),
 
     actions({
@@ -241,6 +252,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     (c) => c.source_product === SignalSourceProduct.ZENDESK && c.source_type === SignalSourceType.TICKET
                 ) ?? null,
         ],
+        pgAnalyzeIssuesConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.PGANALYZE && c.source_type === SignalSourceType.ISSUE
+                ) ?? null,
+        ],
         isSessionAnalysisToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
@@ -257,6 +276,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         isZendeskTicketsToggling: [
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.ZENDESK}_${SignalSourceType.TICKET}`),
+        ],
+        isPgAnalyzeIssuesToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean => keys.has(`${SignalSourceProduct.PGANALYZE}_${SignalSourceType.ISSUE}`),
         ],
         isErrorTrackingToggling: [
             (s) => [s.togglingSourceKeys],
@@ -277,7 +300,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 })
             },
         ],
-        isClusteringRunning: [
+        isSessionAnalysisRunning: [
             (s) => [s.sessionAnalysisConfig],
             (config: SignalSourceConfig | null): boolean => config?.status === SignalSourceConfigStatus.RUNNING,
         ],
@@ -342,6 +365,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     Github: { sourceProduct: SignalSourceProduct.GITHUB, sourceType: SignalSourceType.ISSUE },
                     Linear: { sourceProduct: SignalSourceProduct.LINEAR, sourceType: SignalSourceType.ISSUE },
                     Zendesk: { sourceProduct: SignalSourceProduct.ZENDESK, sourceType: SignalSourceType.TICKET },
+                    PgAnalyze: { sourceProduct: SignalSourceProduct.PGANALYZE, sourceType: SignalSourceType.ISSUE },
                 }
                 const mapped = mapping[product]
                 if (mapped) {

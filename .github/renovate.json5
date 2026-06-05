@@ -1,0 +1,66 @@
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:best-practices',
+    ':dependencyDashboardApproval',
+    ':separateMultipleMajorReleases',
+  ],
+  enabledManagers: [
+    'pep621',
+    'npm',
+    'github-actions',
+    'gomod',
+    'cargo',
+    'custom.regex',
+  ],
+  dependencyDashboardTitle: 'Renovate: Dependency Status',
+  dependencyDashboardLabels: [
+    'dependencies',
+  ],
+  dependencyDashboardOSVVulnerabilitySummary: 'all',
+  dependencyDashboardReportAbandonment: true,
+  osvVulnerabilityAlerts: true,
+  vulnerabilityAlerts: {
+    enabled: false,
+  },
+  ignorePaths: [
+    'common/hogql_parser/**',
+  ],
+  customManagers: [
+    {
+      customType: 'regex',
+      description: 'Update pinned chrome-headless-shell version in recording-rasterizer Dockerfile',
+      fileMatch: ['Dockerfile\\.recording-rasterizer$'],
+      matchStrings: [
+        'chrome-headless-shell@(?<currentValue>\\d+\\.\\d+\\.\\d+\\.\\d+)',
+      ],
+      depNameTemplate: 'chrome-headless-shell',
+      datasourceTemplate: 'custom.chrome-for-testing',
+      versioningTemplate: 'loose',
+    },
+  ],
+  customDatasources: {
+    'chrome-for-testing': {
+      defaultRegistryUrlTemplate: 'https://googlechromelabs.github.io/chrome-for-testing/known-good-versions.json',
+      transformTemplates: [
+        '{"releases": $map(versions, function($v) { {"version": $v.version} })}',
+      ],
+    },
+  },
+  packageRules: [
+    {
+      matchDepNames: ['chrome-headless-shell'],
+      automerge: true,
+      matchUpdateTypes: ['minor', 'patch'],
+      schedule: ['every 2 weeks on Monday'],
+      commitMessageExtra: '(chrome-headless-shell)',
+      labels: ['dependencies', 'recording-rasterizer'],
+    },
+    // Split github-actions updates out of the default `renovate/pin-dependencies`
+    // bundle so they can be approved on the dashboard independently
+    {
+      matchManagers: ['github-actions'],
+      groupName: 'github-actions',
+    },
+  ],
+}

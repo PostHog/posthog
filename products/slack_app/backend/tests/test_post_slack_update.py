@@ -22,6 +22,14 @@ class TestPostSlackUpdate(TestCase):
             "thread_ts": "1111.0000",
             "user_message_ts": "2222.0000",
         }
+        # Default the access gate to allow so existing call/URL assertions remain meaningful;
+        # tests that exercise the deny / error paths re-patch it locally.
+        self._access_patcher = patch(
+            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
+            return_value=True,
+        )
+        self._access_patcher.start()
+        self.addCleanup(self._access_patcher.stop)
 
     def _make_mock_run(self, status: str, **kwargs):
         mock_run = MagicMock()
@@ -39,7 +47,7 @@ class TestPostSlackUpdate(TestCase):
     @patch.object(SlackThreadHandler, "update_reaction")
     @patch.object(SlackThreadHandler, "__init__", return_value=None)
     @patch("products.tasks.backend.models.TaskRun")
-    def test_completed_run_updates_reaction_to_white_check_mark(
+    def test_completed_run_updates_reaction_to_hedgehog(
         self, mock_task_run_class, mock_handler_init, mock_update_reaction, mock_post_completion
     ):
         mock_run = self._make_mock_run(
@@ -50,7 +58,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_completion.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_error")
@@ -83,7 +91,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_cancelled.assert_called_once()
 
     @patch.object(SlackThreadHandler, "post_or_update_progress")
@@ -126,7 +134,7 @@ class TestPostSlackUpdate(TestCase):
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
         mock_post_progress.assert_not_called()
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
 
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -166,10 +174,17 @@ class TestPostSlackUpdate(TestCase):
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
         )
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_progress.assert_not_called()
-        mock_run.save.assert_called_once()
+        mock_task_run_class.update_state_atomic.assert_called_once_with(
+            "run-1",
+            updates={
+                "slack_pr_opened_notified": True,
+                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
+            },
+        )
+        mock_run.save.assert_not_called()
 
     @patch.object(SlackThreadHandler, "post_completion")
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -188,7 +203,7 @@ class TestPostSlackUpdate(TestCase):
 
         post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_completion.assert_not_called()
 
@@ -220,7 +235,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_not_called()
         mock_post_pr_opened_sandbox_cleaned.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
@@ -255,7 +270,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_pr_opened_sandbox_cleaned.assert_not_called()
 
@@ -290,7 +305,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_delete_progress.assert_called_once()
         mock_post_pr_opened_sandbox_cleaned.assert_not_called()
 
@@ -323,11 +338,159 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened_sandbox_cleaned.assert_called_once_with(
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
         )
+
+    @patch.object(SlackThreadHandler, "post_completion")
+    @patch.object(SlackThreadHandler, "post_or_update_progress")
+    @patch.object(SlackThreadHandler, "post_error")
+    @patch.object(SlackThreadHandler, "post_cancelled")
+    @patch.object(SlackThreadHandler, "post_pr_opened_sandbox_cleaned")
+    @patch.object(SlackThreadHandler, "post_pr_opened")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_user_without_posthog_code_access_omits_task_url(
+        self,
+        mock_task_run_class,
+        _mock_handler_init,
+        _mock_update_reaction,
+        mock_post_pr_opened,
+        mock_post_pr_opened_sandbox_cleaned,
+        mock_post_cancelled,
+        mock_post_error,
+        mock_post_progress,
+        mock_post_completion,
+    ):
+        # When the task creator is not a PostHog Code user, every handler call
+        # receives ``task_url=None`` (and the progress handler receives
+        # ``logs_deeplink=None``) so the deep-link / web buttons are skipped.
+        self._access_patcher.stop()
+        deny_patcher = patch(
+            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
+            return_value=False,
+        )
+        deny_patcher.start()
+        self.addCleanup(deny_patcher.stop)
+
+        scenarios: list[tuple[MagicMock, MagicMock]] = []
+
+        completed = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED, output={"pr_url": "https://github.com/org/repo/pull/1"}
+        )
+        scenarios.append((completed, mock_post_completion))
+
+        failed = self._make_mock_run(mock_task_run_class.Status.FAILED, error_message="boom")
+        scenarios.append((failed, mock_post_error))
+
+        cancelled = self._make_mock_run(mock_task_run_class.Status.CANCELLED)
+        scenarios.append((cancelled, mock_post_cancelled))
+
+        in_progress = self._make_mock_run(mock_task_run_class.Status.IN_PROGRESS, stage="Building")
+        scenarios.append((in_progress, mock_post_progress))
+
+        in_progress_with_pr = self._make_mock_run(
+            mock_task_run_class.Status.IN_PROGRESS,
+            stage="Opening PR",
+            output={"pr_url": "https://github.com/org/repo/pull/2"},
+            state={},
+        )
+        scenarios.append((in_progress_with_pr, mock_post_pr_opened))
+
+        cleaned_with_pr = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/3"},
+            state={},
+        )
+
+        for run, handler_mock in scenarios:
+            handler_mock.reset_mock()
+            mock_task_run_class.objects.select_related.return_value.get.return_value = run
+            post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+            handler_mock.assert_called_once()
+            # ``task_url`` is always the trailing positional argument on every
+            # handler signature; passing ``None`` is the contract for "no access".
+            assert handler_mock.call_args.args[-1] is None
+
+        mock_post_pr_opened_sandbox_cleaned.reset_mock()
+        mock_task_run_class.objects.select_related.return_value.get.return_value = cleaned_with_pr
+        post_slack_update(
+            PostSlackUpdateInput(
+                run_id="run-1",
+                slack_thread_context=self.slack_thread_context,
+                sandbox_cleaned=True,
+            )
+        )
+        mock_post_pr_opened_sandbox_cleaned.assert_called_once()
+        assert mock_post_pr_opened_sandbox_cleaned.call_args.args[-1] is None
+
+    @patch.object(SlackThreadHandler, "post_completion")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_missing_created_by_omits_task_url(
+        self,
+        mock_task_run_class,
+        _mock_handler_init,
+        _mock_update_reaction,
+        mock_post_completion,
+    ):
+        # ``has_tasks_access`` is never reached when the run has no creator —
+        # a None viewer short-circuits to "no access" without consulting the
+        # flag service.
+        self._access_patcher.stop()
+
+        sentinel = MagicMock(name="should_not_be_called")
+        sentinel_patcher = patch(
+            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
+            sentinel,
+        )
+        sentinel_patcher.start()
+        self.addCleanup(sentinel_patcher.stop)
+
+        run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED, output={"pr_url": "https://github.com/org/repo/pull/1"}
+        )
+        run.task.created_by = None
+        mock_task_run_class.objects.select_related.return_value.get.return_value = run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        sentinel.assert_not_called()
+        mock_post_completion.assert_called_once_with("https://github.com/org/repo/pull/1", None)
+
+    @patch.object(SlackThreadHandler, "post_completion")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_access_check_exception_fails_closed(
+        self,
+        mock_task_run_class,
+        _mock_handler_init,
+        _mock_update_reaction,
+        mock_post_completion,
+    ):
+        # A flag-service blip must not surface the link to a user we can't
+        # confirm has access — and must not break the surrounding update.
+        self._access_patcher.stop()
+        boom_patcher = patch(
+            "products.tasks.backend.temporal.process_task.activities.post_slack_update.has_tasks_access",
+            side_effect=RuntimeError("flag service down"),
+        )
+        boom_patcher.start()
+        self.addCleanup(boom_patcher.stop)
+
+        run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED, output={"pr_url": "https://github.com/org/repo/pull/1"}
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_post_completion.assert_called_once_with("https://github.com/org/repo/pull/1", None)
 
     @patch.object(SlackThreadHandler, "post_pr_opened_sandbox_cleaned")
     @patch.object(SlackThreadHandler, "update_reaction")
@@ -354,7 +517,7 @@ class TestPostSlackUpdate(TestCase):
             )
         )
 
-        mock_update_reaction.assert_called_once_with("white_check_mark")
+        mock_update_reaction.assert_called_once_with("hedgehog")
         mock_post_pr_opened_sandbox_cleaned.assert_called_once_with(
             "https://github.com/org/repo/pull/2",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",

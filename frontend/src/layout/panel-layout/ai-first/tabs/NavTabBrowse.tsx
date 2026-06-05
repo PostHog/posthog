@@ -22,7 +22,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
-import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { humanFriendlyDetailedTime } from 'lib/utils'
@@ -31,7 +30,9 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
+import { PromotedProductNavItem } from '~/layout/panel-layout/ai-first/PromotedProductNavItem'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
@@ -117,30 +118,6 @@ function useStarredState(item: FileSystemEntry): {
     return { isAlreadyStarred: shortcutNonFolderPaths.has(shortcutPath), addShortcutItem }
 }
 
-function AddToStarredContextAction({ item }: { item: FileSystemEntry }): JSX.Element {
-    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
-
-    if (isAlreadyStarred) {
-        return (
-            <ContextMenuItem asChild disabled>
-                <ButtonPrimitive menuItem disabled>
-                    <IconStar className="size-4 text-tertiary" />
-                    Already starred
-                </ButtonPrimitive>
-            </ContextMenuItem>
-        )
-    }
-
-    return (
-        <ContextMenuItem asChild>
-            <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
-                <IconStar className="size-4 text-tertiary" />
-                Add to starred
-            </ButtonPrimitive>
-        </ContextMenuItem>
-    )
-}
-
 function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
     const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
 
@@ -190,6 +167,7 @@ export function NavTabBrowse(): JSX.Element {
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isEditMode, checkedItems } = useValues(inlineEditAppsLogic)
     const { enterEditMode, saveAndExitEditMode, toggleProduct } = useActions(inlineEditAppsLogic)
+    const { showConfigureHomeModal } = useActions(navigationLogic)
     const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
@@ -235,7 +213,14 @@ export function NavTabBrowse(): JSX.Element {
                         isCollapsed={isLayoutNavCollapsed}
                         data-attr="nav-item-home"
                         onClick={() => posthog.capture('nav item clicked', { item: 'home' })}
+                        sideAction={{
+                            onClick: () => showConfigureHomeModal(),
+                            tooltip: 'Configure home',
+                            'data-attr': 'nav-configure-home',
+                        }}
                     />
+
+                    <PromotedProductNavItem isCollapsed={isLayoutNavCollapsed} />
 
                     {isProductAutonomyEnabled && (
                         <NavLink
@@ -354,7 +339,6 @@ export function NavTabBrowse(): JSX.Element {
                                                         className: 'group -outline-offset-2 pr-0',
                                                     }}
                                                     data-attr={`nav-recent-item-${item.id}`}
-                                                    extraContextMenuItems={<AddToStarredContextAction item={item} />}
                                                 >
                                                     <LinkListItem.Content
                                                         icon={iconForType(item.type as FileSystemIconType)}

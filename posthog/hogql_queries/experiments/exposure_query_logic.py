@@ -21,8 +21,9 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +191,7 @@ def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, Exp
         return "$feature_flag_called"
 
     event = exposure_config.event
-    return event if event and event != "$feature_flag_called" else "$feature_flag_called"
+    return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"
 
 
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:

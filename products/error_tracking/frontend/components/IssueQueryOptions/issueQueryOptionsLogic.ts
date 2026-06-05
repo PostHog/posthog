@@ -47,7 +47,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
-        setUseQueryV2: (useQueryV2: boolean) => ({ useQueryV2 }),
+        setUseQueryV3: (useQueryV3: boolean) => ({ useQueryV3 }),
     }),
 
     reducers({
@@ -79,19 +79,23 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 setStatus: (_, { status }) => status,
             },
         ],
-        useQueryV2: [
+        useQueryV3: [
             false as boolean,
             { persist: true },
             {
-                setUseQueryV2: (_, { useQueryV2 }) => useQueryV2,
+                setUseQueryV3: (_, { useQueryV3 }) => useQueryV3,
             },
         ],
     }),
 
     selectors({
-        forceQueryV2: [
+        showQueryV3Switch: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_FORCE_QUERY_V2],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_QUERY_V3],
+        ],
+        forceQueryV3: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ERROR_TRACKING_FORCE_QUERY_V3],
         ],
     }),
 

@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
-import { Gauge } from 'prom-client'
+import { Gauge, Histogram } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
 import { CommonConfig } from '../common/config'
-import { KafkaConsumer } from '../kafka/consumer'
+import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
 import {
     HealthCheckResult,
     HealthCheckResultError,
@@ -97,11 +97,25 @@ export const latestOffsetTimestampGauge = new Gauge({
     aggregator: 'max',
 })
 
+const backgroundTaskProducesDuration = new Histogram({
+    name: 'ingestion_background_task_produces_duration_seconds',
+    help: 'Time waiting for scheduled Kafka produces in the background task',
+    labelNames: ['groupId'],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
+const backgroundTaskHogTransformerDuration = new Histogram({
+    name: 'ingestion_background_task_hog_transformer_duration_seconds',
+    help: 'Time waiting for hog transformer invocation results in the background task',
+    labelNames: ['groupId'],
+    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+})
+
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
-    protected kafkaConsumer: KafkaConsumer
+    protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
     public hogTransformer: HogTransformerService
     private overflowRedirectService?: OverflowRedirectService
@@ -201,7 +215,7 @@ export class IngestionConsumer {
             }
         )
 
-        this.kafkaConsumer = new KafkaConsumer({
+        this.kafkaConsumer = createKafkaConsumer({
             groupId: this.groupId,
             topic: this.topic,
         })
@@ -247,7 +261,8 @@ export class IngestionConsumer {
             splitAiEventsConfig: parseSplitAiEventsConfig(
                 this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
                 this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY
+                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
+                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
@@ -257,6 +272,7 @@ export class IngestionConsumer {
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
             },
+            concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore: this.personsStore,
@@ -369,7 +385,13 @@ export class IngestionConsumer {
 
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
-                await Promise.all([this.promiseScheduler.waitForAll(), this.hogTransformer.processInvocationResults()])
+                const labels = { groupId: this.groupId }
+                await Promise.all([
+                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
+                    timedHistogram(backgroundTaskHogTransformerDuration, labels, () =>
+                        this.hogTransformer.processInvocationResults()
+                    ),
+                ])
             }),
         }
     }
@@ -397,5 +419,18 @@ export class IngestionConsumer {
             !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
             this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
         )
+    }
+}
+
+async function timedHistogram<T>(
+    histogram: Histogram,
+    labels: Record<string, string>,
+    fn: () => Promise<T>
+): Promise<T> {
+    const end = histogram.startTimer(labels)
+    try {
+        return await fn()
+    } finally {
+        end()
     }
 }

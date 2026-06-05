@@ -11,7 +11,7 @@ permissions:
     pull-requests: write
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true
 
 jobs:
@@ -21,19 +21,22 @@ jobs:
         timeout-minutes: 5
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
+            version-release-needed: ${{ steps.version.outputs.version-release-needed }}
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
 
-            - name: Check if common/hogql_parser/ has changed
+            - name: Check if common/hogql_parser/ or the workflow has changed
               id: changed-files
-              uses: step-security/changed-files@95b56dadb92a30ca9036f16423fd3c088a71ee94 # v46.0.5
+              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
               with:
                   files_yaml: |
                       parser:
                       - common/hogql_parser/**
+                      workflow:
+                      - .github/workflows/build-hogql-parser.yml
 
             - name: Check if version was bumped
               shell: bash
@@ -41,20 +44,22 @@ jobs:
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
+                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
                   IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
                   parser_release_needed='false'
                   if [[ "$PARSER_CHANGED" == 'true' ]]; then
-                    published=$(curl -fSsl https://pypi.org/pypi/hogql-parser/json | jq -r '.info.version')
-                    local=$(python common/hogql_parser/setup.py --version)
-                    if [[ "$published" != "$local" ]]; then
+                    local=$(cd common/hogql_parser && python setup.py --version)
+                    # 200 = version already on PyPI, 404 = needs release.
+                    http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
+                    if [[ "$http_code" == '404' ]]; then
                       parser_release_needed='true'
-                    else
+                    elif [[ "$http_code" == '200' ]]; then
                       message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
                       message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
                       if [[ "$IS_FORK" == 'true' ]]; then
-                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this."
+                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
                       fi
                       # Post once, then edit in place on subsequent pushes
                       existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser.*version stayed the same.*👀")) | .id' | tail -1)
@@ -63,7 +68,18 @@ jobs:
                       else
                         gh pr comment "$PR_NUMBER" --body "$message_body"
                       fi
+                    else
+                      echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser $local; assuming not yet published."
+                      parser_release_needed='true'
                     fi
+                  fi
+                  # A genuinely new version (the 404/unknown cases above) — not a workflow-only
+                  # exercise — is what must move the pyproject/uv.lock pin. Emit it now, before
+                  # the workflow-only override below raises parser-release-needed on its own.
+                  echo "version-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
+                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
+                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
+                    parser_release_needed='true'
                   fi
                   echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
 
@@ -76,10 +92,7 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
         strategy:
             matrix:
-                # As of October 2023, GitHub doesn't have ARM Actions runners… and ARM emulation is insanely slow
-                # (20x longer) on the Linux runners (while being reasonable on the macOS runners). Hence, we use
-                # BuildJet as a provider of ARM runners - this solution saves a lot of time and consequently some money.
-                os: [ubuntu-22.04, buildjet-2vcpu-ubuntu-2204-arm, macos-14, macos-15-intel]
+                os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel]
                 include:
                     - os: macos-14
                       cibw_archs_macos: arm64
@@ -90,12 +103,12 @@ jobs:
                     - os: ubuntu-22.04
                       cibw_archs_linux: x86_64
                       MACOSX_DEPLOYMENT_TARGET: ''
-                    - os: buildjet-2vcpu-ubuntu-2204-arm
+                    - os: ubuntu-22.04-arm
                       cibw_archs_linux: aarch64
                       MACOSX_DEPLOYMENT_TARGET: ''
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -129,7 +142,7 @@ jobs:
 
     publish:
         name: Publish on PyPI
-        needs: build-wheels
+        needs: [check-version, build-wheels]
         environment: pypi-hogql-parser
         permissions:
             id-token: write
@@ -142,10 +155,10 @@ jobs:
                   name: wheels-ubuntu-22.04
                   path: dist
 
-            - name: Download wheels from buildjet-2vcpu-ubuntu-2204-arm
+            - name: Download wheels from ubuntu-22.04-arm
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: wheels-buildjet-2vcpu-ubuntu-2204-arm
+                  name: wheels-ubuntu-22.04-arm
                   path: dist
 
             - name: Download wheels from macos-14
@@ -162,16 +175,18 @@ jobs:
 
             - name: Publish package to PyPI
               uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+              with:
+                  skip-existing: true
 
             # Use GitHub app token so Actions run after commiting changes
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3.0.0
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  app_id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private_key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ steps.app-token.outputs.token }}
@@ -183,9 +198,9 @@ jobs:
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -195,9 +210,15 @@ jobs:
               env:
                   RETRIES: 20
               run: |
-                  # In case the version is not available yet, try up to $RETRIES times
-                  for i in {1..$RETRIES}; do
-                      if uv add hogql-parser==$(python common/hogql_parser/setup.py --version); then
+                  # setuptools isn't installed by default after actions/setup-python, but
+                  # `python setup.py --version` needs it. Mirrors the sdist step above.
+                  pip install setuptools==80.9.0
+                  VERSION=$(cd common/hogql_parser && python setup.py --version)
+                  # `--refresh-package` bypasses the restored uv index cache, which
+                  # otherwise won't have the version we just published. Retry anyway
+                  # in case PyPI propagation lags the publish step.
+                  for i in $(seq 1 "$RETRIES"); do
+                      if uv add --refresh-package hogql-parser "hogql-parser==$VERSION"; then
                           break
                       fi
                       if [[ $i -eq $RETRIES ]]; then
@@ -207,9 +228,38 @@ jobs:
                       sleep 0.5
                   done
 
-            - uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
+            - name: Check for pin changes
+              id: check-pin
+              shell: bash
+              run: |
+                  if git diff --quiet pyproject.toml uv.lock; then
+                    echo "changed=false" >> $GITHUB_OUTPUT
+                  else
+                    echo "changed=true" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Commit pin
+              if: steps.check-pin.outputs.changed == 'true'
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  add: '["pyproject.toml", "uv.lock"]'
-                  message: 'Use new hogql-parser version'
-                  default_author: github_actions
-                  github_token: ${{ steps.app-token.outputs.token }}
+                  commit_message: 'Use new hogql-parser version'
+                  repo: ${{ github.repository }}
+                  branch: ${{ github.event.pull_request.head.ref }}
+                  file_pattern: 'pyproject.toml uv.lock'
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            - name: Fail if pin update produced no commit
+              # Only a real version release must move the pin. Workflow-only edits
+              # exercise the pipeline as a skip-existing no-op and legitimately leave
+              # the pin untouched, so the guard must not fire for them.
+              if: needs.check-version.outputs.version-release-needed == 'true'
+              shell: bash
+              env:
+                  CHANGED: ${{ steps.check-pin.outputs.changed }}
+              run: |
+                  if [[ "$CHANGED" != "true" ]]; then
+                    echo "::error::hogql-parser wheel was published to PyPI but pyproject.toml pin was not updated."
+                    echo "Check the 'Update hogql-parser in requirements' step above for why uv add did not produce a diff."
+                    exit 1
+                  fi

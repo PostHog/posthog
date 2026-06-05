@@ -1,10 +1,11 @@
 import uuid
 import datetime
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from django.test import override_settings
 from django.utils import timezone
 
@@ -29,8 +30,9 @@ from posthog.models.user import User
 from posthog.temporal.ai.chat_agent import ChatAgentWorkflow, ChatAgentWorkflowInputs
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, ResearchAgentWorkflowInputs
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.api.conversation import ConversationViewSet
-from ee.models.assistant import Conversation
 
 
 async def _async_generator():
@@ -83,10 +85,12 @@ class TestConversation(APIBaseTest):
             settings=MaxBillingContextSettings(autocapture_on=True, active_destinations=2),
         )
 
-    def _get_streaming_content(self, response):
+    def _get_streaming_content(self, response: Any) -> bytes:
         return b"".join(response.streaming_content)
 
-    def _create_mock_streaming_response(self, streaming_content, *args, **kwargs):
+    def _create_mock_streaming_response(
+        self, streaming_content: Any, *args: Any, **kwargs: Any
+    ) -> StreamingHttpResponse:
         """Helper to create a mock StreamingHttpResponse that actually processes the streaming content."""
 
         # Actually consume the generator to ensure the mocked methods are called
@@ -97,8 +101,8 @@ class TestConversation(APIBaseTest):
             # If there's an issue with the async generator, use fallback
             content = _generator_serialized_value
 
-        mock_response = HttpResponse(content, content_type="text/event-stream")
-        mock_response.streaming_content = [content]
+        mock_response = StreamingHttpResponse([content], content_type="text/event-stream")
+        cast(Any, mock_response).streaming_content = [content]
         return mock_response
 
     def test_create_conversation(self):
@@ -117,7 +121,8 @@ class TestConversation(APIBaseTest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(self._get_streaming_content(response), _generator_serialized_value)
                 self.assertEqual(Conversation.objects.count(), 1)
-                conversation: Conversation = Conversation.objects.first()
+                conversation = Conversation.objects.first()
+                assert conversation is not None
                 self.assertEqual(conversation.user, self.user)
                 self.assertEqual(conversation.team, self.team)
                 # Check that the method was called with workflow_inputs
@@ -512,7 +517,7 @@ class TestConversation(APIBaseTest):
         Conversation.objects.create(user=self.user, team=self.team, title=None, type=Conversation.Type.ASSISTANT)
         Conversation.objects.create(user=self.user, team=self.team, title="Tool call", type=Conversation.Type.TOOL_CALL)
 
-        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -521,8 +526,9 @@ class TestConversation(APIBaseTest):
             self.assertEqual(len(results), 1)
             self.assertEqual(results[0]["id"], str(conversation1.id))
             self.assertEqual(results[0]["title"], "Conversation 1")
-            self.assertIn("messages", results[0])
             self.assertIn("status", results[0])
+            self.assertNotIn("messages", results[0])
+            mock_get_state.assert_not_awaited()
 
     def test_list_conversations_only_returns_own_conversations(self):
         """Test that listing conversations only returns the current user's conversations"""
@@ -552,7 +558,13 @@ class TestConversation(APIBaseTest):
         with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
             response = self.client.get(f"/api/environments/{self.team.id}/conversations/{conversation.id}/")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json()["id"], str(conversation.id))
+            data = response.json()
+            self.assertEqual(data["id"], str(conversation.id))
+            self.assertIn("messages", data)
+            self.assertIn("has_unsupported_content", data)
+            self.assertIn("agent_mode", data)
+            self.assertIn("is_sandbox", data)
+            self.assertIn("pending_approvals", data)
 
     def test_retrieve_other_users_conversation_succeeds(self):
         """Test that user can retrieve another user's conversation in the same team"""
@@ -1142,3 +1154,95 @@ class TestConversation(APIBaseTest):
                 workflow_inputs = mock_astream.call_args[0][1]
                 self.assertIsNotNone(workflow_inputs.billing_context.spend_history)
                 self.assertEqual(len(workflow_inputs.billing_context.spend_history), 20)
+
+
+class TestConversationSoftDelete(APIBaseTest):
+    def _make_conversation(self, **overrides) -> Conversation:
+        defaults: dict[str, Any] = {
+            "user": self.user,
+            "team": self.team,
+            "title": "A chat",
+            "type": Conversation.Type.ASSISTANT,
+        }
+        defaults.update(overrides)
+        return Conversation.objects.create(**defaults)
+
+    def test_delete_marks_row_soft_deleted(self):
+        conversation = self._make_conversation()
+
+        before = timezone.now()
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+        after = timezone.now()
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        refreshed = Conversation.objects.get(pk=conversation.pk)
+        self.assertTrue(refreshed.deleted)
+        assert refreshed.deleted_at is not None
+        self.assertGreaterEqual(refreshed.deleted_at, before)
+        self.assertLessEqual(refreshed.deleted_at, after)
+
+    def test_delete_other_users_conversation_returns_404(self):
+        other_user = User.objects.create_and_join(
+            organization=self.organization,
+            email="other-softdelete@posthog.com",
+            password="password",
+            first_name="Other",
+        )
+        conversation = self._make_conversation(user=other_user)
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        refreshed = Conversation.objects.get(pk=conversation.pk)
+        self.assertFalse(refreshed.deleted)
+
+    def test_delete_already_deleted_returns_404(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        response = self.client.delete(
+            f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_list_excludes_soft_deleted(self):
+        kept = self._make_conversation(title="kept")
+        self._make_conversation(title="gone", deleted=True, deleted_at=timezone.now())
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(f"/api/environments/{self.team.id}/conversations/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = [c["id"] for c in response.json()["results"]]
+        self.assertEqual(ids, [str(kept.id)])
+
+    def test_retrieve_soft_deleted_returns_404(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock):
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/conversations/{conversation.id}/",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_with_deleted_id_does_not_resurrect(self):
+        conversation = self._make_conversation(deleted=True, deleted_at=timezone.now())
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/conversations/",
+            {
+                "content": "hello",
+                "trace_id": str(uuid.uuid4()),
+                "conversation": str(conversation.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        still_deleted = Conversation.objects.get(pk=conversation.pk)
+        self.assertTrue(still_deleted.deleted)
+        self.assertEqual(Conversation.objects.filter(pk=conversation.pk).count(), 1)

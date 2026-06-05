@@ -4,13 +4,19 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { personsLogic } from './personsLogic'
+
+const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
+const scenes: any = { [Scene.Person]: blankScene }
 
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
@@ -138,6 +144,144 @@ describe('personsLogic', () => {
                 .toMatchValues({
                     person: 'person from api',
                 })
+        })
+    })
+
+    describe('loadPersonUUID error handling', () => {
+        it('surfaces a genuine load failure as personError', async () => {
+            jest.spyOn(api, 'query').mockRejectedValueOnce(new Error('boom'))
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: 'boom',
+                })
+        })
+
+        it('swallows an aborted query without surfacing an error', async () => {
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: null,
+                    personError: null,
+                })
+        })
+
+        it('keeps the already-loaded person when an in-flight query is aborted', async () => {
+            const existingPerson: PersonType = {
+                id: 'person-1',
+                uuid: 'uuid-1',
+                distinct_ids: ['some-uuid'],
+                properties: {},
+                is_identified: true,
+                created_at: '2024-01-01',
+            }
+            logic.actions.setPerson(existingPerson)
+
+            const abortError = new Error('aborted')
+            abortError.name = 'AbortError'
+            jest.spyOn(api, 'query').mockRejectedValueOnce(abortError)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('some-uuid')
+            })
+                .toDispatchActions(['loadPersonUUID', 'loadPersonUUIDSuccess'])
+                .toNotHaveDispatchedActions(['loadPersonUUIDFailure'])
+                .toMatchValues({
+                    person: existingPerson,
+                    personError: null,
+                })
+        })
+    })
+
+    describe('tab-aware person scene state', () => {
+        const person: PersonType = {
+            id: 'person-1',
+            uuid: 'uuid-1',
+            distinct_ids: ['same-person'],
+            properties: {},
+            is_identified: true,
+            created_at: '2024-01-01',
+        }
+
+        it('isolates person event query state by tab id', () => {
+            logic.unmount()
+
+            const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
+            const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
+            firstTabLogic.mount()
+            secondTabLogic.mount()
+
+            const eventsQuery = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['event', 'timestamp'],
+                    personId: 'person-1',
+                },
+            } as DataTableNode
+
+            firstTabLogic.actions.setEventsQuery(eventsQuery)
+
+            expect(firstTabLogic.values.eventsQuery).toEqual(eventsQuery)
+            expect(secondTabLogic.values.eventsQuery).toBeNull()
+
+            firstTabLogic.unmount()
+            secondTabLogic.unmount()
+        })
+
+        it('only applies person URL tab changes to the active internal tab', async () => {
+            logic.unmount()
+
+            const unmountSceneLogic = sceneLogic({ scenes }).mount()
+            sceneLogic.actions.setTabs([
+                {
+                    id: 'tab-a',
+                    title: 'Person A',
+                    pathname: '/person/same-person',
+                    search: '',
+                    hash: '',
+                    active: true,
+                    iconType: 'persons',
+                },
+                {
+                    id: 'tab-b',
+                    title: 'Person B',
+                    pathname: '/person/same-person',
+                    search: '',
+                    hash: '',
+                    active: false,
+                    iconType: 'persons',
+                },
+            ])
+
+            const firstTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-a' })
+            const secondTabLogic = personsLogic({ syncWithUrl: true, urlId: 'same-person', tabId: 'tab-b' })
+            firstTabLogic.mount()
+            secondTabLogic.mount()
+            firstTabLogic.actions.setPerson(person)
+            secondTabLogic.actions.setPerson(person)
+
+            await expectLogic(firstTabLogic, () => {
+                router.actions.push('/person/same-person', {}, { activeTab: PersonsTabType.EVENTS })
+            }).toFinishAllListeners()
+
+            expect(firstTabLogic.values.activeTab).toBe(PersonsTabType.EVENTS)
+            expect(secondTabLogic.values.activeTab).toBeNull()
+
+            firstTabLogic.unmount()
+            secondTabLogic.unmount()
+            unmountSceneLogic()
         })
     })
 
@@ -454,6 +598,66 @@ describe('personsLogic', () => {
             }).toMatchValues({
                 currentTab: PersonsTabType.EVENTS,
             })
+        })
+    })
+
+    describe('resetEventsQuery', () => {
+        const person: PersonType = {
+            id: 'person-1',
+            uuid: 'uuid-1',
+            distinct_ids: ['did-1'],
+            properties: {},
+            is_identified: true,
+            created_at: '2024-01-01',
+        }
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/persons/': () => [200, { results: [person] }],
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.loadPerson('did-1')
+            }).toDispatchActions(['loadPerson', 'loadPersonSuccess'])
+        })
+
+        it('eventsQueryIsDirty is false right after the person loads', async () => {
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: false })
+        })
+
+        it('eventsQueryIsDirty becomes true after modifying filters', async () => {
+            const current = logic.values.eventsQuery!
+            logic.actions.setEventsQuery({
+                ...current,
+                source: { ...current.source, events: ['$pageview'] } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: true })
+        })
+
+        it('resetEventsQuery restores the initial query', async () => {
+            const current = logic.values.eventsQuery!
+            logic.actions.setEventsQuery({
+                ...current,
+                source: { ...current.source, events: ['$pageview'], after: '-7d' } as any,
+            } as DataTableNode)
+
+            await expectLogic(logic).toMatchValues({ eventsQueryIsDirty: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.resetEventsQuery()
+            })
+                .toDispatchActions(['resetEventsQuery', 'setEventsQuery'])
+                .toMatchValues({ eventsQueryIsDirty: false })
+
+            const resetSource = logic.values.eventsQuery?.source as any
+            expect(resetSource).toMatchObject({
+                kind: NodeKind.EventsQuery,
+                personId: 'person-1',
+                after: '-24h',
+            })
+            expect(resetSource.events).toBeUndefined()
         })
     })
 })

@@ -1,12 +1,12 @@
 {
     "name": "@posthog/products-tasks",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services backend/stream/tests -v --tb=short"
     },
     "dependencies": {
         "fast-deep-equal": "catalog:",
         "kea-subscriptions": "catalog:",
-        "torph": "^0.0.5"
+        "torph": "^0.0.9"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
@@ -17,7 +17,7 @@
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
-        "@storybook/react": "*",
+        "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

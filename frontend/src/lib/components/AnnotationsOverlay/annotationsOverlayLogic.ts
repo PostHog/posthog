@@ -2,9 +2,10 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { isPersonPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { Dayjs, dayjs, dayjsLocalToTimezone } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { groupBy } from 'lib/utils'
+import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,22 +31,20 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
     insightNumericId: QueryBasedInsightModel['id'] | 'new'
     dates: string[]
     ticks: { value: number }[]
+    /** Disambiguator for charts that mount more than one overlay against the same insight
+     *  (e.g. compare-against-previous renders one layer per period). Without it, both layers
+     *  would share the same kea instance and the second mount's `dates`/`ticks` would
+     *  overwrite the first. */
+    kind?: string
 }
 
-export function determineAnnotationsDateGroup(
-    date: Dayjs,
-    intervalUnit: IntervalType,
-    dateRange: [Dayjs, Dayjs] | null,
-    pointsPerTick: number
-): string {
-    let adjustedDate = date.startOf(intervalUnit)
-    if (dateRange && pointsPerTick > 1) {
-        // Merge dates that are within the same tick (this is the case for very dense graphs with not enough space)
-        const deltaFromStart = date.diff(dateRange[0], intervalUnit)
-        const offset = deltaFromStart % pointsPerTick
-        adjustedDate = adjustedDate.subtract(offset, intervalUnit)
-    }
-    return adjustedDate.format('YYYY-MM-DD HH:mm:ssZZ')
+/** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
+export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
+    return intervalUnit === 'week' || intervalUnit === 'month' ? 'day' : intervalUnit
+}
+
+export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {
+    return date.startOf(getGroupingUnit(intervalUnit)).format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
 function hasPersonPropertyFiltersOrBreakdown(
@@ -76,7 +75,7 @@ function hasPersonPropertyFiltersOrBreakdown(
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({ dashboardId: undefined } as AnnotationsOverlayLogicProps),
-    key(({ insightNumericId }) => insightNumericId),
+    key(({ insightNumericId, kind }) => (kind ? `${insightNumericId}::${kind}` : insightNumericId)),
     connect(() => ({
         values: [
             insightLogic,
@@ -138,36 +137,22 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
         ],
         intervalUnit: [(s) => [s.interval], (interval) => interval || 'day'],
-        pointsPerTick: [
-            (_, p) => [p.ticks],
-            (ticks): number => {
-                if (ticks.length < 2) {
-                    return 0
-                }
-                return ticks[1].value - ticks[0].value
-            },
-        ],
+        groupingUnit: [(s) => [s.intervalUnit], (intervalUnit): IntervalType => getGroupingUnit(intervalUnit)],
+        tickPositions: [(_, p) => [p.ticks], (ticks): number[] => ticks.map(({ value }) => value)],
         tickDates: [
-            (s) => [
-                s.timezone,
-                (_, props: AnnotationsOverlayLogicProps) => props.dates,
-                (_, props: AnnotationsOverlayLogicProps) => props.ticks,
-            ],
-            (timezone, dates, ticks): Dayjs[] => {
-                const tickPointIndices: number[] = ticks.map(({ value }) => value)
-                const tickDates: Dayjs[] = tickPointIndices.map((dateIndex) =>
-                    dayjsLocalToTimezone(dates[dateIndex], timezone)
-                )
-                return tickDates
-            },
+            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.tickPositions],
+            (timezone, dates, tickPositions): Dayjs[] =>
+                tickPositions.map((dateIndex) => parseDateInTimezone(dates[dateIndex], timezone)),
         ],
         dateRange: [
-            (s) => [s.tickDates, s.intervalUnit, s.pointsPerTick],
-            (tickDates, intervalUnit, pointsPerTick): [Dayjs, Dayjs] | null => {
-                if (tickDates.length === 0) {
+            (s) => [s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates, s.intervalUnit],
+            (timezone, dates, intervalUnit): [Dayjs, Dayjs] | null => {
+                if (dates.length === 0) {
                     return null
                 }
-                return [tickDates[0], tickDates[tickDates.length - 1].add(pointsPerTick, intervalUnit)]
+                const first = parseDateInTimezone(dates[0], timezone)
+                const last = parseDateInTimezone(dates[dates.length - 1], timezone).add(1, intervalUnit)
+                return [first, last]
             },
         ],
         relevantAnnotations: [
@@ -228,7 +213,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                     const incidentDates = ['2026-01-06', '2026-01-07']
                     const specialAnnotations: DatedAnnotationType[] = incidentDates
                         .map((dateStr, index) => {
-                            const dateInTimezone = dayjsLocalToTimezone(dateStr, timezone).startOf('day')
+                            const dateInTimezone = parseDateInTimezone(dateStr, timezone).startOf('day')
 
                             // Only include if date is within the date range
                             if (dateInTimezone >= dateRange[0] && dateInTimezone < dateRange[1]) {
@@ -257,23 +242,51 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             },
         ],
         groupedAnnotations: [
-            (s) => [s.relevantAnnotations, s.intervalUnit, s.dateRange, s.pointsPerTick],
-            (relevantAnnotations, intervalUnit, dateRange, pointsPerTick) => {
+            (s) => [s.relevantAnnotations, s.intervalUnit],
+            (relevantAnnotations, intervalUnit) => {
                 return groupBy(relevantAnnotations, (annotation) => {
-                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit, dateRange, pointsPerTick)
+                    return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit)
                 })
             },
         ],
-        popoverAnnotations: [
-            (s) => [s.groupedAnnotations, s.activeDate, s.intervalUnit, s.dateRange, s.pointsPerTick],
-            (groupedAnnotations, activeDate, intervalUnit, dateRange, pointsPerTick) => {
-                return (
-                    (activeDate &&
-                        groupedAnnotations[
-                            determineAnnotationsDateGroup(activeDate, intervalUnit, dateRange, pointsPerTick)
-                        ]) ||
-                    []
-                )
+        /** Fractional data-point indices for annotation badges, e.g. Dec 15 on a monthly chart
+         *  lands at index ~0.48 between the Dec 1 and Jan 1 data points. */
+        annotationBadgeDataIndices: [
+            (s) => [
+                s.groupedAnnotations,
+                s.intervalUnit,
+                s.timezone,
+                (_, props: AnnotationsOverlayLogicProps) => props.dates,
+            ],
+            (
+                groupedAnnotations,
+                intervalUnit,
+                timezone,
+                dates
+            ): Array<{ dateKey: string; date: Dayjs; dataIndex: number }> => {
+                if (dates.length === 0) {
+                    return []
+                }
+                // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
+                // drift Monday-aligned dates backward and bias every fractional index by 1/7.
+                const firstDate = parseDateInTimezone(dates[0], timezone)
+                const lastIndex = dates.length - 1
+                return Object.entries(groupedAnnotations)
+                    .map(([dateKey, annotations]) => {
+                        const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
+                        const wholeIndex = date.diff(firstDate, intervalUnit)
+                        const intervalStart = firstDate.add(wholeIndex, intervalUnit)
+                        const intervalEnd = intervalStart.add(1, intervalUnit)
+                        const intervalSpanMs = intervalEnd.valueOf() - intervalStart.valueOf()
+                        const fraction =
+                            intervalSpanMs > 0 ? (date.valueOf() - intervalStart.valueOf()) / intervalSpanMs : 0
+                        // Clamp to lastIndex so annotations past the final data point snap onto
+                        // it rather than extrapolating off the canvas.
+                        const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
+                        return { dateKey, date, dataIndex }
+                    })
+                    .filter(({ dataIndex }) => dataIndex >= 0)
+                    .sort((a, b) => a.dataIndex - b.dataIndex)
             },
         ],
     }),

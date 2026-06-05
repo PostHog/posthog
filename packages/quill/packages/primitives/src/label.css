@@ -1,0 +1,26 @@
+/* stylelint-disable selector-class-pattern -- escaped Tailwind group class (.group\/field) falls outside strict BEM */
+@layer components {
+    .quill-label {
+        font-size: var(--text-xs, 0.75rem);
+        font-weight: 500;
+        line-height: 1;
+        user-select: none;
+    }
+
+    /* Field-group whose checkbox child means label = pointer cursor */
+    .group\/field:has(> [role='checkbox']) .quill-label {
+        cursor: pointer;
+    }
+
+    /* Disabled field group dims the label */
+    .group[data-disabled='true'] .quill-label {
+        pointer-events: none;
+        opacity: 0.5;
+    }
+
+    /* Peer-disabled form control ahead of the label */
+    .peer:disabled ~ .quill-label {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+}

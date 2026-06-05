@@ -75,9 +75,24 @@ impl FrameResolver {
         debug_images: &[AppleDebugImage],
         ctx: ResolutionStage,
     ) -> Result<Vec<Frame>, UnhandledError> {
-        ctx.symbol_resolver
+        let _permit = ctx.acquire_symbol_resolution_permit().await?;
+
+        let mut resolved_frames = ctx
+            .symbol_resolver
             .resolve_raw_frame(team_id, frame, debug_images)
-            .await
+            .await?;
+
+        // The frame id is part of the caller/frontend lookup contract. Keep it
+        // tied to the submitted raw frame here instead of trusting resolver
+        // implementations to preserve the raw_id/part shape.
+        resolved_frames
+            .iter_mut()
+            .enumerate()
+            .for_each(|(index, resolved_frame)| {
+                resolved_frame.frame_id = frame.frame_id(team_id, index);
+            });
+
+        Ok(resolved_frames)
     }
 }
 

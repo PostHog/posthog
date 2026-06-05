@@ -148,7 +148,7 @@ def hourly_exchange_rates(
 
 
 def store_exchange_rates_in_clickhouse(
-    context: dagster.OpExecutionContext,
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext,
     date_str: str,
     exchange_rates: dict[str, Any],
     cluster: dagster.ResourceParam[ClickhouseCluster],
@@ -301,13 +301,13 @@ def hourly_exchange_rates_in_clickhouse(
 daily_exchange_rates_job = dagster.define_asset_job(
     name="daily_exchange_rates_job",
     selection=[daily_exchange_rates.key, daily_exchange_rates_in_clickhouse.key],
-    tags={"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 
 hourly_exchange_rates_job = dagster.define_asset_job(
     name="hourly_exchange_rates_job",
     selection=[hourly_exchange_rates.key, hourly_exchange_rates_in_clickhouse.key],
-    tags={"owner": JobOwners.TEAM_REVENUE_ANALYTICS.value},
+    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
 )
 
 

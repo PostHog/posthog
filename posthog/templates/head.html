@@ -29,6 +29,10 @@
         window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
         window.IMPERSONATED_SESSION = {{is_impersonated_session | yesno:"true,false"}};
         window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
+        {% if js_posthog_identity_distinct_id %}
+            window.JS_POSTHOG_IDENTITY_DISTINCT_ID = "{{ js_posthog_identity_distinct_id|escapejs }}";
+            window.JS_POSTHOG_IDENTITY_HASH = "{{ js_posthog_identity_hash|escapejs }}";
+        {% endif %}
     </script>
 {% endif %}
 {% if stripe_public_key %}

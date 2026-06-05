@@ -12,11 +12,12 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models.exported_asset import ExportedAsset
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -148,11 +149,23 @@ async def test_transient_error_retries_and_succeeds(
 
 
 @pytest.mark.parametrize(
-    "error_factory,expected_exception_class,expected_call_count,expected_outcome",
+    "error_factory,expected_exception_class,expected_error_msg,expected_call_count,expected_outcome",
     [
-        (lambda: QueryError("Invalid HogQL query"), "QueryError", 1, SloOutcome.SUCCESS),
-        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", 1, SloOutcome.FAILURE),
-        (lambda: CHQueryErrorS3Error("S3 error", code=499), "CHQueryErrorS3Error", 10, SloOutcome.FAILURE),
+        (
+            lambda: QueryError("Invalid HogQL query"),
+            "QueryError",
+            "QueryError: Invalid HogQL query",
+            1,
+            SloOutcome.SUCCESS,
+        ),
+        (lambda: RuntimeError("Chrome crashed"), "RuntimeError", "RuntimeError: Chrome crashed", 1, SloOutcome.FAILURE),
+        (
+            lambda: CHQueryErrorS3Error("S3 error", code=499),
+            "CHQueryErrorS3Error",
+            "CHQueryErrorS3Error: Code: 499.\nS3 error",
+            10,
+            SloOutcome.FAILURE,
+        ),
     ],
     ids=["non_retryable_user_error", "generic_runtime_error", "retryable_system_error"],
 )
@@ -164,6 +177,7 @@ async def test_export_failure_emits_slo_outcome(
     team,
     error_factory,
     expected_exception_class: str,
+    expected_error_msg: str,
     expected_call_count: int,
     expected_outcome: SloOutcome,
 ):
@@ -184,5 +198,8 @@ async def test_export_failure_emits_slo_outcome(
 
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == expected_outcome
-    assert props["error"] is not None
-    assert expected_exception_class in str(props["error"])
+    # error_type, error_message, and error_trace are all populated by the SLO
+    # interceptor via its shared ActivityError -> ApplicationError unwrap logic.
+    assert props["error_type"] == expected_exception_class
+    assert props["error_message"] == expected_error_msg
+    assert "Traceback" in props["error_trace"]
