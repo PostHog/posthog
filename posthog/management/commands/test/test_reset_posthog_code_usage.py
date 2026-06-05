@@ -20,7 +20,7 @@ REQ_BURST = "ratelimit:burst"
 REQ_SUSTAINED = "ratelimit:sustained"
 
 
-@override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379")
+@override_settings(LLM_GATEWAY_REDIS_URL="redis://localhost:6379")
 class TestResetPostHogCodeUsage(SimpleTestCase):
     def setUp(self):
         self.client = fakeredis.FakeRedis()
@@ -164,10 +164,18 @@ class TestResetPostHogCodeUsage(SimpleTestCase):
         with self.assertRaises(CommandError):
             call_command("reset_posthog_code_usage", "--user-id", "100", "--all-users")
 
-    @override_settings(AI_GATEWAY_REDIS_URL=None)
+    @override_settings(LLM_GATEWAY_REDIS_URL=None)
     def test_errors_when_redis_not_configured(self):
         with self.assertRaises(CommandError):
             call_command("reset_posthog_code_usage", "--all-users")
+
+    @override_settings(LLM_GATEWAY_REDIS_URL=None)
+    def test_redis_url_override_is_used_when_setting_absent(self):
+        self._seed(f"{BURST}:100")
+
+        call_command("reset_posthog_code_usage", "--user-id", "100", "--redis-url", "redis://override:6379")
+
+        self.assertFalse(self._exists(f"{BURST}:100"))
 
     def test_reset_keys_counts_affected(self):
         self._seed(f"{BURST}:100", f"{SUSTAINED}:100:period:1")

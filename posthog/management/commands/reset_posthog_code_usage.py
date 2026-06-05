@@ -1,10 +1,17 @@
-"""Reset PostHog Code usage / rate-limit counters in the LLM gateway Redis.
+"""Reset PostHog Code usage / rate-limit counters in the llm-gateway Redis.
 
 The PostHog Code cost limits and per-user request-rate limits live in the
-llm-gateway service's Redis (the same instance Django reaches via
-``settings.AI_GATEWAY_REDIS_URL``). The gateway writes raw ``ratelimit:*`` keys
-without a Django key prefix, so this command talks to that Redis directly
-rather than going through django_redis.
+llm-gateway service's dedicated Redis (the gateway connects to it via its own
+``LLM_GATEWAY_REDIS_URL``). This is a SEPARATE ElastiCache cluster from
+``AI_GATEWAY_REDIS_URL`` — the latter only holds the HyperCache policy blob and
+does NOT contain rate-limit counters.
+
+This command reads the URL from ``settings.LLM_GATEWAY_REDIS_URL`` (or a
+``--redis-url`` override). That env var is not wired into Django pods by
+default, so to run this in a deployed environment the operator must point it at
+the gateway's Redis (and the pod must have network access to it). The gateway
+writes raw ``ratelimit:*`` keys without a Django key prefix, so this command
+talks to Redis directly rather than going through django_redis.
 
 A per-user reset clears both the posthog_code cost counters and the user's
 request-rate (burst/sustained) counters. Note the request-rate counters are
@@ -144,6 +151,10 @@ class Command(BaseCommand):
             "to reset both; if neither is given, both are reset.",
         )
         parser.add_argument(
+            "--redis-url",
+            help="Override the llm-gateway Redis URL (defaults to settings.LLM_GATEWAY_REDIS_URL).",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             help="Count matching keys without deleting anything.",
@@ -169,9 +180,12 @@ class Command(BaseCommand):
             if not user_id.strip():
                 raise CommandError("--user-id cannot be empty.")
 
-        redis_url = settings.AI_GATEWAY_REDIS_URL
+        redis_url = options["redis_url"] or settings.LLM_GATEWAY_REDIS_URL
         if not redis_url:
-            raise CommandError("AI_GATEWAY_REDIS_URL is not configured — cannot reach the LLM gateway Redis.")
+            raise CommandError(
+                "No llm-gateway Redis URL — set LLM_GATEWAY_REDIS_URL or pass --redis-url. "
+                "Note this is the gateway's rate-limit cluster, not AI_GATEWAY_REDIS_URL."
+            )
 
         client = redis.from_url(redis_url)
         mode = "DRY RUN" if dry_run else "EXECUTED"
