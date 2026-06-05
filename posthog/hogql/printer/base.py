@@ -2,12 +2,12 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, ClassVar, Literal, Optional, Union, cast, get_args
+from typing import Any, ClassVar, Optional, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
 
-from posthog.schema import MaterializationMode, PersonsOnEventsMode
+from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import StringType
@@ -30,22 +30,12 @@ from posthog.hogql.functions.mapping import (
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
 )
-from posthog.hogql.printer.types import (
-    JoinExprResponse,
-    PrintableMaterializedColumn,
-    PrintableMaterializedPropertyGroupItem,
-)
+from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -1260,132 +1250,13 @@ class BasePrinter(Visitor[str]):
 
         return field_sql
 
-    def _get_materialized_property_source_for_property_type(
-        self, type: ast.PropertyType
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
-        """
-        Find the most efficient materialized property source for the provided property type.
-        """
-        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
-            return source
-        return None
-
-    def _get_table_name(self, table: ast.TableType) -> str:
-        return table.table.to_printed_hogql()
-
-    def _get_all_materialized_property_sources(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
-        """
-        Find all materialized property sources for the provided field type and property name, ordered from what is
-        likely to be the most efficient access path to the least efficient.
-        """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
-        if self.context.modifiers.materializationMode == "disabled":
-            return
-
-        field = field_type.resolve_database_field(self.context)
-
-        # check for a materialised column
-        table = field_type.table_type
-        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-            table = table.table_type
-
-        if isinstance(table, ast.TableType):
-            table_name = self._get_table_name(table)
-
-            if field is None:
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            if not isinstance(field, DatabaseField):
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-            # In non-HogQL contexts (legacy queries, data deletion predicates) the consumer splices
-            # this fragment into a query whose table scope is fixed and known (e.g. ``events e``,
-            # ``DELETE FROM sharded_events``). Mirror what visit_field_type already does for regular
-            # columns at line 1201: drop the table prefix. In particular, lightweight DELETE rewrites
-            # the predicate into a mutation, whose expression analyzer rejects table-qualified
-            # references like ``sharded_events.mat_$current_url`` even when the column exists.
-            table_prefix: str | None = (
-                None if self.context.within_non_hogql_query else self.visit(field_type.table_type)
-            )
-
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    table_prefix,
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
-                )
-
-            # Check for dmat (dynamic materialized) columns
-            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
-                yield PrintableMaterializedColumn(
-                    table_prefix,
-                    self._print_identifier(dmat_column),
-                    is_nullable=True,
-                    has_minmax_index=False,
-                    has_ngram_lower_index=False,
-                    has_bloom_filter_index=False,
-                    has_bloom_filter_lower_index=False,
-                )
-
-            yield from self._yield_property_group_columns(field_type, table_name, field_name, property_name)
-        elif self.context.within_non_hogql_query and (
-            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
-        ):
-            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    None,
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
-                )
-
     def visit_property_type(self, type: ast.PropertyType):
+        # After logical lowering, JSON-blob property reads are `JSONFieldAccess` nodes, so a `PropertyType` reaching the
+        # printer is one lowering deliberately leaves alone: a person/group property projected through a joined subquery,
+        # or (in the ClickHouse printer override) a data-warehouse struct column. The printer no longer makes any
+        # physical-column decision — that moved to `logical_property_lowering` + the ClickHouse physical passes.
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
-
-        materialized_property_source = self._get_materialized_property_source_for_property_type(type)
-        if materialized_property_source is not None:
-            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
-            if (
-                len(type.chain) == 1
-                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
-                and isinstance(materialized_property_source, PrintableMaterializedColumn)
-            ):
-                materialized_property_sql = str(materialized_property_source)
-            elif (
-                isinstance(materialized_property_source, PrintableMaterializedColumn)
-                and not materialized_property_source.is_nullable
-            ):
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                    materialized_property_sql = f"nullIf({materialized_property_source}, '')"
-                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                    materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
-            else:
-                materialized_property_sql = str(materialized_property_source)
-
-            if len(type.chain) == 1:
-                return materialized_property_sql
-            else:
-                return self._unsafe_json_extract_trim_quotes(
-                    materialized_property_sql,
-                    self._json_property_args(type.chain[1:]),
-                )
 
         return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
@@ -1588,33 +1459,6 @@ class BasePrinter(Visitor[str]):
 
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
-
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
-        )
-
-    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """
-        Get the dmat column name for a property if available.
-
-        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
-        otherwise None.
-        """
-        if self.context.property_swapper is None:
-            return None
-
-        # Only event properties have dmat columns
-        if table_name != "events" or field_name != "properties":
-            return None
-
-        prop_info = self.context.property_swapper.event_properties.get(property_name)
-        if prop_info:
-            return prop_info.get("dmat")
-
-        return None
 
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
