@@ -497,16 +497,48 @@ jobs:
                   # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
             - name: Create GitHub Release
+              shell: bash
               env:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
                   ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
+                  LATEST_RELEASE_TAG: posthog-cli-latest
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
-                  echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
-                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+                  echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+                  release_args=()
+                  if [ -n "$PRERELEASE_FLAG" ]; then
+                      release_args+=("$PRERELEASE_FLAG")
+                  fi
+
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+
+                  if [ -z "$PRERELEASE_FLAG" ]; then
+                      STAGED_RELEASE_TAG="$LATEST_RELEASE_TAG-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+                      gh release delete "$STAGED_RELEASE_TAG" --yes --cleanup-tag || true
+                      gh release create "$STAGED_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest (staged)" \
+                          --notes "Staged replacement for $LATEST_RELEASE_TAG; same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false \
+                          artifacts/*
+
+                      gh release view "$STAGED_RELEASE_TAG" --json assets --jq '.assets[].name' | grep -qx 'posthog-cli-installer.sh'
+
+                      gh release delete "$LATEST_RELEASE_TAG" --yes --cleanup-tag || true
+                      gh release edit "$STAGED_RELEASE_TAG" \
+                          --tag "$LATEST_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest" \
+                          --notes "Same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false
+                      git push origin ":refs/tags/$STAGED_RELEASE_TAG" || true
+                  else
+                      echo "Skipping $LATEST_RELEASE_TAG update for prerelease ${{ needs.plan-release.outputs.tag }}"
+                  fi
 
     publish-npm:
         needs:
