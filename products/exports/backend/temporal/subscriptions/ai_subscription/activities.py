@@ -1,6 +1,13 @@
 import uuid
+import datetime as dt
+from datetime import datetime
 
+from django.utils import timezone as tz
+
+import dateutil.parser
 import temporalio.activity
+from asgiref.sync import sync_to_async
+from prometheus_client import Counter
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
@@ -9,6 +16,7 @@ from posthog.sync import database_sync_to_async
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     generate_ai_subscription_markdown,
+    send_email_ai_subscription_credit_limited,
     send_email_ai_subscription_report,
     send_slack_ai_subscription_report,
 )
@@ -26,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     RecipientResult,
 )
 
+from ee.billing.quota_limiting import is_team_over_ai_credit_budget
 from ee.tasks.subscriptions import _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, AI_PROMPT_INVALID_DISABLE_REASON
 
@@ -66,6 +75,55 @@ async def _persist_ai_report(delivery_id: uuid.UUID, markdown: str) -> None:
     await _write()
 
 
+# Parallels SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET in snapshot_activities.py — the AI
+# *summary* path and the AI *subscription* path both skip on the same billing signal.
+SUBSCRIPTION_AI_SKIPPED_OVER_CREDIT_BUDGET = Counter(
+    "posthog_subscription_ai_report_skipped_over_credit_budget_total",
+    "AI subscription delivery skipped because the organization is over its AI credit budget",
+)
+
+# If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
+# skipped sub still moves forward instead of re-firing every tick.
+_CREDIT_RESET_FALLBACK_DAYS = 31
+
+
+def _ai_credit_reset_date(subscription: Subscription) -> datetime:
+    usage = subscription.team.organization.usage
+    # usage["period"] is [current_period_start, current_period_end] as ISO strings (set in
+    # billing_manager.py); index 1 — the period end — is when AI credits reset.
+    period = usage.get("period") if usage else None
+    if period and len(period) == 2 and period[1]:
+        try:
+            return dateutil.parser.isoparse(period[1])
+        except (ValueError, TypeError):
+            pass
+    return tz.now() + dt.timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
+
+
+def _skip_ai_delivery_over_credit_limit_sync(subscription: Subscription) -> datetime:
+    """Reschedule the over-limit subscription past the credit reset and notify the owner once.
+    Runs entirely sync (DB + email) — call via `database_sync_to_async`.
+
+    Persists `next_delivery_date = reset_date` so the always-runs `advance_next_delivery_date`
+    activity recomputes from it (`rrule.after(reset_date)`) — otherwise the next slot could fall
+    before the reset and re-fire while still over-limit.
+    """
+    reset_date = _ai_credit_reset_date(subscription)
+    subscription.next_delivery_date = reset_date
+    subscription.save(update_fields=["next_delivery_date"])
+
+    if subscription.created_by and subscription.created_by.email:
+        send_email_ai_subscription_credit_limited(
+            email=subscription.created_by.email,
+            subscription=subscription,
+            resume_date=reset_date,
+            # Stable within a billing period (reset_date is the period end), so MessagingRecord
+            # dedups to one notice per credit-reset cycle.
+            billing_period_key=reset_date.date().isoformat(),
+        )
+    return reset_date
+
+
 @temporalio.activity.defn
 async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> GenerateAIReportResult:
     # The "decide what to send" phase, split from delivery so the LLM runs once up front with
@@ -88,6 +146,39 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
         aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
         return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
+
+    # Gate on AI credits before any LLM cost — but only past the idempotency check above, so an
+    # already-generated report (its tokens already spent) still ships. The interactive Max path
+    # enforces this same limit in ee/api/conversation.py; scheduled reports need their own check
+    # or they'd keep spending against an exhausted balance. Fail open: a transient quota-lookup
+    # error shouldn't drop a deliverable report. The check reads Redis (not the DB), so
+    # sync_to_async — but the reschedule below writes the row, so that stays database_sync_to_async.
+    try:
+        over_credit_budget = await sync_to_async(is_team_over_ai_credit_budget, thread_sensitive=False)(
+            subscription.team.api_token
+        )
+    except Exception as exc:
+        over_credit_budget = False
+        LOGGER.warning(
+            "generate_ai_subscription_report.ai_credit_budget_check_failed",
+            subscription_id=subscription.id,
+            error=str(exc),
+            exc_info=True,
+        )
+    if over_credit_budget:
+        SUBSCRIPTION_AI_SKIPPED_OVER_CREDIT_BUDGET.inc()
+        reset_date = await database_sync_to_async(_skip_ai_delivery_over_credit_limit_sync, thread_sensitive=False)(
+            subscription
+        )
+        LOGGER.warning(
+            "generate_ai_subscription_report.ai_skipped_over_credit_limit",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            resumes_at=reset_date.isoformat(),
+        )
+        # skipped=True → the workflow records SKIPPED (not FAILED — the sub isn't broken) and skips
+        # delivery; the sub stays enabled and advance_next_delivery_date recomputes from the reset.
+        return GenerateAIReportResult(skipped=True)
 
     try:
         markdown = await generate_ai_subscription_markdown(subscription)
