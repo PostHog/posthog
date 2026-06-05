@@ -131,6 +131,8 @@ describe('vercel-ai middleware', () => {
         it.each([
             ['posthog_distinct_id', 'user-1'],
             ['$ai_session_id', 'session-123'],
+            ['$ai_prompt_name', 'my-prompt'],
+            ['$ai_prompt_version', 'v2'],
         ])('promotes ai.telemetry.metadata.%s to event properties', (key, value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
@@ -165,16 +167,19 @@ describe('vercel-ai middleware', () => {
             expect(event.distinct_id).toBe('user-123')
         })
 
-        it('ignores empty $ai_session_id metadata', () => {
-            const event = createEvent('$ai_generation', {
-                'ai.operationId': 'ai.generateText.doGenerate',
-                'ai.telemetry.metadata.$ai_session_id': '',
-            })
-            convertOtelEvent(event)
+        it.each(['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version'])(
+            'ignores empty ai.telemetry.metadata.%s',
+            (key) => {
+                const event = createEvent('$ai_generation', {
+                    'ai.operationId': 'ai.generateText.doGenerate',
+                    [`ai.telemetry.metadata.${key}`]: '',
+                })
+                convertOtelEvent(event)
 
-            expect(event.properties!['$ai_session_id']).toBeUndefined()
-            expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
-        })
+                expect(event.properties![key]).toBeUndefined()
+                expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
+            }
+        )
     })
 
     describe('$ai_trace (top-level span)', () => {

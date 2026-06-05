@@ -159,9 +159,12 @@ function process(event: PluginEvent, next: () => void): void {
         event.distinct_id = posthogDistinctId
     }
 
-    const aiSessionId = props['ai.telemetry.metadata.$ai_session_id']
-    if (props['$ai_session_id'] === undefined && typeof aiSessionId === 'string' && aiSessionId) {
-        props['$ai_session_id'] = aiSessionId
+    const AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version']
+    for (const aiKey of AI_METADATA_KEYS) {
+        const value = props[`ai.telemetry.metadata.${aiKey}`]
+        if (props[aiKey] === undefined && typeof value === 'string' && value) {
+            props[aiKey] = value
+        }
     }
 
     // Strip Vercel-specific telemetry metadata and request headers after preserving
