@@ -8,7 +8,11 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import PropertyGroupFilter, PropertyOperator
 
-from products.dashboards.backend.widgets.widget_config_types import WidgetFilterConfig, WidgetFilterConfigEntry
+from products.dashboards.backend.widgets.widget_config_types import (
+    WidgetFilterConfig,
+    WidgetFilterConfigEntry,
+    WidgetListConfigInputBase,
+)
 
 WIDGET_FILTER_OPERATORS = frozenset(operator.value for operator in PropertyOperator)
 
@@ -101,7 +105,7 @@ def _parse_widget_filter_entry(filter_id: str, entry: object) -> WidgetFilterCon
     return parsed
 
 
-def validate_widget_filters(config: dict[str, Any]) -> WidgetFilterConfig | None:
+def validate_widget_filters(config: WidgetListConfigInputBase) -> WidgetFilterConfig | None:
     raw = config.get("widgetFilters")
     if raw is None:
         return None
@@ -114,9 +118,12 @@ def validate_widget_filters(config: dict[str, Any]) -> WidgetFilterConfig | None
     return validated or None
 
 
-def _event_property_filters_from_widget_filters(
-    widget_filters: WidgetFilterConfig,
-) -> list[dict[str, Any]]:
+def build_event_property_filters_from_widget_filters(
+    widget_filters: WidgetFilterConfig | None,
+) -> list[dict[str, Any]] | None:
+    if not widget_filters:
+        return None
+
     property_filters: list[dict[str, Any]] = []
     for entry in widget_filters.values():
         filter_value = entry.get("value")
@@ -131,22 +138,10 @@ def _event_property_filters_from_widget_filters(
     return property_filters
 
 
-def build_event_property_filters_from_widget_filters(
-    widget_filters: WidgetFilterConfig | None,
-) -> list[dict[str, Any]] | None:
-    if not widget_filters:
-        return None
-    property_filters = _event_property_filters_from_widget_filters(widget_filters)
-    return property_filters or None
-
-
 def build_property_group_filter_from_widget_filters(
     widget_filters: WidgetFilterConfig | None,
 ) -> PropertyGroupFilter | None:
-    if not widget_filters:
-        return None
-
-    property_filters = _event_property_filters_from_widget_filters(widget_filters)
+    property_filters = build_event_property_filters_from_widget_filters(widget_filters)
     if not property_filters:
         return None
 

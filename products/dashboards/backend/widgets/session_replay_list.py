@@ -3,8 +3,6 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from rest_framework.exceptions import ValidationError as DRFValidationError
-
 from posthog.schema import RecordingOrder
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -22,7 +20,10 @@ from products.dashboards.backend.widgets.config import (
     validate_widget_list_order_by,
     validate_widget_list_order_direction,
 )
-from products.dashboards.backend.widgets.widget_config_types import SessionReplayListWidgetConfig
+from products.dashboards.backend.widgets.widget_config_types import (
+    SessionReplayListWidgetConfig,
+    SessionReplayListWidgetConfigInput,
+)
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
     validate_widget_filters,
@@ -51,10 +52,7 @@ ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
 }
 
 
-def validate_session_replay_list_config(config: dict[str, Any]) -> SessionReplayListWidgetConfig:
-    if not isinstance(config, dict):
-        raise DRFValidationError({"config": "Config must be an object."})
-
+def validate_session_replay_list_config(config: SessionReplayListWidgetConfigInput) -> SessionReplayListWidgetConfig:
     limit = validate_widget_list_limit(config)
     order_by = validate_widget_list_order_by(config, allowed=SESSION_REPLAY_ORDER_BY, default="start_time")
     order_direction = validate_widget_list_order_direction(config)

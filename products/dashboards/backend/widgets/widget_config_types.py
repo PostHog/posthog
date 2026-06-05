@@ -29,6 +29,26 @@ class WidgetListConfigBase(TypedDict, total=False):
     widgetFilters: WidgetFilterConfig
 
 
+class WidgetListConfigInputBase(TypedDict, total=False):
+    """Unvalidated widget config payload from API / JSONField before validate_* runs."""
+
+    limit: int
+    orderBy: str
+    orderDirection: str
+    dateRange: WidgetDateRange
+    filterTestAccounts: bool
+    widgetFilters: dict[str, object]
+
+
+class SessionReplayListWidgetConfigInput(WidgetListConfigInputBase, total=False):
+    pass
+
+
+class ErrorTrackingListWidgetConfigInput(WidgetListConfigInputBase, total=False):
+    status: str
+    assignee: dict[str, str | int] | None
+
+
 class SessionReplayListWidgetConfig(WidgetListConfigBase):
     limit: int
     orderBy: str

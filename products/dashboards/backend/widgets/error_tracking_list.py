@@ -20,7 +20,10 @@ from products.dashboards.backend.widgets.config import (
     validate_widget_list_order_by,
     validate_widget_list_order_direction,
 )
-from products.dashboards.backend.widgets.widget_config_types import ErrorTrackingListWidgetConfig
+from products.dashboards.backend.widgets.widget_config_types import (
+    ErrorTrackingListWidgetConfig,
+    ErrorTrackingListWidgetConfigInput,
+)
 from products.dashboards.backend.widgets.widget_filters import (
     build_property_group_filter_from_widget_filters,
     validate_widget_filters,
@@ -46,21 +49,13 @@ ERROR_TRACKING_WIDGET_STATUS_CHOICES = frozenset(
 )
 
 
-def _validate_error_tracking_widget_assignee(config: dict[str, Any]) -> ErrorTrackingIssueAssignee | None:
-    if "assignee" not in config:
-        return None
-    assignee = config["assignee"]
-    if assignee is None:
-        return None
+def _parse_error_tracking_widget_assignee(assignee: dict[str, str | int]) -> ErrorTrackingIssueAssignee:
     serializer = ErrorTrackingAssigneeSerializer(data=assignee)
     serializer.is_valid(raise_exception=True)
     return ErrorTrackingIssueAssignee.model_validate(serializer.validated_data)
 
 
-def validate_error_tracking_list_config(config: dict[str, Any]) -> ErrorTrackingListWidgetConfig:
-    if not isinstance(config, dict):
-        raise DRFValidationError({"config": "Config must be an object."})
-
+def validate_error_tracking_list_config(config: ErrorTrackingListWidgetConfigInput) -> ErrorTrackingListWidgetConfig:
     limit = validate_widget_list_limit(config)
     order_by = validate_widget_list_order_by(config, allowed=ERROR_TRACKING_ORDER_BY, default="occurrences")
     order_direction = validate_widget_list_order_direction(config)
@@ -70,7 +65,12 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> ErrorTracking
         raise DRFValidationError({"config": "status is invalid for error tracking widget config."})
 
     validated_date_range = validate_widget_list_date_range_if_present(config)
-    validated_assignee = _validate_error_tracking_widget_assignee(config)
+    assignee_raw = config.get("assignee")
+    validated_assignee: ErrorTrackingIssueAssignee | None = None
+    if assignee_raw is not None:
+        if not isinstance(assignee_raw, dict):
+            raise DRFValidationError({"config": "assignee must be an object."})
+        validated_assignee = _parse_error_tracking_widget_assignee(assignee_raw)
     validated_widget_filters = validate_widget_filters(config)
 
     validated: ErrorTrackingListWidgetConfig = {
