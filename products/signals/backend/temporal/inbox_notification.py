@@ -54,6 +54,7 @@ def _compute_inbox_notification_state(team_id: int, report_id: str) -> InboxNoti
     pr_available = bool(fetch_implementation_pr_urls_for_reports([report_id]))
     latest_run = (
         TaskRun.objects.filter(
+            task__signal_report_tasks__team_id=team_id,
             task__signal_report_tasks__report_id=report_id,
             task__signal_report_tasks__relationship=SignalReportTask.Relationship.IMPLEMENTATION,
         )
@@ -86,8 +87,13 @@ def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:
 
     from products.signals.backend.slack_inbox_notifications import dispatch_inbox_item_notifications
 
+    # Team may have been deleted during a long deferred wait — degrade to no-op rather than failing.
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        logger.info("inbox notification skipped: team gone", report_id=report_id, team_id=team_id)
+        return 0
+
     # Re-derive source products at send time so a deferred notification reflects the current signals.
-    team = Team.objects.get(id=team_id)
     signals = fetch_signals_for_report_sync(team, report_id)
     source_products = sorted({s["source_product"] for s in signals if s.get("source_product")})
     return dispatch_inbox_item_notifications(report_id=report_id, team_id=team_id, source_products=source_products)

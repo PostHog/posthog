@@ -305,16 +305,18 @@ def _build_message_blocks(
     if sources_line:
         meta_parts.append(sources_line)
     if repository:
-        meta_parts.append(repository)
+        # Escape LLM/user-derived strings before they enter mrkdwn so a crafted value can't
+        # inject `<!here>` / `<@U…>` mentions. Reviewer mentions are added pre-escaped elsewhere.
+        meta_parts.append(_escape_mrkdwn(repository))
 
     body_parts: list[str] = []
     if meta_parts:
         body_parts.append(f"*{' · '.join(meta_parts)}*")
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
-        body_parts.append(summary_text)
+        body_parts.append(_escape_mrkdwn(summary_text))
     if not body_parts:
-        body_parts.append(f"*{title_line}*")
+        body_parts.append(f"*{_escape_mrkdwn(title_line)}*")
 
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": header_text}},

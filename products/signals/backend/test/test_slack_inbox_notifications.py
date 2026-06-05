@@ -134,6 +134,30 @@ def test_build_message_blocks_includes_repository_in_metadata_line() -> None:
     assert blocks[1]["text"]["text"] == "*❗ P2 · Error tracking · PostHog/posthog*"
 
 
+def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
+    # A crafted summary/repository must not inject Slack mentions (<!here>, <@U…>) into mrkdwn.
+    report = SignalReport(
+        id="report-uuid",
+        title="Injection test",
+        summary="<!here> everyone & <@U999> look",
+        signal_count=1,
+    )
+    blocks, _ = _build_message_blocks(
+        report,
+        priority="P2",
+        source_products=[],
+        reviewer_mentions=[],
+        repository="<!channel>/repo",
+    )
+
+    section_text = blocks[1]["text"]["text"]
+    assert "<!here>" not in section_text
+    assert "<@U999>" not in section_text
+    assert "<!channel>" not in section_text
+    assert "&lt;!here&gt;" in section_text
+    assert "&amp;" in section_text
+
+
 def test_build_message_blocks_includes_github_pr_button_when_pr_url_provided() -> None:
     report = SignalReport(
         id="report-uuid",
