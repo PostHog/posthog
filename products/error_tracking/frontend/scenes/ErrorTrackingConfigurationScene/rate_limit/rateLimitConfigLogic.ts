@@ -237,11 +237,14 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
         },
         setChartMode: ({ mode }) => {
             if (mode === 'history') {
-                actions.loadHistory({ bucketMinutes: values.volumeBucketMinutes })
+                actions.loadHistory({ bucketMinutes: values.configForm.project_rate_limit_bucket_size_minutes })
             }
         },
         refreshChart: () => {
-            const params: ChartLoadParams = { bucketMinutes: values.volumeBucketMinutes, force: true }
+            const params: ChartLoadParams = {
+                bucketMinutes: values.configForm.project_rate_limit_bucket_size_minutes,
+                force: true,
+            }
             if (values.chartMode === 'history') {
                 actions.loadHistory(params)
             } else {
