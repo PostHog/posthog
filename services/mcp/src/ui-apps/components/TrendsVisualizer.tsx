@@ -108,9 +108,10 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
-                // The shared view is layout-agnostic and sizes to its container; the MCP host
-                // imposes no height, so give it one (the web app sizes it via the insight container).
-                <div style={{ width: '100%', height: '400px' }}>
+                // The shared view's chart root is `flex: 1; height: 100%`, so it needs a flex-column
+                // parent with a height. The MCP host imposes none (the web app sizes it via the
+                // insight container), so provide one here.
+                <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '400px' }}>
                     <TrendsLineChartView
                         results={results.map((item, i) => ({
                             id: i,
