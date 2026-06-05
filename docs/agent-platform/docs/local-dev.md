@@ -311,12 +311,15 @@ auth predicates). Anything that crosses two services belongs in
   DB the ingress wrote to.
 - **`session.revision_missing` in runner logs** — `POSTHOG_DB_URL`
   is wrong, or you enqueued against a revision that isn't `live`.
-- **Janitor 401 on `/native_tools`** — `AGENT_JANITOR_SECRET` (Django)
-  doesn't match `INTERNAL_SECRET` (janitor).
+- **Janitor 401 on `/native_tools`** — `AGENT_INTERNAL_SIGNING_KEY`
+  (Django) doesn't match the same env var in the janitor. Django mints
+  an `aud=agent-janitor.rpc` JWT signed with the key; the janitor
+  verifies with it. Both sides must agree.
 - **MCP tool schema looks stale** — rerun `hogli build:openapi` after
   changing a serializer. The MCP generated files don't watch.
 - **`/listen` SSE returns nothing across hosts** — `REDIS_URL` isn't
-  set on both ingress and runner; in-memory bus doesn't cross processes.
+  set on both ingress and runner. `RedisSessionEventBus` is the only
+  bus impl now; both processes must point at the same Redis.
 
 ## Where the canonical docs live
 
