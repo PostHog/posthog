@@ -657,7 +657,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             // would otherwise surface as an unhandled rejection — keep it contained.
                             breakpoint()
                             actions.checkIfFinishedCalculating(newCohort)
-                        } catch (e) {
+                        } catch (e: any) {
                             if (!isBreakpoint(e)) {
                                 throw e
                             }
