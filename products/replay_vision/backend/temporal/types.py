@@ -1,5 +1,5 @@
 import datetime as dt
-from typing import Annotated, Any
+from typing import Annotated, Any, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -76,6 +76,20 @@ class CreateObservationOutput(BaseModel, frozen=True):
 
 class MarkObservationRunningInputs(BaseModel, frozen=True):
     observation_id: UUID
+
+
+# Coarse progress phases, surfaced live via ApplyScannerWorkflow's `get_progress` query and streamed over SSE.
+OBSERVATION_PHASE_ORDER = ("queued", "fetching", "rendering", "uploading", "analyzing", "finalizing")
+OBSERVATION_PHASE_INDEX = {phase: index for index, phase in enumerate(OBSERVATION_PHASE_ORDER)}
+
+
+class ObservationProgress(TypedDict):
+    """Live progress snapshot returned by ApplyScannerWorkflow's `get_progress` query, streamed to the client over SSE."""
+
+    phase: str  # one of OBSERVATION_PHASE_ORDER
+    step: int  # index of `phase` in OBSERVATION_PHASE_ORDER
+    total_steps: int  # len(OBSERVATION_PHASE_ORDER)
+    rasterizer_workflow_id: str | None  # set while rendering, so the stream can read the child's frame heartbeats
 
 
 class MarkObservationFailedInputs(BaseModel, frozen=True):
