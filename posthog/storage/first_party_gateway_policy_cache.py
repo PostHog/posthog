@@ -47,16 +47,16 @@ logger = structlog.get_logger(__name__)
 
 FIRST_PARTY_REQUIRED_SCOPE = "llm_gateway:read"
 
-# billing_mode and allowed_products have no home in the data model yet (the
-# consumer treats both as opaque pass-through; per-product gating is follow-up
-# ai-gateway#80). Derived here so product can later move them to columns/a model
-# without touching the projection wiring. Open: the phx_ default product set and
-# whether billing_mode is ever non-internal.
+# Provisional values — the gateway treats both as opaque pass-through and does
+# not enforce them yet (per-product gating is an undecided follow-up, ai-gateway
+# #80/#81). The authoritative allowed_products boundary is gateway-team-owned: a
+# per-application_id allowlist (today services/llm-gateway products/config.py,
+# moving to a DB-backed source read via this hypercache mirror — server-side
+# scopes RFC #1103). Until that enforcement path is chosen, emit a stable
+# placeholder rather than coupling to either design; swap these two helpers for
+# the real source when it lands. Open: whether billing_mode is ever non-internal.
 FIRST_PARTY_BILLING_MODE = "internal"
 DEFAULT_FIRST_PARTY_PRODUCTS = ["posthog_code", "wizard"]
-# Optional per-application override, keyed by OAuthApplication.name (client_id is
-# generated per-row per-region, so it can't key a portable static map).
-FIRST_PARTY_PRODUCTS_BY_OAUTH_APP_NAME: dict[str, list[str]] = {}
 
 FIRST_PARTY_POLICY_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
 FIRST_PARTY_POLICY_CACHE_MISS_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
@@ -100,9 +100,8 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
 
 
 def _derive_allowed_products(credential: Credential) -> list[str]:
-    application = getattr(credential, "application", None)
-    if application is not None:
-        return FIRST_PARTY_PRODUCTS_BY_OAUTH_APP_NAME.get(application.name, DEFAULT_FIRST_PARTY_PRODUCTS)
+    # Placeholder until the gateway team's per-application_id boundary is chosen
+    # (see the module constants above). Not per-credential yet by design.
     return DEFAULT_FIRST_PARTY_PRODUCTS
 
 
