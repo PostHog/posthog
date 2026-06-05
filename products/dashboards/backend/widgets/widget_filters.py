@@ -98,8 +98,9 @@ def validate_widget_filters(config: dict[str, Any]) -> dict[str, dict[str, Any]]
     return validated or None
 
 
+# Per-widget-type event property allowlists for config.widgetFilters (not dashboard quick_filter_ids).
 # Keep in sync with ERROR_TRACKING_WIDGET_FILTER_PROPERTY_NAMES in
-# products/dashboards/frontend/widgets/error_tracking/constants.ts
+# products/dashboards/frontend/widgets/error_tracking/constants.ts when that file lands.
 ERROR_TRACKING_WIDGET_FILTER_PROPERTY_NAMES = frozenset(
     {
         "$environment",

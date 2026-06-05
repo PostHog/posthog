@@ -1,4 +1,4 @@
-import { PropertyOperator } from '~/types'
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { buildFilterGroupFromWidgetFilters } from './widgetFilters'
 
@@ -18,6 +18,21 @@ describe('widgetFilters', () => {
                 operator: PropertyOperator.Exact,
             },
         })
-        expect(filterGroup?.values[0].values).toHaveLength(1)
+        expect(filterGroup).toEqual({
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$browser',
+                            operator: PropertyOperator.Exact,
+                            value: ['Chrome'],
+                        },
+                    ],
+                },
+            ],
+        })
     })
 })

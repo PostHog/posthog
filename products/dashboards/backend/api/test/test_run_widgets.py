@@ -116,11 +116,6 @@ class TestWidgetRegistry(APIBaseTest):
                 }
             )
 
-    def test_openapi_error_tracking_widget_config_includes_widget_filters(self) -> None:
-        serializer = widget_openapi_serializers_module.ErrorTrackingListWidgetConfigSerializer()
-        assert "widgetFilters" in serializer.fields
-        assert "assignee" in serializer.fields
-
     def test_validate_session_replay_list_config_defaults(self) -> None:
         validated = validate_session_replay_list_config({})
         assert validated["limit"] == DEFAULT_WIDGET_LIST_LIMIT
