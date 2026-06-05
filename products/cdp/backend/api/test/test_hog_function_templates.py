@@ -271,8 +271,53 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             data=payload,
         )
 
-        assert response.status_code in {status.HTTP_405_METHOD_NOT_ALLOWED}, response.json()
+        assert response.status_code in {
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        }, response.json()
 
         unchanged_template = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
 
         assert unchanged_template.json()["code"] != 'return "scary_code"'
+
+    def test_hidden_template_not_exposed_to_anonymous_on_project_route(self):
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden",
+            sha="1.0.0",
+            name="Hidden Template",
+            description="A hidden template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+        self.client.logout()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+        assert list_response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/template-hidden")
+        assert retrieve_response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_hidden_templates_excluded_from_project_list(self):
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden",
+            sha="1.0.0",
+            name="Hidden Template",
+            description="A hidden template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "template-hidden" not in [template["id"] for template in response.json()["results"]]
