@@ -221,7 +221,7 @@ class EmailConnectView(APIView):
 class EmailVerifyDomainView(APIView):
     """Trigger Mailgun DNS verification and update local config."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsConversationsAdmin]
     throttle_classes = [EmailVerifyDomainThrottle]
 
     def post(self, request: Request, *args, **kwargs) -> Response:
