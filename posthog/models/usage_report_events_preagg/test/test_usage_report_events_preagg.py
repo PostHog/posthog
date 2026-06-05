@@ -1,10 +1,10 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from unittest.mock import patch
 
 from django.test import override_settings
 
+from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.models.usage_report_events_preagg.sql import (
     INSERT_USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_SQL,
     INSERT_USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_SQL,
@@ -36,16 +36,13 @@ def test_preaggregated_tables_use_replacing_merge_tree() -> None:
 
 
 def test_dedup_read_uses_latest_bucket_version() -> None:
-    read_sql = USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL("raw_count")
+    read_sql = USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL()
 
     assert "latest_bucket_versions" in read_sql
     assert "d.computed_at = latest_bucket_versions.computed_at" in read_sql
     assert "max(d.raw_count) AS count" in read_sql
     assert "GROUP BY d.date, d.bucket_start, d.team_id, d.usage_kind, d.event" in read_sql
     assert "FINAL" not in read_sql
-
-    with pytest.raises(ValueError):
-        USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL("unique_count")
 
 
 def test_insert_sql_uses_inserted_at_buckets_and_billing_grain() -> None:
@@ -201,6 +198,32 @@ def test_group_count_tail_uses_events_recent_properties_for_group_detection() ->
 
 
 @override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
+def test_group_count_legacy_fallback_does_not_inherit_preaggregation_tag() -> None:
+    now = datetime.now(UTC)
+    end = datetime(now.year, now.month, now.day, tzinfo=UTC)
+    begin = end - timedelta(days=1)
+    observed_usage_report_tags: list[str | None] = []
+
+    def legacy_fallback(begin_arg: datetime, end_arg: datetime) -> list[tuple[int, int]]:
+        observed_usage_report_tags.append(get_query_tag_value("usage_report"))
+        assert begin_arg == begin
+        assert end_arg == end
+        return [(1, 5)]
+
+    with (
+        patch("posthog.temporal.usage_report.event_preaggregation.sync_execute", return_value=[]),
+        patch(
+            "posthog.temporal.usage_report.event_preaggregation._legacy_get_event_count_with_groups",
+            side_effect=legacy_fallback,
+        ),
+    ):
+        result = get_teams_with_event_count_with_groups_in_period(begin, end)
+
+    assert result == [(1, 5)]
+    assert observed_usage_report_tags == [None]
+
+
+@override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
 def test_event_metrics_preaggregation_collapses_full_replacing_key() -> None:
     now = datetime.now(UTC)
     end = datetime(now.year, now.month, now.day, tzinfo=UTC)
@@ -224,3 +247,29 @@ def test_event_metrics_preaggregation_collapses_full_replacing_key() -> None:
     assert "person_mode" in preaggregated_sql
     assert "has_group" in preaggregated_sql
     assert "GROUP BY c.date, c.bucket_start, c.team_id, c.person_mode, c.lib, c.event, c.has_group" in preaggregated_sql
+
+
+@override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
+def test_event_metrics_legacy_fallback_does_not_inherit_preaggregation_tag() -> None:
+    now = datetime.now(UTC)
+    end = datetime(now.year, now.month, now.day, tzinfo=UTC)
+    begin = end - timedelta(days=1)
+    observed_usage_report_tags: list[str | None] = []
+
+    def legacy_fallback(begin_arg: datetime, end_arg: datetime) -> dict[str, list[tuple[int, int]]]:
+        observed_usage_report_tags.append(get_query_tag_value("usage_report"))
+        assert begin_arg == begin
+        assert end_arg == end
+        return {"web_events": [(1, 5)]}
+
+    with (
+        patch("posthog.temporal.usage_report.event_preaggregation.sync_execute", return_value=[]),
+        patch(
+            "posthog.temporal.usage_report.event_preaggregation._legacy_get_all_event_metrics_in_period",
+            side_effect=legacy_fallback,
+        ),
+    ):
+        result = get_all_event_metrics_in_period(begin, end)
+
+    assert result == {"web_events": [(1, 5)]}
+    assert observed_usage_report_tags == [None]

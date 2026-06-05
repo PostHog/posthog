@@ -214,7 +214,7 @@ def _get_teams_with_billable_event_count_from_preaggregation(
             preaggregated_rows = cast(
                 TeamCountRows,
                 sync_execute(
-                    USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL("raw_count"),
+                    USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL(),
                     {
                         "begin": begin,
                         "end": end,
@@ -288,8 +288,18 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 
 
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> TeamCountRows:
+    preaggregated_result = _get_teams_with_event_count_with_groups_from_preaggregation(begin, end)
+    if preaggregated_result is not None:
+        return preaggregated_result
+
+    return _legacy_get_event_count_with_groups(begin, end)
+
+
+def _get_teams_with_event_count_with_groups_from_preaggregation(
+    begin: datetime, end: datetime
+) -> Optional[TeamCountRows]:
     if not _is_whole_utc_day_range(begin, end):
-        return _legacy_get_event_count_with_groups(begin, end)
+        return None
 
     with tags_context(
         product=Product.GROUP_ANALYTICS,
@@ -298,7 +308,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
     ):
         max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
         if max_bucket_end is None:
-            return _legacy_get_event_count_with_groups(begin, end)
+            return None
 
         try:
             preaggregated_rows = cast(
@@ -355,14 +365,22 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
             )
         except Exception:
             logger.warning("usage_report_events_preaggregation.group_read_failed", exc_info=True)
-            return _legacy_get_event_count_with_groups(begin, end)
+            return None
 
     return _combine_team_count_results([preaggregated_rows, tail_rows])
 
 
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> EventMetricsResult:
+    preaggregated_result = _get_all_event_metrics_from_preaggregation(begin, end)
+    if preaggregated_result is not None:
+        return preaggregated_result
+
+    return _legacy_get_all_event_metrics_in_period(begin, end)
+
+
+def _get_all_event_metrics_from_preaggregation(begin: datetime, end: datetime) -> Optional[EventMetricsResult]:
     if not _is_whole_utc_day_range(begin, end):
-        return _legacy_get_all_event_metrics_in_period(begin, end)
+        return None
 
     with tags_context(
         product=Product.PRODUCT_ANALYTICS,
@@ -371,7 +389,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> EventMetr
     ):
         max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
         if max_bucket_end is None:
-            return _legacy_get_all_event_metrics_in_period(begin, end)
+            return None
 
         metric_expression = EVENT_METRIC_EXPRESSION.format(lib_expression="lib")
         tail_metric_expression = EVENT_METRIC_EXPRESSION.format(lib_expression=USAGE_REPORT_EVENTS_LIB_EXPRESSION)
@@ -434,6 +452,6 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> EventMetr
             )
         except Exception:
             logger.warning("usage_report_events_preaggregation.metrics_read_failed", exc_info=True)
-            return _legacy_get_all_event_metrics_in_period(begin, end)
+            return None
 
     return _combine_event_metrics_results([preaggregated_rows, tail_rows])

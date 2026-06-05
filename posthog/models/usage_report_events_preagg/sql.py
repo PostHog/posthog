@@ -330,10 +330,7 @@ latest_bucket_versions AS
 """.strip()
 
 
-def USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL(count_column: str) -> str:
-    if count_column != "raw_count":
-        raise ValueError(f"Unsupported usage report events preaggregation count column: {count_column}")
-
+def USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL() -> str:
     return f"""
 WITH {USAGE_REPORT_EVENTS_LATEST_BUCKET_VERSIONS_CTE_SQL()}
 SELECT team_id, sum(count) AS count
@@ -345,7 +342,7 @@ FROM
         d.team_id,
         d.usage_kind,
         d.event,
-        max(d.{count_column}) AS count
+        max(d.raw_count) AS count
     FROM {USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_TABLE} d
     INNER JOIN latest_bucket_versions
         ON d.bucket_start = latest_bucket_versions.bucket_start
