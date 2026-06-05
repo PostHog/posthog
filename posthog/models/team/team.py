@@ -321,12 +321,6 @@ class Team(UUIDTClassicModel):
     has_completed_onboarding_for = models.JSONField(null=True, blank=True)
     onboarding_tasks = models.JSONField(null=True, blank=True)
     ingested_event = models.BooleanField(default=False)
-    # Set once, the first time a team ingests an event that clearly originates from a real
-    # production environment (a public $host/$current_url), as opposed to a developer's local
-    # setup. Sibling to `ingested_event` but a stronger product-activation signal. Written by
-    # the plugin-server (nodejs); not exposed via the Team API serializer.
-    # db_default is required because posthog_team has non-Django writers (nodejs/rust) that
-    # INSERT without listing this column, and the test schema is built from model definitions.
     ingested_production_event = models.BooleanField(default=False, db_default=False)
 
     person_processing_opt_out = field_access_control(models.BooleanField(null=True, default=False), "project", "admin")

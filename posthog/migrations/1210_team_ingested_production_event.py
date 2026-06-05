@@ -8,12 +8,6 @@ class Migration(migrations.Migration):
         ("posthog", "1209_alter_integration_kind_google_search_console"),
     ]
 
-    # Additive, metadata-only on PG 11+ (constant DEFAULT, no table rewrite, no backfill).
-    # db_default lands a real Postgres DEFAULT so the non-Django writers of posthog_team
-    # (nodejs/ Jest fixtures via insertRow, rust/ services) can keep INSERTing without listing
-    # this column. It is also what setup_test_environment.py bakes into the test-schema
-    # CREATE TABLE (it skips migrations), which the nodejs/rust suites depend on. Verify with
-    # `sqlmigrate` that no `ALTER COLUMN ... DROP DEFAULT` follow-up slipped through.
     operations = [
         migrations.AddField(
             model_name="team",
