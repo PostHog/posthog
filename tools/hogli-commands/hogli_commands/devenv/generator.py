@@ -7,6 +7,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -367,15 +368,25 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         proc_config["shell"] = f"{prefix} && {original_shell}"
         return proc_config
 
+    # Trusted infra-wait scripts that need the docker daemon socket. They run
+    # OUTSIDE the sandbox (the socket is denied inside it — reaching the daemon is
+    # a full escape via `docker run -v $HOME:/host`). They contain no dependency
+    # code, so running them unsandboxed doesn't widen the untrusted attack surface.
+    _SANDBOX_DOCKER_GATES = ("bin/wait-for-docker", "bin/wait-for-postgres-tables")
+
     def _add_sandbox_wrapper(self, proc_config: dict[str, Any]) -> dict[str, Any]:
         """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
 
         Opt in with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). Only Python and
         Node/Frontend procs are wrapped — Rust/Docker/migrations are left alone.
         The sandbox restricts filesystem reads to the repo + toolchain caches so a
-        malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) from the
-        developer's home directory. bin/dev-sandbox is a no-op passthrough on
-        non-macOS, so the generated config stays portable.
+        malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
+        the docker socket so it can't escape via a container mount.
+
+        The docker-gate preamble (bin/wait-for-docker) is peeled out to run
+        unsandboxed, since it needs the very socket the sandbox denies; the actual
+        server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
+        is a no-op passthrough on non-macOS, so the generated config stays portable.
         """
         if os.getenv("POSTHOG_DEV_SANDBOX") != "1":
             return proc_config
@@ -383,12 +394,28 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         if proc_config.get("groups", {}).get("tech") not in {"Python", "Node", "Frontend"}:
             return proc_config
 
-        original_shell = proc_config.get("shell", "")
-        if not original_shell:
+        shell = proc_config.get("shell", "")
+        if not shell:
             return proc_config
 
-        # Pass the whole command as a single quoted arg so operators (&&, |) survive.
-        proc_config["shell"] = f"bin/dev-sandbox {shlex.quote(original_shell)}"
+        # Split into docker-gate segments (run unsandboxed) and the rest (sandboxed).
+        # Collapse `\`-newline continuations first; splitting on && is safe here
+        # because the generated commands keep branching inside if/;-blocks, not &&.
+        normalized = re.sub(r"\\\n\s*", " ", shell)
+        gates: list[str] = []
+        rest: list[str] = []
+        for segment in normalized.split("&&"):
+            stripped = segment.strip()
+            if not stripped:
+                continue
+            first_token = stripped.split(maxsplit=1)[0]
+            (gates if first_token in self._SANDBOX_DOCKER_GATES else rest).append(stripped)
+
+        rest_cmd = " && ".join(rest)
+        if not gates:
+            proc_config["shell"] = f"bin/dev-sandbox {shlex.quote(rest_cmd)}"
+        else:
+            proc_config["shell"] = f"{' && '.join(gates)} && bin/dev-sandbox {shlex.quote(rest_cmd)}"
         return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:

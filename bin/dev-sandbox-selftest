@@ -97,7 +97,7 @@ else
 fi
 
 # 7. Allowlisted toolchain dirs are readable (created if absent on a fresh runner).
-for d in .cache .npm .cargo "Library/Caches/node-gyp" .docker; do
+for d in .cache .npm .cargo "Library/Caches/node-gyp"; do
     mkdir -p "$HOME/$d" 2>/dev/null || true
     if $SANDBOX "ls -d '$HOME/$d' >/dev/null" 2>/dev/null; then
         pass "readable: \$HOME/$d"
@@ -119,6 +119,19 @@ if [[ -f "$cred" ]]; then
         pass "cargo credentials blocked"
     fi
     [[ "$created" == 1 ]] && rm -f "$cred"
+fi
+
+# 9. The docker daemon socket is unreachable inside the sandbox — otherwise a
+#    dependency could escape via `docker run -v $HOME:/host ...`. Only meaningful
+#    when a daemon is actually reachable from outside the sandbox.
+if command -v docker >/dev/null 2>&1 && docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
+    if $SANDBOX "docker version --format '{{.Server.Version}}'" >/dev/null 2>&1; then
+        die "docker daemon reachable inside sandbox (container-mount escape possible)"
+    else
+        pass "docker daemon socket blocked (no container escape)"
+    fi
+else
+    echo "  --   no reachable docker daemon, skipping escape check"
 fi
 
 echo

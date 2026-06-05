@@ -22,8 +22,20 @@
 (version 1)
 
 ;; Broad base: process exec/fork, network, mach, sysctl, signals, etc.
-;; We only tighten filesystem reads/writes below.
+;; We only tighten filesystem reads/writes and the docker socket below.
 (allow default)
+
+;; ── Docker daemon socket ──────────────────────────────────────────────
+;; Reaching the docker daemon is a full sandbox escape: a dependency could run
+;; `docker run -v $HOME:/host ...` and the daemon (which runs outside Seatbelt)
+;; would mount the home dir into a container. bin/wait-for-docker runs OUTSIDE
+;; the sandbox instead (see the generator), so sandboxed code never needs this
+;; socket. Covers OrbStack and Docker Desktop.
+(deny network-outbound
+    (subpath (string-append (param "HOME") "/.orbstack/run"))
+    (subpath (string-append (param "HOME") "/.docker/run"))
+    (literal "/var/run/docker.sock")
+    (literal "/private/var/run/docker.sock"))
 
 ;; ── Reads ─────────────────────────────────────────────────────────────
 ;; Block every read under $HOME, then re-allow the repo and toolchain caches.
@@ -43,12 +55,6 @@
     ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
     (literal (string-append (param "HOME") "/.gitconfig"))
     (literal (string-append (param "HOME") "/.config/git/config"))
-    ;; docker CLI config, contexts, and cli-plugins (compose/buildx live here) —
-    ;; required by bin/wait-for-docker. Runtime-agnostic: Docker Desktop, OrbStack,
-    ;; and Colima all keep CLI state here; the daemon socket connects via the
-    ;; network rule above. Trade-off: exposes docker registry creds in config.json,
-    ;; far lower-value than the ssh/cloud/keychain stores that stay blocked.
-    (subpath (string-append (param "HOME") "/.docker"))
     ;; cargo registry/git cache — the cyclotron-node native module is built with
     ;; cargo during the nodejs service prestart. (crates.io token re-denied below.)
     (subpath (string-append (param "HOME") "/.cargo")))
