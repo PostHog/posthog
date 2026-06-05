@@ -32,6 +32,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.authentication import password_reset_token_generator
+from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import StripeIntegration
 from posthog.models.oauth import (
@@ -739,6 +740,17 @@ def _handle_new_user(
         partner=partner,
         region=region,
         team_id=team.id,
+    )
+
+    # Emit the standard signup event so provisioned accounts flow into the shared
+    # signup / activation / billing analyses, segmentable by client. Vercel does the
+    # same (ee/vercel/integration.py); the agentic path previously skipped it entirely.
+    report_user_signed_up(
+        user,
+        is_instance_first_user=False,
+        is_organization_first_user=True,
+        backend_processor="AgenticProvisioning",
+        social_provider=partner.name if partner else "",
     )
 
     try:
