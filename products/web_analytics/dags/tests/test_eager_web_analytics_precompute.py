@@ -229,6 +229,9 @@ class TestEagerBaselineLogging(APIBaseTest):
 
         tile_done = self._events(cap_logs, "eager_baseline_warming_tile_done")
         assert len(tile_done) == _QUERIES_PER_TEAM
+        # Verify the tile indices cover the full matrix (symmetric with tile_start)
+        # so a wrong/constant idx in the done line can't slip through.
+        assert {t["tile"] for t in tile_done} == set(range(1, _QUERIES_PER_TEAM + 1))
         assert all(t["status"] == "warmed" and "duration_ms" in t for t in tile_done)
 
         team_logs = self._events(cap_logs, "eager_baseline_warming_team")
