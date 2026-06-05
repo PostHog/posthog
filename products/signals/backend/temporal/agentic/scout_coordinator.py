@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -99,7 +100,11 @@ async def fetch_enabled_signals_scout_runs_activity(
     schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
     """
     async with Heartbeater():
-        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)()
+        # Read the flag payload off the DB thread pool — the SDK call can block on a cold
+        # cache, and database_sync_to_async's pool is sized for DB-bound work (mirrors the
+        # asyncio.to_thread split in ai_observability/team_discovery.py).
+        enrolled_team_ids = await asyncio.to_thread(_enrolled_team_ids)
+        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(enrolled_team_ids)
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
 
@@ -140,11 +145,14 @@ class _DueRun:
     skill_name: str
 
 
-def _collect_planned_runs() -> list[PlannedRun]:
-    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt."""
+def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
+    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
+
+    Takes the already-resolved enrolled team ids so the flag read stays off this DB pool.
+    """
     now = timezone.now()
     due: list[_DueRun] = []
-    for team in _participating_teams():
+    for team in _participating_teams(enrolled_team_ids):
         # Sync canonical scouts so a freshly-enrolled team has skills to register on.
         # `prune=True`: the periodic tick is a deliberate reconciliation path, so it also
         # tombstones rows whose canonical was removed from disk (the runner cold-start sync
@@ -188,16 +196,16 @@ def _collect_planned_runs() -> list[PlannedRun]:
     return planned
 
 
-def _participating_teams() -> list[Team]:
-    """Teams to run scouts on — the `signals-scout` flag payload allowlist, canonicalized.
+def _participating_teams(enrolled: set[int]) -> list[Team]:
+    """Resolve enrolled team ids to canonical `Team`s to run scouts on.
 
-    Enrollment is flag-driven: a team runs scouts iff its id is enrolled via the flag payload
-    (see `_enrolled_team_ids`). Adding an id in the flag UI enrolls the team on the next tick
-    with no manual seed — the tick body seeds canonical skills + registers configs for it;
-    removing it (or listing it in `skip_team_ids`) drains it the next tick. Child envs
-    canonicalize to their parent project so the per-project singleton config is found once.
+    Enrollment is flag-driven: a team runs scouts iff its id is in the `signals-scout` flag
+    payload allowlist (resolved by `_enrolled_team_ids`, passed in). Adding an id in the flag
+    UI enrolls the team on the next tick with no manual seed — the tick body seeds canonical
+    skills + registers configs for it; removing it (or listing it in `skip_team_ids`) drains
+    it the next tick. Child envs canonicalize to their parent project so the per-project
+    singleton config is found once.
     """
-    enrolled = _enrolled_team_ids()
     if not enrolled:
         return []
     candidates = Team.objects.filter(id__in=enrolled)

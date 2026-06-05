@@ -23,6 +23,7 @@ from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     DEFAULT_ENROLLED_TEAM_IDS,
+    SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
@@ -159,6 +160,7 @@ def test_enrolled_team_ids_uses_match_value_true():
         _enrolled_team_ids()
     args, kwargs = mock_payload.call_args
     assert args[0] == "signals-scout"
+    assert args[1] == SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID
     assert kwargs.get("match_value") is True
 
 
