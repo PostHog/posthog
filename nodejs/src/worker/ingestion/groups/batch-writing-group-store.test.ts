@@ -408,8 +408,19 @@ describe('BatchWritingGroupStore', () => {
 
             await groupStore.flush()
 
-            // Second flush wrote the updated properties
-            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalled()
+            // Second flush wrote the updated properties — merged onto the freshly
+            // fetched server-side properties since evictClean() dropped the cache.
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledTimes(1)
+            expect(groupRepository.updateGroupOptimistically).toHaveBeenCalledWith(
+                teamId,
+                1,
+                'test',
+                1,
+                { test: 'test', b: '2' },
+                group.created_at,
+                {},
+                {}
+            )
         })
     })
 

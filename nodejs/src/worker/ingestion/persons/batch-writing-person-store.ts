@@ -723,14 +723,15 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
-    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[], batchId?: number): Promise<void> {
+    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
         if (teamDistinctIds.length === 0) {
             return
         }
 
-        // Register all entries for this batch's eviction tracking — even cache hits
-        // need their refcount incremented so they are evicted when this batch completes.
-        for (const { teamId, distinctId } of teamDistinctIds) {
+        // Register all entries for their respective batch's eviction tracking — even cache hits
+        // need their refcount incremented so they are evicted when the batch completes. Entries
+        // may belong to different concurrent batches, so each is tracked under its own batchId.
+        for (const { teamId, distinctId, batchId } of teamDistinctIds) {
             this.trackBatchEntry(batchId, teamId, distinctId)
         }
 

@@ -103,9 +103,10 @@ export type PersonsStoreForBatch = Omit<
         limit: number | undefined,
         tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult>
-    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void>
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
     processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void>
     inTransaction<T>(description: string, transaction: (tx: PersonsStoreTransactionForBatch) => Promise<T>): Promise<T>
+    readonly batchId: number
 }
 
 class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBatch {
@@ -205,7 +206,7 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
 export class BatchBoundPersonsStore implements PersonsStoreForBatch {
     constructor(
         private readonly store: PersonsStore,
-        private readonly batchId: number
+        public readonly batchId: number
     ) {}
 
     fetchForChecking(teamId: number, distinctId: string): Promise<InternalPerson | null> {
@@ -258,8 +259,8 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
         return this.store.moveDistinctIds(source, target, distinctId, limit, tx, this.batchId)
     }
 
-    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void> {
-        return this.store.prefetchPersons(teamDistinctIds, this.batchId)
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
+        return this.store.prefetchPersons(teamDistinctIds)
     }
 
     processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[]): Promise<void> {

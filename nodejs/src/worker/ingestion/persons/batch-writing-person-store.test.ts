@@ -2517,8 +2517,8 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1, person2])
 
             await personStoreForBatch.prefetchPersons([
-                { teamId, distinctId: 'user-1' },
-                { teamId, distinctId: 'user-2' },
+                { teamId, distinctId: 'user-1', batchId: 0 },
+                { teamId, distinctId: 'user-2', batchId: 0 },
             ])
 
             // Should have called fetchPersonsByDistinctIds once with both entries (useReadReplica=false)
@@ -2549,8 +2549,8 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1])
 
             await personStoreForBatch.prefetchPersons([
-                { teamId, distinctId: 'user-1' },
-                { teamId, distinctId: 'user-2' },
+                { teamId, distinctId: 'user-1', batchId: 0 },
+                { teamId, distinctId: 'user-2', batchId: 0 },
             ])
 
             // Check cache: person1 should be cached (without distinct_id), person2 should be null
@@ -2574,8 +2574,8 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
 
             await personStoreForBatch.prefetchPersons([
-                { teamId, distinctId: 'user-1' },
-                { teamId, distinctId: 'user-2' },
+                { teamId, distinctId: 'user-1', batchId: 0 },
+                { teamId, distinctId: 'user-2', batchId: 0 },
             ])
 
             // Should only fetch user-2 since user-1 was already cached
@@ -2593,8 +2593,8 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
 
             await personStoreForBatch.prefetchPersons([
-                { teamId, distinctId: 'user-1' },
-                { teamId, distinctId: 'user-2' },
+                { teamId, distinctId: 'user-1', batchId: 0 },
+                { teamId, distinctId: 'user-2', batchId: 0 },
             ])
 
             // Should only fetch user-2 since user-1 was already in update cache
@@ -2617,8 +2617,8 @@ describe('BatchWritingPersonStore', () => {
             personStoreForBatch.getCheckCache().set(`${teamId}:user-2`, null)
 
             await personStoreForBatch.prefetchPersons([
-                { teamId, distinctId: 'user-1' },
-                { teamId, distinctId: 'user-2' },
+                { teamId, distinctId: 'user-1', batchId: 0 },
+                { teamId, distinctId: 'user-2', batchId: 0 },
             ])
 
             expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
@@ -2630,7 +2630,7 @@ describe('BatchWritingPersonStore', () => {
             const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([prefetchedPerson])
 
-            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
 
             // Now fetchForChecking should use cached data
             const result = await personStoreForBatch.fetchForChecking(teamId, 'user-1')
@@ -2648,7 +2648,7 @@ describe('BatchWritingPersonStore', () => {
             const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([prefetchedPerson])
 
-            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
 
             // Now fetchForUpdate should use cached data
             const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
@@ -2673,7 +2673,9 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
 
             // Start prefetch but don't await it (simulating non-blocking behavior)
-            const prefetchCompletion = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1', batchId: 0 },
+            ])
 
             // Now call fetchForChecking while prefetch is still in flight
             const fetchCheckingPromise = personStoreForBatch.fetchForChecking(teamId, 'user-1')
@@ -2706,7 +2708,9 @@ describe('BatchWritingPersonStore', () => {
             mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
 
             // Start prefetch but don't await it
-            const prefetchCompletion = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1', batchId: 0 },
+            ])
 
             // Now call fetchForUpdate while prefetch is still in flight
             const fetchUpdatePromise = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
@@ -3130,9 +3134,9 @@ describe('BatchWritingPersonStore', () => {
             // Simulate batch 0 and batch 1 both prefetching the same distinct ID
             // before either has flushed (the concurrent-batches scenario).
             mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([{ ...person, distinct_id: 'user-a' }])
-            await personStore.prefetchPersons([{ teamId, distinctId: 'user-a' }], 0)
+            await personStore.prefetchPersons([{ teamId, distinctId: 'user-a', batchId: 0 }])
             // Batch 1 prefetches same user — already in cache, just bumps refcount
-            await personStore.prefetchPersons([{ teamId, distinctId: 'user-a' }], 1)
+            await personStore.prefetchPersons([{ teamId, distinctId: 'user-a', batchId: 1 }])
 
             const distinctKeyRefCount = (personStore as any)['distinctKeyRefCount'] as Map<string, number>
             expect(distinctKeyRefCount.get(`${teamId}:user-a`)).toBe(2)

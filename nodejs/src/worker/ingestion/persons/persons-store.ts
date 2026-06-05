@@ -158,11 +158,12 @@ export interface PersonsStore extends BatchWritingStore {
     removeDistinctIdFromCache(teamId: number, distinctId: string): void
 
     /**
-     * Prefetches persons by team ID and distinct ID to warm up the cache
+     * Prefetches persons by team ID and distinct ID to warm up the cache.
+     * Each entry may carry its own batchId for cache eviction tracking, allowing a
+     * single DB fetch to service entries that belong to different concurrent batches.
      * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
-     * @param batchId - Optional batch ID for cache eviction tracking
      */
-    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[], batchId?: number): Promise<void>
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
 
     /**
      * Batch-inserts personless distinct IDs for events where no person exists.

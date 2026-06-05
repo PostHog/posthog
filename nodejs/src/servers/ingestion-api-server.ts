@@ -475,10 +475,10 @@ export class IngestionApiServer implements NodeServer {
             postgres: this.postgres,
             pubsub: this.pubsub,
             additionalCleanup: async () => {
-                await this.ingestionProducerRegistry?.disconnectAll()
-                this.cookielessManager?.shutdown()
                 await this.personsStore?.shutdown()
                 await this.groupStore?.shutdown()
+                this.cookielessManager?.shutdown()
+                await this.ingestionProducerRegistry?.disconnectAll()
             },
         }
     }
