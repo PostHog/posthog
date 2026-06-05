@@ -15,6 +15,7 @@ migration_module = importlib.import_module(f"posthog.async_migrations.migrations
 class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
     def test_partition_parameters_are_bound_not_interpolated(self):
         migration = get_async_migration_definition(MIGRATION_NAME)
+        assert isinstance(migration, migration_module.Migration)
         malicious = "200001' OR '1'='1"
 
         with (
@@ -28,7 +29,7 @@ class Test0010MoveOldPartitions(AsyncMigrationBaseTest):
                 }[name],
             ),
         ):
-            migration._get_partitions_to_move()  # type: ignore[attr-defined]
+            migration._get_partitions_to_move()
 
         mock_sync_execute.assert_called_once()
         call = mock_sync_execute.call_args
