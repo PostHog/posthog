@@ -393,6 +393,41 @@ class TestSlackSourceGetSchemasForceRefresh:
         assert channel_names(cached) == {"C1"}
         assert channel_names(forced) == {"C2"}
 
+    def test_channel_schemas_advertise_incremental_sync(self) -> None:
+        """
+        Regression for posthog/posthog#59460. The runtime path in slack.py already
+        passes `db_incremental_field_last_value.timestamp()` to Slack's `oldest`
+        param, but the schema layer only flips `supports_incremental` /
+        `supports_append` when `messages_endpoint_config().incremental_fields` is
+        non-empty — so an empty list silently forces every channel to full-refresh.
+        """
+        from posthog.temporal.data_imports.sources.slack.source import SlackSource
+
+        from products.data_warehouse.backend.types import IncrementalFieldType
+
+        config, integration = self._build_mocks()
+        source = SlackSource()
+
+        with (
+            patch.object(source, "get_oauth_integration", return_value=integration),
+            patch(
+                "posthog.temporal.data_imports.sources.slack.slack._fetch_all_channels",
+                return_value=[{"id": "C1", "name": "general"}],
+            ),
+            patch(
+                "posthog.temporal.data_imports.sources.slack.source.is_webhook_feature_flag_enabled",
+                return_value=False,
+            ),
+        ):
+            schemas = source.get_schemas(config, team_id=1)
+
+        channel_schema = next(s for s in schemas if s.name == "C1")
+        assert channel_schema.supports_incremental is True
+        assert channel_schema.supports_append is True
+        assert len(channel_schema.incremental_fields) == 1
+        assert channel_schema.incremental_fields[0]["field"] == "timestamp"
+        assert channel_schema.incremental_fields[0]["field_type"] == IncrementalFieldType.DateTime
+
 
 class TestSlackSourceChannelsEndpoint:
     def setup_method(self) -> None:
