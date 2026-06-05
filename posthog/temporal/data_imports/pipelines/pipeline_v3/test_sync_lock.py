@@ -35,20 +35,20 @@ class TestAcquireV3PipelineLock:
         mock_redis.set.assert_called_once_with(_lock_key(1, "s-1"), "tok-1", nx=True, ex=LOCK_TTL_SECONDS)
 
     @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_fail_open_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
+    def test_fail_closed_on_redis_unavailable(self, mock_ctx: MagicMock) -> None:
         mock_ctx.return_value.__enter__ = MagicMock(return_value=None)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is True
+        assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is False
 
     @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
-    def test_fail_open_on_set_exception(self, mock_ctx: MagicMock) -> None:
+    def test_fail_closed_on_set_exception(self, mock_ctx: MagicMock) -> None:
         mock_redis = MagicMock()
         mock_redis.set.side_effect = Exception("connection lost")
         mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
-        assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is True
+        assert acquire_v3_pipeline_lock(1, "s-1", "tok-1") is False
 
 
 class TestReleaseV3PipelineLock:

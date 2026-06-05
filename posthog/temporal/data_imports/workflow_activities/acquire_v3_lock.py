@@ -44,6 +44,8 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     bind_contextvars(team_id=inputs.team_id)
     close_old_connections()
 
+    logger = LOGGER.bind()
+
     try:
         source = ExternalDataSource.objects.only("source_type").get(id=inputs.source_id)
     except ExternalDataSource.DoesNotExist:
@@ -58,13 +60,12 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
 
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
 
-    logger = LOGGER.bind()
-    if not acquired:
-        logger.info(
-            "v3_pipeline_lock_held",
-            schema_id=str(inputs.schema_id),
-            source_id=str(inputs.source_id),
-        )
+    logger.info(
+        "v3_pipeline_lock_acquire_result",
+        schema_id=str(inputs.schema_id),
+        acquired=acquired,
+        token=token,
+    )
 
     return AcquireV3LockActivityOutputs(acquired=acquired, is_v3=True, token=token)
 

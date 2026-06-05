@@ -41,7 +41,7 @@ def _get_redis_client() -> Generator[redis.Redis | None, None, None]:
         redis_client = get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         redis_client.ping()
     except Exception as e:
-        logger.warning("redis_unavailable_for_v3_pipeline_lock", error=str(e))
+        logger.exception("redis_unavailable_for_v3_pipeline_lock", error=str(e))
         capture_exception(e)
         redis_client = None
 
@@ -52,18 +52,28 @@ def _get_redis_client() -> Generator[redis.Redis | None, None, None]:
 
 
 def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
-    """Acquire an exclusive lock for a V3 pipeline run. Fail-open on Redis errors."""
+    """Acquire an exclusive lock for a V3 pipeline run. Fail-closed on errors."""
     with _get_redis_client() as client:
         if client is None:
-            return True
+            logger.error(
+                "v3_pipeline_lock_skip_redis_unavailable",
+                team_id=team_id,
+                schema_id=schema_id,
+            )
+            return False
 
         try:
             acquired = client.set(_lock_key(team_id, schema_id), token, nx=True, ex=LOCK_TTL_SECONDS)
             return bool(acquired)
         except Exception as e:
-            logger.warning("v3_pipeline_lock_acquire_error", error=str(e), team_id=team_id, schema_id=schema_id)
+            logger.exception(
+                "v3_pipeline_lock_acquire_error",
+                error=str(e),
+                team_id=team_id,
+                schema_id=schema_id,
+            )
             capture_exception(e)
-            return True
+            return False
 
 
 def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
