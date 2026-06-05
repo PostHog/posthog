@@ -50,23 +50,43 @@ describe('resolveRatingClick', () => {
 })
 
 describe('resolveChoiceClick', () => {
-    it('clears the filter when the active choice is clicked again', () => {
-        expect(resolveChoiceClick('Red', null, 'Red')).toEqual({ upsert: { value: null }, nextArmed: null })
-    })
-
-    it('switches to another choice in a single click while a filter is active', () => {
-        expect(resolveChoiceClick('Red', null, 'Blue')).toEqual({ upsert: { value: 'Blue' }, nextArmed: null })
-    })
-
-    it('confirms the armed choice on the second click', () => {
-        expect(resolveChoiceClick(null, 'Blue', 'Blue')).toEqual({ upsert: { value: 'Blue' }, nextArmed: null })
-    })
-
-    it('arms a fresh choice without changing filters on the first click', () => {
-        expect(resolveChoiceClick(null, null, 'Blue')).toEqual({ upsert: null, nextArmed: 'Blue' })
-    })
-
-    it('re-arms a different choice when the armed one is not the clicked one', () => {
-        expect(resolveChoiceClick(null, 'Red', 'Blue')).toEqual({ upsert: null, nextArmed: 'Blue' })
+    it.each([
+        {
+            desc: 'clears the filter when the active choice is clicked again',
+            active: 'Red',
+            armed: null,
+            clicked: 'Red',
+            expected: { upsert: { value: null }, nextArmed: null },
+        },
+        {
+            desc: 'switches to another choice in a single click while a filter is active',
+            active: 'Red',
+            armed: null,
+            clicked: 'Blue',
+            expected: { upsert: { value: 'Blue' }, nextArmed: null },
+        },
+        {
+            desc: 'confirms the armed choice on the second click',
+            active: null,
+            armed: 'Blue',
+            clicked: 'Blue',
+            expected: { upsert: { value: 'Blue' }, nextArmed: null },
+        },
+        {
+            desc: 'arms a fresh choice without changing filters on the first click',
+            active: null,
+            armed: null,
+            clicked: 'Blue',
+            expected: { upsert: null, nextArmed: 'Blue' },
+        },
+        {
+            desc: 're-arms a different choice when the armed one is not the clicked one',
+            active: null,
+            armed: 'Red',
+            clicked: 'Blue',
+            expected: { upsert: null, nextArmed: 'Blue' },
+        },
+    ])('$desc', ({ active, armed, clicked, expected }) => {
+        expect(resolveChoiceClick(active, armed, clicked)).toEqual(expected)
     })
 })
