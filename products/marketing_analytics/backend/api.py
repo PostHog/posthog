@@ -308,7 +308,11 @@ class SuggestUtmMappingsQuerySerializer(serializers.Serializer):
         required=False, default=10, help_text="Only suggest for raw values with >= this many events"
     )
     lookback_days = serializers.IntegerField(
-        required=False, default=90, help_text="Days of history to inspect; defaults to 90"
+        required=False,
+        default=90,
+        min_value=1,
+        max_value=365,
+        help_text="Days of history to inspect (1-365); defaults to 90",
     )
 
 
@@ -393,7 +397,11 @@ class DiagnoseQuerySerializer(serializers.Serializer):
         required=False, default=True, help_text="Whether to include the conversion-goal summary in the diagnostic"
     )
     attribution_lookback_days = serializers.IntegerField(
-        required=False, default=7, help_text="Lookback window for attribution health"
+        required=False,
+        default=7,
+        min_value=1,
+        max_value=365,
+        help_text="Lookback window for attribution health (1-365 days); defaults to 7",
     )
 
 

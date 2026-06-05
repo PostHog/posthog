@@ -541,7 +541,9 @@ export type MarketingAnalyticsDataSourcesRetrieveParams = {
 
 export type MarketingAnalyticsDiagnoseRetrieveParams = {
     /**
-     * Lookback window for attribution health
+     * Lookback window for attribution health (1-365 days); defaults to 7
+     * @minimum 1
+     * @maximum 365
      */
     attribution_lookback_days?: number
     /**
@@ -586,7 +588,9 @@ export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
 
 export type MarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
     /**
-     * Days of history to inspect; defaults to 90
+     * Days of history to inspect (1-365); defaults to 90
+     * @minimum 1
+     * @maximum 365
      */
     lookback_days?: number
     /**

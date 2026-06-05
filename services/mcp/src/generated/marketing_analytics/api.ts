@@ -49,13 +49,17 @@ export const MarketingAnalyticsDiagnoseRetrieveParams = /* @__PURE__ */ zod.obje
 })
 
 export const marketingAnalyticsDiagnoseRetrieveQueryAttributionLookbackDaysDefault = 7
+export const marketingAnalyticsDiagnoseRetrieveQueryAttributionLookbackDaysMax = 365
+
 export const marketingAnalyticsDiagnoseRetrieveQueryIncludeConversionGoalsDefault = true
 
 export const MarketingAnalyticsDiagnoseRetrieveQueryParams = /* @__PURE__ */ zod.object({
     attribution_lookback_days: zod
         .number()
+        .min(1)
+        .max(marketingAnalyticsDiagnoseRetrieveQueryAttributionLookbackDaysMax)
         .default(marketingAnalyticsDiagnoseRetrieveQueryAttributionLookbackDaysDefault)
-        .describe('Lookback window for attribution health'),
+        .describe('Lookback window for attribution health (1-365 days); defaults to 7'),
     include_conversion_goals: zod
         .boolean()
         .default(marketingAnalyticsDiagnoseRetrieveQueryIncludeConversionGoalsDefault)
@@ -120,13 +124,17 @@ export const MarketingAnalyticsSuggestUtmMappingsRetrieveParams = /* @__PURE__ *
 })
 
 export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysDefault = 90
+export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysMax = 365
+
 export const marketingAnalyticsSuggestUtmMappingsRetrieveQueryMinEventCountDefault = 10
 
 export const MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     lookback_days: zod
         .number()
+        .min(1)
+        .max(marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysMax)
         .default(marketingAnalyticsSuggestUtmMappingsRetrieveQueryLookbackDaysDefault)
-        .describe('Days of history to inspect; defaults to 90'),
+        .describe('Days of history to inspect (1-365); defaults to 90'),
     min_event_count: zod
         .number()
         .default(marketingAnalyticsSuggestUtmMappingsRetrieveQueryMinEventCountDefault)
