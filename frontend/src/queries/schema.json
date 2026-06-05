@@ -27656,6 +27656,15 @@
                 "id": {
                     "type": "string"
                 },
+                "insertion_placeholder_block_id": {
+                    "type": "string"
+                },
+                "insertion_placeholder_marker": {
+                    "type": "string"
+                },
+                "markdown_with_insertion_placeholder": {
+                    "type": "string"
+                },
                 "name": {
                     "type": ["string", "null"]
                 },
