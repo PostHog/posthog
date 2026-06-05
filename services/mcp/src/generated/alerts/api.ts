@@ -17,8 +17,19 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Optional. Restrict results to alerts created by the user with this UUID.'),
+    insight_id: zod.number().optional().describe('Optional. Restrict results to alerts on this insight ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.'
+        ),
 })
 
 export const AlertsCreateParams = /* @__PURE__ */ zod.object({

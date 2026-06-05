@@ -11,6 +11,7 @@ from rest_framework import status
 
 from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertState, InsightThresholdType
 
+from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -1229,6 +1230,81 @@ class TestTriggerAlertHogFunctions(APIBaseTest):
         for key, value in expected_props.items():
             assert event.properties[key] == value, f"{key} expected {value}, got {event.properties[key]}"
         assert event.properties["breaches"] == "test breach"
+
+
+class TestAlertListFilters(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.default_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "BoldNumber"},
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+
+    def _create_alert(self, name: str, user=None) -> AlertConfiguration:
+        return AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name=name,
+            created_by=user or self.user,
+        )
+
+    def test_list_filter_by_search(self) -> None:
+        self._create_alert("Revenue spike")
+        self._create_alert("Unrelated alert")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", {"search": "Reven"})
+        result_names = [alert["name"] for alert in response.json()["results"]]
+
+        assert result_names == ["Revenue spike"]
+
+    def test_list_filter_by_created_by_uuid(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+
+        self._create_alert("Mine", user=self.user)
+        self._create_alert("Theirs", user=other_user)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts",
+            {"created_by": str(other_user.uuid)},
+        )
+        result_names = [alert["name"] for alert in response.json()["results"]]
+
+        assert result_names == ["Theirs"]
+
+    def test_list_filter_by_search_and_created_by(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other2@posthog.com", None)
+
+        self._create_alert("Revenue spike", user=self.user)
+        self._create_alert("Revenue other", user=other_user)
+        self._create_alert("Unrelated", user=other_user)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/alerts",
+            {"search": "Revenue", "created_by": str(other_user.uuid)},
+        )
+        result_names = [alert["name"] for alert in response.json()["results"]]
+
+        assert result_names == ["Revenue other"]
+
+    @parameterized.expand(
+        [
+            ("search_length_cap", {"search": "a" * 201}, "search"),
+            ("invalid_created_by_uuid", {"created_by": "not-a-uuid"}, "created_by"),
+        ]
+    )
+    def test_list_filter_validation_errors(self, _name: str, query_params: dict[str, str], expected_attr: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/alerts", query_params)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_attr
 
 
 class TestAlertAPIKeyAccess(APIBaseTest):
