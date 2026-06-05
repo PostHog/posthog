@@ -66,3 +66,20 @@ export const FailedSession: Story = {
         onClose: noop,
     },
 }
+
+// Pins how the failure banner renders when the runner stamps a
+// long, scrubbed error onto a crashed session. The error text mirrors
+// what `truncateFailureReason` (services/agent-runner/src/workers/worker.ts)
+// produces: token shape redacted, multi-line collapsed, terminal
+// ellipsis if over 512 chars. The "View logs" button switches the
+// inner Tabs to the Logs pane so the operator can see the raw stack.
+export const FailedSessionWithLongReason: Story = {
+    args: {
+        session: {
+            ...failedRun,
+            error: 'MCP open failed: github: Streamable HTTP error: bad request: error: Authorization: Bearer ghp_**** rejected. The Copilot license for this organization does not allow Streamable HTTP transports for personal access tokens; check the integration settings or fall back to the `@posthog/http-request` tool with a manual Authorization header.',
+        },
+        logs: listLogsForSessionFixture(failedRun.id),
+        onClose: noop,
+    },
+}

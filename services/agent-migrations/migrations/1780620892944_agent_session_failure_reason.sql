@@ -1,0 +1,21 @@
+-- Add `failure_reason` on agent_session — see
+-- docs/agent-platform/plans/session-failure-observability.md (Layer 2).
+--
+-- One-line reason for terminal failure. Set by the runner when the
+-- session crashes (MCP open failure, sandbox acquire failure, model
+-- provider error, etc.). Null for sessions that completed or are still
+-- running. Authors see this rendered as a banner on the session-detail
+-- page in the agent console; the full stack lives in the Logs tab
+-- (Layer 1).
+--
+-- Length-capped at 512 chars in the writer (services/agent-runner) to
+-- keep the row diff-reviewable and the console rendering predictable;
+-- the column itself is unconstrained TEXT so a future writer can pick
+-- a different cap without a schema change.
+--
+-- Cancelled sessions deliberately do NOT populate this column —
+-- cancellation is a user action, not a crash. If a future feature needs
+-- a `cancellation_reason`, it lands as a separate column to keep the
+-- two states distinguishable.
+
+ALTER TABLE agent_session ADD COLUMN failure_reason TEXT NULL;

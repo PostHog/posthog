@@ -103,6 +103,7 @@ function makeSession(): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
+        failure_reason: null,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-27',
         updated_at: '2026-05-27',

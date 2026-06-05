@@ -21,7 +21,7 @@ import {
 import { AggregateStats, LIVE_SESSION_STATES, ListSessionsOpts, SessionQueue } from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
-                     idempotency_key, trigger_metadata, state,
+                     idempotency_key, trigger_metadata, state, failure_reason,
                      conversation, pending_inputs, principal, retry_count,
                      usage_total, acl, pending_elevation_requests,
                      created_at, updated_at`
@@ -33,14 +33,15 @@ export class PgSessionQueue implements SessionQueue {
         await this.pool.query(
             `INSERT INTO agent_session
                 (id, application_id, revision_id, team_id, external_key,
-                 idempotency_key, trigger_metadata, state,
+                 idempotency_key, trigger_metadata, state, failure_reason,
                  conversation, pending_inputs, principal, retry_count,
                  usage_total, acl, pending_elevation_requests,
                  created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
-                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10::jsonb, $11::jsonb,
+                     $12::jsonb, $13, $14::jsonb, $15::jsonb, $16::jsonb, $17, $18)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
+                failure_reason = EXCLUDED.failure_reason,
                 conversation = EXCLUDED.conversation,
                 pending_inputs = EXCLUDED.pending_inputs,
                 usage_total = EXCLUDED.usage_total,
@@ -56,6 +57,7 @@ export class PgSessionQueue implements SessionQueue {
                 session.idempotency_key,
                 session.trigger_metadata ? JSON.stringify(session.trigger_metadata) : null,
                 session.state,
+                session.failure_reason,
                 JSON.stringify(session.conversation),
                 JSON.stringify(session.pending_inputs),
                 session.principal ? JSON.stringify(session.principal) : null,
@@ -120,6 +122,10 @@ export class PgSessionQueue implements SessionQueue {
         if (patch.state !== undefined) {
             sets.push(`state = $${i++}`)
             params.push(patch.state)
+        }
+        if (patch.failure_reason !== undefined) {
+            sets.push(`failure_reason = $${i++}`)
+            params.push(patch.failure_reason)
         }
         if (patch.conversation !== undefined) {
             sets.push(`conversation = $${i++}::jsonb`)
@@ -391,6 +397,7 @@ interface DbRow {
     idempotency_key: string | null
     trigger_metadata: unknown
     state: string
+    failure_reason: string | null
     conversation: unknown
     pending_inputs: unknown
     principal: unknown
@@ -441,6 +448,7 @@ function rowToSession(row: DbRow): AgentSession {
                 ? (row.trigger_metadata as Record<string, unknown>)
                 : null,
         state: row.state as AgentSession['state'],
+        failure_reason: row.failure_reason,
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],
         retry_count: row.retry_count,

@@ -1124,6 +1124,11 @@ export interface AgentApplicationSessionsRetrieveResponseApi {
      */
     trigger_metadata?: AgentApplicationSessionsRetrieveResponseApiTriggerMetadata
     state: AgentSessionStateEnumApi
+    /**
+     * One-line reason for terminal failure. Set by the runner when the session crashes (MCP open, sandbox acquire, model provider, etc.); null for sessions that completed or are still running. Capped at 512 chars by the writer — the full stack lives in the per-session log stream. The console renders this as a banner on the session-detail page. Cancelled sessions do not populate this; that's not a crash.
+     * @nullable
+     */
+    failure_reason?: string | null
     /** Full transcript, or the trailing `last_n` messages if `?last_n=` was supplied. */
     conversation: AgentConversationMessageApi[]
     /** Messages that arrived while a turn was in flight; drained into `conversation` at the start of the next turn. */

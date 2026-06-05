@@ -124,6 +124,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 acl: [],
                 pending_elevation_requests: [],
+                failure_reason: null,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })

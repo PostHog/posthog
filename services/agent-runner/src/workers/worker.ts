@@ -31,6 +31,7 @@ import {
     CredentialBroker,
     GatewayClient,
     LogSink,
+    scrubTokens,
     MemoryStore,
     TabularStore,
     RevisionStore,
@@ -47,6 +48,33 @@ import type { IsAskerInApproverScope } from '../loop/per-asker-auth'
 import { resolveModelCached } from '../models/pi-client'
 
 const log = createLogger('worker')
+
+/**
+ * Length cap (chars) for the inline `failure_reason` field on
+ * `agent_session`. Matches the contract documented on the spec's
+ * `failure_reason` JSDoc. Kept locally rather than on the schema
+ * column because the column itself stays unconstrained TEXT — a future
+ * writer that wants a different cap should not need a migration.
+ */
+const FAILURE_REASON_MAX_LEN = 512
+
+/**
+ * Normalize a crash message for the session-row banner: collapse all
+ * whitespace runs (including newlines) to single spaces, trim ends,
+ * then truncate to `FAILURE_REASON_MAX_LEN` chars with an ellipsis if
+ * we cut. The full original message lives in the LogSink write
+ * upstream — this field is the at-a-glance summary, not the source of
+ * truth.
+ */
+function truncateFailureReason(message: string): string {
+    const oneLine = message.replace(/\s+/g, ' ').trim()
+    if (oneLine.length <= FAILURE_REASON_MAX_LEN) {
+        return oneLine
+    }
+    // -1 to make room for the ellipsis character; preserves the
+    // documented 512-char cap.
+    return oneLine.slice(0, FAILURE_REASON_MAX_LEN - 1) + '…'
+}
 
 export interface WorkerDeps {
     queue: SessionQueue
@@ -434,9 +462,44 @@ export class Worker {
                 usage_total: session.usage_total,
             })
         } catch (err) {
-            sLog.error({ err: (err as Error).message, stack: (err as Error).stack }, 'session.crashed')
+            const message = (err as Error).message ?? String(err)
+            const stack = (err as Error).stack
+            // Scrubbed once at the top so both the LogSink write and the
+            // session-row `failure_reason` use the same redaction pass.
+            const scrubbedMessage = scrubTokens(message)
+            sLog.error({ err: message, stack }, 'session.crashed')
+            // Mirror the crash into the session-visible LogSink so the
+            // console Logs tab shows *why* a session failed, not just
+            // that it did. Scrub well-known bearer-token shapes before
+            // persisting — the LogSink output is operator-visible and
+            // we don't want a leaked Slack/GitHub token in an MCP error
+            // string ending up in storage. See
+            // docs/agent-platform/plans/session-failure-observability.md.
+            try {
+                await this.deps.logs?.write([
+                    {
+                        ts: new Date().toISOString(),
+                        team_id: session.team_id,
+                        application_id: session.application_id,
+                        session_id: session.id,
+                        level: 'error',
+                        event: 'session.crashed',
+                        data: { message: scrubbedMessage },
+                    },
+                ])
+            } catch (logErr) {
+                // LogSink failure must not mask the original crash —
+                // we still need to mark the session failed below.
+                sLog.error({ err: (logErr as Error).message }, 'session.crashed.log_sink_failed')
+            }
             await this.deps.queue.update(session.id, {
                 state: 'failed',
+                // Inline failure context for the session-detail banner.
+                // Multi-line errors collapse to single spaces and the
+                // result is capped at 512 chars — the full message lives
+                // in the LogSink write above (Layer 1). Cancelled
+                // sessions do not populate this; that's not a crash.
+                failure_reason: truncateFailureReason(scrubbedMessage),
                 conversation: session.conversation,
                 pending_inputs: session.pending_inputs,
                 usage_total: session.usage_total,

@@ -336,6 +336,10 @@ function detailToChatSession(
             outputTokens: raw.usage_total.tokens_out,
             costUsd: raw.usage_total.cost_total,
         },
+        // Surface the runner's one-line crash reason as the
+        // session-level error. The banner renders this on the detail
+        // page; the Logs tab still carries the full multi-line context.
+        error: raw.state === 'failed' && raw.failure_reason ? raw.failure_reason : undefined,
         started_at: raw.created_at,
         ended_at: isTerminalState(raw.state) ? raw.updated_at : undefined,
         trigger: triggerMetadataToSessionTrigger(raw.trigger_metadata),

@@ -27,6 +27,7 @@ function session(id: string, state: AgentSession['state'], updatedAt: string): A
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
+        failure_reason: null,
         created_at: updatedAt,
         updated_at: updatedAt,
     }

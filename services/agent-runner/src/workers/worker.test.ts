@@ -15,6 +15,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
+    InMemoryLogSink,
     InProcessSandboxPool,
     MemoryBundleStore,
     MemoryRevisionStore,
@@ -83,6 +84,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            failure_reason: null,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -146,6 +148,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            failure_reason: null,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -207,6 +210,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            failure_reason: null,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -300,6 +304,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            failure_reason: null,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -358,6 +363,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            failure_reason: null,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -486,6 +492,7 @@ describe('Worker', () => {
                 retry_count: 0,
                 acl: [],
                 pending_elevation_requests: [],
+                failure_reason: null,
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 created_at: '2026-05-27',
                 updated_at: '2026-05-27',
@@ -516,6 +523,159 @@ describe('Worker', () => {
             expect(after!.state).toBe('failed')
         }
     )
+
+    // Pre-fix: a thrown error inside runOne went only to the pino logger
+    // (runner stdout, invisible to the platform UI). The user could see
+    // `state=failed` in the console but no reason. Now the catch block
+    // mirrors the scrubbed error message into the session LogSink so the
+    // Logs tab in the console explains *why*.
+    //
+    // Also asserts the token scrubber is wired — if a bearer token ever
+    // leaks into an error string (e.g. an MCP transport echoing the
+    // Authorization header back in a 401), it must be redacted before
+    // landing in operator-visible storage.
+    it('mirrors a session crash into the LogSink with tokens scrubbed', async () => {
+        const revisions = new MemoryRevisionStore()
+        const bundle = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+        const logs = new InMemoryLogSink()
+        const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'faux/test' }),
+        })
+        await bundle.write(rev.id, 'agent.md', 'x')
+        const session: AgentSession = {
+            id: 'sess-crash',
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
+            state: 'queued',
+            conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            acl: [],
+            pending_elevation_requests: [],
+            failure_reason: null,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            created_at: '2026-05-27',
+            updated_at: '2026-05-27',
+        }
+        await queue.enqueue(session)
+
+        const worker = new Worker({
+            queue,
+            revisions,
+            bundle,
+            sandboxes: new InProcessSandboxPool(),
+            broker: new SecretBroker(),
+            logs,
+            resolveIntegrations: async () => ({}),
+            // Throw an error that *contains* a token-shaped value, simulating
+            // a downstream component (MCP transport, fetch wrapper, etc.)
+            // echoing a bearer header into its error message.
+            resolveSecrets: async () => {
+                throw new Error('upstream auth failed: Bearer ghp_realsecretvalue1234 rejected')
+            },
+            resolveModel: () => fauxModel([endTurn('would never run')]),
+        })
+
+        await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
+
+        const entries = logs.forSession('sess-crash')
+        const crash = entries.find((e) => e.event === 'session.crashed')
+        expect(crash).not.toBeUndefined()
+        expect(crash!.level).toBe('error')
+        expect(crash!.team_id).toBe(1)
+        expect(crash!.application_id).toBe(app.id)
+        const message = (crash!.data as { message: string }).message
+        // Token redacted, surrounding context preserved.
+        expect(message).toContain('ghp_****')
+        expect(message).not.toContain('realsecretvalue')
+        expect(message).toContain('upstream auth failed')
+
+        // Layer 2: the same scrubbed reason lands on the session row
+        // for the console banner. The Logs tab still has the full
+        // context; this is the at-a-glance summary.
+        const after = await queue.get('sess-crash')
+        expect(after!.state).toBe('failed')
+        expect(after!.failure_reason).not.toBeNull()
+        expect(after!.failure_reason).toContain('ghp_****')
+        expect(after!.failure_reason).not.toContain('realsecretvalue')
+    })
+
+    // Layer 2: any session that crashes with a long, multi-line error
+    // gets a one-line, capped failure_reason. The Logs tab carries the
+    // raw multi-line form (Layer 1); the row keeps the banner sane.
+    it('truncates multi-line crash messages into a single-line failure_reason', async () => {
+        const revisions = new MemoryRevisionStore()
+        const bundle = new MemoryBundleStore()
+        const queue = new MemorySessionQueue()
+        const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'faux/test' }),
+        })
+        await bundle.write(rev.id, 'agent.md', 'x')
+        const session: AgentSession = {
+            id: 'sess-multiline-crash',
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
+            state: 'queued',
+            conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            acl: [],
+            pending_elevation_requests: [],
+            failure_reason: null,
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            created_at: '2026-05-27',
+            updated_at: '2026-05-27',
+        }
+        await queue.enqueue(session)
+
+        const longError = ['Streamable HTTP error:', 'bad request:', 'error:', 'x'.repeat(800)].join('\n')
+        const worker = new Worker({
+            queue,
+            revisions,
+            bundle,
+            sandboxes: new InProcessSandboxPool(),
+            broker: new SecretBroker(),
+            resolveIntegrations: async () => ({}),
+            resolveSecrets: async () => {
+                throw new Error(longError)
+            },
+            resolveModel: () => fauxModel([endTurn('would never run')]),
+        })
+
+        await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
+
+        const after = await queue.get('sess-multiline-crash')
+        expect(after!.state).toBe('failed')
+        const reason = after!.failure_reason!
+        // Cap is 512; ellipsis added when the source was longer.
+        expect(reason.length).toBeLessThanOrEqual(512)
+        expect(reason.endsWith('…')).toBe(true)
+        // Whitespace collapsed — no embedded newlines.
+        expect(reason).not.toContain('\n')
+        // Leading context preserved.
+        expect(reason.startsWith('Streamable HTTP error:')).toBe(true)
+    })
 
     it('main loop swallows transient claim() errors instead of crashing', async () => {
         const revisions = new MemoryRevisionStore()

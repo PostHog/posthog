@@ -135,6 +135,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         idempotency_key: input.idempotencyKey ?? null,
         trigger_metadata: input.triggerMetadata ?? null,
         state: 'queued' as const,
+        failure_reason: null,
         conversation: [input.seed],
         pending_inputs: [],
         principal: input.principal ?? null,

@@ -782,6 +782,22 @@ export interface AgentSession {
      */
     state: 'queued' | 'running' | 'completed' | 'closed' | 'cancelled' | 'failed'
     /**
+     * One-line reason for terminal failure. Set by the worker when the
+     * session crashes (MCP open failure, sandbox acquire failure, model
+     * provider error, etc.). Null for sessions that completed or are still
+     * running. Authors see this rendered as a banner on the session-detail
+     * page in the agent console; the full stack lives in the Logs tab
+     * (see `session-failure-observability.md` Layer 1).
+     *
+     * Length-capped at 512 chars by the writer to keep the row
+     * diff-reviewable and the console rendering predictable. Longer
+     * error contexts are preserved in the Logs tab.
+     *
+     * Cancelled sessions deliberately do not populate this — cancel is a
+     * user action, not a crash. The two states stay distinguishable.
+     */
+    failure_reason: string | null
+    /**
      * Principal that authenticated `/run`. Subsequent `/send` calls must
      * carry a principal that matches (same kind + id). Null for sessions
      * started without auth on public agents.

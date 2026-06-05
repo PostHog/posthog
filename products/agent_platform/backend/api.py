@@ -963,6 +963,18 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         ),
                     ),
                     "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
+                    "failure_reason": drf_serializers.CharField(
+                        allow_null=True,
+                        required=False,
+                        help_text=(
+                            "One-line reason for terminal failure. Set by the runner when the session "
+                            "crashes (MCP open, sandbox acquire, model provider, etc.); null for "
+                            "sessions that completed or are still running. Capped at 512 chars by the "
+                            "writer — the full stack lives in the per-session log stream. The console "
+                            "renders this as a banner on the session-detail page. Cancelled sessions "
+                            "do not populate this; that's not a crash."
+                        ),
+                    ),
                     "principal": _AGENT_SESSION_PRINCIPAL,
                     "conversation": drf_serializers.ListField(
                         child=_AgentConversationMessageField(),

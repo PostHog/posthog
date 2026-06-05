@@ -16,7 +16,7 @@
 
 'use client'
 
-import { XIcon } from 'lucide-react'
+import { AlertTriangleIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
 
 import type { ChatSession } from '@posthog/agent-chat'
@@ -59,6 +59,8 @@ export function SessionDetail({ session, logs, onClose }: SessionDetailProps): R
             </div>
 
             <CronTriggerBadge trigger={session.trigger} />
+
+            <FailureBanner session={session} onViewLogs={() => setActivePane('logs')} />
 
             <div className="min-h-0 flex-1 overflow-hidden px-4 pb-4 pt-3">
                 <Tabs
@@ -105,6 +107,53 @@ export function SessionDetail({ session, logs, onClose }: SessionDetailProps): R
  * fires get a `(manual)` suffix so an operator can tell at a glance
  * which firings came from the "Fire now" button vs the scheduler.
  */
+/**
+ * Inline banner shown when a session is in the `failed` terminal state
+ * and the runner stamped a `failure_reason` on the row. The reason is
+ * already one-lined + capped at 512 chars by the worker
+ * (`truncateFailureReason`); the Logs tab carries the full multi-line
+ * stack. Renders nothing for non-failed sessions or for failed
+ * sessions on rows that pre-date the column.
+ *
+ * Distinct from `agent-chat`'s `ErrorBanner`, which surfaces transport
+ * (SSE) errors raised by the chat client — that path is about an
+ * in-flight live session losing its stream. This banner is about a
+ * server-recorded terminal crash; the two never coexist on the same
+ * session.
+ */
+function FailureBanner({
+    session,
+    onViewLogs,
+}: {
+    session: ChatSession
+    onViewLogs: () => void
+}): React.ReactElement | null {
+    if (session.state !== 'failed' || !session.error) {
+        return null
+    }
+    return (
+        <div className="shrink-0 px-4 pt-2">
+            <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-foreground"
+            >
+                <AlertTriangleIcon className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                <div className="min-w-0 flex-1">
+                    <div className="font-medium">This session failed.</div>
+                    <div className="mt-0.5 break-words text-muted-foreground">{session.error}</div>
+                </div>
+                <button
+                    type="button"
+                    onClick={onViewLogs}
+                    className="shrink-0 cursor-pointer rounded border border-border bg-background px-2 py-1 text-[0.6875rem] font-medium text-foreground hover:bg-accent"
+                >
+                    View logs
+                </button>
+            </div>
+        </div>
+    )
+}
+
 function CronTriggerBadge({ trigger }: { trigger: ChatSession['trigger'] }): React.ReactElement | null {
     if (!trigger || trigger.kind !== 'cron') {
         return null
