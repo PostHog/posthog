@@ -27,7 +27,9 @@ def proto_group_type_mapping_to_dict(mapping: group_pb2.GroupTypeMapping) -> dic
         created_at = datetime.fromtimestamp(mapping.created_at / 1000, tz=UTC)
 
     return {
-        "group_type": mapping.group_type or None,
+        # group_type is NOT NULL in the DB, so mirror the ORM .values() path and keep it a string.
+        # Coercing a falsy value to None here leaks a null group_type to the frontend, which crashes wordPluralize.
+        "group_type": mapping.group_type,
         "group_type_index": mapping.group_type_index,
         "name_singular": mapping.name_singular or None,
         "name_plural": mapping.name_plural or None,

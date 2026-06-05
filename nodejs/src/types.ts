@@ -855,6 +855,7 @@ export interface EventPropertyType {
 }
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
+export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export enum PropertyUpdateOperation {
     Set = 'set',

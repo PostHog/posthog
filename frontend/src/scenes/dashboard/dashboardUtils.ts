@@ -132,9 +132,9 @@ export function getDashboardWidgetType(
     )
 }
 
-/** Widget tiles are not shown on shared/public/export dashboard views. */
+/** Widget tiles are hidden on export; on public/shared views they render with a login placeholder. */
 export function isWidgetTileVisibleOnPlacement(placement: DashboardPlacement): boolean {
-    return placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
+    return placement !== DashboardPlacement.Export
 }
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {

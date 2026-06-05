@@ -136,7 +136,6 @@ export enum NodeKind {
     WebVitalsQuery = 'WebVitalsQuery',
     WebVitalsPathBreakdownQuery = 'WebVitalsPathBreakdownQuery',
     WebPageURLSearchQuery = 'WebPageURLSearchQuery',
-    WebTrendsQuery = 'WebTrendsQuery',
     WebAnalyticsExternalSummaryQuery = 'WebAnalyticsExternalSummaryQuery',
     WebNotableChangesQuery = 'WebNotableChangesQuery',
 
@@ -219,7 +218,6 @@ export type AnyDataNode =
     | WebVitalsQuery
     | WebVitalsPathBreakdownQuery
     | WebPageURLSearchQuery
-    | WebTrendsQuery
     | WebAnalyticsExternalSummaryQuery
     | WebNotableChangesQuery
     | SessionAttributionExplorerQuery
@@ -451,6 +449,7 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    pushDownPredicates?: boolean
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[]
     inlineCohortCalculation?: 'off' | 'auto' | 'always'
@@ -1481,6 +1480,8 @@ export type TrendsFilter = {
     excludeBoxPlotOutliers?: boolean
     /** @default false */
     hideWeekends?: boolean
+    /** @default true */
+    showAnnotations?: boolean
 }
 
 export type CalendarHeatmapFilter = {
@@ -1512,6 +1513,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
     'hiddenLegendIndexes',
     'excludeBoxPlotOutliers',
     'hideWeekends',
+    'showAnnotations',
 ])
 
 export interface BoxPlotDatum {
@@ -1678,6 +1680,11 @@ export type FunnelsFilter = {
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
     breakdownSorting?: string
+    /**
+     * Whether to render annotations on the chart. Only applies to historical-trends funnels.
+     * @default true
+     */
+    showAnnotations?: boolean
 }
 
 export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
@@ -3184,6 +3191,8 @@ export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     after?: string
     /** Prefetch up to this many spans per trace and include them in results */
     prefetchSpans?: integer
+    /** Omit the per-span `attributes` map from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
@@ -5296,51 +5305,6 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
 
-export enum WebTrendsMetric {
-    UNIQUE_USERS = 'UniqueUsers',
-    PAGE_VIEWS = 'PageViews',
-    SESSIONS = 'Sessions',
-    BOUNCES = 'Bounces',
-    SESSION_DURATION = 'SessionDuration',
-    TOTAL_SESSIONS = 'TotalSessions',
-}
-
-export interface WebTrendsQuery extends WebAnalyticsQueryBase<WebTrendsQueryResponse> {
-    kind: NodeKind.WebTrendsQuery
-    interval: IntervalType
-    metrics: WebTrendsMetric[]
-    limit?: integer
-    offset?: integer
-}
-
-export interface WebTrendsItem {
-    bucket: string
-    metrics: Partial<Record<WebTrendsMetric, number>>
-}
-
-export interface WebTrendsQueryResponse extends AnalyticsQueryResponseBase {
-    results: WebTrendsItem[]
-    /** Input query string */
-    query?: string
-    /** Executed ClickHouse query */
-    clickhouse?: string
-    /** Returned columns */
-    columns?: any[]
-    /** Types of returned columns */
-    types?: any[]
-    /** Query explanation output */
-    explain?: string[]
-    /** Query metadata output */
-    metadata?: HogQLMetadataResponse
-    hasMore?: boolean
-    limit?: integer
-    offset?: integer
-    samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-}
-
-export type CachedWebTrendsQueryResponse = CachedQueryResponse<WebTrendsQueryResponse>
-
 export interface WebNotableChangesQuery extends WebAnalyticsQueryBase<WebNotableChangesQueryResponse> {
     kind: NodeKind.WebNotableChangesQuery
     limit?: integer
@@ -5952,6 +5916,7 @@ export const externalDataSources = [
     'RevenueCat',
     'Polar',
     'GoogleAds',
+    'GoogleSearchConsole',
     'MetaAds',
     'Klaviyo',
     'Mailchimp',

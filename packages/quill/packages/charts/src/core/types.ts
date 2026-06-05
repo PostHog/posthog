@@ -108,6 +108,11 @@ export interface PointClickData<Meta = unknown> {
     /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
      *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
     cursor: { x: number; y: number } | null
+    /** Grouped layouts only: `true` when the cursor was in the bar's band slot but beyond its
+     *  filled value extent — i.e. the track region above (vertical) or past (horizontal) a short
+     *  bar. Lets consumers route "clicked the empty remainder" differently from "clicked the bar"
+     *  (e.g. funnel drop-off vs converted). `undefined` outside grouped click resolution. */
+    inTrackArea?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -332,6 +337,13 @@ export interface YAxisScale {
     position: 'left' | 'right'
 }
 
+/** Band-axis slot of a single bar: left-edge coordinate (`x`) and width along the band axis.
+ *  Callers derive the center as `x + width / 2` (e.g. to anchor a tooltip on the hovered bar). */
+export interface BandSlot {
+    x: number
+    width: number
+}
+
 /** Generic scale interface that Chart uses for shared overlays and interaction. */
 export interface ChartScales {
     /** Maps a label to an x pixel coordinate. For chart types where data points
@@ -350,6 +362,11 @@ export interface ChartScales {
      *  band width so {@link TooltipContext.position.width} carries it through to the
      *  tooltip overlay. Point-style charts (line, scatter) leave it unset. */
     extent?: (label: string) => number | undefined
+    /** Optional cursor-aware band-slot resolver for grouped layouts. Given the hovered label
+     *  and cursor (canvas pixels), returns the `{ x, width }` slot of the specific bar under the
+     *  cursor, so the tooltip anchors on that bar rather than the whole group. Falls back to
+     *  `x`/`extent` when absent or when it returns undefined. */
+    bandSlotAtCursor?: (label: string, cursor: { x: number; y: number }) => BandSlot | undefined
     /** Chart-type-private slot. Library code MUST NOT read this — it is populated by
      *  individual chart implementations (e.g. LineChart stashes raw d3 scales here so
      *  its `drawStatic` can use them) and is opaque to the base Chart and overlays.

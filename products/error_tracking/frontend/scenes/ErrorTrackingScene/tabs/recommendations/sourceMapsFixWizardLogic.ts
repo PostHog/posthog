@@ -108,7 +108,7 @@ export const sourceMapsFixWizardLogic = kea<sourceMapsFixWizardLogicType>([
         wizardCommand: [
             () => [preflightLogic.selectors.preflight],
             (preflight): string =>
-                `npx -y @posthog/wizard@latest upload-sourcemaps${preflight?.region === Region.EU ? ' --region eu' : ''}`,
+                `npx -y @posthog/wizard@latest upload-source-maps${preflight?.region === Region.EU ? ' --region eu' : ''}`,
         ],
     }),
 

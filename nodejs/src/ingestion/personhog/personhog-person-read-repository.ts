@@ -19,7 +19,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
     ) {}
 
     async fetchPerson(teamId: number, distinctId: string, callerTag?: string): Promise<InternalPerson | undefined> {
-        const results = await withRetry('PersonHogPersonReadRepository', () =>
+        const results = await withRetry('PersonHogPersonReadRepository.fetchPerson', () =>
             timedGrpc(this.clientLabel, 'fetchPerson', () =>
                 this.grpcClient.persons.fetchPersonsByDistinctIds([{ teamId, distinctId }], callerTag)
             )
@@ -31,7 +31,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         teamPersons: { teamId: TeamId; distinctId: string }[],
         callerTag?: string
     ): Promise<InternalPersonWithDistinctId[]> {
-        return withRetry('PersonHogPersonReadRepository', () =>
+        return withRetry('PersonHogPersonReadRepository.fetchPersonsByDistinctIds', () =>
             timedGrpc(this.clientLabel, 'fetchPersonsByDistinctIds', () =>
                 this.grpcClient.persons.fetchPersonsByDistinctIds(teamPersons, callerTag)
             )
@@ -42,7 +42,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         teamPersons: { teamId: TeamId; personId: string }[],
         callerTag?: string
     ): Promise<InternalPerson[]> {
-        return withRetry('PersonHogPersonReadRepository', () =>
+        return withRetry('PersonHogPersonReadRepository.fetchPersonsByPersonIds', () =>
             timedGrpc(this.clientLabel, 'fetchPersonsByPersonIds', () =>
                 this.grpcClient.persons.fetchPersonsByPersonIds(teamPersons, callerTag)
             )
@@ -55,7 +55,7 @@ export class PersonHogPersonReadRepository implements PersonReadRepository {
         options?: { limitPerPerson?: number },
         callerTag?: string
     ): Promise<Record<string, string[]>> {
-        return withRetry('PersonHogPersonReadRepository', () =>
+        return withRetry('PersonHogPersonReadRepository.fetchDistinctIdsForPersons', () =>
             timedGrpc(this.clientLabel, 'fetchDistinctIdsForPersons', () =>
                 this.grpcClient.persons.getDistinctIdsForPersons(
                     teamId,
