@@ -48,6 +48,7 @@ docker run --rm \
     -e AGENT_USE_AI_GATEWAY='1' \
     -e POSTHOG_AI_GATEWAY_URL='http://127.0.0.1:1/v1' \
     -e POSTHOG_API_BASE_URL='http://127.0.0.1:1' \
+    -e HTTPS_PROXY='http://127.0.0.1:1' \
     -e NODE_ENV='production' \
     --entrypoint sh \
     "$IMAGE_REF" \
