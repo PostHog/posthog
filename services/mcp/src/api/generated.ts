@@ -395,6 +395,7 @@ export namespace Schemas {
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
+      pushDownPredicates?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
@@ -486,6 +487,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -1741,6 +1744,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
@@ -1782,6 +1787,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -1922,6 +1929,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TrendsQueryResponseResultsItem[];
@@ -2371,6 +2380,8 @@ export namespace Schemas {
       /** Goal Lines */
       goalLines?: GoalLine[] | null;
       hiddenLegendBreakdowns?: string[] | null;
+      /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
+      hideIncompleteConversionWindowPeriods?: boolean | null;
       layout?: FunnelLayout | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;
@@ -2391,6 +2402,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -2483,6 +2496,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RetentionResult[];
@@ -2730,6 +2745,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PathsLink[];
@@ -2777,6 +2794,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: StickinessQueryResponseResultsItem[];
@@ -2887,6 +2906,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LifecycleQueryResponseResultsItem[];
@@ -3032,6 +3053,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -3118,6 +3141,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -3249,6 +3274,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: FunnelCorrelationResult;
@@ -3702,6 +3729,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4097,6 +4126,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4121,6 +4152,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4145,6 +4178,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4177,6 +4212,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4199,6 +4236,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -4224,6 +4263,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4250,6 +4291,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4274,6 +4317,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4309,6 +4354,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -4336,6 +4383,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4359,6 +4408,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4379,6 +4430,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4398,6 +4451,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4425,6 +4480,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -4457,6 +4514,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -4476,6 +4535,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4498,6 +4559,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4531,6 +4594,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -4553,6 +4618,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: Response19Results;
@@ -4576,6 +4643,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -4724,6 +4793,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -4769,6 +4840,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
@@ -4875,6 +4948,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -4897,6 +4972,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4923,6 +5000,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5049,6 +5128,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5136,6 +5217,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5176,6 +5259,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -5230,6 +5315,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -5333,6 +5420,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -5415,6 +5504,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5452,6 +5543,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5523,6 +5616,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -5556,6 +5651,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5589,6 +5686,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -5621,6 +5720,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -5660,6 +5761,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5695,6 +5798,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5730,6 +5835,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5888,6 +5995,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -5953,6 +6062,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsAggregatedQueryResponseResults;
@@ -6011,6 +6122,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -6108,6 +6221,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -6171,6 +6286,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
@@ -6278,6 +6395,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -6324,6 +6443,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -6397,6 +6518,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -6733,6 +6856,14 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export type SearchMatchTypeEnum = typeof SearchMatchTypeEnum[keyof typeof SearchMatchTypeEnum];
+
+
+    export const SearchMatchTypeEnum = {
+      Exact: 'exact',
+      Similar: 'similar',
+    } as const;
+
     /**
      * @nullable
      */
@@ -6840,6 +6971,8 @@ export namespace Schemas {
       readonly alerts: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface Text {
@@ -7596,6 +7729,12 @@ export namespace Schemas {
       * `organization` - organization
       * `recording` - recording */
       scope?: AnnotationScopeEnum;
+      /**
+         * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
+         * @maxLength 16
+         * @nullable
+         */
+      emoji?: string | null;
     }
 
     export interface AppMetricSeries {
@@ -7730,6 +7869,17 @@ export namespace Schemas {
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
     } as const;
+
+    export interface Author {
+      /** Login handle of the pull request author. */
+      handle: string;
+      /** Human-readable name; equals the handle in v1. */
+      display_name: string;
+      /** URL of the author's avatar image. */
+      avatar_url: string;
+      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
+      is_bot: boolean;
+    }
 
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
@@ -10055,6 +10205,17 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    export interface CICardSummary {
+      /** Count of open pull requests. */
+      open_prs: number;
+      /** Distinct repositories with at least one open pull request. */
+      repos: number;
+      /** Open, non-draft, non-bot pull requests older than 7 days. */
+      stuck: number;
+      /** Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions. */
+      failing_ci: number;
+    }
+
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -10085,6 +10246,17 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** Plaintext token, only returned on creation */
       readonly value: string;
+    }
+
+    export interface CIStatusRollup {
+      /** Distinct workflows run on the PR's head SHA. */
+      runs: number;
+      /** Latest runs that completed with conclusion 'success'. */
+      passing: number;
+      /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+      failing: number;
+      /** Latest runs not yet completed (queued or in progress). */
+      pending: number;
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -10121,6 +10293,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventsHeatMapStructuredResult;
@@ -13633,6 +13807,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EmbeddingDistance[];
@@ -14376,6 +14552,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageOverviewItem[];
@@ -14424,6 +14602,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageTrendsQueryResponseResultsItem[];
@@ -14478,6 +14658,20 @@ export namespace Schemas {
     export const EngineEnum = {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
+    } as const;
+
+    /**
+     * * `open` - OPEN
+    * `closed` - CLOSED
+    * `merged` - MERGED
+     */
+    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
+
+
+    export const EngineeringAnalyticsPRStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
     } as const;
 
     /**
@@ -14674,6 +14868,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingBreakdownsQueryResponseResults;
@@ -15367,6 +15563,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SimilarIssue[];
@@ -16129,6 +16327,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventTaxonomyItem[];
@@ -19329,6 +19529,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TimelineEntry[];
@@ -19369,6 +19571,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PageURL[];
@@ -19445,6 +19649,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebNotableChangeItem[];
@@ -19508,6 +19714,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -19541,6 +19749,8 @@ export namespace Schemas {
       /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
+      /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+      excludeAttributes?: boolean | null;
       filterGroup: PropertyGroupFilter;
       kind?: 'LogsQuery';
       limit?: number | null;
@@ -19589,6 +19799,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogAttributeResult[];
@@ -19632,6 +19844,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogValueResult[];
@@ -19674,6 +19888,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -19687,6 +19903,8 @@ export namespace Schemas {
       /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
+      /** Omit the per-span `attributes` map from results to keep payloads compact */
+      excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
@@ -19717,6 +19935,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: AggregatedSpanRow[];
@@ -19767,6 +19987,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SpanTreeNode[];
@@ -19933,6 +20155,8 @@ export namespace Schemas {
       next_cursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
@@ -20031,6 +20255,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: VectorSearchResponseItem[];
@@ -20092,6 +20318,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
@@ -22174,6 +22402,20 @@ export namespace Schemas {
       SetConfigOption: 'set_config_option',
     } as const;
 
+    /**
+     * * `precise` - PRECISE
+    * `coarse` - COARSE
+    * `partial` - PARTIAL
+     */
+    export type MetricQualityEnum = typeof MetricQualityEnum[keyof typeof MetricQualityEnum];
+
+
+    export const MetricQualityEnum = {
+      Precise: 'precise',
+      Coarse: 'coarse',
+      Partial: 'partial',
+    } as const;
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -23002,6 +23244,97 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface PullRequest {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** GitHub pull request id. */
+      id: number;
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+
+      * `open` - OPEN
+      * `closed` - CLOSED
+      * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * When the pull request was closed, or null.
+         * @nullable
+         */
+      closed_at: string | null;
+    }
+
+    /**
+     * * `opened` - OPENED
+    * `ci_started` - CI_STARTED
+    * `ci_finished` - CI_FINISHED
+    * `merged` - MERGED
+    * `closed` - CLOSED
+     */
+    export type PRLifecycleEventKindEnum = typeof PRLifecycleEventKindEnum[keyof typeof PRLifecycleEventKindEnum];
+
+
+    export const PRLifecycleEventKindEnum = {
+      Opened: 'opened',
+      CiStarted: 'ci_started',
+      CiFinished: 'ci_finished',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
+    export interface PRLifecycleEvent {
+      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+
+      * `opened` - OPENED
+      * `ci_started` - CI_STARTED
+      * `ci_finished` - CI_FINISHED
+      * `merged` - MERGED
+      * `closed` - CLOSED */
+      kind: PRLifecycleEventKindEnum;
+      /** When the event occurred. */
+      at: string;
+      /**
+         * Optional detail, e.g. workflow name and conclusion for CI events.
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface PRLifecycle {
+      /** The pull request header. */
+      pull_request: PullRequest;
+      /** Lifecycle events ordered by time. */
+      events: PRLifecycleEvent[];
+      /** Always 'partial' — CI events only; reviews and comments are not yet available.
+
+      * `precise` - PRECISE
+      * `coarse` - COARSE
+      * `partial` - PARTIAL */
+      metric_quality?: MetricQualityEnum;
+    }
 
     export interface PaginatedAccountList {
       count: number;
@@ -23960,6 +24293,31 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: OrganizationOAuthApplication[];
+    }
+
+    export interface ParserRecipe {
+      readonly id: string;
+      /**
+         * Human-readable recipe name shown in the editor.
+         * @maxLength 255
+         */
+      name: string;
+      /** Raw YAML recipe source, compiled and validated client-side. */
+      source: string;
+      /** User who created the recipe. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedParserRecipeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ParserRecipe[];
     }
 
     export interface PauseStateResponse {
@@ -25094,6 +25452,79 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SignalSourceConfig[];
+    }
+
+    /**
+     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+     * @nullable
+     */
+    export type SingleSessionSummaryMinimalSessionOutcome = {
+      readonly success?: boolean;
+      readonly description?: string;
+    } | null;
+
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    export type SingleSessionSummaryMinimalExtraSummaryContext = {
+      readonly focus_area?: string;
+    } | null;
+
+    /**
+     * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
+     */
+    export interface SingleSessionSummaryMinimal {
+      readonly id: string;
+      /** Session replay ID */
+      readonly session_id: string;
+      /**
+         * Distinct ID of the session's user
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Session start time
+         * @nullable
+         */
+      readonly session_start_time: string | null;
+      /**
+         * Session duration in seconds
+         * @nullable
+         */
+      readonly session_duration: number | null;
+      /**
+         * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+         * @nullable
+         */
+      readonly session_outcome: SingleSessionSummaryMinimalSessionOutcome;
+      /** Number of exception event IDs surfaced by this summary (capped at 100). */
+      readonly exception_count: number;
+      /** True if the summary surfaced any exception events. */
+      readonly has_exceptions: boolean;
+      /**
+         * LLM model identifier that generated this summary, if recorded in run metadata.
+         * @nullable
+         */
+      readonly model_used: string | null;
+      /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
+      readonly visual_confirmation: boolean;
+      /**
+         * Optional context passed to the summary at generation time (e.g. `focus_area`).
+         * @nullable
+         */
+      readonly extra_summary_context: SingleSessionSummaryMinimalExtraSummaryContext;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface PaginatedSingleSessionSummaryMinimalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SingleSessionSummaryMinimal[];
     }
 
     export interface SnapshotHistoryEntry {
@@ -26445,6 +26876,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
       readonly view_count: number;
       /** Up to 3 of the most recent users who viewed this insight in the time window. */
@@ -27174,6 +27607,12 @@ export namespace Schemas {
       * `organization` - organization
       * `recording` - recording */
       scope?: AnnotationScopeEnum;
+      /**
+         * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
+         * @maxLength 16
+         * @nullable
+         */
+      emoji?: string | null;
     }
 
     export interface PatchedApprovalPolicy {
@@ -29158,6 +29597,8 @@ export namespace Schemas {
       readonly alerts?: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at?: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedInsightVariable {
@@ -29815,6 +30256,22 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+    }
+
+    export interface PatchedParserRecipe {
+      readonly id?: string;
+      /**
+         * Human-readable recipe name shown in the editor.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Raw YAML recipe source, compiled and validated client-side. */
+      source?: string;
+      /** User who created the recipe. */
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedPersistedFolder {
@@ -32233,6 +32690,11 @@ export namespace Schemas {
       account_group_type_index?: number | null;
     }
 
+    export interface TeamWorkflowsConfig {
+      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+      capture_workflows_engagement_events?: boolean;
+    }
+
     export interface PatchedTeam {
       readonly id?: number;
       readonly uuid?: string;
@@ -32402,6 +32864,7 @@ export namespace Schemas {
       conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
+      workflows_config?: TeamWorkflowsConfig;
       readonly effective_membership_level?: EffectiveMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
@@ -34493,6 +34956,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
@@ -34583,6 +35048,50 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface PullRequestListItem {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** CI status from the latest workflow runs on the head SHA. */
+      ci: CIStatusRollup;
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+
+      * `open` - OPEN
+      * `closed` - CLOSED
+      * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+         * @nullable
+         */
+      open_to_merge_seconds: number | null;
+      /** GitHub label names on the pull request. */
+      labels: string[];
+    }
+
+    export interface PullRequestList {
+      /** Pull requests, newest first, capped at `limit`. */
+      items: PullRequestListItem[];
+      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
     }
 
     /**
@@ -34734,6 +35243,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TeamTaxonomyItem[];
@@ -34817,6 +35328,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34840,6 +35353,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34864,6 +35379,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34888,6 +35405,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34920,6 +35439,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TimelineEntry[];
@@ -34958,6 +35479,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35001,6 +35524,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35024,6 +35549,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -35045,6 +35572,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SimilarIssue[];
@@ -35065,6 +35594,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative16Results;
@@ -35087,6 +35618,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
@@ -35193,6 +35726,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EmbeddingDistance[];
@@ -35213,6 +35748,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -35238,6 +35775,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35264,6 +35803,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35288,6 +35829,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35312,6 +35855,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -35337,6 +35882,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PageURL[];
@@ -35363,6 +35910,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebNotableChangeItem[];
@@ -35384,6 +35933,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35403,6 +35954,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35422,6 +35975,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -35440,6 +35995,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -35459,6 +36016,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35481,6 +36040,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -35503,6 +36064,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative37Results;
@@ -35526,6 +36089,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -35552,6 +36117,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35576,6 +36143,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35600,6 +36169,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35632,6 +36203,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35654,6 +36227,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -35679,6 +36254,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35705,6 +36282,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35729,6 +36308,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35753,6 +36334,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -35780,6 +36363,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35803,6 +36388,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35823,6 +36410,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35842,6 +36431,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35861,6 +36452,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -35879,6 +36472,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -35898,6 +36493,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35920,6 +36517,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35943,6 +36542,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -35965,6 +36566,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative58Results;
@@ -35988,6 +36591,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -36012,6 +36617,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -36077,6 +36684,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -36099,6 +36708,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -36125,6 +36736,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -36149,6 +36762,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative67ResultsItem[];
@@ -36167,6 +36782,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36185,6 +36802,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RetentionResult[];
@@ -36203,6 +36822,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PathsLink[];
@@ -36223,6 +36844,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative71ResultsItem[];
@@ -36245,6 +36868,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: FunnelCorrelationResult;
@@ -36274,6 +36899,8 @@ export namespace Schemas {
       next_cursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
@@ -36298,6 +36925,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36317,6 +36946,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogAttributeResult[];
@@ -36335,6 +36966,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogValueResult[];
@@ -36358,6 +36991,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36378,6 +37013,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: AggregatedSpanRow[];
@@ -36398,6 +37035,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SpanTreeNode[];
@@ -36425,6 +37064,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TeamTaxonomyItem[];
@@ -36446,6 +37087,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventTaxonomyItem[];
@@ -36464,6 +37107,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
@@ -36486,6 +37131,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -36519,6 +37166,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: VectorSearchResponseItem[];
@@ -36537,6 +37186,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
@@ -36562,6 +37213,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -36581,6 +37234,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageOverviewItem[];
@@ -36603,6 +37258,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -36624,6 +37281,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative94ResultsItem[];
@@ -36642,6 +37301,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
@@ -36988,6 +37649,38 @@ export namespace Schemas {
     export interface ScannerCreatorsResponse {
       /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
       creators: UserBasic[];
+    }
+
+    /**
+     * Per-scanner-type count of enabled vs total scanners.
+     */
+    export interface ScannerTypeStats {
+      /** Number of enabled scanners of this type. */
+      enabled: number;
+      /** Number of scanners of this type (enabled + disabled). */
+      total: number;
+    }
+
+    /**
+     * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+     */
+    export interface ScannerStatsByType {
+      monitor: ScannerTypeStats;
+      classifier: ScannerTypeStats;
+      scorer: ScannerTypeStats;
+      summarizer: ScannerTypeStats;
+    }
+
+    /**
+     * Team-wide scanner counts independent of any list-filter state.
+     */
+    export interface ScannerStatsResponse {
+      /** Total scanners on the team. */
+      total: number;
+      /** Number of enabled scanners on the team. */
+      enabled: number;
+      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+      by_type: ScannerStatsByType;
     }
 
     export interface ScoreDefinitionCreate {
@@ -37524,6 +38217,65 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
+     */
+    export type SingleSessionSummarySummary = { [key: string]: unknown };
+
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    export type SingleSessionSummaryExtraSummaryContext = {
+      readonly focus_area?: string;
+    } | null;
+
+    /**
+     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+     * @nullable
+     */
+    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown } | null;
+
+    /**
+     * Full session summary, including the generated `summary` JSON content.
+     */
+    export interface SingleSessionSummary {
+      readonly id: string;
+      /** Session replay ID */
+      readonly session_id: string;
+      /**
+         * Distinct ID of the session's user
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Session start time
+         * @nullable
+         */
+      readonly session_start_time: string | null;
+      /**
+         * Session duration in seconds
+         * @nullable
+         */
+      readonly session_duration: number | null;
+      /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
+      readonly summary: SingleSessionSummarySummary;
+      /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
+      readonly exception_event_ids: readonly string[];
+      /**
+         * Optional context passed to the summary at generation time (e.g. `focus_area`).
+         * @nullable
+         */
+      readonly extra_summary_context: SingleSessionSummaryExtraSummaryContext;
+      /**
+         * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+         * @nullable
+         */
+      readonly run_metadata: SingleSessionSummaryRunMetadata;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
     }
 
     export interface SlackChannel {
@@ -38442,6 +39194,24 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
+    export interface TaskFileRequest {
+      /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
+      folder?: string;
+    }
+
+    export interface TaskFileResponse {
+      /** Identifier of the project-tree entry for this task. */
+      id: string;
+      /** Full slash-separated path of the filed task in the project tree. */
+      path: string;
+      /** File system entry type. Always 'task'. */
+      type: string;
+      /** Identifier of the task this entry points to. */
+      ref: string;
+      /** In-app link to the task. */
+      href: string;
+    }
+
     /**
      * Request body for the presence beacon and beacon-leave endpoints.
 
@@ -39174,6 +39944,7 @@ export namespace Schemas {
       conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
+      workflows_config?: TeamWorkflowsConfig;
       readonly effective_membership_level: EffectiveMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];
@@ -39818,6 +40589,33 @@ export namespace Schemas {
       results: WidgetCatalogEntry[];
     }
 
+    export interface WorkflowHealthItem {
+      /** GitHub Actions workflow name. */
+      workflow_name: string;
+      /** Total runs started in the window. */
+      run_count: number;
+      /**
+         * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+         * @nullable
+         */
+      success_rate: number | null;
+      /**
+         * Median duration of completed runs, in seconds. Null if none completed.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * When the most recent run with conclusion 'failure' started, or null.
+         * @nullable
+         */
+      last_failure_at: string | null;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -40081,6 +40879,8 @@ export namespace Schemas {
       limit?: number;
       /** Pagination cursor from previous response. */
       after?: string;
+      /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _LogsQueryRequest {
@@ -40401,6 +41201,8 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
+      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _TracingQueryRequest {
@@ -40411,6 +41213,8 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
+      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _TracingTreeQueryBody {
@@ -42409,7 +43213,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
@@ -46477,6 +47281,35 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EngineeringAnalyticsPrLifecycleParams = {
+    /**
+     * Pull request number to inspect.
+     */
+    pr_number: number;
+    /**
+     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+     */
+    repo?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    };
+
     export type EnvironmentsListParams = {
     /**
      * Number of results to return per page.
@@ -47992,7 +48825,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
@@ -48601,6 +49434,17 @@ export namespace Schemas {
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsParserRecipesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 
@@ -50019,6 +50863,62 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SingleSessionSummariesListParams = {
+    /**
+     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
+     */
+    created_by?: string;
+    /**
+     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
+     */
+    date_to?: string;
+    /**
+     * Filter to summaries for a single user (the session's `distinct_id`).
+     */
+    distinct_id?: string;
+    /**
+     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
+     */
+    has_exceptions?: boolean;
+    /**
+     * When true, only summaries produced via the video-based visual-confirmation workflow.
+     */
+    has_visual_confirmation?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
+     */
+    order?: string;
+    /**
+     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
+     */
+    outcome?: SingleSessionSummariesListOutcome;
+    /**
+     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
+     */
+    session_ids?: string;
+    };
+
+    export type SingleSessionSummariesListOutcome = typeof SingleSessionSummariesListOutcome[keyof typeof SingleSessionSummariesListOutcome];
+
+
+    export const SingleSessionSummariesListOutcome = {
+      Failure: 'failure',
+      Success: 'success',
+      Unknown: 'unknown',
+    } as const;
 
     export type SubscriptionsListParams = {
     /**

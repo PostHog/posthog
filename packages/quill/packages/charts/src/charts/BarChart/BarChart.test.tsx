@@ -486,6 +486,41 @@ describe('BarChart', () => {
                 expect(click.dataIndex).toBe(1)
                 expect(click.series.key).toBe(key)
                 expect(click.value).toBe(value)
+                // Cursor is in the track above the bar's fill — funnel drop-off relies on this.
+                expect(click.inTrackArea).toBe(true)
+            }
+        )
+
+        // Complement of the track test above: a click inside the bar's filled extent must report
+        // `inTrackArea: false` so funnel "converted" clicks route correctly.
+        it.each<[string, number, string]>([
+            ['left sub-bar (a)', 1.3, 'a'],
+            ['right sub-bar (b)', 1.65, 'b'],
+        ])(
+            'grouped onPointClick reports inTrackArea false when the cursor is within the bar fill — %s',
+            async (_name, stepMultiplier, key) => {
+                const onPointClick = jest.fn()
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={SERIES}
+                        labels={LABELS}
+                        theme={THEME}
+                        config={{ barLayout: 'grouped' }}
+                        onPointClick={onPointClick}
+                    />
+                )
+                const step = dimensions.plotWidth / LABELS.length
+                // Same column as the sub-bar at index 1, but just above the baseline so the
+                // cursor sits inside the fill rather than in the track above it.
+                fireEvent.mouseMove(chart.element, {
+                    clientX: dimensions.plotLeft + step * stepMultiplier,
+                    clientY: dimensions.plotTop + dimensions.plotHeight - 2,
+                })
+                fireEvent.click(chart.element)
+                const click: PointClickData = onPointClick.mock.calls[0][0]
+                expect(click.dataIndex).toBe(1)
+                expect(click.series.key).toBe(key)
+                expect(click.inTrackArea).toBe(false)
             }
         )
 

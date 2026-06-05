@@ -4,3 +4,4 @@ pub mod kafka_config;
 pub mod router;
 pub mod transport;
 pub mod types;
+pub mod worker_registry;

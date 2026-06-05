@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
@@ -94,7 +95,7 @@ export function AccountNotebooksExpansion({
 }): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksLoading } = useValues(logic)
-    const [activeTab, setActiveTab] = useState<'notes' | 'users'>('notes')
+    const [activeTab, setActiveTab] = useState<'notes' | 'users' | 'usage'>('notes')
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
         {
@@ -191,6 +192,17 @@ export function AccountNotebooksExpansion({
                                 key: 'users',
                                 label: 'Users',
                                 content: <AccountRelatedUsersExpansion externalId={externalId} />,
+                            },
+                            {
+                                key: 'usage',
+                                label: 'Usage',
+                                content: (
+                                    <AccountBillingExpansion
+                                        accountId={accountId}
+                                        externalId={externalId}
+                                        kind="usage"
+                                    />
+                                ),
                             },
                         ]}
                     />

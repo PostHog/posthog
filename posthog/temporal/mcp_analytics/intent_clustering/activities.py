@@ -33,6 +33,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.mcp_analytics.intent_clustering.metrics import record_clusters_generated, record_intents_analyzed
 from posthog.temporal.mcp_analytics.intent_clustering.models import (
     IntentClusteringResult,
     IntentClusteringWorkflowInputs,
@@ -161,6 +162,8 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 await _persist_clusters(snapshot, clusters_blob)
 
                 n_clusters = len(clusters_blob.get("clusters", []))
+                record_intents_analyzed(len(aligned_records))
+                record_clusters_generated(n_clusters)
                 logger.info(
                     "mcpa.intent_clustering.computed",
                     team_id=inputs.team_id,

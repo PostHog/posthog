@@ -22,7 +22,7 @@ from typing import Any
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import Forbidden
+from google.api_core.exceptions import Forbidden, NotFound
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
@@ -201,6 +201,13 @@ def delete_all_temp_destination_tables(
                     bq.delete_table(table.reference)
                     if logger:
                         logger.debug(f"Deleted bigquery table {table.table_id}")
+        except (Forbidden, NotFound) as e:
+            # Best-effort cleanup. If the service account has lost permission to list/delete
+            # tables, or the dataset no longer exists, there's nothing to recover here — log
+            # quietly rather than capturing an expected, non-actionable condition that would
+            # otherwise fire on every sync for an affected source.
+            if logger:
+                logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
         except Exception as e:
             capture_exception(e)
 
