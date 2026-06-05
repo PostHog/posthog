@@ -69,7 +69,7 @@ Embedding creation event (text to vector).
 
 ## Where heavy content lives: `events` vs `ai_events`
 
-The heavy LLM payloads are **not stored on `events`** — they live as native columns on a dedicated
+The heavy LLM properties are **not stored on `events`** — they live as native columns on a dedicated
 ClickHouse table, referenced in HogQL as **`posthog.ai_events`**. The `events` table keeps only the lightweight metadata (token counts, costs,
 model, provider, `$ai_trace_id`, latency, error flags).
 
@@ -84,19 +84,20 @@ model, provider, `$ai_trace_id`, latency, error flags).
 
 `posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so **`trace_id` is the access
 path, not `timestamp`**. Rows are dropped after the retention period (30 days by default), so
-traces older than that have no content. Only `$ai_generation` and `$ai_embedding` rows carry
-content; spans, traces, and evaluations have `NULL` heavy columns.
+traces older than that have no content. Nothing restricts which heavy columns an event can carry,
+but the typical shape is: `$ai_generation` carries `input` / `output_choices` / `tools` (embeddings
+carry `input`); `$ai_span` and `$ai_trace` carry `input_state` / `output_state`.
 
 For trace inspection, prefer the `query-llm-trace` / `query-llm-traces-list` tools — they read
 `posthog.ai_events` for you. Drop to the SQL below only for custom analysis (aggregations, joins,
 batch extraction) or when you're already at the SQL layer.
 
-**Single trace (you already have the ID):** read it directly.
+**Single trace** — when you already have a `trace_id` (e.g. from a trace URL or `query-llm-traces-list`): read it directly.
 
 ```sql
 SELECT timestamp, span_id, event, model, input, output_choices
 FROM posthog.ai_events
-WHERE trace_id = {trace_id}
+WHERE trace_id = '<trace_id>'
 ORDER BY timestamp
 ```
 

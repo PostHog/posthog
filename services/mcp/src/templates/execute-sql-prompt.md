@@ -54,7 +54,7 @@ For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.) the heavy keys 
 
 Other AI properties (token counts, costs, model, `$ai_trace_id`) stay on `events` in all regimes and are safe to query there.
 
-`posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so **anchor on `trace_id`, never scan by `timestamp`**. Rows are dropped after the retention period (30 days by default), so older traces have no content. Only `$ai_generation` / `$ai_embedding` rows carry content; spans, traces, and evaluations have `NULL` heavy columns.
+`posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so **anchor on `trace_id`, never scan by `timestamp`**. Rows are dropped after the retention period (30 days by default), so older traces have no content. Nothing restricts which heavy columns an event can carry, but the typical shape is: `$ai_generation` carries `input` / `output_choices` / `tools` (embeddings carry `input`); `$ai_span` and `$ai_trace` carry `input_state` / `output_state`.
 
 - **Single trace** — `SELECT input, output_choices FROM posthog.ai_events WHERE trace_id = '<id>' ORDER BY timestamp`.
 - **Batch / analytics** — filter the timestamp-indexed `events` table first to get the trace IDs, then fetch heavy content from `posthog.ai_events` anchored on `trace_id`:

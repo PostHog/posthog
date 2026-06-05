@@ -1,6 +1,6 @@
 # AI observability events (`posthog.ai_events`)
 
-LLM/AI events (`$ai_generation`, `$ai_span`, `$ai_trace`, `$ai_embedding`, `$ai_metric`, `$ai_feedback`, `$ai_evaluation`) are captured on the shared `events` table. The **heavy LLM payloads are not stored on `events`** — they live as native columns on a dedicated ClickHouse table, `posthog.ai_events`.
+LLM/AI events (`$ai_generation`, `$ai_span`, `$ai_trace`, `$ai_embedding`, `$ai_metric`, `$ai_feedback`, `$ai_evaluation`) are captured on the shared `events` table. The **heavy LLM properties are not stored on `events`** — they live as native columns on a dedicated ClickHouse table, `posthog.ai_events`.
 
 **Namespacing:** Reference this table as `posthog.ai_events`, not bare `ai_events` — it's registered under the `posthog.` namespace in the HogQL database (see `posthog/hogql/database/database.py`), same as `posthog.trace_spans` / `posthog.metrics`. A bare `FROM ai_events` fails with "Unknown table" at HogQL compile time. (Asymmetric with `events` and `logs`, which are registered at root level.)
 
@@ -8,7 +8,7 @@ LLM/AI events (`$ai_generation`, `$ai_span`, `$ai_trace`, `$ai_embedding`, `$ai_
 
 ## Which columns live where
 
-`events` keeps the lightweight metadata — token counts, costs, model, provider, `$ai_trace_id`, latency, error flags (also mirrored as native columns on `posthog.ai_events`, where the `$ai_`-prefixed property maps to the un-prefixed column, e.g. `$ai_model` → `model`). The heavy payloads live only on `posthog.ai_events`:
+`events` keeps the lightweight metadata — token counts, costs, model, provider, `$ai_trace_id`, latency, error flags (also mirrored as native columns on `posthog.ai_events`, where the `$ai_`-prefixed property maps to the un-prefixed column, e.g. `$ai_model` → `model`). The heavy properties live only on `posthog.ai_events`:
 
 | Heavy content  | `events` property    | `posthog.ai_events` column |
 | -------------- | -------------------- | -------------------------- |
@@ -19,7 +19,7 @@ LLM/AI events (`$ai_generation`, `$ai_span`, `$ai_trace`, `$ai_embedding`, `$ai_
 | Output state   | `$ai_output_state`   | `output_state`             |
 | Tools          | `$ai_tools`          | `tools`                    |
 
-Only `$ai_generation` and `$ai_embedding` rows carry content; spans, traces, and evaluations have `NULL` heavy columns. The full native column list is in `posthog/hogql/database/schema/ai_events.py`.
+Nothing restricts which heavy columns an event can carry, but the typical shape is: `$ai_generation` carries `input` / `output_choices` / `tools` (embeddings carry `input`); `$ai_span` and `$ai_trace` carry `input_state` / `output_state`. The full native column list is in `posthog/hogql/database/schema/ai_events.py`.
 
 ## Access patterns
 
