@@ -2252,55 +2252,63 @@ jobs:
                 handle-snapshots,
                 repo-checks,
             ]
-        name: Django Tests Pass
+        name: Backend CI pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
         if: always()
         steps:
-            - name: Check matrix outcome
+            - name: Summarize dependency results
               run: |
-                  # The `needs.django.result` will be 'success' only if all jobs in the matrix succeeded.
-                  # Otherwise, it will be 'failure'.
-                  if [[ "${{ needs.django.result }}" != "success" && "${{ needs.django.result }}" != "skipped" ]]; then
-                    echo "One or more jobs in the Django test matrix failed."
-                    exit 1
-                  fi
+                  {
+                    echo "### Backend CI dependency results"
+                    echo "| Dependency | Result |"
+                    echo "| --- | --- |"
+                    echo "| django | ${{ needs.django.result }} |"
+                    echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
+                    echo "| async-migrations | ${{ needs.async-migrations.result }} |"
+                    echo "| repo-checks | ${{ needs.repo-checks.result }} |"
+                    echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
+                    echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
+                    echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
+                  } >> "$GITHUB_STEP_SUMMARY"
 
-                  # Check migration validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-migrations.result }}" != "success" && "${{ needs.check-migrations.result }}" != "skipped" ]]; then
-                    echo "Migration checks failed."
-                    exit 1
-                  fi
+                  echo "Backend CI dependency results:"
+                  echo "  django: ${{ needs.django.result }}"
+                  echo "  check-migrations: ${{ needs.check-migrations.result }}"
+                  echo "  check-openapi-types: ${{ needs.check-openapi-types.result }}"
+                  echo "  async-migrations: ${{ needs.async-migrations.result }}"
+                  echo "  repo-checks: ${{ needs.repo-checks.result }}"
+                  echo "  turbo-discover: ${{ needs.turbo-discover.result }}"
+                  echo "  turbo-tests: ${{ needs.turbo-tests.result }}"
+                  echo "  handle-snapshots: ${{ needs.handle-snapshots.result }}"
 
-                  # Check OpenAPI type validation - must pass for Django Tests to be green
-                  if [[ "${{ needs.check-openapi-types.result }}" != "success" && "${{ needs.check-openapi-types.result }}" != "skipped" ]]; then
-                    echo "OpenAPI type checks failed."
-                    exit 1
-                  fi
+            - name: Check dependency results
+              run: |
+                  check_required_result() {
+                    local label="$1"
+                    local result="$2"
 
-                  # Check async migrations - must pass for Django Tests to be green
-                  if [[ "${{ needs.async-migrations.result }}" != "success" && "${{ needs.async-migrations.result }}" != "skipped" ]]; then
-                    echo "Async migrations tests failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
+                      return
+                    fi
 
-                  # Check repo checks (product lint, IDOR, operator parity, tach)
-                  if [[ "${{ needs.repo-checks.result }}" != "success" && "${{ needs.repo-checks.result }}" != "skipped" ]]; then
-                    echo "Repo checks failed."
-                    exit 1
-                  fi
+                    if [[ "$result" == "cancelled" ]]; then
+                      echo "::error::$label was cancelled or timed out."
+                    else
+                      echo "::error::$label failed with result '$result'."
+                    fi
 
-                  # Check Turbo discover - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-discover.result }}" != "success" && "${{ needs.turbo-discover.result }}" != "skipped" ]]; then
-                    echo "Turbo discover failed."
                     exit 1
-                  fi
+                  }
 
-                  # Check Turbo tests (products) - must pass for Django Tests to be green
-                  if [[ "${{ needs.turbo-tests.result }}" != "success" && "${{ needs.turbo-tests.result }}" != "skipped" ]]; then
-                    echo "Turbo tests failed."
-                    exit 1
-                  fi
+                  check_required_result "Django test matrix" "${{ needs.django.result }}"
+                  check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
+                  check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
+                  check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
+                  check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
+                  check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
                   # Check handle-snapshots result (OK if skipped, but fail if it failed)
                   if [[ "${{ needs.handle-snapshots.result }}" == "failure" ]]; then
@@ -2308,7 +2316,7 @@ jobs:
                     exit 1
                   fi
 
-                  echo "All checks passed."
+                  echo "All backend and product checks passed."
 
     test-selection-verdict:
         needs: [django, turbo-tests, changes]
@@ -2542,7 +2550,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
-                  status-job: 'Django Tests Pass'
+                  status-job: 'Backend CI pass'
                   runner: 'depot'
             - name: Capture running time to DevEx PostHog
               if: github.run_attempt == '1'
@@ -2554,7 +2562,7 @@ jobs:
                   capture-run-duration: true
                   capture-job-durations: true
                   github-token: ${{ steps.telemetry-app-token.outputs.token }}
-                  status-job: 'Django Tests Pass'
+                  status-job: 'Backend CI pass'
                   runner: 'depot'
 
     report-test-timings:
