@@ -24,7 +24,7 @@
  * marker". Not implemented yet; the unsigned marker is the placeholder.
  */
 
-import type { PostHog } from 'posthog-node'
+import { PostHog } from 'posthog-node'
 
 import { createLogger } from './logger'
 
@@ -270,10 +270,6 @@ export interface CaptureAnalyticsSinkOptions {
  * process; events batch + flush via the SDK. `shutdown()` drains the
  * pending buffer — wire it into the runner's SIGTERM handler so events
  * don't get dropped on rolling deploys.
- *
- * `posthog-node` is loaded dynamically the first time `connect()` is called
- * so test code paths that never construct a CaptureAnalyticsSink (Noop / in
- * memory) don't pay the import cost.
  */
 export class CaptureAnalyticsSink implements AnalyticsSink {
     private readonly opts: CaptureAnalyticsSinkOptions
@@ -306,9 +302,7 @@ export class CaptureAnalyticsSink implements AnalyticsSink {
     }
 
     private async doConnect(): Promise<void> {
-        const mod = await import('posthog-node')
-        const PostHogCtor = mod.PostHog
-        this.client = new PostHogCtor(this.opts.apiKey, {
+        this.client = new PostHog(this.opts.apiKey, {
             host: this.opts.host,
             flushAt: this.opts.flushAt ?? 20,
             flushInterval: this.opts.flushInterval ?? 10_000,

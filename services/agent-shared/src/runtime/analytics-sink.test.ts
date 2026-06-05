@@ -1,6 +1,9 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
 import {
     analyticsDistinctId,
     buildAnalyticsProperties,
+    CaptureAnalyticsSink,
     eventNameFor,
     generationSpanId,
     InMemoryAnalyticsSink,
@@ -9,6 +12,25 @@ import {
     type AnalyticsGenerationEvent,
     type AnalyticsSpanEvent,
 } from './analytics-sink'
+
+// Mock the underlying SDK so the unit tests don't try to dial out to a
+// real PostHog ingestion host. The constructor is a vi.fn so we can
+// assert it gets called with the right opts (regression: previously the
+// dynamic-import path meant nothing constructed CaptureAnalyticsSink in
+// tests at all, so the wiring was unverified).
+//
+// vi.mock is hoisted above top-level `const` declarations, so the mock
+// state has to be declared inside vi.hoisted() to be available when the
+// factory runs.
+const mocks = vi.hoisted(() => {
+    const captureMock = vi.fn()
+    const shutdownMock = vi.fn().mockResolvedValue(undefined)
+    const postHogCtorMock = vi.fn(function (this: unknown, _key: string, _opts: unknown) {
+        Object.assign(this as object, { capture: captureMock, shutdown: shutdownMock })
+    })
+    return { captureMock, shutdownMock, postHogCtorMock }
+})
+vi.mock('posthog-node', () => ({ PostHog: mocks.postHogCtorMock }))
 
 function makeGeneration(overrides: Partial<AnalyticsGenerationEvent> = {}): AnalyticsGenerationEvent {
     return {
@@ -165,5 +187,75 @@ describe('InMemoryAnalyticsSink', () => {
         expect(sink.generations('sess-uuid')).toHaveLength(1)
         expect(sink.spans('sess-uuid')).toHaveLength(1)
         expect(sink.spans('other')).toHaveLength(1)
+    })
+})
+
+describe('CaptureAnalyticsSink', () => {
+    beforeEach(() => {
+        mocks.captureMock.mockReset()
+        mocks.shutdownMock.mockReset().mockResolvedValue(undefined)
+        mocks.postHogCtorMock.mockClear()
+    })
+
+    it('constructs the underlying PostHog client with the configured apiKey + host + batch knobs', async () => {
+        const sink = new CaptureAnalyticsSink({
+            apiKey: 'phc_test_key',
+            host: 'https://eu.posthog.com',
+            flushAt: 5,
+            flushInterval: 1_000,
+        })
+        await sink.connect()
+        expect(mocks.postHogCtorMock).toHaveBeenCalledTimes(1)
+        expect(mocks.postHogCtorMock).toHaveBeenCalledWith('phc_test_key', {
+            host: 'https://eu.posthog.com',
+            flushAt: 5,
+            flushInterval: 1_000,
+        })
+    })
+
+    it('applies sensible defaults when flushAt / flushInterval are unset', async () => {
+        const sink = new CaptureAnalyticsSink({ apiKey: 'phc' })
+        await sink.connect()
+        expect(mocks.postHogCtorMock).toHaveBeenCalledTimes(1)
+        const [, opts] = mocks.postHogCtorMock.mock.calls[0] as [string, { flushAt: number; flushInterval: number }]
+        expect(opts.flushAt).toBe(20)
+        expect(opts.flushInterval).toBe(10_000)
+    })
+
+    it('connect() is idempotent — concurrent + repeat calls share one client', async () => {
+        const sink = new CaptureAnalyticsSink({ apiKey: 'phc' })
+        await Promise.all([sink.connect(), sink.connect(), sink.connect()])
+        await sink.connect()
+        expect(mocks.postHogCtorMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('write() routes events through capture() with the marker + namespaced event names', async () => {
+        const sink = new CaptureAnalyticsSink({ apiKey: 'phc' })
+        await sink.connect()
+        await sink.write([makeGeneration(), makeSpan()])
+        expect(mocks.captureMock).toHaveBeenCalledTimes(2)
+        const generationCall = mocks.captureMock.mock.calls[0]![0] as {
+            event: string
+            properties: Record<string, unknown>
+        }
+        const spanCall = mocks.captureMock.mock.calls[1]![0] as {
+            event: string
+            properties: Record<string, unknown>
+        }
+        expect(generationCall.event).toBe('$ai_generation')
+        expect(spanCall.event).toBe('$ai_span')
+        expect(generationCall.properties.$ai_origin).toBe(PLATFORM_ORIGIN)
+        expect(spanCall.properties.$ai_origin).toBe(PLATFORM_ORIGIN)
+    })
+
+    it('write() drops events with a single warn if connect() was never called', async () => {
+        const warn = vi.fn()
+        const sink = new CaptureAnalyticsSink({
+            apiKey: 'phc',
+            logger: { info: vi.fn(), warn, error: vi.fn() },
+        })
+        await sink.write([makeGeneration()])
+        expect(mocks.captureMock).not.toHaveBeenCalled()
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('dropping'), { count: 1 })
     })
 })
