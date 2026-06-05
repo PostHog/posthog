@@ -60,5 +60,5 @@ class ParserRecipeViewSet(
     def safely_get_queryset(self, queryset: QuerySet[ParserRecipe]) -> QuerySet[ParserRecipe]:
         return ParserRecipe.objects.for_team(self.team_id).select_related("created_by").order_by("created_at", "id")
 
-    def perform_create(self, serializer: ParserRecipeSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(team=self.team, created_by=cast(User, self.request.user))

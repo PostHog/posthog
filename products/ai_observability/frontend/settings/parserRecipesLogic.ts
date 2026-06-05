@@ -69,7 +69,7 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
                     if (!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER]) {
                         return []
                     }
-                    return (await llmAnalyticsParserRecipesList(String(values.currentTeamId))).results
+                    return (await llmAnalyticsParserRecipesList(String(values.currentTeamId), { limit: 1000 })).results
                 },
             },
         ],

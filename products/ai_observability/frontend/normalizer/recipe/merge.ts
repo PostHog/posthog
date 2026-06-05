@@ -11,20 +11,17 @@ export interface StoredRecipe {
     source: string
 }
 
-// `cajole` is the builtin last-resort catch-all; customs dispatch just before it so
-// they get a shot at inputs the specific builtins miss, while never shadowing them.
-const CATCH_ALL_RECIPE_ID = 'cajole'
-
 // Resolve a team's custom recipes into the ordered set the pipeline runs: the bundled
 // builtins in their dispatch order, with the team's customs spliced in (in their stored
-// order) right before the catch-all. A custom that fails to compile is skipped — there's
-// no builtin to fall back to — so a bad edit can never break trace rendering.
+// order) right before the last builtin (`cajole`, the last-resort catch-all) so they get
+// a shot at inputs the specific builtins miss while never shadowing them. A custom that
+// fails to compile is skipped — there's no builtin to fall back to — so a bad edit can
+// never break trace rendering. The catch-all must stay last in the bundled order.
 export function mergeRecipes(stored: StoredRecipe[]): Recipe[] {
     const builtins = loadRecipes()
     const customs = stored.map(tryCompile).filter((recipe): recipe is Recipe => recipe !== undefined)
 
-    const catchAllIndex = builtins.findIndex((recipe) => recipe.id === CATCH_ALL_RECIPE_ID)
-    const insertAt = catchAllIndex === -1 ? builtins.length : catchAllIndex
+    const insertAt = builtins.length - 1
     return [...builtins.slice(0, insertAt), ...customs, ...builtins.slice(insertAt)]
 }
 
