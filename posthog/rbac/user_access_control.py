@@ -913,10 +913,6 @@ class UserAccessControl:
             if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
                 return queryset
 
-        # Check if user has "none" access at resource level
-        resource_access_level = self.access_level_for_resource(resource)
-        has_resource_access = resource_access_level and resource_access_level != NO_ACCESS_LEVEL
-
         model_has_creator = hasattr(model, "created_by")
 
         filters = self._access_controls_filters_for_queryset(resource)
@@ -925,7 +921,7 @@ class UserAccessControl:
         blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
 
         # Apply filtering logic based on resource-level access
-        if not has_resource_access and allowed_resource_ids:
+        if not self.has_resource_access(resource) and allowed_resource_ids:
             # User has "none" resource access but specific object access
             # Only show objects they have explicit access to (plus created objects)
             if model_has_creator:
