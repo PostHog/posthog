@@ -130,6 +130,7 @@ the row lists both.
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| trello           | HTTP                        | requests                                                        | ✅                          |
 | twilio           | HTTP                        | requests                                                        | ✅                          |
 | typeform         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -219,7 +220,6 @@ doesn't conflict with concurrent PRs.
 - sftp
 - sharepoint
 - surveymonkey
-- trello
 - twitter_ads
 - workday
 - xero
