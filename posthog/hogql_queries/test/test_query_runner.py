@@ -37,6 +37,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -1251,13 +1252,15 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             def _calculate(self):
                 return TheTestBasicQueryResponse(results=[])
 
+            def to_query(self) -> ast.SelectQuery:
+                return ast.SelectQuery(select=[])
+
             def _refresh_frequency(self) -> timedelta:
                 return timedelta(minutes=4)
 
             def _is_stale(self, last_refresh, lazy: bool = False, *args, **kwargs) -> bool:
                 return False
 
-        _CtxRunner.__abstractmethods__ = frozenset()
         return _CtxRunner(query={"some_attr": "bla"}, team=self.team, user=user)
 
     def _ac(self, resource, resource_id=None, access_level="none", organization_member=None):
