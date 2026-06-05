@@ -16,10 +16,18 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql.team_context import HogQLTeamContext
+
 from posthog.cloud_utils import is_cloud
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+
+# ---- Django boundary -------------------------------------------------------
+# These keep their existing signatures (callers across the codebase and the Team
+# model depend on them) and own the one default that needs the ORM: the flag-based
+# personsOnEventsMode. Everything else is delegated to the pure functions below.
 
 
 def create_default_modifiers_for_user(
@@ -46,6 +54,43 @@ def create_default_modifiers_for_user(
 def create_default_modifiers_for_team(
     team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
 ) -> HogQLQueryModifiers:
+    modifiers = create_default_modifiers_for_team_context(HogQLTeamContext.from_team(team), modifiers)
+    _resolve_persons_on_events_default(modifiers, team)
+    return modifiers
+
+
+def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team") -> None:
+    """Fill modifier defaults in place from a Django ``Team``.
+
+    Kept for existing callers, including ``Team.default_modifiers``. Resolves the
+    flag-based ``personsOnEventsMode`` from the team, then applies the
+    team-independent defaults.
+    """
+    _resolve_persons_on_events_default(modifiers, team)
+    apply_modifier_defaults(modifiers)
+
+
+def _resolve_persons_on_events_default(modifiers: HogQLQueryModifiers, team: "Team") -> None:
+    # The persons-on-events default is a feature-flag / instance-setting evaluation
+    # (see Team.person_on_events_mode_flag_based_default), so it stays at the Django
+    # boundary and is resolved lazily — only when not already set. A later step will
+    # turn it into an injected, already-resolved value.
+    if modifiers.personsOnEventsMode is None:
+        modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
+
+
+# ---- Pure engine (no Team, no DB, no feature flags) ------------------------
+
+
+def create_default_modifiers_for_team_context(
+    team_context: HogQLTeamContext, modifiers: Optional[HogQLQueryModifiers] = None
+) -> HogQLQueryModifiers:
+    """Resolve default HogQL modifiers from plain team-context data.
+
+    Pure with respect to the ORM: no Django model access and no database query.
+    ``personsOnEventsMode`` is intentionally left untouched when not already set — its
+    flag-based default is a boundary concern (see ``create_default_modifiers_for_team``).
+    """
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
     else:
@@ -54,8 +99,8 @@ def create_default_modifiers_for_team(
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
-    if isinstance(team.modifiers, dict):
-        for key, value in team.modifiers.items():
+    if isinstance(team_context.modifiers, dict):
+        for key, value in team_context.modifiers.items():
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid
@@ -71,15 +116,18 @@ def create_default_modifiers_for_team(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
-    set_default_modifier_values(modifiers, team)
+    apply_modifier_defaults(modifiers)
 
     return modifiers
 
 
-def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
-    if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
+def apply_modifier_defaults(modifiers: HogQLQueryModifiers) -> None:
+    """Fill all team-independent modifier defaults in place.
 
+    ``personsOnEventsMode`` is intentionally not set here — it needs the team's
+    flag-based default, resolved at the boundary. ``is_cloud()`` is still read for
+    ``propertyGroupsMode`` and becomes an injected config value in a later step.
+    """
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
 
