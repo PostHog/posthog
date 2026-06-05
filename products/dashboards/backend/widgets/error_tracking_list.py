@@ -23,6 +23,7 @@ from products.dashboards.backend.widgets.config import (
 from products.dashboards.backend.widgets.widget_config_types import (
     ErrorTrackingListWidgetConfig,
     ErrorTrackingListWidgetConfigInput,
+    ErrorTrackingWidgetAssigneeInput,
 )
 from products.dashboards.backend.widgets.widget_filters import (
     build_property_group_filter_from_widget_filters,
@@ -49,7 +50,7 @@ ERROR_TRACKING_WIDGET_STATUS_CHOICES = frozenset(
 )
 
 
-def _parse_error_tracking_widget_assignee(assignee: dict[str, str | int]) -> ErrorTrackingIssueAssignee:
+def _parse_error_tracking_widget_assignee(assignee: ErrorTrackingWidgetAssigneeInput) -> ErrorTrackingIssueAssignee:
     serializer = ErrorTrackingAssigneeSerializer(data=assignee)
     serializer.is_valid(raise_exception=True)
     return ErrorTrackingIssueAssignee.model_validate(serializer.validated_data)
@@ -70,7 +71,7 @@ def validate_error_tracking_list_config(config: ErrorTrackingListWidgetConfigInp
     if assignee_raw is not None:
         if not isinstance(assignee_raw, dict):
             raise DRFValidationError({"config": "assignee must be an object."})
-        validated_assignee = _parse_error_tracking_widget_assignee(assignee_raw)
+        validated_assignee = _parse_error_tracking_widget_assignee(cast(ErrorTrackingWidgetAssigneeInput, assignee_raw))
     validated_widget_filters = validate_widget_filters(config)
 
     validated: ErrorTrackingListWidgetConfig = {
@@ -149,7 +150,7 @@ def _count_matching_error_tracking_issues(
 
 def run_error_tracking_list_widget(
     team: Team,
-    config: dict[str, Any],
+    config: ErrorTrackingListWidgetConfigInput,
     user: User | None = None,
     *,
     include_total_count: bool = True,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 from posthog.schema import ErrorTrackingIssueAssignee
 
@@ -44,9 +44,14 @@ class SessionReplayListWidgetConfigInput(WidgetListConfigInputBase, total=False)
     pass
 
 
+class ErrorTrackingWidgetAssigneeInput(TypedDict):
+    id: str | int
+    type: Literal["user", "role"]
+
+
 class ErrorTrackingListWidgetConfigInput(WidgetListConfigInputBase, total=False):
     status: str
-    assignee: dict[str, str | int] | None
+    assignee: ErrorTrackingWidgetAssigneeInput | None
 
 
 class SessionReplayListWidgetConfig(WidgetListConfigBase):
