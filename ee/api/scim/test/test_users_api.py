@@ -1101,7 +1101,7 @@ class TestSCIMUsersAPI(APILicensedTest):
             f"/scim/v2/{self.domain.id}/Users/{owner.id}", data=patch_data, content_type="application/scim+json"
         )
 
-        assert response.status_code != status.HTTP_200_OK
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert OrganizationMembership.objects.filter(
             user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
         ).exists()
