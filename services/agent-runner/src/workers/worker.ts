@@ -99,16 +99,17 @@ export interface WorkerDeps {
         | { client: GatewayClient; phc: string }
         | undefined
     /**
-     * Optional lifecycle event bus. Runner publishes session_started /
-     * turn_started / assistant_text / tool_call / tool_result / completed /
-     * waiting / failed events here. Chat `/listen` SSE consumes these.
+     * Lifecycle event bus. Runner publishes session_started / turn_started /
+     * assistant_text / tool_call / tool_result / completed / waiting / failed
+     * events here. Chat `/listen` SSE consumes these. Required — there is no
+     * in-memory fallback; tests wire a real Redis bus with a per-cluster prefix.
      */
-    bus?: SessionEventBus
+    bus: SessionEventBus
     /**
      * Optional structured-log sink. Mirrors the bus events into a
      * persistent store (ClickHouse via Kafka in prod).
      */
-    logs?: LogSink
+    logs: LogSink
     /**
      * Optional LLM analytics sink. Production wires `KafkaAnalyticsSink`
      * to the dedicated `agent_ai_events` topic. Tests default to noop.
@@ -451,7 +452,76 @@ export class Worker {
                 usage_total: session.usage_total,
             })
         } catch (err) {
-            sLog.error({ err: (err as Error).message, stack: (err as Error).stack }, 'session.crashed')
+            // Pre-runSession failures (revision load, secrets, sandbox acquire,
+            // MCP open) skip the driver's bus / log / conversation hooks. Without
+            // mirroring them here the user sees a session that flips to `failed`
+            // with no rendered explanation, no SSE event, and an empty assistant
+            // turn — same opaque outcome a true crash would leave. Surface the
+            // failure on the same three channels the in-loop `emit('failed')`
+            // already covers so the console session-detail page lights up
+            // identically regardless of where the failure originated.
+            const e = err as Error
+            const reason = e.message || 'session_failed_before_start'
+            sLog.error({ err: reason, stack: e.stack }, 'session.crashed')
+
+            // 1. Synthetic assistant message — so the user sees something in the
+            //    transcript instead of their lone user turn followed by silence.
+            //    Keep it brief and factual; the structured event log carries the
+            //    stack trace for debugging.
+            const ts = new Date().toISOString()
+            session.conversation.push({
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'text',
+                        text: `This session failed before it could start. Reason: ${reason}`,
+                    },
+                ],
+                stopReason: 'error',
+                errorMessage: reason,
+                timestamp: Date.now(),
+            })
+
+            // 2. Lifecycle event to the bus — /listen SSE clients render it.
+            if (this.deps.bus) {
+                await this.deps.bus
+                    .publish({
+                        session_id: session.id,
+                        kind: 'failed',
+                        data: { reason, source: 'pre_run_session' },
+                        ts,
+                    })
+                    .catch((busErr) =>
+                        sLog.warn(
+                            { err: (busErr as Error).message },
+                            'session.failed_event_publish_failed — session still marked failed in PG'
+                        )
+                    )
+            }
+
+            // 3. Structured log entry — the console session-detail page reads
+            //    `log_entries` to render the per-turn event timeline.
+            if (this.deps.logs) {
+                await this.deps.logs
+                    .write([
+                        {
+                            ts,
+                            team_id: session.team_id,
+                            application_id: session.application_id,
+                            session_id: session.id,
+                            level: 'error',
+                            event: 'failed',
+                            data: { reason, source: 'pre_run_session' },
+                        },
+                    ])
+                    .catch((logErr) =>
+                        sLog.warn(
+                            { err: (logErr as Error).message },
+                            'session.failed_log_write_failed — session still marked failed in PG'
+                        )
+                    )
+            }
+
             await this.deps.queue.update(session.id, {
                 state: 'failed',
                 conversation: session.conversation,

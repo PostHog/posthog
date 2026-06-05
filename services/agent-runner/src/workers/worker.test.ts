@@ -1,3 +1,4 @@
+import type { S3Client } from '@aws-sdk/client-s3'
 import {
     type AssistantMessage,
     fauxAssistantMessage,
@@ -9,23 +10,40 @@ import {
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
+import { randomUUID } from 'node:crypto'
+import { Pool } from 'pg'
 import { z } from 'zod'
 
+import { reset } from '@posthog/agent-migrations'
 import {
     AgentSession,
     AgentSpecSchema,
+    buildTestBundleStore,
     EMPTY_USAGE_TOTAL,
     HttpClient,
     InProcessSandboxPool,
-    MemoryBundleStore,
-    MemoryRevisionStore,
-    MemorySessionQueue,
+    KafkaLogSink,
+    newTestPrefix,
+    PgRevisionStore,
+    PgSessionQueue,
+    RedisSessionEventBus,
+    S3BundleStore,
     SecretBroker,
+    wipeTestPrefix,
 } from '@posthog/agent-shared'
+
+const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import type { McpTransportFactory } from '../loop/mcp-clients'
 import { Worker } from './worker'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+let bundlePrefix: string
+let bundleClient: S3Client
+let bundleStore: S3BundleStore
 
 // The driver streams through pi-ai's registered faux provider (the same surface
 // the e2e harness uses), so the worker is exercised via `resolveModel` returning
@@ -42,8 +60,34 @@ const endTurn = (text: string): AssistantMessage => fauxAssistantMessage(text, {
 const toolUseTurn = (calls: ToolCall[]): AssistantMessage => fauxAssistantMessage(calls, { stopReason: 'toolUse' })
 const toolCall = (name: string, args: Record<string, unknown> = {}): ToolCall => fauxToolCall(name, args)
 
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const workerTestBus = new RedisSessionEventBus({
+    url: REDIS_URL,
+    channelPrefix: `worker_test_${Math.random().toString(36).slice(2, 10)}`,
+})
+
+const workerTestLogs = new KafkaLogSink({ brokers: KAFKA_HOSTS, topic: 'log_entries', name: 'worker_test' })
+
 describe('Worker', () => {
-    beforeEach(() => {
+    beforeAll(async () => {
+        await workerTestBus.connect()
+        await workerTestLogs.connect()
+        pool = new Pool({ connectionString: TEST_DB_URL })
+    })
+
+    afterAll(async () => {
+        await workerTestBus.disconnect()
+        await workerTestLogs.disconnect()
+        await pool.end()
+    })
+
+    beforeEach(async () => {
+        await reset({ databaseUrl: TEST_DB_URL })
+        bundlePrefix = newTestPrefix('agent_bundles_worker_test')
+        const built = buildTestBundleStore(bundlePrefix)
+        bundleClient = built.client
+        bundleStore = built.store
         setPosthogInternalClient({
             async runHogql() {
                 return { rows: [], columns: [] }
@@ -54,10 +98,15 @@ describe('Worker', () => {
         })
     })
 
+    afterEach(async () => {
+        await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+        bundleClient.destroy()
+    })
+
     it('claims a session, runs it, marks it completed', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundle = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
 
         const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
         const rev = await revisions.createRevision({
@@ -98,6 +147,8 @@ describe('Worker', () => {
             bundle,
             sandboxes: new InProcessSandboxPool(),
             broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([endTurn('hi back')]),
@@ -109,9 +160,9 @@ describe('Worker', () => {
     })
 
     it('session with custom tool acquires + releases the sandbox', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundle = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
         const COMPILED = `
             module.exports = {
                 id: "noop",
@@ -155,15 +206,17 @@ describe('Worker', () => {
         }
         await queue.enqueue(session)
 
-        const pool = new InProcessSandboxPool()
+        const sandboxes = new InProcessSandboxPool()
         const worker = new Worker({
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,
-            sandboxes: pool,
+            sandboxes,
             broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({ ACME_KEY: 'topsecret' }),
             resolveModel: () => fauxModel([toolUseTurn([toolCall('noop', {})]), endTurn('done')]),
@@ -180,9 +233,9 @@ describe('Worker', () => {
         // in-process `McpServer`), the faux model invokes the prefixed tool,
         // the result lands in `session.conversation`, and the transport pair
         // is closed in the worker's `finally`.
-        const revisions = new MemoryRevisionStore()
-        const bundle = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
 
         const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
         const rev = await revisions.createRevision({
@@ -255,6 +308,8 @@ describe('Worker', () => {
             bundle,
             sandboxes: new InProcessSandboxPool(),
             broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () =>
@@ -275,9 +330,9 @@ describe('Worker', () => {
     })
 
     it('shutdown signal re-queues an in-flight session as queued for handoff', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundle = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
 
         const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
         const rev = await revisions.createRevision({
@@ -321,6 +376,8 @@ describe('Worker', () => {
             bundle,
             sandboxes: new InProcessSandboxPool(),
             broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () =>
@@ -348,9 +405,9 @@ describe('Worker', () => {
     // sits at the top of runOne, so the bad session is marked failed and a
     // sibling can keep being processed.
     it('runOne catches errors from revisions.getRevision and fails the session', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundle = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
         const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
         const session: AgentSession = {
             id: 'sess-bad-rev',
@@ -390,6 +447,8 @@ describe('Worker', () => {
             bundle,
             sandboxes: new InProcessSandboxPool(),
             broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([endTurn('would never run')]),
@@ -462,9 +521,9 @@ describe('Worker', () => {
     it.each(PREFLIGHT_CASES)(
         'runOne fails the session (loop survives) when $name',
         async ({ withCustomTool, overrides }) => {
-            const revisions = new MemoryRevisionStore()
-            const bundle = new MemoryBundleStore()
-            const queue = new MemorySessionQueue()
+            const revisions = new PgRevisionStore(pool)
+            const bundle = bundleStore
+            const queue = new PgSessionQueue(pool)
             const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
             const COMPILED = `module.exports = { id: "noop", actions: { default: () => ({}) } }`
             const rev = await revisions.createRevision({
@@ -518,6 +577,8 @@ describe('Worker', () => {
                 bundle,
                 sandboxes: new InProcessSandboxPool(),
                 broker: new SecretBroker(),
+                bus: workerTestBus,
+                logs: workerTestLogs,
                 resolveIntegrations: async () => ({}),
                 resolveSecrets: async () => ({}),
                 resolveModel: () => fauxModel([endTurn('would never run')]),
@@ -527,13 +588,121 @@ describe('Worker', () => {
             await expect(worker.loop({ iterations: 1, claimTimeoutMs: 10 })).resolves.toBeUndefined()
             const after = await queue.get('sess-preflight')
             expect(after!.state).toBe('failed')
+
+            // Pre-runSession failures must surface a synthetic assistant
+            // message in the conversation so the user sees *something* in
+            // the transcript instead of their lone user turn followed by
+            // silence. (The driver's in-loop failure path already covers
+            // this for failures inside runSession; this regression test pins
+            // the same behaviour for failures BEFORE runSession ever runs.)
+            const last = after!.conversation[after!.conversation.length - 1] as
+                | { role: string; content: Array<{ type: string; text?: string }>; stopReason?: string }
+                | undefined
+            expect(last?.role).toBe('assistant')
+            expect(last?.stopReason).toBe('error')
+            expect(last?.content?.[0]?.text).toMatch(/failed before it could start/i)
         }
     )
 
+    it('runOne publishes a `failed` lifecycle event + writes a log entry on pre-runSession failure', async () => {
+        // Asserts the bus + log surfaces directly. Uses stub impls instead of
+        // the real Redis/Kafka the rest of this file shares — point of the
+        // test is to prove the catch reaches both, not the transport details.
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
+        const app = await revisions.createApplication({
+            team_id: 1,
+            slug: 'preflight-fanout',
+            name: 'X',
+            description: '',
+        })
+        const rev = await revisions.createRevision({
+            application_id: app.id,
+            parent_revision_id: null,
+            created_by_id: null,
+            bundle_uri: 's3://x/',
+            spec: AgentSpecSchema.parse({ model: 'faux/test', tools: [] }),
+        })
+        await bundle.write(rev.id, 'agent.md', 'x')
+        const session: AgentSession = {
+            id: randomUUID(),
+            application_id: app.id,
+            revision_id: rev.id,
+            team_id: 1,
+            external_key: null,
+            idempotency_key: null,
+            trigger_metadata: null,
+            state: 'queued',
+            conversation: [{ role: 'user', content: 'hi', timestamp: Date.now() }],
+            pending_inputs: [],
+            principal: null,
+            retry_count: 0,
+            acl: [],
+            pending_elevation_requests: [],
+            usage_total: { ...EMPTY_USAGE_TOTAL },
+            created_at: '2026-05-27',
+            updated_at: '2026-05-27',
+        }
+        await queue.enqueue(session)
+
+        const busPublishes: Array<{ kind: string; data: Record<string, unknown> }> = []
+        const stubBus = {
+            publish: async (e: { kind: string; data: Record<string, unknown> }) => {
+                busPublishes.push({ kind: e.kind, data: e.data })
+            },
+            subscribe: () => () => undefined,
+        }
+        const logWrites: Array<{ event: string; level: string; data: Record<string, unknown> }> = []
+        const stubLogs = {
+            connect: async () => undefined,
+            disconnect: async () => undefined,
+            write: async (entries: Array<{ event: string; level: string; data: Record<string, unknown> }>) => {
+                for (const entry of entries) {
+                    logWrites.push({ event: entry.event, level: entry.level, data: entry.data })
+                }
+            },
+        }
+
+        const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
+            queue,
+            revisions,
+            bundle,
+            sandboxes: new InProcessSandboxPool(),
+            broker: new SecretBroker(),
+            bus: stubBus as unknown as RedisSessionEventBus,
+            logs: stubLogs as unknown as KafkaLogSink,
+            resolveIntegrations: async () => ({}),
+            // Pick a deterministic pre-runSession failure — `resolveSecrets`
+            // throws before the driver runs.
+            resolveSecrets: async () => {
+                throw new Error('Streamable HTTP error: Error POSTing to endpoint: Endpoint not found.')
+            },
+            resolveModel: () => fauxModel([endTurn('would never run')]),
+        })
+
+        await expect(worker.loop({ iterations: 1, claimTimeoutMs: 10 })).resolves.toBeUndefined()
+
+        // The failure landed on all three surfaces:
+        //   - DB row state = failed (pinned by the parameterized test above)
+        //   - Bus `failed` event with reason + source: pre_run_session
+        //   - Log entry with event: failed + level: error
+        const failedEvent = busPublishes.find((e) => e.kind === 'failed')
+        expect(failedEvent?.data).toMatchObject({
+            reason: expect.stringContaining('Endpoint not found'),
+            source: 'pre_run_session',
+        })
+        const failedLog = logWrites.find((e) => e.event === 'failed')
+        expect(failedLog?.level).toBe('error')
+        expect(failedLog?.data).toMatchObject({ source: 'pre_run_session' })
+    })
+
     it('main loop swallows transient claim() errors instead of crashing', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundle = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundle = bundleStore
+        const queue = new PgSessionQueue(pool)
 
         let claimCalls = 0
         const worker = new Worker({
@@ -544,6 +713,8 @@ describe('Worker', () => {
             bundle,
             sandboxes: new InProcessSandboxPool(),
             broker: new SecretBroker(),
+            bus: workerTestBus,
+            logs: workerTestLogs,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([]),
