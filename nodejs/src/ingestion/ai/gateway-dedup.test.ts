@@ -1,20 +1,7 @@
-import { PluginEvent } from '~/plugin-scaffold'
-
+import { createTestPluginEvent } from '../../../tests/helpers/plugin-event'
 import { AI_GATEWAY_HOSTS, gatewayHostForClientEvent } from './gateway-dedup'
 
-function createEvent(event: string, properties: Record<string, unknown>): PluginEvent {
-    return {
-        distinct_id: 'user-1',
-        ip: null,
-        site_url: 'http://localhost',
-        team_id: 1,
-        now: '2020-02-23T02:15:00Z',
-        timestamp: '2020-02-23T02:15:00Z',
-        event,
-        uuid: 'test-uuid',
-        properties,
-    }
-}
+const createEvent = (event: string, properties: Record<string, unknown>) => createTestPluginEvent({ event, properties })
 
 describe('gatewayHostForClientEvent', () => {
     it('exposes both regional AI gateway hosts', () => {

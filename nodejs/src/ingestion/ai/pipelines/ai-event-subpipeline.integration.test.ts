@@ -231,20 +231,14 @@ describe('AI event subpipeline integration', () => {
         expect(mockOutputs.produce).not.toHaveBeenCalled()
     })
 
-    it('drops an SDK client generation routed through the AI gateway', async () => {
-        const event = createAiEvent({ properties: { $ai_base_url: 'https://ai-gateway.us.posthog.com/v1' } })
-
-        const { pipeline, mockOutputs } = buildPipeline()
-        const result = await pipeline.process(createOkContext(createInput(event), {}))
-
-        expect(result.result.type).toBe(PipelineResultType.DROP)
-        expect(mockOutputs.produce).not.toHaveBeenCalled()
-    })
-
-    it('drops an OTel client generation routed through the AI gateway (base_url mapped from server.address)', async () => {
-        const event = createAiEvent({
-            properties: { $ai_ingestion_source: 'otel', 'server.address': 'ai-gateway.us.posthog.com' },
-        })
+    it.each([
+        ['SDK client (base_url set directly)', { $ai_base_url: 'https://ai-gateway.us.posthog.com/v1' }],
+        [
+            'OTel client (base_url mapped from server.address)',
+            { $ai_ingestion_source: 'otel', 'server.address': 'ai-gateway.us.posthog.com' },
+        ],
+    ])('drops a %s generation routed through the AI gateway', async (_label, properties) => {
+        const event = createAiEvent({ properties })
 
         const { pipeline, mockOutputs } = buildPipeline()
         const result = await pipeline.process(createOkContext(createInput(event), {}))

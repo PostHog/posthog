@@ -1,21 +1,10 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { createTestPluginEvent } from '../../../../../tests/helpers/plugin-event'
 import { PipelineResultType } from '../../../pipelines/results'
 import { createDropGatewayRoutedEventsStep } from './drop-gateway-routed-events-step'
 
-function createEvent(event: string, properties: Record<string, unknown>): PluginEvent {
-    return {
-        distinct_id: 'user-1',
-        ip: null,
-        site_url: 'http://localhost',
-        team_id: 1,
-        now: '2020-02-23T02:15:00Z',
-        timestamp: '2020-02-23T02:15:00Z',
-        event,
-        uuid: 'test-uuid',
-        properties,
-    }
-}
+const createEvent = (event: string, properties: Record<string, unknown>) => createTestPluginEvent({ event, properties })
 
 describe('dropGatewayRoutedEventsStep', () => {
     it('drops a client $ai_generation routed through the gateway', async () => {
