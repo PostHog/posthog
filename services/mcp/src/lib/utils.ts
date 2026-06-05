@@ -7,6 +7,15 @@ export function hash(data: string): string {
     return crypto.pbkdf2Sync(data, salt, 100000, 32, 'sha256').toString('hex')
 }
 
+// Redact an API token for logs: keep only the last 4 chars, mask the rest.
+// Tokens of 4 chars or fewer (or empty) are fully masked so nothing useful leaks.
+export function redactToken(token: string): string {
+    if (token.length <= 4) {
+        return '****'
+    }
+    return `****${token.slice(-4)}`
+}
+
 export function formatPrompt(template: string, vars: Record<string, string>): string {
     // Use a function replacement so `$` sequences (`$&`, `$$`, `` $` ``, `$'`) inside a
     // value are NOT interpreted as replacement-pattern escapes. Otherwise values containing
