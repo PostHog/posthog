@@ -41,21 +41,4 @@ describe('CLI AGENTS.md installer', () => {
         expect(content.match(/required progressive disclosure workflow/g)?.length).toBe(1)
         expect(content).toContain('Existing instructions.')
     })
-
-    it('replaces legacy marker-wrapped installs without keeping markers', async () => {
-        const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-agents-md-'))
-        const target = path.join(dir, 'AGENTS.md')
-        await fs.writeFile(
-            target,
-            '# Project\n\n<!-- posthog-cli-api:start -->\nOld PostHog instructions.\n<!-- posthog-cli-api:end -->\n'
-        )
-
-        await installAgentsMdSnippet({ filePath: target })
-
-        const content = await fs.readFile(target, 'utf-8')
-        expect(content).toContain('required progressive disclosure workflow')
-        expect(content).not.toContain('Old PostHog instructions')
-        expect(content).not.toContain('posthog-cli-api:start')
-        expect(content).not.toContain('posthog-cli-api:end')
-    })
 })

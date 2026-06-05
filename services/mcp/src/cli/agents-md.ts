@@ -6,8 +6,6 @@ import agentsMdPrompt from './agents-md-snippet.md'
 export const AGENTS_MD_PROMPT = agentsMdPrompt.trim()
 export const AGENTS_MD_SNIPPET = AGENTS_MD_PROMPT
 
-const LEGACY_MANAGED_SECTION_PATTERN = /<!-- posthog-cli-api:start -->\n?[\s\S]*?\n?<!-- posthog-cli-api:end -->/
-
 function errorCode(error: unknown): unknown {
     return typeof error === 'object' && error !== null && 'code' in error
         ? (error as { code?: unknown }).code
@@ -26,9 +24,7 @@ export async function installAgentsMdSnippet(opts: { cwd?: string; filePath?: st
     }
 
     let next: string
-    if (LEGACY_MANAGED_SECTION_PATTERN.test(existing)) {
-        next = existing.replace(LEGACY_MANAGED_SECTION_PATTERN, AGENTS_MD_SNIPPET)
-    } else if (existing.includes(AGENTS_MD_SNIPPET)) {
+    if (existing.includes(AGENTS_MD_SNIPPET)) {
         next = existing
     } else if (existing.trim()) {
         next = `${existing.trimEnd()}\n\n${AGENTS_MD_SNIPPET}\n`
