@@ -133,6 +133,7 @@ describe('vercel-ai middleware', () => {
             ['$ai_session_id', 'session-123'],
             ['$ai_prompt_name', 'my-prompt'],
             ['$ai_prompt_version', 'v2'],
+            ['$ai_prompt_version', 2],
         ])('promotes ai.telemetry.metadata.%s to event properties', (key, value) => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
@@ -180,6 +181,17 @@ describe('vercel-ai middleware', () => {
                 expect(event.properties![`ai.telemetry.metadata.${key}`]).toBeUndefined()
             }
         )
+
+        it.each([0, -1, 1.5])('ignores invalid numeric ai.telemetry.metadata.$ai_prompt_version=%s', (value) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.telemetry.metadata.$ai_prompt_version': value,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_prompt_version']).toBeUndefined()
+            expect(event.properties!['ai.telemetry.metadata.$ai_prompt_version']).toBeUndefined()
+        })
     })
 
     describe('$ai_trace (top-level span)', () => {
