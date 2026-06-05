@@ -35,7 +35,7 @@ def add_postgres_foreign_key_lazy_joins(
     database: DatabaseTableLookup,
     schemas: Sequence[ExternalDataSchema],
 ) -> None:
-    foreign_keys = _get_foreign_keys_from_schemas(schemas)
+    foreign_keys = get_foreign_keys_from_schemas(schemas)
 
     for foreign_key in foreign_keys:
         _add_foreign_key_lazy_join(
@@ -87,7 +87,7 @@ def add_postgres_foreign_key_lazy_joins(
         )
 
 
-def _get_foreign_keys_from_schemas(schemas: Sequence[ExternalDataSchema]) -> list[WarehouseForeignKey]:
+def get_foreign_keys_from_schemas(schemas: Sequence[ExternalDataSchema]) -> list[WarehouseForeignKey]:
     schema_with_foreign_keys = next((schema for schema in schemas if _get_foreign_keys(schema)), None)
     return _get_foreign_keys(schema_with_foreign_keys) if schema_with_foreign_keys is not None else []
 
@@ -163,7 +163,7 @@ def _add_foreign_key_lazy_join(
         from_field=from_field,
         to_field=to_field,
         join_table=join_table,
-        join_function=_foreign_key_join_function(from_field, to_field),
+        join_function=foreign_key_join_function(from_field, to_field),
     )
 
     target_table_name = target_hogql_table.name if isinstance(target_hogql_table.name, str) else None
@@ -171,7 +171,7 @@ def _add_foreign_key_lazy_join(
     if target_table_name is None or source_table_name is None:
         return
 
-    reverse_field_name = _reverse_foreign_key_field_name(source_table_name, target_table_name)
+    reverse_field_name = reverse_foreign_key_field_name(source_table_name, target_table_name)
     if target_hogql_table.fields.get(reverse_field_name) is not None:
         return
 
@@ -179,7 +179,7 @@ def _add_foreign_key_lazy_join(
         from_field=to_field,
         to_field=from_field,
         join_table=hogql_table,
-        join_function=_foreign_key_join_function(to_field, from_field),
+        join_function=foreign_key_join_function(to_field, from_field),
     )
 
 
@@ -229,7 +229,7 @@ def _is_same_external_scope(
     return source_table_name.rsplit(".", 1)[0] == target_table_name.rsplit(".", 1)[0]
 
 
-def _foreign_key_join_function(
+def foreign_key_join_function(
     from_field: list[str | int], to_field: list[str | int]
 ) -> Callable[[LazyJoinToAdd, HogQLContext, ast.SelectQuery], ast.JoinExpr]:
     def _join_function(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery):
@@ -265,7 +265,7 @@ def _foreign_key_join_function(
     return _join_function
 
 
-def _reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
+def reverse_foreign_key_field_name(from_table: str, target_table: str) -> str:
     from_base = from_table.split(".")[-1]
     target_base = target_table.split(".")[-1]
 
@@ -291,7 +291,7 @@ def _find_inferred_foreign_key(
 ) -> WarehouseForeignKey | None:
     source_table_name = hogql_table.name if isinstance(hogql_table.name, str) else None
 
-    for candidate in _candidate_target_tables(base_name=base_name, namespace=namespace):
+    for candidate in candidate_target_tables(base_name=base_name, namespace=namespace):
         if not database.has_table(candidate):
             continue
 
@@ -320,7 +320,7 @@ def _find_inferred_target_column(*, column: str, target_hogql_table: Table) -> s
     return None
 
 
-def _candidate_target_tables(*, base_name: str, namespace: list[str]) -> list[str]:
+def candidate_target_tables(*, base_name: str, namespace: list[str]) -> list[str]:
     local_candidates = [base_name, f"{base_name}s", f"posthog_{base_name}"]
     scoped_candidates = [".".join([*namespace, candidate]) for candidate in local_candidates] if namespace else []
     return scoped_candidates or local_candidates

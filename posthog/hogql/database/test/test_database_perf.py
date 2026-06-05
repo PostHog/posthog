@@ -116,7 +116,7 @@ class TestCreateHogQLDatabasePerf(BaseTest):
             ]
         )
 
-    def _resolve_one_table_query(self) -> int:
+    def _resolve_one_table_query(self, *, lazy: bool) -> int:
         """Build the database, resolve a query touching a single table, return #tables built."""
         original = DataWarehouseTable.hogql_definition
         built = {"count": 0}
@@ -126,7 +126,7 @@ class TestCreateHogQLDatabasePerf(BaseTest):
             return original(self, *args, **kwargs)
 
         with patch.object(DataWarehouseTable, "hogql_definition", counting):
-            database = Database.create_for(team=self.team)
+            database = Database.create_for(team=self.team, lazy_warehouse_tables=lazy)
             table_name = database.get_warehouse_table_names()[0]
             context = HogQLContext(
                 team_id=self.team.pk,
@@ -141,11 +141,18 @@ class TestCreateHogQLDatabasePerf(BaseTest):
     def test_benchmark(self, n_tables: int) -> None:
         self._seed(n_tables=n_tables)
 
-        build_min, build_median = _time(lambda: Database.create_for(team=self.team), iterations=5)
-        resolve_min, resolve_median = _time(self._resolve_one_table_query, iterations=5)
-        tables_built = self._resolve_one_table_query()
-
         print(f"\n=== create_hogql_database perf: {n_tables} warehouse tables ===")  # noqa: T201
-        print(f"  create_for only            min={build_min:8.1f}ms  median={build_median:8.1f}ms")  # noqa: T201
-        print(f"  create_for + resolve 1 tbl min={resolve_min:8.1f}ms  median={resolve_median:8.1f}ms")  # noqa: T201
-        print(f"  tables built to resolve 1  {tables_built} / {n_tables}")  # noqa: T201
+        for lazy in (False, True):
+            label = "lazy " if lazy else "eager"
+            build_min, build_median = _time(
+                lambda lazy=lazy: Database.create_for(team=self.team, lazy_warehouse_tables=lazy), iterations=5
+            )
+            resolve_min, resolve_median = _time(
+                lambda lazy=lazy: self._resolve_one_table_query(lazy=lazy), iterations=5
+            )
+            tables_built = self._resolve_one_table_query(lazy=lazy)
+            print(f"  [{label}] create_for only            min={build_min:8.1f}ms  median={build_median:8.1f}ms")  # noqa: T201
+            print(  # noqa: T201
+                f"  [{label}] create_for + resolve 1 tbl min={resolve_min:8.1f}ms  median={resolve_median:8.1f}ms"
+            )
+            print(f"  [{label}] tables built to resolve 1  {tables_built} / {n_tables}")  # noqa: T201

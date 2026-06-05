@@ -59,7 +59,13 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
+from posthog.hogql.database.postgres_utils import (
+    add_postgres_foreign_key_lazy_joins,
+    candidate_target_tables,
+    foreign_key_join_function,
+    get_foreign_keys_from_schemas,
+    reverse_foreign_key_field_name,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
@@ -168,6 +174,8 @@ if TYPE_CHECKING:
 
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.data_tools.backend.models.join import DataWarehouseJoin
 
 tracer = trace.get_tracer(__name__)
 
@@ -880,6 +888,7 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
+        lazy_warehouse_tables: bool | None = None,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -1073,6 +1082,34 @@ class Database(BaseModel):
                         events_table.fields[mapping["group_type"]] = FieldTraverser(
                             chain=[f"group_{mapping['group_type_index']}"]
                         )
+
+        if lazy_warehouse_tables is None:
+            lazy_warehouse_tables = bool(
+                posthoganalytics.feature_enabled(
+                    "hogql-lazy-warehouse-tables",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.id)},
+                    },
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+
+        # Lazy path: register warehouse tables/views as deferred stubs so a query only pays to build
+        # the few tables it touches. Direct-connection queries keep the eager path below.
+        if lazy_warehouse_tables and not database._is_direct_query() and not modifiers.dataWarehouseEventsModifiers:
+            _build_warehouse_lazy(
+                database=database,
+                team=team,
+                modifiers=modifiers,
+                is_managed_viewset_enabled=is_managed_viewset_enabled,
+                timings=timings,
+            )
+            database.apply_schema_scope()
+            return database
 
         warehouse_tables_dot_notation_mapping: dict[str, str] = {}
         warehouse_tables: TableNode = TableNode()
@@ -1468,6 +1505,444 @@ class Database(BaseModel):
         database.apply_schema_scope()
 
         return database
+
+
+class _WarehousePropertiesVirtualTable(VirtualTable):
+    fields: dict[str, FieldOrTable]
+    parent_table: Table
+
+    def to_printed_hogql(self):
+        return self.parent_table.to_printed_hogql()
+
+    def to_printed_clickhouse(self, context):
+        return self.parent_table.to_printed_clickhouse(context)
+
+
+@dataclasses.dataclass(frozen=True)
+class _LazyTableMeta:
+    """Just enough about a warehouse table/view to resolve foreign keys without building it."""
+
+    name: str  # hogql (namespaced) name
+    columns: frozenset[str]
+
+
+def _same_warehouse_scope(source_name: str, target_name: str) -> bool:
+    # Mirrors postgres_utils._is_same_external_scope for the non-direct path: same namespace prefix.
+    if "." not in source_name or "." not in target_name:
+        return False
+    return source_name.rsplit(".", 1)[0] == target_name.rsplit(".", 1)[0]
+
+
+def _resolve_fk_target_name(target_table: str, source_name: str, metas: dict[str, _LazyTableMeta]) -> str | None:
+    name = target_table
+    if source_name and "." in source_name and "." not in name:
+        name = ".".join([*source_name.split(".")[:-1], name])
+    return name if name in metas else None
+
+
+def _emit_one_fk(
+    source: _LazyTableMeta,
+    column: str,
+    target_table: str,
+    target_column: str,
+    metas: dict[str, _LazyTableMeta],
+    fk_specs: dict[str, dict[str, LazyJoin]],
+) -> None:
+    if not column or not target_table or not target_column:
+        return
+    from_field = get_join_field_chain(column)
+    to_field = get_join_field_chain(target_column)
+    if from_field is None or to_field is None:
+        return
+    field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
+
+    target_name = _resolve_fk_target_name(target_table, source.name, metas)
+    if target_name is None or not _same_warehouse_scope(source.name, target_name):
+        return
+
+    # Skip the whole FK if the forward field name is already taken (matches the eager early return).
+    if field_name in source.columns or field_name in fk_specs.get(source.name, {}):
+        return
+    fk_specs.setdefault(source.name, {})[field_name] = LazyJoin(
+        from_field=from_field,
+        to_field=to_field,
+        join_table=target_name,
+        join_function=foreign_key_join_function(from_field, to_field),
+    )
+
+    reverse = reverse_foreign_key_field_name(source.name, target_name)
+    target = metas[target_name]
+    if reverse in target.columns or reverse in fk_specs.get(target_name, {}):
+        return
+    fk_specs.setdefault(target_name, {})[reverse] = LazyJoin(
+        from_field=to_field,
+        to_field=from_field,
+        join_table=source.name,
+        join_function=foreign_key_join_function(to_field, from_field),
+    )
+
+
+def _emit_fk_specs_for_table(
+    source: _LazyTableMeta,
+    schemas: Sequence[ExternalDataSchema],
+    metas: dict[str, _LazyTableMeta],
+    fk_specs: dict[str, dict[str, LazyJoin]],
+) -> None:
+    foreign_keys = get_foreign_keys_from_schemas(schemas)
+    if foreign_keys:
+        for fk in foreign_keys:
+            _emit_one_fk(source, fk.column, fk.target_table, fk.target_column, metas, fk_specs)
+        return
+
+    # Inferred foreign keys from *_id columns when no explicit metadata is available.
+    namespace = source.name.split(".")[:-1]
+    for column in source.columns:
+        if not column.endswith("_id") or len(column) <= 3:
+            continue
+        field_name = column[:-3]
+        if field_name in source.columns:
+            continue
+        for candidate in candidate_target_tables(base_name=field_name, namespace=namespace):
+            target = metas.get(candidate)
+            if target is None or candidate == source.name or not _same_warehouse_scope(source.name, candidate):
+                continue
+            target_column = column if column in target.columns else ("id" if "id" in target.columns else None)
+            if target_column is None:
+                continue
+            _emit_one_fk(source, column, candidate, target_column, metas, fk_specs)
+            break
+
+
+def _apply_data_warehouse_join(database: "Database", team: "Team", join: "DataWarehouseJoin") -> None:
+    """Apply a DataWarehouseJoin whose source is a built-in table (e.g. persons). The joining table is
+    referenced by name so it is only materialized if a query actually traverses the join."""
+    if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+        return
+    try:
+        source_table = database.get_table(join.source_table_name)
+        from_field = get_join_field_chain(join.source_table_key)
+        to_field = get_join_field_chain(join.joining_table_key)
+        if from_field is None or to_field is None:
+            return
+
+        join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
+        joining_name = join.joining_table_name
+        source_table.fields[join.field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=joining_name,
+            join_function=(
+                join.join_function_for_experiments()
+                if "events" == join.joining_table_name and join_configuration.get("experiments_optimized")
+                else join.join_function()
+            ),
+        )
+
+        if join.source_table_name != "persons":
+            return
+
+        events_table = database.get_table("events")
+        person_field = events_table.fields["person"]
+        if isinstance(person_field, ast.FieldTraverser):
+            table_or_field: ast.FieldOrTable = events_table
+            for chain in person_field.chain:
+                if isinstance(table_or_field, ast.LazyJoin):
+                    table_or_field = table_or_field.resolve_table(HogQLContext(team_id=team.pk, database=database))
+                    if table_or_field.has_field(chain):
+                        table_or_field = table_or_field.get_field(chain)
+                        if isinstance(table_or_field, ast.LazyJoin):
+                            table_or_field = table_or_field.resolve_table(
+                                HogQLContext(team_id=team.pk, database=database)
+                            )
+                elif isinstance(table_or_field, ast.Table):
+                    table_or_field = table_or_field.get_field(chain)
+
+            assert isinstance(table_or_field, ast.Table)
+
+            if isinstance(table_or_field, ast.VirtualTable):
+                table_or_field.fields[join.field_name] = ast.FieldTraverser(chain=["..", join.field_name])
+                override_source_table_key = f"person.{join.source_table_key}"
+                source_table_key_node = qualify_join_key_expr(join.source_table_key, "person")
+                if source_table_key_node is not None:
+                    override_source_table_key = source_table_key_node.to_hogql()
+                events_table.fields[join.field_name] = LazyJoin(
+                    from_field=from_field,
+                    to_field=to_field,
+                    join_table=joining_name,
+                    join_function=join.join_function(override_source_table_key=override_source_table_key),
+                )
+            else:
+                table_or_field.fields[join.field_name] = LazyJoin(
+                    from_field=from_field,
+                    to_field=to_field,
+                    join_table=joining_name,
+                    join_function=join.join_function(),
+                )
+        elif isinstance(person_field, ast.LazyJoin):
+            person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
+                from_field=from_field,
+                to_field=to_field,
+                join_table=joining_name,
+                join_function=join.join_function(),
+            )
+    except Exception as e:
+        capture_exception(e)
+
+
+def _build_warehouse_table(
+    table: DataWarehouseTable,
+    modifiers: HogQLQueryModifiers,
+    fk_specs: dict[str, dict[str, LazyJoin]],
+    join_specs: dict[str, dict[str, LazyJoin]],
+    hogql_name: str,
+    database: "Database",
+    now: datetime,
+) -> Table:
+    s3_table = table.hogql_definition(modifiers)
+    if s3_table.fields.get("properties") is None:
+        s3_table.fields["properties"] = _WarehousePropertiesVirtualTable(
+            fields=s3_table.fields, parent_table=s3_table, hidden=True
+        )
+    s3_table.name = hogql_name
+
+    sync_warnings = get_warehouse_sync_warnings(table, now=now)
+    if sync_warnings:
+        database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
+
+    for field_name, lazy_join in fk_specs.get(hogql_name, {}).items():
+        s3_table.fields.setdefault(field_name, lazy_join)
+    for field_name, lazy_join in join_specs.get(hogql_name, {}).items():
+        s3_table.fields[field_name] = lazy_join
+    return s3_table
+
+
+def _make_table_factory(
+    table: DataWarehouseTable,
+    modifiers: HogQLQueryModifiers,
+    fk_specs: dict[str, dict[str, LazyJoin]],
+    join_specs: dict[str, dict[str, LazyJoin]],
+    hogql_name: str,
+    database: "Database",
+    now: datetime,
+) -> Callable[[], FieldOrTable]:
+    cache: dict[str, FieldOrTable] = {}
+
+    def factory() -> FieldOrTable:
+        # Memoized so the bare-name node and the namespaced node resolve to the same built table.
+        if "table" not in cache:
+            cache["table"] = _build_warehouse_table(table, modifiers, fk_specs, join_specs, hogql_name, database, now)
+        return cache["table"]
+
+    return factory
+
+
+def _make_view_factory(
+    saved_query: Any,
+    modifiers: HogQLQueryModifiers,
+    fk_specs: dict[str, dict[str, LazyJoin]],
+    join_specs: dict[str, dict[str, LazyJoin]],
+    view_name: str,
+) -> Callable[[], FieldOrTable]:
+    cache: dict[str, FieldOrTable] = {}
+
+    def factory() -> FieldOrTable:
+        if "table" not in cache:
+            view_table = saved_query.hogql_definition(modifiers)
+            for field_name, lazy_join in fk_specs.get(view_name, {}).items():
+                view_table.fields.setdefault(field_name, lazy_join)
+            for field_name, lazy_join in join_specs.get(view_name, {}).items():
+                view_table.fields[field_name] = lazy_join
+            cache["table"] = view_table
+        return cache["table"]
+
+    return factory
+
+
+def _build_warehouse_lazy(
+    *,
+    database: "Database",
+    team: "Team",
+    modifiers: HogQLQueryModifiers,
+    is_managed_viewset_enabled: bool,
+    timings: HogQLTimings,
+) -> None:
+    """Register data-warehouse tables and views as deferred stubs.
+
+    Every Postgres fetch stays eager and bulk (no N+1); only the per-table CPU work
+    (hogql_definition + foreign-key/join wiring) is deferred to the first time a query touches a
+    given table. Foreign-key and join field specs are computed up front from metadata so deferring a
+    table never cascades into building its neighbours.
+    """
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_tools.backend.models.join import DataWarehouseJoin
+
+    warehouse_tables = TableNode()
+    self_managed_warehouse_tables = TableNode()
+    views = TableNode()
+
+    with timings.measure("data_warehouse_saved_query", emit_span=True):
+        with timings.measure("select"):
+            saved_query_qs = (
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .order_by("name")
+                .select_related("table", "table__credential", "managed_viewset")
+            )
+            if not is_managed_viewset_enabled:
+                saved_query_qs = saved_query_qs.filter(managed_viewset__isnull=True)
+            saved_queries = list(saved_query_qs)
+
+    with timings.measure("endpoint_saved_query", emit_span=True):
+        endpoint_saved_queries: list[Any] = []
+        try:
+            endpoint_saved_queries = list(
+                DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+                .exclude(deleted=True)
+                .select_related("table", "table__credential")
+            )
+        except Exception as e:
+            capture_exception(e)
+
+    with timings.measure("revenue_analytics_views", emit_span=True):
+        revenue_views: list[RevenueAnalyticsBaseView] = []
+        try:
+            if not is_managed_viewset_enabled:
+                revenue_views = list(build_all_revenue_analytics_views(team, timings))
+        except Exception as e:
+            capture_exception(e)
+
+    with timings.measure("data_warehouse_tables", emit_span=True):
+        with timings.measure("select"):
+            tables = list(
+                DataWarehouseTable.raw_objects.filter(team_id=team.pk)
+                .exclude(deleted=True)
+                .select_related("credential", "external_data_source")
+                .exclude(external_data_source__access_method=ExternalDataSource.AccessMethod.DIRECT)
+            )
+            _preload_active_external_data_schemas(tables)
+
+    with timings.measure("data_warehouse_joins", emit_span=True):
+        with timings.measure("select"):
+            joins = list(DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True))
+
+    # ---- metadata for foreign-key / join resolution (no hogql build) ----
+    external_tables: dict[str, DataWarehouseTable] = {}
+    schemas_by_name: dict[str, Sequence[ExternalDataSchema]] = {}
+    for table in tables:
+        if table.external_data_source:
+            name = get_data_warehouse_table_name(table.external_data_source, table.name)
+            external_tables[name] = table
+            schemas_by_name[name] = _get_active_external_data_schemas(table)
+
+    metas: dict[str, _LazyTableMeta] = {}
+    for name, table in external_tables.items():
+        metas[name] = _LazyTableMeta(name=name, columns=frozenset((table.columns or {}).keys()))
+    for table in tables:
+        if not table.external_data_source:
+            metas.setdefault(
+                table.name, _LazyTableMeta(name=table.name, columns=frozenset((table.columns or {}).keys()))
+            )
+    for saved_query in [*saved_queries, *endpoint_saved_queries]:
+        metas.setdefault(
+            saved_query.name,
+            _LazyTableMeta(name=saved_query.name, columns=frozenset((saved_query.columns or {}).keys())),
+        )
+    for view in revenue_views:
+        metas.setdefault(view.name, _LazyTableMeta(name=view.name, columns=frozenset(view.fields.keys())))
+
+    # Specs are populated below but referenced by the factories (which run later), so an empty dict is
+    # registered now and filled in before this function returns.
+    fk_specs: dict[str, dict[str, LazyJoin]] = {}
+    join_specs: dict[str, dict[str, LazyJoin]] = {}
+    now = datetime.now(UTC)
+
+    # ---- register stubs ----
+    for saved_query in saved_queries:
+        views.add_child(
+            TableNode.create_nested_for_chain(
+                saved_query.name.split("."),
+                table_factory=_make_view_factory(saved_query, modifiers, fk_specs, join_specs, saved_query.name),
+            ),
+            table_conflict_mode="ignore",
+        )
+    for saved_query in endpoint_saved_queries:
+        endpoint_node = TableNode(name=saved_query.name)
+        endpoint_node._table_factory = _make_view_factory(
+            saved_query, modifiers, fk_specs, join_specs, saved_query.name
+        )
+        views.add_child(endpoint_node, table_conflict_mode="ignore")
+    for view in revenue_views:
+        try:
+            views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+        except Exception as e:
+            capture_exception(e)
+            continue
+
+    for table in tables:
+        if table.external_data_source:
+            name = get_data_warehouse_table_name(table.external_data_source, table.name)
+            factory = _make_table_factory(table, modifiers, fk_specs, join_specs, name, database, now)
+            bare_node = TableNode(name=table.name)
+            bare_node._table_factory = factory
+            warehouse_tables.add_child(bare_node)
+            warehouse_tables.add_child(
+                TableNode.create_nested_for_chain(name.split("."), table_factory=factory),
+                table_conflict_mode="ignore",
+            )
+        else:
+            self_managed_node = TableNode(name=table.name)
+            self_managed_node._table_factory = _make_table_factory(
+                table, modifiers, fk_specs, join_specs, table.name, database, now
+            )
+            self_managed_warehouse_tables.add_child(self_managed_node)
+
+    database._add_warehouse_tables(warehouse_tables)
+    database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
+    database._add_views(views)
+
+    # ---- compute field specs (cheap: metadata only, no hogql build) ----
+    for name in external_tables:
+        _emit_fk_specs_for_table(metas[name], schemas_by_name.get(name, []), metas, fk_specs)
+
+    # Map any name a join might reference (bare or namespaced) to the canonical name the table's
+    # factory builds under, so warehouse-source joins emit a spec instead of materializing the table.
+    canonical_name: dict[str, str] = {}
+    for name, table in external_tables.items():
+        canonical_name[name] = name
+        canonical_name[table.name] = name
+    for table in tables:
+        if not table.external_data_source:
+            canonical_name.setdefault(table.name, table.name)
+    for saved_query in [*saved_queries, *endpoint_saved_queries]:
+        canonical_name.setdefault(saved_query.name, saved_query.name)
+    for view in revenue_views:
+        canonical_name.setdefault(view.name, view.name)
+
+    for join in joins:
+        if not database.has_table(join.source_table_name) or not database.has_table(join.joining_table_name):
+            continue
+        source_name = canonical_name.get(join.source_table_name)
+        if source_name is None:
+            # Built-in source (e.g. persons): apply eagerly; the joining table stays a name reference.
+            _apply_data_warehouse_join(database, team, join)
+            continue
+        from_field = get_join_field_chain(join.source_table_key)
+        to_field = get_join_field_chain(join.joining_table_key)
+        if from_field is None or to_field is None:
+            continue
+        join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
+        join_function = (
+            join.join_function_for_experiments()
+            if join.joining_table_name == "events" and join_configuration.get("experiments_optimized")
+            else join.join_function()
+        )
+        join_specs.setdefault(source_name, {})[join.field_name] = LazyJoin(
+            from_field=from_field,
+            to_field=to_field,
+            join_table=join.joining_table_name,
+            join_function=join_function,
+        )
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
