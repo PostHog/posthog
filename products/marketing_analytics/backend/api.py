@@ -343,7 +343,7 @@ class CurrentMappingSerializer(serializers.Serializer):
     raw_utm_source = serializers.CharField(help_text="A utm_source value already mapped to an integration")
     target = serializers.CharField(help_text="Integration key it maps to")
     target_display_name = serializers.CharField(help_text="Human-readable name of the target integration")
-    source = serializers.CharField(help_text="canonical or team_custom")
+    source = serializers.CharField(help_text="canonical or team_custom")  # type: ignore[assignment]
 
 
 class CatalogueEntrySerializer(serializers.Serializer):
