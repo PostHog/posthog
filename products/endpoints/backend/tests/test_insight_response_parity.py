@@ -181,6 +181,13 @@ class TestInsightResponseParity(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             is_active=True,
         )
+        # The parity check runs /run on the inline path with no variables to capture the
+        # baseline insight shape, then compares the materialized response against it.
+        # PR 3 now enforces required breakdowns on inline insight too — mark $browser
+        # optional so the baseline call returns the shape this test is asserting about.
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = ["$browser"]
+        version.save(update_fields=["optional_breakdown_properties"])
 
         # Step 1: Inline baseline
         inline_resp = self._run_endpoint(endpoint)

@@ -326,21 +326,24 @@ class EndpointQueryStrategy(abc.ABC):
         """The set of variable names callers may pass to /run."""
 
     @abc.abstractmethod
-    def required_materialized_variables(self) -> set[str]:
-        """Variables that MUST be provided when running against the materialized table.
+    def required_run_variables(self) -> set[str]:
+        """Variables that MUST be provided on /run.
 
-        SECURITY: materialized tables contain rows for every variable value; omitting
-        a variable would return unfiltered data. Endpoint owners can opt individual
-        breakdown properties out via ``EndpointVersion.optional_breakdown_properties``;
-        omitting an optional breakdown returns data aggregated across all values of
-        that dimension.
+        SECURITY: prevents data leakage by ensuring callers can't omit variables and get
+        back unfiltered data when filters were expected. For insight endpoints this is
+        enforced on BOTH inline and materialized paths — the leak shape is identical.
+        HogQL endpoints enforce it only when materialized; inline HogQL substitutes
+        defaults/NULLs for missing variables, which is a coherent contract. Endpoint
+        owners can opt individual breakdown properties out via
+        ``EndpointVersion.optional_breakdown_properties``; omitting an optional breakdown
+        returns data aggregated across all values of that dimension.
         """
 
     @abc.abstractmethod
     def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
         """Whether all requested variables can be answered by the materialized table."""
 
-    def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
+    def filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
         """Whether ``data.filters_override`` actually supplies the required materialized filter.
 
         Only the insight strategy honors filters_override; for any other strategy a
@@ -420,7 +423,7 @@ class HogQLEndpointStrategy(EndpointQueryStrategy):
         variables = self.query.get("variables", {})
         return {v.get("code_name") for v in variables.values() if v.get("code_name")} if variables else set()
 
-    def required_materialized_variables(self) -> set[str]:
+    def required_run_variables(self) -> set[str]:
         return {v.code_name for v in self.materialized_variables}
 
     def can_serve_variables_from_materialized(self, requested: set[str]) -> bool:
@@ -618,7 +621,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
 
         return allowed
 
-    def required_materialized_variables(self) -> set[str]:
+    def required_run_variables(self) -> set[str]:
         # Breakdown properties are required unless explicitly marked optional.
         if self.query_kind in self.BREAKDOWN_SUPPORTED_QUERY_TYPES:
             all_breakdowns = set(get_breakdown_properties(self._breakdown_filter))
@@ -632,7 +635,7 @@ class InsightEndpointStrategy(EndpointQueryStrategy):
             return False
         return requested.issubset(allowed_props)
 
-    def materialized_filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
+    def filters_override_satisfies_required(self, data: EndpointRunRequest) -> bool:
         # apply_materialized_filters applies only the first property's value as a single positionless
         # breakdown filter, so filters_override can only satisfy an endpoint with exactly ONE breakdown
         # overall. Gate on the total breakdown count, not the required count: with optional breakdowns
