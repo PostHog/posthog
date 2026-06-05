@@ -1,6 +1,7 @@
 import base64
 import hashlib
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Optional, cast
 from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
@@ -21,6 +22,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth import OAuthAuthorizationSerializer
+from posthog.api.oauth.views import OAuthValidator
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -337,6 +339,48 @@ class TestOAuthAPI(APIBaseTest):
 
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
+
+    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self):
+        # PostHog does not support OIDC silent authentication: `prompt=none` is always rejected
+        # with a spec-compliant error, never a token and never a 500. On the GET validate path
+        # oauthlib hasn't attached the user yet, so it rejects at the first gate with
+        # `login_required` (a missing validate_silent_login override used to crash here instead).
+        url = f"{self.base_authorization_url}&scope=openid&prompt=none"
+
+        response = self.client.get(url)
+
+        self.assertLess(response.status_code, 500)
+        self.assertIn("error=login_required", response.headers["Location"])
+
+    # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
+    # requests before validate_silent_login runs, so the validator's False branch can't
+    # be exercised through the HTTP flow — call it directly instead.
+    @parameterized.expand(
+        [
+            ("authenticated_user", lambda self: SimpleNamespace(user=self.user), True),
+            ("unauthenticated_user", lambda self: SimpleNamespace(user=SimpleNamespace(is_authenticated=False)), False),
+            ("no_user_attr", lambda self: SimpleNamespace(), False),
+            ("none_user", lambda self: SimpleNamespace(user=None), False),
+        ]
+    )
+    def test_validate_silent_login(self, _name, make_request, expected):
+        self.assertEqual(OAuthValidator().validate_silent_login(make_request(self)), expected)
+
+    def test_validate_silent_authorization_always_false(self):
+        # PostHog never authorizes silently; prompt=none must fall back to interactive consent.
+        self.assertFalse(OAuthValidator().validate_silent_authorization(SimpleNamespace(user=self.user)))
+
+    def test_authorize_post_allow_with_prompt_none_returns_consent_required(self):
+        # The authorization-completion path (unlike the GET validate path) attaches the
+        # authenticated user, so oauthlib runs validate_silent_authorization here. We reject
+        # silent authorization with a spec-compliant consent_required error rather than a 500.
+        response = self.client.post(
+            "/oauth/authorize/?scope=openid&prompt=none",
+            {**self.base_authorization_post_body, "allow": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("error=consent_required", response.json()["redirect_to"])
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {
@@ -2331,6 +2375,35 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
+
+    @parameterized.expand(
+        [
+            ("ceiling_excludes_requested", ["experiment:read"], "experiment:write"),
+            ("empty_ceiling_rejects_privileged", [], "llm_gateway:read"),
+        ]
+    )
+    def test_authorize_rejection_captures_invalid_scope_event(self, _name, ceiling, requested_scope):
+        self._set_ceiling(*ceiling)
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("error=invalid_scope", response.get("Location") or "")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(len(rejected), 1)
+        props = rejected[0].kwargs["properties"]
+        self.assertEqual(props["reason"], "invalid_scope")
+        self.assertEqual(props["app_id"], str(self.confidential_application.pk))
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["registration_type"], "manual")
+        self.assertEqual(props["is_verified"], self.confidential_application.is_verified)
+        self.assertEqual(props["is_first_party"], self.confidential_application.is_first_party)
+
+    def test_authorize_success_does_not_capture_invalid_scope_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+            self._authorize_post("experiment:read")
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(rejected, [])
 
     @freeze_time("2025-01-01 00:00:00")
     def test_token_endpoint_with_json_payload(self):

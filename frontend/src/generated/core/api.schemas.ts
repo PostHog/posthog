@@ -2207,59 +2207,6 @@ export interface SharingConfigurationApi {
     readonly share_passwords: readonly SharePasswordApi[]
 }
 
-/**
- * * `image/png` - image/png
- * `application/pdf` - application/pdf
- * `text/csv` - text/csv
- * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
- * `video/webm` - video/webm
- * `video/mp4` - video/mp4
- * `image/gif` - image/gif
- * `application/json` - application/json
- */
-export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
-
-export const ExportFormatEnumApi = {
-    ImagePng: 'image/png',
-    ApplicationPdf: 'application/pdf',
-    TextCsv: 'text/csv',
-    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    VideoWebm: 'video/webm',
-    VideoMp4: 'video/mp4',
-    ImageGif: 'image/gif',
-    ApplicationJson: 'application/json',
-} as const
-
-/**
- * Standard ExportedAsset serializer that doesn't return content.
- */
-export interface ExportedAssetApi {
-    readonly id: number
-    /** @nullable */
-    dashboard?: number | null
-    /** @nullable */
-    insight?: number | null
-    export_format: ExportFormatEnumApi
-    readonly created_at: string
-    readonly has_content: boolean
-    export_context?: unknown
-    readonly filename: string
-    /** @nullable */
-    readonly expires_after: string | null
-    /** @nullable */
-    readonly exception: string | null
-}
-
-export interface PaginatedExportedAssetListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ExportedAssetApi[]
-}
-
 export interface FileSystemApi {
     readonly id: string
     path: string
@@ -2311,6 +2258,191 @@ export interface PatchedFileSystemApi {
     readonly created_at?: string
     /** @nullable */
     readonly last_viewed_at?: string | null
+}
+
+export interface FileSystemShortcutApi {
+    readonly id: string
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at: string
+}
+
+export interface PaginatedFileSystemShortcutListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: FileSystemShortcutApi[]
+}
+
+export interface PatchedFileSystemShortcutApi {
+    readonly id?: string
+    /** Display path of the shortcut in the sidebar. */
+    path?: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 100
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+    /**
+     * Display order within the user's shortcut list, ascending.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    order?: number
+    readonly created_at?: string
+}
+
+export interface FileSystemShortcutReorderApi {
+    /** IDs of the current user's shortcuts in the desired display order. */
+    ordered_ids: string[]
+}
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
+
+export const PersistedFolderTypeEnumApi = {
+    Home: 'home',
+    Pinned: 'pinned',
+    CustomProducts: 'custom_products',
+} as const
+
+export interface PersistedFolderApi {
+    readonly id: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PaginatedPersistedFolderListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PersistedFolderApi[]
+}
+
+export interface PatchedPersistedFolderApi {
+    readonly id?: string
+    /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+  * `home` - Home
+  * `pinned` - Pinned
+  * `custom_products` - Custom Products */
+    type?: PersistedFolderTypeEnumApi
+    /**
+     * Protocol prefix of the folder location, e.g. 'products://'.
+     * @maxLength 64
+     */
+    protocol?: string
+    /** Path within the protocol that the folder resolves to. */
+    path?: string
+    readonly created_at?: string
+    readonly updated_at?: string
+}
+
+/**
+ * * `image/png` - image/png
+ * `application/pdf` - application/pdf
+ * `text/csv` - text/csv
+ * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+ * `video/webm` - video/webm
+ * `video/mp4` - video/mp4
+ * `image/gif` - image/gif
+ * `application/json` - application/json
+ */
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+
+export const ExportFormatEnumApi = {
+    ImagePng: 'image/png',
+    ApplicationPdf: 'application/pdf',
+    TextCsv: 'text/csv',
+    ApplicationVndopenxmlformatsOfficedocumentspreadsheetmlsheet:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    VideoWebm: 'video/webm',
+    VideoMp4: 'video/mp4',
+    ImageGif: 'image/gif',
+    ApplicationJson: 'application/json',
+} as const
+
+/**
+ * Standard ExportedAsset serializer that doesn't return content.
+ */
+export interface ExportedAssetApi {
+    readonly id: number
+    /** @nullable */
+    dashboard?: number | null
+    /** @nullable */
+    insight?: number | null
+    export_format: ExportFormatEnumApi
+    readonly created_at: string
+    readonly has_content: boolean
+    export_context?: unknown
+    readonly filename: string
+    /** @nullable */
+    readonly expires_after: string | null
+    /** @nullable */
+    readonly exception: string | null
+}
+
+export interface PaginatedExportedAssetListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExportedAssetApi[]
 }
 
 export interface ProjectSecretAPIKeyApi {
@@ -2559,11 +2691,11 @@ export interface SubscriptionApi {
   * `yearly` - Yearly */
     frequency: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
-    interval?: number
+    interval: number
     /**
      * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
      * @nullable
@@ -2689,8 +2821,8 @@ export interface PatchedSubscriptionApi {
   * `yearly` - Yearly */
     frequency?: SubscriptionFrequencyEnumApi
     /**
-     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-     * @minimum -2147483648
+     * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+     * @minimum 1
      * @maximum 2147483647
      */
     interval?: number
@@ -2843,6 +2975,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -3437,6 +3574,43 @@ export type OrganizationsProjectsListParams = {
     search?: string
 }
 
+export type DesktopFileSystemListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
+export type DesktopFileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type DesktopPersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3461,6 +3635,28 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemShortcutListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type PersistedFolderListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ProjectSecretApiKeysListParams = {
@@ -3498,7 +3694,7 @@ export type PropertyDefinitionsListParams = {
      */
     excluded_properties?: string
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null
@@ -3507,7 +3703,7 @@ export type PropertyDefinitionsListParams = {
      */
     group_type_index?: number
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null

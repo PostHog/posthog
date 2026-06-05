@@ -9,7 +9,7 @@ from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.services.agent_command import send_refresh_session
 from products.tasks.backend.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import TaskNotFoundError
+from products.tasks.backend.temporal.exceptions import SandboxNotFoundError, SandboxNotRunningError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -79,15 +79,46 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
-
         refreshed_kinds: list[str] = []
         next_refresh = DEFAULT_REFRESH_INTERVAL_SECONDS
         intervals: list[float] = []
+        credentials = build_sandbox_credentials(ctx)
 
-        for credential in build_sandbox_credentials(ctx):
+        try:
+            sandbox = Sandbox.get_by_id(input.sandbox_id)
+        except SandboxNotFoundError:
+            # Skip this cycle instead
+            for credential in credentials:
+                increment_credential_refresh(credential.kind, "skipped")
+            logger.info(
+                "sandbox_credentials_refresh_skipped_sandbox_unreachable",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+            )
+            return RefreshSandboxCredentialsOutput(next_refresh_seconds=next_refresh, refreshed_kinds=[])
+
+        if not sandbox.is_running():
+            for credential in credentials:
+                increment_credential_refresh(credential.kind, "skipped")
+            logger.info(
+                "sandbox_credentials_refresh_skipped_not_running",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+            )
+            return RefreshSandboxCredentialsOutput(next_refresh_seconds=next_refresh, refreshed_kinds=[])
+
+        for index, credential in enumerate(credentials):
             try:
                 outcome = credential.refresh(sandbox, ctx, task)
+            except SandboxNotRunningError:
+                logger.info(
+                    "sandbox_credentials_refresh_skipped_not_running",
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                )
+                for skipped in credentials[index:]:
+                    increment_credential_refresh(skipped.kind, "skipped")
+                break
             except Exception:
                 logger.warning(
                     "sandbox_credential_refresh_failed",

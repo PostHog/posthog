@@ -62,6 +62,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -134,6 +135,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -323,6 +325,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -392,9 +395,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -438,6 +444,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -496,6 +503,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -532,9 +540,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'dashboard')
   '''
@@ -617,6 +628,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -783,6 +795,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -882,9 +895,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'dashboard')
   '''
@@ -949,6 +965,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -1046,6 +1063,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -1396,9 +1414,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -1454,6 +1475,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -1588,6 +1610,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -1693,6 +1716,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -1811,6 +1835,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -1931,6 +1956,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2050,6 +2076,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2110,6 +2137,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -2184,6 +2212,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2346,6 +2375,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -2420,6 +2450,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2525,6 +2556,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2585,6 +2617,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -2623,9 +2656,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'insight'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -2681,6 +2717,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2815,6 +2852,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2920,6 +2958,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -2980,6 +3019,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -3054,6 +3094,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -3286,6 +3327,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -3391,6 +3433,7 @@
          "posthog_team"."autocapture_exceptions_opt_in",
          "posthog_team"."autocapture_exceptions_errors_to_ignore",
          "posthog_team"."logs_settings",
+         "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
@@ -3451,6 +3494,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -3520,9 +3564,12 @@
          "posthog_filesystem"."meta",
          "posthog_filesystem"."created_at",
          "posthog_filesystem"."created_by_id",
+         "posthog_filesystem"."surface",
          "posthog_filesystem"."project_id"
   FROM "posthog_filesystem"
-  WHERE ("posthog_filesystem"."ref" = '0001'
+  WHERE (("posthog_filesystem"."surface" IS NULL
+          OR "posthog_filesystem"."surface" = 'web')
+         AND "posthog_filesystem"."ref" = '0001'
          AND "posthog_filesystem"."team_id" = 99999
          AND "posthog_filesystem"."type" = 'feature_flag'
          AND NOT ("posthog_filesystem"."shortcut"
@@ -3539,9 +3586,12 @@
          "posthog_filesystemshortcut"."ref",
          "posthog_filesystemshortcut"."href",
          "posthog_filesystemshortcut"."order",
-         "posthog_filesystemshortcut"."created_at"
+         "posthog_filesystemshortcut"."created_at",
+         "posthog_filesystemshortcut"."surface"
   FROM "posthog_filesystemshortcut"
-  WHERE ("posthog_filesystemshortcut"."ref" = '0001'
+  WHERE (("posthog_filesystemshortcut"."surface" IS NULL
+          OR "posthog_filesystemshortcut"."surface" = 'web')
+         AND "posthog_filesystemshortcut"."ref" = '0001'
          AND "posthog_filesystemshortcut"."team_id" = 99999
          AND "posthog_filesystemshortcut"."type" = 'feature_flag'
          AND NOT ("posthog_filesystemshortcut"."path" = 'copied-flag-key'
@@ -3646,6 +3696,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -3918,6 +3969,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -3997,6 +4049,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -4125,6 +4178,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -4166,6 +4220,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -4223,6 +4278,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",

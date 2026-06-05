@@ -86,6 +86,10 @@ from posthog.temporal.ingestion_acceptance_test import (
     ACTIVITIES as INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     WORKFLOWS as INGESTION_ACCEPTANCE_TEST_WORKFLOWS,
 )
+from posthog.temporal.mcp_analytics.intent_clustering import (
+    MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
+)
 from posthog.temporal.messaging import (
     ACTIVITIES as MESSAGING_ACTIVITIES,
     WORKFLOWS as MESSAGING_WORKFLOWS,
@@ -138,10 +142,6 @@ from posthog.temporal.session_replay.summarization_sweep import (
     SUMMARIZATION_SWEEP_ACTIVITIES,
     SUMMARIZATION_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
-)
 from posthog.temporal.sync_person_distinct_ids import (
     ACTIVITIES as SYNC_PERSON_DISTINCT_IDS_ACTIVITIES,
     WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS,
@@ -167,9 +167,13 @@ from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
 )
-from products.deployments.backend.temporal import (
-    ACTIVITIES as DEPLOYMENTS_ACTIVITIES,
-    WORKFLOWS as DEPLOYMENTS_WORKFLOWS,
+from products.business_knowledge.backend.temporal import (
+    ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
+    WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
+)
+from products.exports.backend.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.logs.backend.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
@@ -283,8 +287,8 @@ _task_queue_specs = [
     ),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
-        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS,
-        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES,
+        SIGNALS_PRODUCT_WORKFLOWS + DATA_IMPORT_EMIT_SIGNALS_WORKFLOWS + BUSINESS_KNOWLEDGE_WORKFLOWS,
+        SIGNALS_PRODUCT_ACTIVITIES + DATA_IMPORT_EMIT_SIGNALS_ACTIVITIES + BUSINESS_KNOWLEDGE_ACTIVITIES,
     ),
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
@@ -342,6 +346,16 @@ _task_queue_specs = [
         LLM_ANALYTICS_ACTIVITIES,
     ),
     (
+        # Dedicated queue for MCP analytics clustering — isolates the CPU
+        # burst (cluster compute) and external embedding worker calls from
+        # the general-purpose queue that hosts the rest of mcp_analytics.
+        # Workflow + activity lists are populated as the stack lands; an
+        # empty queue is harmless — the worker registers and idles.
+        settings.MCPA_TASK_QUEUE,
+        MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
+        MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    ),
+    (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
         EVENT_SCREENSHOTS_WORKFLOWS,
         EVENT_SCREENSHOTS_ACTIVITIES,
@@ -350,11 +364,6 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
-    ),
-    (
-        settings.DEPLOYMENTS_TASK_QUEUE,
-        DEPLOYMENTS_WORKFLOWS,
-        DEPLOYMENTS_ACTIVITIES,
     ),
 ]
 

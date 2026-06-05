@@ -53,6 +53,7 @@ from products.data_warehouse.backend.data_load.service import trigger_external_d
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
+    AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
@@ -315,6 +316,46 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(serializer.data)
 
 
+SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH = 4000
+# Upper bound on how far a snooze can push out re-promotion. Generous enough for any
+# realistic snooze, but bounded so a caller can't effectively block a report forever.
+SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
+
+
+class SignalReportStateRequestSerializer(serializers.Serializer):
+    state = serializers.ChoiceField(
+        choices=[("suppressed", "suppressed"), ("potential", "potential")],
+        help_text=(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
+            "or 'potential' to snooze/reopen it for later review."
+        ),
+    )
+    dismissal_reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Optional short reason code for the dismissal (e.g. 'not_a_bug', 'wont_fix', 'duplicate'). "
+            "The set of reason codes is owned by the caller and is not validated server-side."
+        ),
+    )
+    dismissal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SIGNAL_REPORT_DISMISSAL_NOTE_MAX_LENGTH,
+        help_text="Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+    )
+    snooze_for = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=SIGNAL_REPORT_MAX_SNOOZE_FOR,
+        help_text=(
+            "Optional, only honored when state is 'potential'. Number of additional signals the report "
+            "must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. "
+            "Omit to let the report re-enter the pipeline on the next matching signal."
+        ),
+    )
+
+
 @extend_schema_view(
     destroy=extend_schema(exclude=True),
 )
@@ -356,6 +397,7 @@ class SignalReportViewSet(
         qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
+        qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
         if self.action != "list":
@@ -384,6 +426,11 @@ class SignalReportViewSet(
         status_filter = self.request.query_params.get("status")
         if status_filter:
             return queryset.filter(status__in=[s.strip() for s in status_filter.split(",") if s.strip()])
+        # The `state` action reopens dismissed reports, so it must be able to reach a suppressed
+        # report by ID — otherwise transitioning one back to "potential" would 404. Everywhere
+        # else suppressed reports stay hidden unless an explicit `status` filter asks for them.
+        if self.action == "state":
+            return queryset
         return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
 
     def _apply_signal_report_search_filter(self, queryset):
@@ -437,6 +484,28 @@ class SignalReportViewSet(
                 )
             )
         )
+
+    def _apply_signal_report_priority_filter(self, queryset):
+        # Filters on the `priority_rank` annotation, which must be applied first.
+        # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
+        priority_filter = self.request.query_params.get("priority")
+        if not priority_filter:
+            return queryset
+
+        values = [p.strip().upper() for p in priority_filter.split(",") if p.strip()]
+        if not values:
+            return queryset
+
+        allowed = set(AutonomyPriority.values)
+        invalid = [v for v in values if v not in allowed]
+        if invalid:
+            raise serializers.ValidationError(
+                {
+                    "priority": f"Invalid priority value(s): {', '.join(sorted(set(invalid)))}. Allowed: {', '.join(sorted(allowed))}."
+                }
+            )
+
+        return queryset.filter(priority_rank__in=values)
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
@@ -656,6 +725,16 @@ class SignalReportViewSet(
                 ),
             ),
             OpenApiParameter(
+                name="priority",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
+                    "Reports without a priority assignment are excluded when this filter is set."
+                ),
+            ),
+            OpenApiParameter(
                 name="ordering",
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
@@ -762,60 +841,47 @@ class SignalReportViewSet(
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
         return Response({"report": report_data, "signals": signals_list})
 
-    # The set of allowed reason codes is owned by PostHog Code (the calling UI),
-    # not validated here -- we just persist whatever the client sends.
-    DISMISSAL_NOTE_MAX_LENGTH = 4000
-
-    @extend_schema(exclude=True)
+    @extend_schema(
+        request=SignalReportStateRequestSerializer,
+        responses={200: SignalReportSerializer},
+    )
     @action(detail=True, methods=["post"], url_path="state", required_scopes=["task:write"])
     def state(self, request, pk=None, **kwargs):
         """
         Transition a report to a new state. The model validates allowed transitions.
+
+        The request body is validated by SignalReportStateRequestSerializer — only the
+        fields it declares (state, dismissal_reason, dismissal_note, snooze_for) are read,
+        and only snooze_for is ever forwarded to transition_to. Any other key is ignored,
+        so internal transition_to kwargs (reset_weight, error, ...) can't be injected.
 
         Body: {
             "state": "suppressed" | "potential",
             # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
             "dismissal_reason": "<any string code, owned by the caller>",
             "dismissal_note": "free-form text",
-            ...other kwargs passed to transition_to
+            # Optional, only honored for state == "potential":
+            "snooze_for": <number of additional signals before re-promotion>,
         }
         """
         report = cast(SignalReport, self.get_object())
 
-        target = request.data.get("state")
-        if target not in ("suppressed", "potential"):
-            return Response(
-                {"error": "state must be one of ['suppressed', 'potential']"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        serializer = SignalReportStateRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
-        # Pull dismissal fields out before passing the rest to transition_to.
-        dismissal_reason = request.data.get("dismissal_reason")
-        dismissal_note = request.data.get("dismissal_note")
-        transition_kwargs = {
-            k: v for k, v in request.data.items() if k not in ("state", "dismissal_reason", "dismissal_note")
-        }
+        target = data["state"]
+        dismissal_reason = data.get("dismissal_reason")
+        dismissal_note = data.get("dismissal_note")
 
-        if dismissal_reason is not None and not isinstance(dismissal_reason, str):
-            return Response(
-                {"error": "dismissal_reason must be a string."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if dismissal_note is not None:
-            if not isinstance(dismissal_note, str):
-                return Response(
-                    {"error": "dismissal_note must be a string."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            if len(dismissal_note) > self.DISMISSAL_NOTE_MAX_LENGTH:
-                return Response(
-                    {"error": f"dismissal_note must be at most {self.DISMISSAL_NOTE_MAX_LENGTH} characters."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+        # Only `snooze_for` (on a snooze back to "potential") is caller-controllable. Every other
+        # `transition_to` kwarg (signals_at_run_increment, reset_weight, title, summary, error) is an
+        # internal pipeline concern and must never be reachable from this public API surface, so it is
+        # passed explicitly rather than splatting caller-supplied kwargs.
+        snooze_for = data.get("snooze_for") if target == "potential" else None
 
         try:
-            updated_fields = report.transition_to(SignalReport.Status(target), **transition_kwargs)
+            updated_fields = report.transition_to(SignalReport.Status(target), snooze_for=snooze_for)
         except InvalidStatusTransition as e:
             logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
             return Response(
