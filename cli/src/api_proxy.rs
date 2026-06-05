@@ -31,8 +31,10 @@ fn find_script() -> Result<PathBuf> {
     if let Ok(exe) = env::current_exe() {
         if let Some(bin_dir) = exe.parent() {
             for candidate in [
+                bin_dir.join("lib/posthog-api-cli.mjs"),
                 bin_dir.join("../lib/posthog-api-cli.mjs"),
                 bin_dir.join("../lib/api-cli/posthog-api-cli.mjs"),
+                bin_dir.join("posthog-api-cli.mjs"),
             ] {
                 if candidate.exists() {
                     return candidate

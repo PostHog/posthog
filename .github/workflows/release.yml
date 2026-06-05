@@ -142,6 +142,19 @@ jobs:
             - name: Install dependencies
               run: |
                   ${{ matrix.packages_install }}
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: 'pnpm'
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+            - name: Verify API CLI release bundle
+              run: node -e "const { statSync } = require('node:fs'); if (statSync('cli/lib/posthog-api-cli.mjs').size <= 0) process.exit(1)"
             - name: Build artifacts
               run: |
                   # Actually do builds and make zips and whatnot
@@ -196,6 +209,19 @@ jobs:
                   pattern: artifacts-*
                   path: target/distrib/
                   merge-multiple: true
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: 'pnpm'
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+            - name: Verify API CLI release bundle
+              run: node -e "const { statSync } = require('node:fs'); if (statSync('cli/lib/posthog-api-cli.mjs').size <= 0) process.exit(1)"
             - id: cargo-dist
               shell: bash
               run: |

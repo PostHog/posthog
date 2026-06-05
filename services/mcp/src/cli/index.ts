@@ -4,6 +4,7 @@ import { createExecTool } from '@/tools/exec'
 import type { Context, Tool, ZodObjectAny } from '@/tools/types'
 
 import { installAgentsMdSnippet } from './agents-md'
+import { takeOption } from './args'
 import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
 import { buildCliContext } from './context'
@@ -50,16 +51,6 @@ function takeFlag(args: string[], flag: string): boolean {
     }
     args.splice(index, 1)
     return true
-}
-
-function takeOption(args: string[], flag: string): string | undefined {
-    const index = args.indexOf(flag)
-    if (index === -1) {
-        return undefined
-    }
-    const value = args[index + 1]
-    args.splice(index, value === undefined ? 1 : 2)
-    return value
 }
 
 function printResult(result: unknown): void {

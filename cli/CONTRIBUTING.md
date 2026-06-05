@@ -23,6 +23,14 @@ cd cli && cargo publish
 
 We manage publishing releases through [`cargo-dist`](https://github.com/axodotdev/cargo-dist)
 
+The release workflow also builds `services/mcp` into `cli/lib/posthog-api-cli.mjs` before cargo-dist packages artifacts.
+This keeps `posthog-cli api` aligned with the generated MCP tool catalog at release time.
+To reproduce that release bundle locally, run:
+
+```bash
+pnpm --dir services/mcp run build:cli:release
+```
+
 We release semi-regularly, as new features are added. If a release breaks your CI or workflow, please open an issue on GitHub, and tag one or all of the crate authors
 
 ## Running a local build
