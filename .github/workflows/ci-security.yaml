@@ -26,7 +26,8 @@ jobs:
 
             - name: Run Semgrep
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=900 $SG \
                     --config "p/python" \
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
@@ -52,7 +53,8 @@ jobs:
 
             - name: Run Semgrep
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=300 $SG \
                     --config "p/golang" \
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
@@ -76,7 +78,8 @@ jobs:
 
             - name: Run Semgrep
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=300 $SG \
                     --config "p/rust" \
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
@@ -102,7 +105,8 @@ jobs:
 
             - name: Run Semgrep
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=600 $SG \
                     --config ".semgrep/rules/" \
                     --config "p/javascript" \
                     --config "p/owasp-top-ten" \
@@ -129,7 +133,8 @@ jobs:
             # product-specific rules land, extend the --config list explicitly.
             - name: Run Semgrep
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=360 $SG \
                     --config ".semgrep/rules/prefer-codegen-api.yaml" \
                     --error \
                     --metrics=off \
@@ -150,7 +155,8 @@ jobs:
             # exclude all directories already scanned by other jobs
             - name: Run Semgrep
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=600 $SG \
                     --config "p/owasp-top-ten" \
                     --config "p/security-audit" \
                     --config "p/trailofbits" \
@@ -195,7 +201,8 @@ jobs:
             # up here.
             - name: Warnings (informational)
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=360 $SG \
                     --config ".semgrep/devex-rules/" \
                     --severity=WARNING \
                     --metrics=off \
@@ -206,7 +213,8 @@ jobs:
             # job — regression guards live here.
             - name: Errors (blocking)
               run: |
-                  semgrep \
+                  SG=semgrep; [ -f .github/scripts/semgrep-ci.sh ] && SG="sh .github/scripts/semgrep-ci.sh"
+                  SEMGREP_CAP_SECONDS=360 $SG \
                     --config ".semgrep/devex-rules/" \
                     --severity=ERROR \
                     --error \
