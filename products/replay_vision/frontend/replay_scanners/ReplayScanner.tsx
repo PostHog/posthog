@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { router } from 'kea-router'
 
 import {
     LemonBanner,
@@ -54,7 +55,9 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
 
     const { scanner, originalScanner, scannerLoading, isScannerSubmitting, hasUnsavedChanges, isNew } =
         useValues(scannerLogic)
-    const { submitScanner, resetScanner, deleteScanner } = useActions(scannerLogic)
+    const { searchParams } = useValues(router)
+    const { setScannerType, submitScanner, resetScanner, deleteScanner } = useActions(scannerLogic)
+    const isTypeSelectable = isNew && !searchParams.template
 
     if (scannerLoading || !scanner) {
         return (
@@ -93,23 +96,60 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
                             <LemonTextArea placeholder="What this scanner looks for and why." minRows={2} />
                         </Field>
 
-                        <div className="space-y-1">
-                            <label className="block text-sm font-medium">Scanner type</label>
-                            <LemonTag type="option">
-                                {SCANNER_TYPE_OPTIONS.find((o) => o.value === scanner.scanner_type)?.label ??
-                                    scanner.scanner_type}
-                            </LemonTag>
-                            <div className="text-xs text-muted">
-                                {isNew ? (
-                                    <>
-                                        Type is set by the template you picked. To use a different type,{' '}
-                                        <Link to={urls.replayVisionTemplates()}>start from another template</Link>.
-                                    </>
-                                ) : (
-                                    'Scanner type is fixed after creation.'
-                                )}
+                        {isTypeSelectable ? (
+                            <Field name="scanner_type" label="Scanner type">
+                                <LemonSelect
+                                    value={scanner.scanner_type}
+                                    onChange={(next) => {
+                                        if (next === scanner.scanner_type) {
+                                            return
+                                        }
+                                        if (scanner.scanner_config?.prompt?.trim()) {
+                                            LemonDialog.open({
+                                                title: 'Switch scanner type?',
+                                                description:
+                                                    'Your prompt and type-specific settings will reset to defaults for the new type.',
+                                                primaryButton: {
+                                                    children: 'Switch and reset',
+                                                    onClick: () => setScannerType(next),
+                                                },
+                                                secondaryButton: { children: 'Keep current' },
+                                            })
+                                            return
+                                        }
+                                        setScannerType(next)
+                                    }}
+                                    options={SCANNER_TYPE_OPTIONS.map((opt) => ({
+                                        value: opt.value,
+                                        label: opt.label,
+                                        labelInMenu: (
+                                            <div className="flex flex-col">
+                                                <span className="font-medium">{opt.label}</span>
+                                                <span className="text-xs text-muted">{opt.description}</span>
+                                            </div>
+                                        ),
+                                    }))}
+                                />
+                            </Field>
+                        ) : (
+                            <div className="space-y-1">
+                                <label className="block text-sm font-medium">Scanner type</label>
+                                <LemonTag type="option">
+                                    {SCANNER_TYPE_OPTIONS.find((o) => o.value === scanner.scanner_type)?.label ??
+                                        scanner.scanner_type}
+                                </LemonTag>
+                                <div className="text-xs text-muted">
+                                    {isNew ? (
+                                        <>
+                                            Type is set by the template you picked. To use a different type,{' '}
+                                            <Link to={urls.replayVisionTemplates()}>start from another template</Link>.
+                                        </>
+                                    ) : (
+                                        'Scanner type is fixed after creation.'
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         <ScannerTypeConfigEditor scannerId={scannerId} tabId={tabId} />
                     </SceneSection>
