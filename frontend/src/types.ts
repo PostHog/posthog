@@ -4153,7 +4153,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     last_modified_by: UserBasicType | null
     experiment_set: number[] | null
     experiment_set_metadata: { id: number; name: string }[] | null
-    features: EarlyAccessFeatureType[] | null
+    features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
     can_edit: boolean
     tags: string[]
@@ -4248,6 +4248,17 @@ export interface EarlyAccessFeatureType {
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
     feature_flag_id: number | undefined
+}
+
+/** Shape served by MinimalEarlyAccessFeatureSerializer (camelCase keys), e.g. as `FeatureFlagType.features`. */
+export interface MinimalEarlyAccessFeatureType {
+    id: string
+    name: string
+    description: string
+    stage: EarlyAccessFeatureStage
+    documentationUrl: string
+    flagKey: string | null
+    payload?: Record<string, any>
 }
 
 export interface UserBlastRadiusType {
