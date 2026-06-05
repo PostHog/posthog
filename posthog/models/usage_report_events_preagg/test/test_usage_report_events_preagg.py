@@ -13,14 +13,15 @@ from posthog.models.usage_report_events_preagg.sql import (
     USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL,
     USAGE_REPORT_EVENTS_PREAGGREGATION_BOUNDS_SQL,
 )
-from posthog.tasks.usage_report import (
-    get_all_event_metrics_in_period,
-    get_teams_with_billable_event_count_in_period,
-    get_teams_with_event_count_with_groups_in_period,
-)
+from posthog.temporal.usage_report import event_preaggregation, queries
 from posthog.temporal.usage_report.activities import (
     USAGE_REPORT_EVENTS_PREAGGREGATION_WRITE_SETTINGS,
     usage_report_events_preaggregation_bucket_starts,
+)
+from posthog.temporal.usage_report.event_preaggregation import (
+    get_all_event_metrics_in_period,
+    get_teams_with_billable_event_count_in_period,
+    get_teams_with_event_count_with_groups_in_period,
 )
 
 
@@ -93,6 +94,24 @@ def test_preaggregation_writer_uses_synchronous_distributed_inserts() -> None:
     assert USAGE_REPORT_EVENTS_PREAGGREGATION_WRITE_SETTINGS["insert_distributed_sync"] == 1
 
 
+def test_temporal_query_registry_uses_event_preaggregation_wrappers() -> None:
+    specs = {spec.name: spec for spec in queries.QUERIES}
+
+    assert (
+        queries.get_teams_with_billable_event_count_in_period
+        is event_preaggregation.get_teams_with_billable_event_count_in_period
+    )
+    assert (
+        queries.get_teams_with_billable_enhanced_persons_event_count_in_period
+        is event_preaggregation.get_teams_with_billable_enhanced_persons_event_count_in_period
+    )
+    assert (
+        specs["teams_with_event_count_with_groups_in_period"].fn
+        is event_preaggregation.get_teams_with_event_count_with_groups_in_period
+    )
+    assert specs["all_event_metrics"].fn is event_preaggregation.get_all_event_metrics_in_period
+
+
 @override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
 def test_billable_event_count_uses_preaggregation_and_events_recent_tail_for_raw_counts() -> None:
     now = datetime.now(UTC)
@@ -100,7 +119,7 @@ def test_billable_event_count_uses_preaggregation_and_events_recent_tail_for_raw
     begin = end - timedelta(days=1)
     max_bucket_end = now - timedelta(minutes=10)
 
-    with patch("posthog.tasks.usage_report.sync_execute") as sync_execute_mock:
+    with patch("posthog.temporal.usage_report.event_preaggregation.sync_execute") as sync_execute_mock:
         sync_execute_mock.side_effect = [
             [(begin - timedelta(minutes=15), max_bucket_end)],
             [(1, 10)],
@@ -125,15 +144,17 @@ def test_distinct_billable_event_count_does_not_sum_bucket_uniques() -> None:
     begin = end - timedelta(days=1)
 
     with (
-        patch("posthog.tasks.usage_report.sync_execute") as sync_execute_mock,
-        patch("posthog.tasks.usage_report._execute_split_query", return_value=[(1, 1)]) as split_query_mock,
+        patch("posthog.temporal.usage_report.event_preaggregation.sync_execute") as sync_execute_mock,
+        patch(
+            "posthog.temporal.usage_report.event_preaggregation._legacy_get_billable_event_count",
+            return_value=[(1, 1)],
+        ) as legacy_billable_count_mock,
     ):
         result = get_teams_with_billable_event_count_in_period(begin, end, count_distinct=True)
 
     assert result == [(1, 1)]
     sync_execute_mock.assert_not_called()
-    split_query_sql = split_query_mock.call_args.args[2]
-    assert "count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))" in split_query_sql
+    legacy_billable_count_mock.assert_called_once_with(begin, end, count_distinct=True)
 
 
 @override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
@@ -143,14 +164,17 @@ def test_old_billable_backfill_does_not_use_events_recent_tail() -> None:
     begin = end - timedelta(days=1)
 
     with (
-        patch("posthog.tasks.usage_report.sync_execute") as sync_execute_mock,
-        patch("posthog.tasks.usage_report._execute_split_query", return_value=[(1, 5)]) as split_query_mock,
+        patch("posthog.temporal.usage_report.event_preaggregation.sync_execute") as sync_execute_mock,
+        patch(
+            "posthog.temporal.usage_report.event_preaggregation._legacy_get_billable_event_count",
+            return_value=[(1, 5)],
+        ) as legacy_billable_count_mock,
     ):
         result = get_teams_with_billable_event_count_in_period(begin, end, count_distinct=False)
 
     assert result == [(1, 5)]
     sync_execute_mock.assert_not_called()
-    split_query_mock.assert_called_once()
+    legacy_billable_count_mock.assert_called_once_with(begin, end, count_distinct=False)
 
 
 @override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
@@ -159,7 +183,7 @@ def test_group_count_tail_uses_events_recent_properties_for_group_detection() ->
     end = datetime(now.year, now.month, now.day, tzinfo=UTC)
     begin = end - timedelta(days=1)
 
-    with patch("posthog.tasks.usage_report.sync_execute") as sync_execute_mock:
+    with patch("posthog.temporal.usage_report.event_preaggregation.sync_execute") as sync_execute_mock:
         sync_execute_mock.side_effect = [
             [(begin, end)],
             [(1, 10)],
@@ -182,7 +206,7 @@ def test_event_metrics_preaggregation_collapses_full_replacing_key() -> None:
     end = datetime(now.year, now.month, now.day, tzinfo=UTC)
     begin = end - timedelta(days=1)
 
-    with patch("posthog.tasks.usage_report.sync_execute") as sync_execute_mock:
+    with patch("posthog.temporal.usage_report.event_preaggregation.sync_execute") as sync_execute_mock:
         sync_execute_mock.side_effect = [
             [(begin, end)],
             [(1, "web_events", 10)],

@@ -48,7 +48,6 @@ from django.db.models import Count
 from posthog.constants import FlagRequestType
 from posthog.models import GroupTypeMapping
 from posthog.tasks.usage_report import (
-    get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
     get_teams_with_active_hog_destinations_in_period,
@@ -56,13 +55,10 @@ from posthog.tasks.usage_report import (
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_ai_event_count_in_period,
     get_teams_with_api_queries_metrics,
-    get_teams_with_billable_enhanced_persons_event_count_in_period,
-    get_teams_with_billable_event_count_in_period,
     get_teams_with_cdp_billable_invocations_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
-    get_teams_with_event_count_with_groups_in_period,
     get_teams_with_exceptions_captured_in_period,
     get_teams_with_feature_flag_requests_count_in_period,
     get_teams_with_free_historical_rows_synced_in_period,
@@ -84,6 +80,12 @@ from posthog.tasks.usage_report import (
     get_teams_with_workflow_push_sent_in_period,
     get_teams_with_workflow_sms_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
+)
+from posthog.temporal.usage_report.event_preaggregation import (
+    get_all_event_metrics_in_period,
+    get_teams_with_billable_enhanced_persons_event_count_in_period,
+    get_teams_with_billable_event_count_in_period,
+    get_teams_with_event_count_with_groups_in_period,
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
