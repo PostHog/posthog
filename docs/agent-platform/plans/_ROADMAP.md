@@ -495,6 +495,13 @@ remain: nothing in **B** ships without **A**; nothing in **C** /
 **D** ships without **B**; nothing in **E** ships without the
 streaming + principal pieces it consumes.
 
+## Snaglist
+
+Small, known loose ends — captured here so they're not lost. Each is a deliberate skip / workaround, not a blocker; pull into a plan only if it starts costing us.
+
+- **Modal sandbox e2e is gated on an explicit `SANDBOX_HOST_IMAGE`** alongside `MODAL_TOKEN_*`. Default tag is `ghcr.io/posthog/posthog-agent-sandbox-host:master`, which lags any in-flight branch — without the explicit gate, every local `pnpm test` with Modal creds surfaces "image build failed" red. Fix path: resolve the tag from `state.yaml` per branch, or pin a known-stable digest. (`services/agent-shared/src/sandbox/sandbox-modal.test.ts`)
+- **`S3JsonlTabularStore` ETag canary skipped on SeaweedFS.** SeaweedFS's S3 API doesn't honour `If-Match` strictly enough for the racing-append assertion to converge — its read-after-write window lets a retry write against a stale ETag and SeaweedFS accepts it. Real S3 still runs the canary in CI. Fix path: switch the optimistic-concurrency primitive (sidecar lock / per-row file), or upgrade SeaweedFS if a newer release tightens If-Match. (`services/agent-shared/src/memory/s3-tabular-store.test.ts`)
+
 ## What's _not_ in scope here
 
 The TODO bullets are now all designed. Bullets that haven't been
