@@ -18,9 +18,6 @@ from posthog.api import (
     api_not_found,
     authentication,
     github,
-    hog_flow,
-    hog_flow_template,
-    hog_function_template,
     playwright_setup,
     report,
     router,
@@ -50,8 +47,8 @@ from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
-from products.deployments.backend.api.internal import InternalDeploymentTransitionsViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
@@ -68,6 +65,7 @@ from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
 )
+from products.workflows.backend.api import hog_flow, hog_flow_template
 
 from .utils import opt_slash_path, render_template
 from .views import (
@@ -341,15 +339,6 @@ urlpatterns = [
     path(
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
-    ),
-    # Deployments internal endpoints — Temporal build worker posts here.
-    path(
-        "api/internal/deployments/<uuid:deployment_id>/transitions/",
-        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "transitions"})),
-    ),
-    path(
-        "api/internal/deployments/<uuid:deployment_id>/events/",
-        csrf_exempt(InternalDeploymentTransitionsViewSet.as_view({"post": "events"})),
     ),
     # Test setup endpoint (only available in TEST mode)
     path("api/setup_test/<str:test_name>/", csrf_exempt(playwright_setup.setup_test)),

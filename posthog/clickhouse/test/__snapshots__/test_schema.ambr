@@ -2886,6 +2886,33 @@
   
   '''
 # ---
+# name: test_create_table_query[marketing_touchpoints_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS marketing_touchpoints_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      person_id UUID,
+      touchpoint_timestamp DateTime64(6, 'UTC'),
+  
+      campaign_name String,
+      source_name String,
+      medium_name String,
+      content_name String,
+      term_name String,
+      referring_domain_name String,
+      gclid_name String,
+      fbclid_name String,
+      gad_source_name String,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = Distributed('aux', 'posthog_test', 'sharded_marketing_touchpoints_preaggregated', cityHash64(person_id))
+  
+  '''
+# ---
 # name: test_create_table_query[metric_attributes]
   '''
   
@@ -3751,10 +3778,6 @@
       property_count,
       coalesce(_timestamp, now()) as last_seen
   FROM posthog_test.kafka_property_values
-  WHERE lengthUTF8(property_key) > 0
-    AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
-    AND lengthUTF8(property_value) > 0
-    AND lengthUTF8(property_value) < 256
   
   '''
 # ---
@@ -5540,6 +5563,38 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
+  
+  '''
+# ---
+# name: test_create_table_query[sharded_marketing_touchpoints_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_marketing_touchpoints_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      person_id UUID,
+      touchpoint_timestamp DateTime64(6, 'UTC'),
+  
+      campaign_name String,
+      source_name String,
+      medium_name String,
+      content_name String,
+      term_name String,
+      referring_domain_name String,
+      gclid_name String,
+      fbclid_name String,
+      gad_source_name String,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.marketing_touchpoints_preaggregated', '{replica}-{shard}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, person_id, touchpoint_timestamp)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---
@@ -9020,6 +9075,38 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[sharded_marketing_touchpoints_preaggregated]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS sharded_marketing_touchpoints_preaggregated
+  (
+      team_id Int64,
+      job_id UUID,
+  
+      person_id UUID,
+      touchpoint_timestamp DateTime64(6, 'UTC'),
+  
+      campaign_name String,
+      source_name String,
+      medium_name String,
+      content_name String,
+      term_name String,
+      referring_domain_name String,
+      gclid_name String,
+      fbclid_name String,
+      gad_source_name String,
+  
+      computed_at DateTime64(6, 'UTC') DEFAULT now(),
+      expires_at Date DEFAULT today() + INTERVAL 7 DAY
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.marketing_touchpoints_preaggregated', '{replica}-{shard}', computed_at)
+  
+  PARTITION BY toYYYYMMDD(expires_at)
+  ORDER BY (team_id, job_id, person_id, touchpoint_timestamp)
+  TTL expires_at
+  SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
   
   '''
 # ---

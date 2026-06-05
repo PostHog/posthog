@@ -1,4 +1,4 @@
-import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { colonDelimitedDuration } from 'lib/utils'
@@ -7,21 +7,49 @@ import { urls } from 'scenes/urls'
 import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
 import {
     failureKindDescription,
+    ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { ObservationProgressBar } from './ObservationProgressBar'
 
-export function ObservationStatusTag({ status }: { status: ReplayObservationApi['status'] }): JSX.Element {
+export function ObservationStatusTag({
+    status,
+    errorReason,
+}: {
+    status: ReplayObservationApi['status']
+    errorReason?: string | null
+}): JSX.Element {
     if (status === 'succeeded') {
         return <LemonTag type="success">Succeeded</LemonTag>
     }
     if (status === 'failed') {
-        return <LemonTag type="danger">Failed</LemonTag>
+        // Raw exception text lives in `FailureDetail`; tooltip is the description only.
+        const parsed = errorReason ? parseFailureReason(errorReason) : null
+        const tooltip = parsed ? failureKindDescription(parsed.kind) : errorReason || null
+        return (
+            <Tooltip title={tooltip}>
+                <LemonTag type="danger">Failed</LemonTag>
+            </Tooltip>
+        )
     }
     if (status === 'ineligible') {
         // Muted, not danger — the session was skipped at the gate, not a scanner failure.
-        return <LemonTag type="muted">Ineligible</LemonTag>
+        const parsed = errorReason ? parseIneligibleReason(errorReason) : null
+        const tooltip = parsed ? (
+            <div className="flex flex-col gap-1">
+                <div>{ineligibleKindDescription(parsed.kind)}</div>
+                {parsed.message && <div className="text-xs opacity-80">{parsed.message}</div>}
+            </div>
+        ) : errorReason ? (
+            <div>{errorReason}</div>
+        ) : null
+        return (
+            <Tooltip title={tooltip}>
+                <LemonTag type="muted">Ineligible</LemonTag>
+            </Tooltip>
+        )
     }
     if (status === 'running') {
         return (
@@ -79,14 +107,14 @@ export function CitedText({
                 const label = colonDelimitedDuration(seconds, null)
                 if (onSeek) {
                     return (
-                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)}>
+                        <Link key={i} onClick={() => onSeek(segment.timestamp_ms)} className="ml-0.5">
                             <IconRewindPlay className="inline-block align-text-bottom mr-0.5" />
                             <span className="font-mono">{label}</span>
                         </Link>
                     )
                 }
                 return (
-                    <span key={i} className="text-muted font-mono">
+                    <span key={i} className="text-muted font-mono ml-0.5">
                         {label}
                     </span>
                 )
@@ -128,11 +156,21 @@ export function ObservationPrimaryOutput({
     const promptClass = 'text-xs text-muted'
 
     if (scannerType === 'monitor') {
-        const verdict = Boolean(result.verdict)
+        const verdict = result.verdict
+        const tagType =
+            verdict === 'yes'
+                ? 'success'
+                : verdict === 'no'
+                  ? 'default'
+                  : verdict === 'inconclusive'
+                    ? 'muted'
+                    : 'muted'
+        const tagLabel =
+            verdict === 'yes' ? 'Yes' : verdict === 'no' ? 'No' : verdict === 'inconclusive' ? 'Inconclusive' : '—'
         return (
             <div className="flex flex-col gap-1">
-                <LemonTag size="medium" type={verdict ? 'success' : 'default'} className="self-start">
-                    {verdict ? 'Yes' : 'No'}
+                <LemonTag size="medium" type={tagType} className="self-start">
+                    {tagLabel}
                 </LemonTag>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
@@ -157,22 +195,26 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'classifier') {
         const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
         const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
+        const configuredTags = Array.isArray(config.tags) ? (config.tags as string[]) : []
+        const chosen = new Set(fixedTags)
         const empty = fixedTags.length === 0 && freeformTags.length === 0
-        const renderFixed = (): JSX.Element[] =>
-            fixedTags.map((tag) => (
-                <LemonTag key={`fixed-${tag}`} size="medium" type="option" title="From the configured tag list">
-                    {tag}
-                </LemonTag>
-            ))
+        const renderVocab = (): JSX.Element[] =>
+            configuredTags.map((tag) => {
+                const isChosen = chosen.has(tag)
+                return (
+                    <LemonTag
+                        key={`fixed-${tag}`}
+                        size="medium"
+                        type={isChosen ? 'option' : 'default'}
+                        className={isChosen ? undefined : 'opacity-50 line-through'}
+                    >
+                        {tag}
+                    </LemonTag>
+                )
+            })
         const renderFreeform = (): JSX.Element[] =>
             freeformTags.map((tag) => (
-                <LemonTag
-                    key={`freeform-${tag}`}
-                    size="medium"
-                    type="default"
-                    icon={<IconSparkles />}
-                    title="Free-form tag from the model"
-                >
+                <LemonTag key={`freeform-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
                     {tag}
                 </LemonTag>
             ))
@@ -184,7 +226,11 @@ export function ObservationPrimaryOutput({
                             <span className="text-muted text-sm">No tags</span>
                         ) : (
                             <>
-                                {renderFixed()}
+                                {fixedTags.map((tag) => (
+                                    <LemonTag key={`fixed-${tag}`} size="medium" type="option">
+                                        {tag}
+                                    </LemonTag>
+                                ))}
                                 {renderFreeform()}
                             </>
                         )}
@@ -193,7 +239,7 @@ export function ObservationPrimaryOutput({
                 </div>
             )
         }
-        if (empty) {
+        if (configuredTags.length === 0 && empty) {
             return (
                 <div className="flex flex-col gap-1">
                     <span className="text-muted text-sm">No tags</span>
@@ -203,23 +249,10 @@ export function ObservationPrimaryOutput({
         }
         return (
             <div className="flex flex-col gap-3">
-                {fixedTags.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                        <div className="text-xs font-medium uppercase tracking-wide text-muted">Fixed</div>
-                        <p className="text-xs text-muted m-0">Tags from the scanner's configured list.</p>
-                        <div className="flex flex-wrap gap-1">{renderFixed()}</div>
-                    </div>
-                )}
-                {freeformTags.length > 0 && (
-                    <div className="flex flex-col gap-1.5">
-                        <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted">
-                            <IconSparkles className="text-sm" />
-                            <span>Freeform</span>
-                        </div>
-                        <p className="text-xs text-muted m-0">Emitted by the model outside the configured tags.</p>
-                        <div className="flex flex-wrap gap-1">{renderFreeform()}</div>
-                    </div>
-                )}
+                <div className="flex flex-wrap items-center gap-1">
+                    {renderVocab()}
+                    {renderFreeform()}
+                </div>
                 {prompt && <span className={promptClass}>{prompt}</span>}
             </div>
         )
@@ -300,29 +333,8 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
 }
 
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'ineligible') {
-        const parsed = parseIneligibleReason(observation.error_reason)
-        const label = parsed?.label ?? 'Ineligible'
-        const detail = parsed?.message ?? observation.error_reason
-        return (
-            <Tooltip title={detail || label}>
-                <span className="text-muted text-sm">{label}</span>
-            </Tooltip>
-        )
-    }
-    if (observation.status === 'failed') {
-        const parsed = parseFailureReason(observation.error_reason)
-        const label = parsed?.label ?? 'Failed'
-        const description = parsed ? failureKindDescription(parsed.kind) : null
-        const detail = parsed?.message ?? observation.error_reason
-        const tooltip = [description, detail].filter(Boolean).join('\n\n') || 'Unknown error'
-        return (
-            <Tooltip title={tooltip}>
-                <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {label}
-                </span>
-            </Tooltip>
-        )
+    if (observation.status === 'ineligible' || observation.status === 'failed') {
+        return <span className="text-muted text-sm">—</span>
     }
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -360,12 +372,7 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
 }
 
 function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 text-muted text-sm">
-            <Spinner textColored />
-            <span>{observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}</span>
-        </div>
-    )
+    return <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
 }
 
 export function ObservationDockCard({
@@ -383,7 +390,7 @@ export function ObservationDockCard({
         <div className="border rounded p-3 bg-surface-primary space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                    <ObservationStatusTag status={observation.status} />
+                    <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
                     <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
                     {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
                 </div>

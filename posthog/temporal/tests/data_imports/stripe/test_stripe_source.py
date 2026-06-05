@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 import stripe as stripe_lib
+from stripe._http_client import HTTPClient
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -13,7 +14,9 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME,
 )
+from posthog.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
 from posthog.temporal.data_imports.sources.stripe.source import StripeSource
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeAuthenticationError,
@@ -23,8 +26,10 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripeResumeConfig,
     StripeValidationError,
     _build_resources,
+    _call_stripe,
     _clean_stripe_error_message,
     check_endpoint_permissions,
+    get_rows,
     validate_credentials,
 )
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
@@ -239,6 +244,7 @@ def _mock_all_stripe_endpoints(mock_client):
     mock_client.subscriptions.list = mock.MagicMock()
     mock_client.refunds.list = mock.MagicMock()
     mock_client.credit_notes.list = mock.MagicMock()
+    mock_client.coupons.list = mock.MagicMock()
 
 
 def test_validate_credentials_basic_only_probes_one_endpoint():
@@ -268,6 +274,91 @@ def test_validate_credentials_basic_only_probes_one_endpoint():
         mock_client.subscriptions.list.assert_not_called()
         mock_client.refunds.list.assert_not_called()
         mock_client.credit_notes.list.assert_not_called()
+        mock_client.coupons.list.assert_not_called()
+
+
+def test_subscription_list_uses_expand_for_discounts():
+    """Subscription list call must expand discounts so coupon details ride inline.
+
+    Without `expand=data.discounts` Stripe returns an array of discount IDs, which is
+    insufficient for revenue projection — customers need amount_off / percent_off /
+    duration. Item-level discounts (`items.data.discounts`) need the same treatment.
+    """
+    mock_client = mock.MagicMock()
+
+    # Empty page response — we only care about how the list method was invoked.
+    empty_page = mock.MagicMock()
+    empty_page.auto_paging_iter.return_value = iter([])
+    mock_client.subscriptions.list.return_value = empty_page
+
+    resumable_manager = mock.MagicMock()
+    resumable_manager.can_resume.return_value = False
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        # Drain the generator so the list call actually happens.
+        list(
+            get_rows(
+                api_key="api_key",
+                endpoint=SUBSCRIPTION_RESOURCE_NAME,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=mock.MagicMock(),
+                resumable_source_manager=resumable_manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    mock_client.subscriptions.list.assert_called_once()
+    call_params = mock_client.subscriptions.list.call_args.kwargs["params"]
+    assert call_params["status"] == "all"
+    # Key must be "expand" (not "expand[]"): a list under "expand[]" encodes to expand[][0]=…
+    # (doubled brackets) which Stripe rejects. See _build_resources for the full explanation.
+    assert call_params["expand"] == ["data.discounts", "data.items.data.discounts"]
+    assert "expand[]" not in call_params
+
+
+@pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
+def test_webhook_only_endpoint_yields_no_rows(endpoint):
+    """Webhook-only resources have no API list endpoint; get_rows must short-circuit
+    cleanly so the initial sync completes and the webhook source manager can take over."""
+    mock_client = mock.MagicMock()
+    resumable_manager = mock.MagicMock()
+    resumable_manager.can_resume.return_value = False
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        rows = list(
+            get_rows(
+                api_key="api_key",
+                endpoint=endpoint,
+                account_id=None,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=mock.MagicMock(),
+                resumable_source_manager=resumable_manager,
+                should_use_incremental_field=False,
+            )
+        )
+
+    assert rows == []
+    # No Stripe list endpoint should be hit for a webhook-only resource.
+    mock_client.subscriptions.list.assert_not_called()
+    mock_client.coupons.list.assert_not_called()
+
+
+@pytest.mark.parametrize("endpoint", WEBHOOK_ONLY_ENDPOINTS)
+def test_validate_credentials_skips_webhook_only_resource(endpoint):
+    """Webhook-only resources have no list endpoint, so validation should short-circuit
+    and not hit Stripe."""
+    mock_client = mock.MagicMock()
+
+    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.StripeClient", return_value=mock_client):
+        result = validate_credentials("api_key", [endpoint])
+
+    assert result is True
+    # No list method should be called when validating a webhook-only resource.
+    mock_client.coupons.list.assert_not_called()
+    mock_client.subscriptions.list.assert_not_called()
 
 
 def test_validate_credentials_basic_treats_403_as_success():
@@ -475,6 +566,70 @@ def test_clean_stripe_error_message_passthrough_when_no_redaction():
     assert _clean_stripe_error_message(msg) == msg
 
 
+def test_subscription_expand_encodes_as_array_not_object():
+    """End-to-end encoding regression: the discount expand must reach Stripe as
+    expand[0]=…&expand[1]=… (a real array), not expand[][0]=… which Stripe parses as an
+    array-of-one-object and rejects with "Invalid string: {...}". The mock-based test above
+    can't catch this because it intercepts above the SDK's query-string encoding."""
+    captured: dict[str, str] = {}
+
+    class RecordingHTTPClient(HTTPClient):
+        name = "recording"
+
+        def request_with_retries(self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None):
+            captured["url"] = url
+            body = '{"object":"list","data":[],"has_more":false,"url":"/v1/subscriptions"}'
+            return body, 200, {"request-id": "req_test"}
+
+        def request_stream_with_retries(
+            self, method, url, headers, post_data=None, max_network_retries=None, *, _usage=None
+        ):
+            raise NotImplementedError
+
+    client = stripe_lib.StripeClient("sk_test_x", http_client=RecordingHTTPClient())
+    resources = _build_resources(client)
+    subscription = resources[SUBSCRIPTION_RESOURCE_NAME]
+    subscription.method(params=subscription.params)
+
+    url = captured["url"]
+    assert "expand[0]=data.discounts" in url
+    assert "expand[1]=data.items.data.discounts" in url
+    # The doubled-bracket form is the bug — Stripe rejects it.
+    assert "expand[][0]" not in url
+
+
+@pytest.mark.parametrize(
+    "error_factory",
+    [
+        # InvalidRequestError requires a positional `param` — the regression that broke imports.
+        lambda msg: stripe_lib.InvalidRequestError(msg, "expand[]"),
+        lambda msg: stripe_lib.PermissionError(msg),
+        lambda msg: stripe_lib.AuthenticationError(msg),
+        lambda msg: stripe_lib.APIConnectionError(msg),
+    ],
+)
+def test_call_stripe_cleans_message_and_preserves_error_type(error_factory):
+    """_call_stripe must re-raise the same StripeError subclass with a cleaned message.
+    Reconstructing via `type(e)(message=...)` broke for subclasses with extra required
+    args (e.g. InvalidRequestError's `param`), so we mutate the message in place instead."""
+    raw = "The provided key 'rk_live_" + ("*" * 80) + "gbeftZ' is invalid"
+
+    def boom():
+        raise error_factory(raw)
+
+    with pytest.raises(stripe_lib.StripeError) as exc_info:
+        _call_stripe(boom)
+
+    raised = exc_info.value
+    assert type(raised) is type(error_factory(raw))
+    assert "*" * 80 not in str(raised)
+    assert "rk_live_***gbeftZ" in str(raised)
+
+
+def test_call_stripe_passes_through_successful_result():
+    assert _call_stripe(lambda x: x + 1, 41) == 42
+
+
 def test_validate_credentials_nested_resources_have_registered_parents():
     """Invariant: every StripeNestedResource's `parent_name` must point at a key that is
     also registered as a top-level StripeResource in _build_resources. validate_credentials
@@ -525,6 +680,7 @@ def test_validate_credentials_with_missing_table_name():
     mock_client.subscriptions.list.assert_not_called()
     mock_client.refunds.list.assert_not_called()
     mock_client.credit_notes.list.assert_not_called()
+    mock_client.coupons.list.assert_not_called()
 
     assert "bad_table" in str(e)
 

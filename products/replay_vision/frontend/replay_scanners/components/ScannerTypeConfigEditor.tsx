@@ -33,28 +33,34 @@ export function ScannerTypeConfigEditor({ scannerId, tabId }: { scannerId: strin
                 <Field name="scanner_config.length" label="Summary length">
                     <LemonSegmentedButton options={SUMMARIZER_LENGTH_OPTIONS} />
                 </Field>
-                <Field name="scanner_config.emits_embeddings">
-                    {({ value, onChange }) => (
-                        <LemonSwitch
-                            label="Emit embeddings to enable free-text search"
-                            checked={!!value}
-                            onChange={onChange}
-                            bordered
-                        />
-                    )}
-                </Field>
             </div>
         )
     }
 
     if (scanner.scanner_type === 'monitor') {
         return (
-            <Field name="scanner_config.prompt" label="Prompt">
-                <LemonTextArea
-                    placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
-                    minRows={6}
-                />
-            </Field>
+            <div className="space-y-4">
+                <Field name="scanner_config.prompt" label="Prompt">
+                    <LemonTextArea
+                        placeholder="Did the user encounter a payment failure? Answer yes or no with a one-sentence reason."
+                        minRows={6}
+                    />
+                </Field>
+                <Field name="scanner_config.allow_inconclusive">
+                    {({ value, onChange }) => (
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch checked={!!value} onChange={onChange} />
+                            <div>
+                                <div className="text-sm font-medium">Allow inconclusive verdicts</div>
+                                <div className="text-xs text-muted">
+                                    Lets the model answer `inconclusive` when the recording doesn't contain enough
+                                    evidence to decide. Otherwise it must commit to `yes` or `no`.
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </Field>
+            </div>
         )
     }
 

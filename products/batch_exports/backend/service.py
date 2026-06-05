@@ -28,13 +28,6 @@ from temporalio.client import (
 from posthog.hogql.database.database import Database
 from posthog.hogql.hogql import HogQLContext
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportOnDemand,
-    BatchExportRun,
-)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,
@@ -43,6 +36,14 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     unpause_schedule,
     update_schedule,
+)
+
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
 )
 
 logger = structlog.get_logger(__name__)
@@ -542,6 +543,34 @@ DESTINATION_WORKFLOWS = {
 }
 
 
+def coerce_config_to_declared_types(destination_type: str, config: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """Restore stringified config values to the types declared on the destination's workflow inputs.
+
+    EncryptedJSONField stringifies values on write, so bool/int config fields read back as strings.
+    This function mirrors the coercion the worker applies in BaseBatchExportInputs.__post_init__, so
+    API responses return correct JSON types.
+    """
+    if destination_type not in DESTINATION_WORKFLOWS:
+        return config
+
+    _, workflow_inputs = DESTINATION_WORKFLOWS[destination_type]
+    field_by_name = {f.name: f for f in fields(workflow_inputs)}
+
+    coerced: dict[str, typing.Any] = {}
+    for key, value in config.items():
+        field = field_by_name.get(key)
+        if field is not None and isinstance(value, str):
+            if _field_is_type(field, bool):
+                value = value.lower() == "true"
+            elif _field_is_type(field, int):
+                try:
+                    value = int(value)
+                except ValueError:
+                    pass
+        coerced[key] = value
+    return coerced
+
+
 class BatchExportServiceError(Exception):
     """Base class for BatchExport service exceptions."""
 
@@ -903,6 +932,7 @@ def start_file_download_batch_export(
     workflow_id: str,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
+    batch_export_model: BatchExportModel,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
     format: str = "Parquet",
@@ -912,6 +942,7 @@ def start_file_download_batch_export(
 ) -> None:
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
+        batch_export_model=batch_export_model,
         batch_export_run_id=batch_export_run_id,
         team_id=batch_export.team_id,
         data_interval_start=data_interval_start.isoformat(),

@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 import structlog
+import django_filters
 import posthoganalytics
 import posthoganalytics.ai.openai
 from django_filters.rest_framework import DjangoFilterBackend
@@ -41,12 +42,19 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.tasks.exports.csv_exporter import _sanitize_formula_injection
+from posthog.security.spreadsheet_safety import sanitize_formula_injection
 from posthog.utils import absolute_uri
 
-from ..facade.api import parse_interviewee_identifier
+from ..facade.api import derive_auto_classifications, parse_interviewee_identifier
 from ..facade.enums import SEARCH_DOCUMENT_TYPES
-from ..models import EmailWithDisplayNameValidator, IntervieweeContext, UserInterview, UserInterviewTopic
+from ..invite_email import build_invite_email_context, validate_invite_message, validate_invite_subject
+from ..models import (
+    EmailWithDisplayNameValidator,
+    IntervieweeContext,
+    UserInterview,
+    UserInterviewClassification,
+    UserInterviewTopic,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -72,6 +80,15 @@ class _InterviewLinksCSVRenderer(csvrenderers.CSVRenderer):
 class UserInterviewSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     audio = serializers.FileField(write_only=True)
+    classifications = serializers.ListField(
+        child=serializers.ChoiceField(choices=UserInterviewClassification.choices),
+        required=False,
+        help_text=(
+            "Searchable classifications on the response. `abandoned` is auto-derived from the transcript when "
+            "the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update "
+            "replaces the whole list — pass the full desired set, not a delta."
+        ),
+    )
 
     class Meta:
         model = UserInterview
@@ -84,6 +101,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
             "topic",
             "transcript",
             "summary",
+            "classifications",
             "audio",
         )
         read_only_fields = ("id", "created_by", "created_at", "interviewee_identifier", "topic", "transcript")
@@ -95,6 +113,7 @@ class UserInterviewSerializer(serializers.ModelSerializer):
         audio = validated_data.pop("audio")
         validated_data["transcript"] = self._transcribe_audio(audio, validated_data["interviewee_emails"])
         validated_data["summary"] = self._summarize_transcript(validated_data["transcript"])
+        validated_data["classifications"] = derive_auto_classifications(validated_data["transcript"])
         return super().create(validated_data)
 
     def _transcribe_audio(self, audio: File, interviewee_emails: list[str]) -> str:
@@ -296,6 +315,16 @@ class UserInterviewSearchRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.",
     )
+    classifications = serializers.ListField(
+        child=serializers.ChoiceField(choices=UserInterviewClassification.choices),
+        required=False,
+        allow_empty=False,
+        min_length=1,
+        help_text=(
+            "Optional. Restrict results to interviews carrying any of these classifications (OR). "
+            "Combines with `topic_id` as AND."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -330,6 +359,32 @@ class UserInterviewSearchResultSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(help_text="When the interview row was created.")
 
 
+class UserInterviewFilterSet(django_filters.FilterSet):
+    classifications = django_filters.CharFilter(
+        method="filter_classifications",
+        help_text=(
+            "Comma-separated classifications; returns responses carrying any of them (OR). "
+            "Valid values: abandoned, off-topic."
+        ),
+    )
+
+    class Meta:
+        model = UserInterview
+        fields = ["topic"]
+
+    def filter_classifications(self, queryset: Any, name: str, value: str) -> Any:
+        wanted = [t.strip() for t in value.split(",") if t.strip()]
+        if not wanted:
+            return queryset
+        unknown = [c for c in wanted if c not in UserInterviewClassification.values]
+        if unknown:
+            valid = ", ".join(UserInterviewClassification.values)
+            raise ValidationError(
+                {"classifications": f"Unknown classification(s): {', '.join(unknown)}. Valid values: {valid}."}
+            )
+        return queryset.filter(classifications__overlap=wanted)
+
+
 class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "user_interview"
     queryset = UserInterview.objects.order_by("-created_at").select_related("created_by").all()
@@ -338,7 +393,7 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     posthog_feature_flag = "user-interviews"
     permission_classes = [PostHogFeatureFlagPermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["topic"]
+    filterset_class = UserInterviewFilterSet
 
     @validated_request(
         request_serializer=UserInterviewSearchRequestSerializer,
@@ -370,19 +425,21 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_str: str = body["query"]
         document_types: list[str] = body.get("document_types") or list(SEARCH_DOCUMENT_TYPES)
         topic_id = body.get("topic_id")
+        classifications: list[str] = body.get("classifications") or []
         limit: int = body.get("limit") or SEARCH_DEFAULT_LIMIT
 
-        # When a topic_id filter is requested, resolve it via the current Postgres linkage
-        # rather than the embedding-time `metadata.topic_id` — UserInterview.topic is
-        # nullable with on_delete=SET_NULL, so historical metadata can name a topic the
-        # row no longer belongs to.
+        # When a topic_id or classifications filter is requested, resolve it via the current
+        # Postgres linkage rather than the embedding-time `metadata.topic_id` — UserInterview.topic
+        # is nullable with on_delete=SET_NULL, so historical metadata can name a topic the
+        # row no longer belongs to, and classifications are mutated post-embedding.
         scoped_document_ids: list[str] | None = None
-        if topic_id is not None:
-            scoped_ids_qs = (
-                UserInterview.objects.filter(team_id=self.team_id, topic_id=topic_id)
-                .order_by("id")
-                .values_list("id", flat=True)[: SEARCH_TOPIC_INTERVIEW_CAP + 1]
-            )
+        if topic_id is not None or classifications:
+            scoped_qs = UserInterview.objects.filter(team_id=self.team_id)
+            if topic_id is not None:
+                scoped_qs = scoped_qs.filter(topic_id=topic_id)
+            if classifications:
+                scoped_qs = scoped_qs.filter(classifications__overlap=classifications)
+            scoped_ids_qs = scoped_qs.order_by("id").values_list("id", flat=True)[: SEARCH_TOPIC_INTERVIEW_CAP + 1]
             scoped_document_ids = [str(pk) for pk in scoped_ids_qs]
             if not scoped_document_ids:
                 return response.Response(UserInterviewSearchResultSerializer([], many=True).data)
@@ -390,7 +447,8 @@ class UserInterviewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 logger.warning(
                     "user_interviews_search_topic_scope_capped",
                     team_id=self.team_id,
-                    topic_id=str(topic_id),
+                    topic_id=str(topic_id) if topic_id is not None else None,
+                    classifications=classifications or None,
                     cap=SEARCH_TOPIC_INTERVIEW_CAP,
                 )
                 scoped_document_ids = scoped_document_ids[:SEARCH_TOPIC_INTERVIEW_CAP]
@@ -504,6 +562,26 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
         required=False,
         help_text="Ordered list of questions the voice agent should work through during the interview.",
     )
+    invite_subject = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "Subject line for the invitation email. Plain text only — URLs, angle brackets, and control "
+            "characters are rejected. Leave blank to use the default subject. Personalization is handled by "
+            "the email template, so do not include placeholders."
+        ),
+    )
+    invite_message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text=(
+            "Intro message shown in the invitation email body, above the interview link. Plain prose only — "
+            "URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank "
+            "to use the default copy."
+        ),
+    )
 
     class Meta:
         model = UserInterviewTopic
@@ -516,8 +594,16 @@ class UserInterviewTopicSerializer(serializers.ModelSerializer):
             "topic",
             "agent_context",
             "questions",
+            "invite_subject",
+            "invite_message",
         )
         read_only_fields = ("id", "created_by", "created_at")
+
+    def validate_invite_subject(self, value: str | None) -> str | None:
+        return validate_invite_subject(value)
+
+    def validate_invite_message(self, value: str | None) -> str | None:
+        return validate_invite_message(value)
 
     MISSING_TARGETING_ERROR = "At least one of interviewee_emails or interviewee_distinct_ids must be provided."
 
@@ -791,7 +877,10 @@ class SendInvitesRequestSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
         max_length=200,
-        help_text="Override the default email subject line. Defaults to a friendly prompt referencing the topic.",
+        help_text=(
+            "Override the email subject line for this send. Plain text only — URLs, angle brackets, and "
+            "control characters are rejected. Falls back to the topic's saved subject, then a default."
+        ),
     )
     reply_to = serializers.EmailField(
         required=False,
@@ -802,6 +891,9 @@ class SendInvitesRequestSerializer(serializers.Serializer):
         default=True,
         help_text="If true (default), queue delivery via Celery. If false, send synchronously and surface errors immediately.",
     )
+
+    def validate_subject(self, value: str | None) -> str | None:
+        return validate_invite_subject(value)
 
 
 class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -909,10 +1001,10 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         rows = [
             {
-                "interviewee_identifier": _sanitize_formula_injection(r["identifier"]),
-                "interviewee_email": _sanitize_formula_injection(r["email"] or ""),
-                "user_name": _sanitize_formula_injection(r["user_name"]),
-                "interview_url": _sanitize_formula_injection(r["interview_url"]),
+                "interviewee_identifier": sanitize_formula_injection(r["identifier"]),
+                "interviewee_email": sanitize_formula_injection(r["email"] or ""),
+                "user_name": sanitize_formula_injection(r["user_name"]),
+                "interview_url": sanitize_formula_injection(r["interview_url"]),
             }
             for r in results
         ]
@@ -957,8 +1049,7 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        topic_label = topic.topic or "a quick research interview"
-        subject = params.validated_data.get("subject") or f"Got 5 minutes to talk about {topic_label}?"
+        subject_override = params.validated_data.get("subject") or ""
         reply_to = params.validated_data.get("reply_to")
         if not reply_to and topic.created_by_id and topic.created_by and topic.created_by.email:
             reply_to = topic.created_by.email
@@ -975,18 +1066,19 @@ class UserInterviewTopicViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 results.append({**base, "sent": False, "reason": "not_an_email"})
                 continue
 
+            built = build_invite_email_context(
+                topic=topic,
+                user_name=link["user_name"],
+                interview_url=link["interview_url"],
+                subject_override=subject_override,
+            )
             campaign_key = f"interview_invite_{link['sharing_configuration'].id}"
             try:
                 message = EmailMessage(
                     campaign_key=campaign_key,
                     template_name="interview_invite",
-                    subject=subject,
-                    template_context={
-                        "user_name": link["user_name"],
-                        "topic": topic_label,
-                        "interview_url": link["interview_url"],
-                        "site_url": settings.SITE_URL,
-                    },
+                    subject=built["subject"],
+                    template_context=built["template_context"],
                     reply_to=reply_to,
                 )
                 message.add_recipient(email=link["email"], name=link["user_name"])
