@@ -365,6 +365,7 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_DRILL_DOWN: 'marketing-analytics-drill-down', // owner: @jabahamondes  #team-web-analytics
     MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN: 'marketing-analytics-extended-drill-down', // owner: @jabahamondes  #team-web-analytics
+    MARKETING_ANALYTICS_MCP: 'marketing-analytics-mcp', // owner: @jabahamondes #team-web-analytics — gates MCP tool exposure (read-only marketing-analytics tools)
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
@@ -504,7 +505,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FILTERS_V2: 'web-analytics-filters-v2', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_FOCUS_MODE: 'web-analytics-focus-mode', // owner: @jordanm-posthog #team-web-analytics
-    WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_INCLUDE_HOST: 'web-analytics-include-host', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_LIVE_CITY_BREAKDOWN: 'web-analytics-live-city-breakdown', // owner: @jordanm-posthog #team-web-analytics
     WEB_ANALYTICS_LIVE_EDIT_LAYOUT: 'web-analytics-live-edit-layout', // owner: @jordanm-posthog #team-web-analytics

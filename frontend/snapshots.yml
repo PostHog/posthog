@@ -4719,13 +4719,13 @@ snapshots:
     scenes-app-data-warehouse-settings-schemas--default--light:
         hash: v1.k794b7964.18626812d4b56d76787437924e1bc585c0d290b2d3d5a82acef06ad862687d31.T90_pbE7tLkoXwZml5VYlGjFqOKnGtCJsNfB3J76Xio
     scenes-app-error-project-unavailable--access-revoked--dark:
-        hash: v1.k794b7964.551951688a4131cbd9c0d08e553c79238fb9831c6e227e3854eb3596a95d5725.lEJkOr35uSHLqc-IqIYv7Z2bc4-rjbJut0zmTNBae6Y
+        hash: v1.k794b7964.0574501d1036cac7563c61590dfb8b3d64192e239cbad126d754b9905b4f3ee1._MDyv82QyHN-dApRaQoppTvESKRRZP_p6MB5PKLrjeg
     scenes-app-error-project-unavailable--access-revoked--light:
-        hash: v1.k794b7964.9bf467c52f2cce1e67483f7cb56ea651d1e8b673cc4f0db80a9d9f71dae13da4.15Ara4t3237epYtxe7UqB1hsh-6cVexokOTbDZ2wgXI
+        hash: v1.k794b7964.049275e2a4082aeaf3adacbfb1cb8f336583c29824193e8711b51c54e22c3fb6.t0OnW8D_qZ6V3y1IEVbZptyaAWA-zPjbRRUGy7FYqXY
     scenes-app-error-project-unavailable--no-selectable-projects--dark:
-        hash: v1.k794b7964.59e0c88e3f489946f8beea3a64fe1c10366c0241cfb3247e91412933f560d7c8.PmFI9SQu-BmDZKyGJm75wOvMiQe5vIRc_hYbN49F0ps
+        hash: v1.k794b7964.4b86109312eacfb0a2935943b1eb44627db419347065f1b4991d16afa6c1dcd0.dL2KRYy7fg2Zu8j6KOaCeyRkNcFBiQFQ9DNYeC-gKQg
     scenes-app-error-project-unavailable--no-selectable-projects--light:
-        hash: v1.k794b7964.481d253ac770b475315f72305fa5b2a7b130e4af6e01f1004890f100ead896cc.Zjd5lM7ZRgfmBCNcsxfTbTyV54MFbOC2EAPAdj5r7aY
+        hash: v1.k794b7964.4074c66e2c5048cf0574b95b4b53a81601be50bc733531b969eae030c6ced45d.xc0jzMCgimBXCdpIGauT6qHYv4aZP669O9mBqXnH7TU
     scenes-app-errortracking--group-page--dark:
         hash: v1.k794b7964.c8e6860882c2adc15d79721f8790d613bded5df4d64424016547083a73b00b6a.2HqMTs3tTi5AWTdmpXCXHJF8_hZSC9pUVrodRXR1eZk
     scenes-app-errortracking--group-page--light:
@@ -5343,9 +5343,9 @@ snapshots:
     scenes-app-insights-worldmap--default--light:
         hash: v1.k794b7964.c19ba4d6c010a3d6756839b4b26d00017492a4fdd0b6df8e483ba7b7a3c0c979.AHuX5vDwY0FLv9I5NuvPfoazaytArdUqYZLmhQO8Pa0
     scenes-app-legal-documents--legal-documents-list--dark:
-        hash: v1.k794b7964.53a4adc4cee3db5800ff22ea70e7ad0263d0d79604c95aad6b0d0f7375969494.WTab5X5FpLy3EDzY_A7khji_n-wnEs0BqMDlVLhzG0c
+        hash: v1.k794b7964.588a97be73b42aec3fdd93e4535f7046702b31c49cd197738720260eef417602.bl7OWu-_oywQ7s9QyNn-Hw3oN2K7Ag1nnX7rkaLJGTU
     scenes-app-legal-documents--legal-documents-list--light:
-        hash: v1.k794b7964.1c74e9536c8d013978f304ebadafd9abf96fc5e66fae962cda2bfac8c33ac525.qiSUCbPI8cuqvQ0kn8C9E-E96XVkl35xUz25yZg7llc
+        hash: v1.k794b7964.fcbaffa042d1a0609a3ee9de8588e783bd6a433ce30942f7a66dc069c22b5ba4.U0N2LiTM14gAHi85SHCoKGXXUgS-ywvlh_gfHond_cE
     scenes-app-legal-documents--new-baa--dark:
         hash: v1.k794b7964.e4f0d779732dd74b9be51cfcb33fb6e1fb2f7a462856f47326fc73c901e36dad.dxNpZGOmoLe6EMM6_RKD1bgh2c-49vADarjT0sum8JQ
     scenes-app-legal-documents--new-baa--light:
