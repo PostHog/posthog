@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useMemo } from 'react'
+import { type ErrorInfo, type ReactElement, type ReactNode, useMemo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { ChartTheme, PointClickData, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
@@ -30,7 +30,7 @@ export interface TrendsLineChartViewProps<R extends TrendsResultLike, M = unknow
     onPointClick?: (data: PointClickData) => void
     className?: string
     dataAttr?: string
-    onError?: (error: Error) => void
+    onError?: (error: Error, info: ErrorInfo) => void
     /** Overlays (annotations, alert thresholds) rendered inside the chart's layout context. */
     children?: ReactNode
 }
