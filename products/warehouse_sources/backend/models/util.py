@@ -47,7 +47,11 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
 
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
         DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+        # Ignore orphan tables left behind by a soft-deleted source so they don't shadow the live one.
+        .exclude(external_data_source__deleted=True)
         .filter(team=team, name__in=table_names)
+        # Deterministic resolution when more than one live table matches: newest wins.
+        .order_by("-created_at")
         .first()
     )
     if table is None:

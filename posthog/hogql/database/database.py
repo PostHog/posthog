@@ -1165,7 +1165,13 @@ class Database(BaseModel):
                 tables_query = (
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
+                    # A table whose source was soft-deleted is an orphan — it must not shadow the
+                    # live table that a re-connected source created under the same name.
+                    .exclude(external_data_source__deleted=True)
                     .select_related("credential", "external_data_source")
+                    # Deterministic tiebreak when two live tables share a name: newest wins, since
+                    # name collisions resolve first-come-first-served when added to the table tree.
+                    .order_by("-created_at")
                 )
                 if database._is_direct_query():
                     tables_query = tables_query.filter(external_data_source_id=database._connection_id)
