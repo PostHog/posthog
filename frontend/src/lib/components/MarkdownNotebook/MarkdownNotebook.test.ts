@@ -763,12 +763,19 @@ Third paragraph`,
 
         expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Thinking ...')
         expect(container.querySelector('.MarkdownNotebook__line-insert-menu-button')).toBeNull()
-        expect(onAskAI).toHaveBeenCalledWith({
+        const aiRequest = onAskAI.mock.calls[0][0]
+
+        expect(aiRequest).toEqual({
             query: 'Add a summary here',
             placeholderNodeId: expect.any(String),
+            insertionPlaceholder: expect.any(String),
             markdown: '',
-            markdownWithPlaceholder: '<!-- Ask PostHog AI insertion placeholder -->',
+            markdownWithPlaceholder: expect.any(String),
         })
+        expect(aiRequest.insertionPlaceholder).toEqual(
+            `<!-- Ask PostHog AI insertion placeholder block id: ${aiRequest.placeholderNodeId} -->`
+        )
+        expect(aiRequest.markdownWithPlaceholder).toEqual(aiRequest.insertionPlaceholder)
     })
 
     it('removes a stuck AI thinking placeholder when selected and deleted', () => {

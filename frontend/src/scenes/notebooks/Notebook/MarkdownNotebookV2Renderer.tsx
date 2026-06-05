@@ -226,7 +226,12 @@ export function MarkdownNotebookV2(): JSX.Element {
         [flushBufferedMarkdown, setAutosavePaused]
     )
     const handleAskAI = useCallback(
-        ({ query, placeholderNodeId, markdownWithPlaceholder }: MarkdownNotebookAskAIRequest): void => {
+        ({
+            query,
+            placeholderNodeId,
+            insertionPlaceholder,
+            markdownWithPlaceholder,
+        }: MarkdownNotebookAskAIRequest): void => {
             const notebookShortId = notebook?.short_id
             const notebookTitle = notebook?.title ?? 'Untitled notebook'
             const uiContext: Partial<MaxUIContext> | undefined = notebookShortId
@@ -236,6 +241,9 @@ export function MarkdownNotebookV2(): JSX.Element {
                               type: MaxContextType.NOTEBOOK,
                               id: notebookShortId,
                               name: notebookTitle,
+                              markdown_with_insertion_placeholder: markdownWithPlaceholder,
+                              insertion_placeholder_block_id: placeholderNodeId,
+                              insertion_placeholder_marker: insertionPlaceholder,
                           },
                       ],
                   }
@@ -243,17 +251,7 @@ export function MarkdownNotebookV2(): JSX.Element {
 
             openSidePanelMax()
             window.setTimeout(() => {
-                askMax(
-                    buildNotebookAskAIPrompt({
-                        query,
-                        placeholderNodeId,
-                        markdownWithPlaceholder,
-                        notebookShortId,
-                        notebookTitle,
-                    }),
-                    true,
-                    uiContext
-                )
+                askMax(query, true, uiContext)
             }, 100)
         },
         [askMax, notebook?.short_id, notebook?.title, openSidePanelMax]
@@ -274,39 +272,6 @@ export function MarkdownNotebookV2(): JSX.Element {
             autoFocus={isEditable}
         />
     )
-}
-
-function buildNotebookAskAIPrompt({
-    query,
-    placeholderNodeId,
-    markdownWithPlaceholder,
-    notebookShortId,
-    notebookTitle,
-}: {
-    query: string
-    placeholderNodeId: string
-    markdownWithPlaceholder: string
-    notebookShortId?: string
-    notebookTitle: string
-}): string {
-    const notebookReference = notebookShortId
-        ? `Notebook short_id: ${notebookShortId}`
-        : 'Notebook short_id: unavailable in the UI'
-
-    return `The user is asking from a Markdown notebook v2 editor.
-${notebookReference}
-Notebook title: ${notebookTitle}
-AI insertion placeholder block id: ${placeholderNodeId}
-
-The placeholder block is currently shown in the notebook as "Thinking ...". In the markdown below, the exact insertion point is marked with \`<!-- Ask PostHog AI insertion placeholder -->\`. If the user says "here", "this spot", "below", "above", or similar, they mean this placeholder location. Use notebook tools against the current notebook when changing notebook content. For Markdown notebook v2, preserve the single ph-markdown-notebook node and update its attrs.markdown with valid markdown instead of replacing it with legacy rich-text blocks.
-
-Current notebook markdown with insertion placeholder:
-\`\`\`markdown
-${markdownWithPlaceholder}
-\`\`\`
-
-User request:
-${query}`
 }
 
 const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkdownNotebookRegistry(

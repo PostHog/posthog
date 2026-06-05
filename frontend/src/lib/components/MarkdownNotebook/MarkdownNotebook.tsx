@@ -100,6 +100,7 @@ export type MarkdownNotebookProps = {
 export type MarkdownNotebookAskAIRequest = {
     query: string
     placeholderNodeId: string
+    insertionPlaceholder: string
     markdown: string
     markdownWithPlaceholder: string
 }
@@ -224,13 +225,16 @@ const CROSS_BLOCK_SELECTION_DRAG_THRESHOLD = 4
 const INSERT_MENU_GAP = 12
 const INSERT_MENU_MAX_HEIGHT = 448
 const INSERT_MENU_MIN_HEIGHT = 120
-const ASK_AI_MARKDOWN_PLACEHOLDER = '<!-- Ask PostHog AI insertion placeholder -->'
 const INSERT_MENU_PLACEHOLDER = 'Search for a tool'
 const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
 const MAX_UNDO_HISTORY_ENTRIES = 100
 const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR =
     '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block'
+
+function getAskAIMarkdownPlaceholder(placeholderNodeId: string): string {
+    return `<!-- Ask PostHog AI insertion placeholder block id: ${placeholderNodeId} -->`
+}
 
 export function MarkdownNotebook({
     value,
@@ -1601,6 +1605,7 @@ export function MarkdownNotebook({
                                 commitDocument(nextDocument)
                                 restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
                                 setInsertMenu({ nodeId: node.id, query: '', selectedIndex: 0, mode: 'thinking' })
+                                const insertionPlaceholder = getAskAIMarkdownPlaceholder(node.id)
                                 const markdownWithPlaceholder = serializeMarkdownNotebook({
                                     ...nextDocument,
                                     nodes: nextDocument.nodes.map((currentNode) =>
@@ -1611,7 +1616,7 @@ export function MarkdownNotebook({
                                                   children: [
                                                       {
                                                           type: 'text',
-                                                          text: ASK_AI_MARKDOWN_PLACEHOLDER,
+                                                          text: insertionPlaceholder,
                                                       },
                                                   ],
                                               }
@@ -1621,6 +1626,7 @@ export function MarkdownNotebook({
                                 onAskAI({
                                     query,
                                     placeholderNodeId: node.id,
+                                    insertionPlaceholder,
                                     markdown: serializeMarkdownNotebook(nextDocument),
                                     markdownWithPlaceholder,
                                 })

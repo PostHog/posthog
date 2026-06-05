@@ -28,6 +28,7 @@ from posthog.schema import (
     MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
+    MaxNotebookContext,
     MaxUIContext,
     ModeContext,
     RetentionEntity,
@@ -188,6 +189,35 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("Dashboard insights:", result)
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
+
+    @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
+    async def test_format_ui_context_with_markdown_notebook_insertion_context(self, mock_from_short_id):
+        ui_context = MaxUIContext(
+            notebooks=[
+                MaxNotebookContext(
+                    id="hjH8ysXW",
+                    name="Rando notebook",
+                    insertion_placeholder_block_id="mdn-15iekr0-1",
+                    insertion_placeholder_marker=(
+                        "<!-- Ask PostHog AI insertion placeholder block id: mdn-15iekr0-1 -->"
+                    ),
+                    markdown_with_insertion_placeholder=(
+                        "# Rando notebook\n\n<!-- Ask PostHog AI insertion placeholder block id: mdn-15iekr0-1 -->"
+                    ),
+                )
+            ]
+        )
+
+        result = await self.context_manager._format_ui_context(ui_context)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIn("# Notebooks", result)
+        self.assertIn("The user is asking from a Markdown notebook v2 editor.", result)
+        self.assertIn("AI insertion placeholder block id: mdn-15iekr0-1", result)
+        self.assertIn("<!-- Ask PostHog AI insertion placeholder block id: mdn-15iekr0-1 -->", result)
+        self.assertIn("single ph-markdown-notebook node", result)
+        mock_from_short_id.assert_not_called()
 
     async def test_format_ui_context_with_events(self):
         # Create mock events

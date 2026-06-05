@@ -3454,6 +3454,9 @@ class MaxNotebookContext(BaseModel):
         extra="forbid",
     )
     id: str
+    insertion_placeholder_block_id: str | None = None
+    insertion_placeholder_marker: str | None = None
+    markdown_with_insertion_placeholder: str | None = None
     name: str | None = None
     type: Literal["notebook"] = "notebook"
 
