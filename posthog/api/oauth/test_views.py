@@ -1302,6 +1302,75 @@ class TestOAuthAPI(APIBaseTest):
 
         self.assertIn("access_token", data)
 
+    def _authorize_and_get_code(self) -> str:
+        response = self.client.post("/oauth/authorize/", self.base_authorization_post_body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()["redirect_to"].split("code=")[1].split("&")[0]
+
+    def _exchange_code(self, code: str):
+        return self.post("/oauth/token/", {**self.base_token_body, "code": code})
+
+    def _assert_no_live_tokens(self) -> None:
+        self.assertFalse(OAuthAccessToken.objects.filter(application=self.confidential_application).exists())
+        self.assertFalse(
+            OAuthRefreshToken.objects.filter(application=self.confidential_application, revoked__isnull=True).exists()
+        )
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_code_exchange_racing_app_revoke_is_rejected(self):
+        # The race leaves this committed state at mint time: sessions_revoked_at stamped, grant
+        # predating it. Stamping without the full revoke (which also deletes the grant — covered
+        # by the validate-then-revoke test below) exercises the timestamp branch.
+        code = self._authorize_and_get_code()
+
+        with freeze_time("2026-01-01 00:00:05"):
+            self.confidential_application.sessions_revoked_at = timezone.now()
+            self.confidential_application.save()
+
+            response = self._exchange_code(code)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self.assertEqual(response["Content-Type"], "application/json")
+        self._assert_no_live_tokens()
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_code_exchange_validated_before_app_revoke_is_rejected(self):
+        # oauthlib validates the grant in autocommit, before save_bearer_token's transaction, so
+        # revoke_application_sessions can commit (deleting the grant and stamping) after
+        # validation but before the mint. Inject the revoke right before save_bearer_token to
+        # reproduce that interleaving deterministically; the mint-time check then sees the grant
+        # missing with the stamp set.
+        code = self._authorize_and_get_code()
+        real_save_bearer_token = OAuthValidator.save_bearer_token
+
+        def revoke_then_save(validator, token, oauth_request, *args, **kwargs):
+            revoke_application_sessions(self.confidential_application)
+            return real_save_bearer_token(validator, token, oauth_request, *args, **kwargs)
+
+        with (
+            freeze_time("2026-01-01 00:00:05"),
+            patch.object(OAuthValidator, "save_bearer_token", revoke_then_save),
+        ):
+            response = self._exchange_code(code)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_grant")
+        self._assert_no_live_tokens()
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_code_exchange_succeeds_for_grant_issued_after_revoke(self):
+        # A grant created after the revoke stamp (i.e. the user re-authorized) exchanges normally.
+        self.confidential_application.sessions_revoked_at = timezone.now()
+        self.confidential_application.save()
+
+        with freeze_time("2026-01-01 00:00:05"):
+            code = self._authorize_and_get_code()
+            response = self._exchange_code(code)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access_token", response.json())
+
     @parameterized.expand(
         [
             ("tightened_ceiling", ["experiment:read"], "*", {"*"}),

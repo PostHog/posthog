@@ -498,13 +498,18 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
     Stamps `sessions_revoked_at` so a refresh that validated its (now-revoked) token before
     this transaction committed is rejected when it tries to mint — DOT validates the refresh
     token in autocommit, before its own transaction takes the row lock, so the bulk update
-    here would otherwise miss the tokens that racing refresh is about to create."""
+    here would otherwise miss the tokens that racing refresh is about to create.
+
+    Grants are deleted before the token sweep: a racing code exchange locks its grant row at
+    mint (`_reject_code_exchange_racing_revoke`), so deleting grants first makes this
+    transaction block on that lock and re-snapshot the token sweep after the mint commits.
+    Sweeping tokens first would let the racing mint's tokens escape the sweep."""
     now = timezone.now()
     with transaction.atomic():
         OAuthApplication.objects.filter(pk=application.pk).update(sessions_revoked_at=now)
+        OAuthGrant.objects.filter(application=application).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
-        OAuthGrant.objects.filter(application=application).delete()
 
 
 def generate_random_token_cimd_verification() -> str:
