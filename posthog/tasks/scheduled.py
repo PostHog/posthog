@@ -366,9 +366,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="send matview failure digest",
     )
 
-    # PostHog Cloud cron jobs
-    # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
-
     # Every 30 minutes, send decide request counts to the main posthog instance
     sender.add_periodic_task(
         crontab(minute="*/30"),
