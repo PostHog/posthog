@@ -134,6 +134,15 @@ class TestOAuthApplicationActivityLogging(BaseTest):
         self.assertEqual(fields, ["scopes"])
         self.assertNotIn("new_secret_value", str(log.detail))
 
+    def test_scope_reorder_logs_nothing(self):
+        application = self._create_application(scopes=["insight:read", "query:read"])
+        self._scope_logs(application).delete()
+
+        application.scopes = ["query:read", "insight:read"]
+        application.save()
+
+        self.assertEqual(self._scope_logs(application).count(), 0)
+
     def test_save_with_update_fields_excluding_scopes_logs_nothing(self):
         application = self._create_application(scopes=["insight:read"])
         self._scope_logs(application).delete()

@@ -299,7 +299,9 @@ class OAuthApplication(AbstractApplication):
         if is_create:
             if not self.scopes:
                 return
-        elif before_update is None or list(before_update.scopes or []) == list(self.scopes or []):
+        elif before_update is None or set(before_update.scopes or []) == set(self.scopes or []):
+            # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
+            # so a pure reorder is not an auditable change.
             return
 
         model_activity_signal.send(
