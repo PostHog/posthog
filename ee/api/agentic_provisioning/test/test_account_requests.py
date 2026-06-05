@@ -423,6 +423,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert mock_signup.call_count == 1
         kwargs = mock_signup.call_args.kwargs
         assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
         assert kwargs["social_provider"] == self.pkce_partner.name
 
     def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
