@@ -1,12 +1,18 @@
+from functools import cached_property
+
 from django.db.models import Count, QuerySet
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
+from rest_framework.exceptions import NotFound
 from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models.team import Team
+from posthog.models.user import User
+from posthog.permissions import APIScopePermission
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
@@ -99,13 +105,32 @@ class PublicHogFunctionTemplateViewSet(
         SessionAuthentication,
     ]
 
+    @cached_property
+    def team(self) -> Team:
+        # APIScopePermission resolves `view.team` to enforce a token's `scoped_teams`/`scoped_organizations`
+        # and org-level key restrictions. This viewset isn't a TeamAndOrgViewSetMixin, so provide the
+        # minimal resolution from the project-nested URL kwarg ourselves.
+        project_id = self.kwargs.get("parent_lookup_project_id")
+        if project_id == "@current":
+            user = self.request.user
+            if isinstance(user, User) and user.team is not None:
+                return user.team
+            raise NotFound("Project not found.")
+        try:
+            return Team.objects.select_related("organization").get(id=project_id)
+        except (Team.DoesNotExist, ValueError, TypeError):
+            raise NotFound("Project not found.")
+
     def get_permissions(self):
         # The dedicated public catalog endpoint is intentionally anonymous. The project-nested
         # mount is part of the authenticated app and must not expose templates (including hidden
         # ones) to anonymous callers.
         if self.request.path.startswith("/api/public_hog_function_templates"):
             return [permissions.AllowAny()]
-        return [permissions.IsAuthenticated()]
+        # IsAuthenticated blocks anonymous callers; APIScopePermission enforces the `hog_function`
+        # scope (and team/org scoping) for personal API key / OAuth tokens. IsAuthenticated must stay
+        # first — APIScopePermission alone treats credential-less requests as session auth and allows them.
+        return [permissions.IsAuthenticated(), APIScopePermission()]
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
