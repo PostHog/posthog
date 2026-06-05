@@ -265,6 +265,9 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                 // resolve the pending target yet. Retry now that keys (and the BYOK-settled flag) are in.
                 resolvePendingTarget()
             },
+            loadProviderKeysFailure: () => resolvePendingTarget(),
+            loadTrialModelsFailure: () => resolvePendingTarget(),
+            loadByokModelsFailure: () => resolvePendingTarget(),
             loadByokModelsSuccess: ({ byokModels }: { byokModels: ModelOption[] }) => {
                 if (byokModels.length === 0) {
                     return

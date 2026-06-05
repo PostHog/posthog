@@ -70,6 +70,7 @@ import {
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
+    getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
     getShowMultipleYAxes,
@@ -121,7 +122,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             dataThemeLogic,
             ['getTheme'],
         ],
-        actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
+        actions: [
+            insightDataLogic,
+            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelChanges'],
+        ],
     })),
 
     actions({
@@ -262,6 +266,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q && 'samplingFactor' in q ? q.samplingFactor : null)],
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
+        showAnnotations: [(s) => [s.querySource], (q) => (q ? getShowAnnotations(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
@@ -570,7 +575,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
@@ -578,6 +583,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     props.setQuery(query)
                 }
             }
+        },
+
+        // Discarding edits reverts the query to the saved version. A debounced filter
+        // update (e.g. updateDateRange) that was dispatched just before the discard would
+        // otherwise resolve afterwards and re-apply the discarded value on top of the
+        // reverted query. Flag it so the in-flight debounce bails out instead.
+        cancelChanges: () => {
+            cache.pendingFilterUpdateCancelled = true
         },
 
         // query source
@@ -597,8 +610,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
+            cache.pendingFilterUpdateCancelled = false
             if (!ignoreDebounce) {
                 await breakpoint(300)
+            }
+            // Changes were discarded while this debounce was pending — don't re-apply the
+            // edited date range over the query that cancelChanges just reverted.
+            if (cache.pendingFilterUpdateCancelled) {
+                cache.pendingFilterUpdateCancelled = false
+                return
             }
             eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             const updates = {

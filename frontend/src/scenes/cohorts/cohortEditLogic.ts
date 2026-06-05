@@ -1,4 +1,17 @@
-import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
@@ -476,7 +489,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     })
                     actions.checkIfFinishedCalculating(cohort)
                     if (existingCohort.id === 'new') {
-                        tryShowMCPHint('cohorts.create')
+                        tryShowMCPHint('cohorts.create', {
+                            derivedPrompt: cohort.name ? `Build a cohort called ${cohort.name}` : undefined,
+                        })
                     }
                     if (cohort.id !== 'new') {
                         actions.refreshPersonsData()
@@ -642,7 +657,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             // would otherwise surface as an unhandled rejection — keep it contained.
                             breakpoint()
                             actions.checkIfFinishedCalculating(newCohort)
-                        } catch {
+                        } catch (e: any) {
+                            if (!isBreakpoint(e)) {
+                                throw e
+                            }
                             // Poll superseded or logic unmounted — stop quietly.
                         }
                     }, 1000)
