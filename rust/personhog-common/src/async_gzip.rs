@@ -285,15 +285,29 @@ where
             }
 
             let payload_size = total_size.saturating_sub(GRPC_HEADER_SIZE);
-            let already_compressed = chunks.iter().find_map(|c| c.first().copied()) == Some(1);
+            let first_byte = chunks.iter().find_map(|c| c.first().copied());
+            let already_compressed = first_byte == Some(1);
 
             // Skip compression when there's no data, the payload is below the
             // minimum threshold, or the frame is already compressed by tonic.
-            if chunks.is_empty()
-                || total_size <= GRPC_HEADER_SIZE
-                || payload_size < config.min_payload_size
-                || already_compressed
-            {
+            let is_empty = chunks.is_empty();
+            let too_small_total = total_size <= GRPC_HEADER_SIZE;
+            let below_min = payload_size < config.min_payload_size;
+            if is_empty || too_small_total || below_min || already_compressed {
+                warn!(
+                    is_empty,
+                    too_small_total,
+                    below_min,
+                    already_compressed,
+                    total_size,
+                    payload_size,
+                    min_payload_size = config.min_payload_size,
+                    first_byte = ?first_byte,
+                    num_chunks = chunks.len(),
+                    method = %method,
+                    client = %client,
+                    "passthrough_small triggered — diagnosing which condition fired"
+                );
                 counter!("grpc_gzip_responses_total", "outcome" => "passthrough_small", "method" => method.clone()).increment(1);
                 if let Some(body) =
                     check_response_size(&config, &method, &client, &caller_tag, total_size)
