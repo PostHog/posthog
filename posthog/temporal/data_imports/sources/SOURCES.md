@@ -116,6 +116,7 @@ the row lists both.
 | resend           | HTTP                        | requests                                                        | ✅                          |
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| salesloft        | HTTP                        | requests                                                        | ✅                          |
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
 | sentry           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow       | HTTP                        | requests                                                        | ✅                          |
@@ -216,7 +217,6 @@ doesn't conflict with concurrent PRs.
 - plaid
 - quickbooks
 - ringcentral
-- salesloft
 - sftp
 - sharepoint
 - surveymonkey
