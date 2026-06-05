@@ -5,6 +5,7 @@ import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integra
 const integration = (overrides: Partial<IntegrationType> = {}): IntegrationType => ({
     id: 7,
     kind: 'google-ads',
+    icon_url: '',
     config: {},
     created_at: '2026-06-04T16:44:10Z',
     created_by: null,
