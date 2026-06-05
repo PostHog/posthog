@@ -17,6 +17,7 @@ import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DEFAULT_DECIMAL_PLACES } from 'lib/utils'
+import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/utils/dateTimeUtils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
@@ -105,6 +106,7 @@ export function InsightDisplayConfig(): JSX.Element {
         compareFilter,
         supportsCompare,
         interval,
+        insightData,
     } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource, updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
     const { isTrendsFunnel, isStepsFunnel, isTimeToConvertFunnel, isEmptyFunnel } = useValues(
@@ -438,6 +440,9 @@ export function InsightDisplayConfig(): JSX.Element {
                             updateCompareFilter={updateCompareFilter}
                             disabled={!canEditInsight || !supportsCompare}
                             disableReason={editingDisabledReason}
+                            tooltip={formatResolvedDateRange(
+                                alignResolvedDateRangeToInterval(insightData?.resolved_compare_date_range, interval)
+                            )}
                         />
                     </ConfigFilter>
                 )}
