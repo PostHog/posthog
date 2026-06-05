@@ -28,7 +28,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
@@ -415,11 +420,8 @@ function ManagedSchemaTable({
                         if (schema.table) {
                             return schema.table.row_count?.toLocaleString() ?? 0
                         }
-                        // First sync: the warehouse table doesn't exist yet, so fall back to the
-                        // running job's rows_synced (updates live as batches flush). Show a spinner
-                        // so a schema still buffering below the flush threshold reads as "syncing",
-                        // not as if nothing is happening.
-                        if (schema.status === 'Running') {
+                        // No table yet during the first sync — fall back to the running job's live count.
+                        if (schema.status === ExternalDataSchemaStatus.Running) {
                             const rows = inProgressRowsBySchema[schema.id] ?? 0
                             return (
                                 <span className="flex items-center justify-end gap-1">
@@ -428,7 +430,7 @@ function ManagedSchemaTable({
                                 </span>
                             )
                         }
-                        if (schema.status === 'Completed') {
+                        if (schema.status === ExternalDataSchemaStatus.Completed) {
                             return 0
                         }
                         return <span className="text-muted">—</span>
