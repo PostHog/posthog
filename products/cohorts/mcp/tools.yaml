@@ -32,7 +32,7 @@ tools:
             Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
 
 
-            Intended for small, ad-hoc additions — pass at most ~50 person UUIDs per call. To build or grow a static
+            Intended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static
             cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query
             ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a
             'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person
@@ -63,7 +63,7 @@ tools:
 
             - Static cohort ('is_static: true'): a fixed snapshot of persons. PREFER populating it from a 'query' (see
             below) — the server runs the query and inserts every matching person in a single call, with no row limit.
-            Only use 'cohorts-add-persons-to-static-cohort-partial-update' for tiny, ad-hoc additions (up to ~50
+            Only use 'cohorts-add-persons-to-static-cohort-partial-update' for tiny, ad-hoc additions (up to ~20
             people).
 
 
@@ -167,7 +167,7 @@ tools:
             automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an
             ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
             returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything
-            beyond a handful (~50) of people.
+            beyond a handful (~20) of people.
         exclude_params:
             - groups
             - version
