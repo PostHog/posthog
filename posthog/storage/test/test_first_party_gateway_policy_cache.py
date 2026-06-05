@@ -138,7 +138,9 @@ class TestFirstPartyPolicyScopeGating(FirstPartyPolicyTestMixin):
 
     @parameterized.expand(
         [
-            ("oauth_wildcard_subsumes", "*", True),
+            # "*" must NOT subsume the privileged gateway scope (RFC #1103); the
+            # gateway rejects a "*" blob and the legacy wildcard is being retired.
+            ("oauth_wildcard_does_not_subsume", "*", False),
             ("oauth_literal_scope", GATEWAY_SCOPE, True),
             ("oauth_no_scope", "feature_flag:read", False),
         ]

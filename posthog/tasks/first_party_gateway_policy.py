@@ -10,7 +10,6 @@ posthog/storage/first_party_gateway_policy_signal_handlers.py.
 import time
 
 from django.conf import settings
-from django.db.models import Q
 
 import structlog
 from celery import shared_task
@@ -57,13 +56,12 @@ def update_first_party_policy_cache_task(credential_kind: str, credential_id: st
 @skip_team_scope_audit
 def reproject_user_first_party_policies_task(user_id: int) -> None:
     """Re-project a user's gateway credentials after their current team changed."""
-    scope_match = Q(scope__iregex=r"(^|\s)llm_gateway:read(\s|$)") | Q(scope__iregex=r"(^|\s)\*(\s|$)")
     for pak in PersonalAPIKey.objects.select_related("user").filter(
         user_id=user_id, scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE]
     ):
         project_first_party_policy(pak)
     for token in OAuthAccessToken.objects.select_related("user", "application").filter(
-        scope_match, user_id=user_id, application_id__isnull=False
+        scope__iregex=r"(^|\s)llm_gateway:read(\s|$)", user_id=user_id, application_id__isnull=False
     ):
         project_first_party_policy(token)
 

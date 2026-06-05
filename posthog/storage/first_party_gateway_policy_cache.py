@@ -32,7 +32,6 @@ from typing import Any
 
 from django.conf import settings
 from django.db import OperationalError
-from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -47,7 +46,6 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyTy
 logger = structlog.get_logger(__name__)
 
 FIRST_PARTY_REQUIRED_SCOPE = "llm_gateway:read"
-WILDCARD_SCOPE = "*"
 
 # billing_mode and allowed_products have no home in the data model yet (the
 # consumer treats both as opaque pass-through; per-product gating is follow-up
@@ -88,15 +86,17 @@ def credential_hash(credential: Credential) -> str | None:
 
 
 def credential_has_gateway_scope(credential: Credential) -> bool:
-    """Whether the credential currently grants llm_gateway:read.
+    """Whether the credential is literally granted llm_gateway:read.
 
-    Mirrors the gateway: a personal key needs the literal scope ("*" must not
-    subsume the privileged gateway scope), an OAuth token honours "*" too.
+    The literal scope only — a "*" wildcard must NOT subsume the privileged
+    gateway scope (RFC #1103). The gateway rejects a blob whose scopes are "*"
+    (firstparty_test.go), and the legacy "*" backward-compat wildcard is being
+    retired (#60342); granting privileged gateway access off it would be an
+    over-grant. A "*" client gets the scope only once it re-auths for the literal.
     """
     if isinstance(credential, PersonalAPIKey):
         return FIRST_PARTY_REQUIRED_SCOPE in (credential.scopes or [])
-    scopes = credential.scope.split()
-    return FIRST_PARTY_REQUIRED_SCOPE in scopes or WILDCARD_SCOPE in scopes
+    return FIRST_PARTY_REQUIRED_SCOPE in credential.scope.split()
 
 
 def _derive_allowed_products(credential: Credential) -> list[str]:
@@ -242,12 +242,16 @@ def refresh_all_first_party_policies() -> int:
         project_first_party_policy(pak)
         projected += 1
 
-    # scope is a space-separated TextField; whitespace-bounded so "llm_gateway:read"
-    # doesn't substring-match a longer scope, and "*" subsumes it (OAuth only).
-    scope_match = Q(scope__iregex=r"(^|\s)llm_gateway:read(\s|$)") | Q(scope__iregex=r"(^|\s)\*(\s|$)")
+    # scope is a space-separated TextField; whitespace-bounded so the literal
+    # "llm_gateway:read" doesn't substring-match a longer scope. "*" is not a match.
     for token in (
         OAuthAccessToken.objects.select_related("user", "application")
-        .filter(scope_match, user__is_active=True, application_id__isnull=False, expires__gt=now)
+        .filter(
+            scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
+            user__is_active=True,
+            application_id__isnull=False,
+            expires__gt=now,
+        )
         .iterator()
     ):
         project_first_party_policy(token)
