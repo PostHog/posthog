@@ -45,6 +45,9 @@ const STRIP_KEYS = [
     'gen_ai.response.id',
 ]
 
+// Metadata properties to prompte to event properties
+const AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version']
+
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -159,7 +162,6 @@ function process(event: PluginEvent, next: () => void): void {
         event.distinct_id = posthogDistinctId
     }
 
-    const AI_METADATA_KEYS = ['$ai_session_id', '$ai_prompt_name', '$ai_prompt_version']
     for (const aiKey of AI_METADATA_KEYS) {
         const value = props[`ai.telemetry.metadata.${aiKey}`]
         if (props[aiKey] === undefined && typeof value === 'string' && value) {
