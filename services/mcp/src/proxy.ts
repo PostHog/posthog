@@ -77,23 +77,6 @@ export async function resolveProxyRegion(
     return 'us'
 }
 
-export async function resolveProxyRegion(
-    token: string,
-    userHash: string,
-    kv: KVNamespace | undefined
-): Promise<CloudRegion> {
-    try {
-        const user = await resolveUser(token, userHash, kv)
-        if (user) {
-            return user.region
-        }
-        console.info('[MCP proxy] could not resolve user region, defaulting to us')
-    } catch (err) {
-        console.error('[MCP proxy] error resolving region:', err)
-    }
-    return 'us'
-}
-
 export function proxyToHono(request: Request, region: CloudRegion): Promise<Response> {
     const targetBase = getHonoTargetUrl(region)
     const targetUrl = new URL(request.url)

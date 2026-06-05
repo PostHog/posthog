@@ -3,10 +3,10 @@ import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
+import { RequestProperties } from '@/lib/request-properties'
 import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
 import type { CloudRegion } from '@/tools/types'
 
-import { RequestProperties } from './mcp'
 import { proxyToHono, resolveProxyRegion } from './proxy'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
@@ -327,9 +327,6 @@ const handleRequest = async (
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
 }
-
-// Durable Object class export - required for Wrangler to find the class for the MCP_OBJECT binding
-export { MCP } from './mcp'
 
 // Worker entry point
 export default {

@@ -47,7 +47,6 @@
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "@toon-format/toon": "^2.1.0",
-        "agents": "0.10.2",
         "ai": "^6.0.0",
         "esbuild": "^0.25.11",
         "eventsource-parser": "^3.0.0",
