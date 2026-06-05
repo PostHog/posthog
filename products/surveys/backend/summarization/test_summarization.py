@@ -3,6 +3,8 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from google.genai.errors import ClientError, ServerError
+from parameterized import parameterized
 from rest_framework import exceptions
 
 from .formatting import format_as_markdown
@@ -101,6 +103,24 @@ class TestSummarizeWithGemini:
         with pytest.raises(exceptions.APIException) as exc_info:
             summarize_with_gemini("Question", ["Response"])
         assert "Failed to generate response" in str(exc_info.value.detail)
+
+    @parameterized.expand(
+        [
+            ("server_error_is_transient", ServerError, 503, "temporarily unavailable"),
+            ("rate_limit_is_transient", ClientError, 429, "temporarily unavailable"),
+            ("permission_denied_is_misconfig", ClientError, 403, "misconfigured"),
+            ("model_not_found_is_misconfig", ClientError, 404, "misconfigured"),
+        ]
+    )
+    @patch("products.surveys.backend.llm.client.create_gemini_client")
+    def test_upstream_errors_classified(self, _name, error_cls, code, expected, mock_create_client):
+        mock_client = MagicMock()
+        mock_create_client.return_value = mock_client
+        mock_client.models.generate_content.side_effect = error_cls(code, {"error": {"status": "ERR"}})
+
+        with pytest.raises(exceptions.APIException) as exc_info:
+            summarize_with_gemini("Question", ["Response"])
+        assert expected in str(exc_info.value.detail)
 
     @patch("products.surveys.backend.llm.client.create_gemini_client")
     def test_returns_summarization_result_with_trace_id(self, mock_create_client):

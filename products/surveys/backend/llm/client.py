@@ -7,6 +7,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
+from google.genai.errors import APIError, ServerError
 from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel
@@ -15,6 +16,9 @@ from rest_framework import exceptions
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+
+# Upstream HTTP statuses where retrying the same request later may succeed.
+_RETRYABLE_STATUSES = {408, 409, 425, 429}
 
 
 def create_gemini_client():
@@ -72,6 +76,23 @@ def generate_structured_output(
 
     except exceptions.ValidationError:
         raise
+    except APIError as error:
+        # Don't collapse distinct upstream failures into one opaque message — keep the
+        # status/category so a transient outage is distinguishable from a server-side
+        # misconfiguration (e.g. revoked API key or a withdrawn model) in logs and monitoring.
+        logger.exception(
+            "Gemini API call failed",
+            model=model,
+            status_code=error.code,
+            status=error.status,
+            message=error.message,
+            properties=properties,
+        )
+        if isinstance(error, ServerError) or error.code in _RETRYABLE_STATUSES:
+            raise exceptions.APIException("The translation service is temporarily unavailable. Please try again.")
+        # Remaining client errors (auth/permission, model not found, ...) are configuration
+        # problems the end user can't act on — keep details out of the response.
+        raise exceptions.APIException("The translation service is misconfigured. Please contact support.")
     except Exception:
         logger.exception("Gemini API call failed", model=model, properties=properties)
         raise exceptions.APIException("Failed to generate response")
