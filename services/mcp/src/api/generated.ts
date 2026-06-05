@@ -25271,6 +25271,79 @@ export namespace Schemas {
       results: SignalSourceConfig[];
     }
 
+    /**
+     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+     * @nullable
+     */
+    export type SingleSessionSummaryMinimalSessionOutcome = {
+      readonly success?: boolean;
+      readonly description?: string;
+    } | null;
+
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    export type SingleSessionSummaryMinimalExtraSummaryContext = {
+      readonly focus_area?: string;
+    } | null;
+
+    /**
+     * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
+     */
+    export interface SingleSessionSummaryMinimal {
+      readonly id: string;
+      /** Session replay ID */
+      readonly session_id: string;
+      /**
+         * Distinct ID of the session's user
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Session start time
+         * @nullable
+         */
+      readonly session_start_time: string | null;
+      /**
+         * Session duration in seconds
+         * @nullable
+         */
+      readonly session_duration: number | null;
+      /**
+         * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+         * @nullable
+         */
+      readonly session_outcome: SingleSessionSummaryMinimalSessionOutcome;
+      /** Number of exception event IDs surfaced by this summary (capped at 100). */
+      readonly exception_count: number;
+      /** True if the summary surfaced any exception events. */
+      readonly has_exceptions: boolean;
+      /**
+         * LLM model identifier that generated this summary, if recorded in run metadata.
+         * @nullable
+         */
+      readonly model_used: string | null;
+      /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
+      readonly visual_confirmation: boolean;
+      /**
+         * Optional context passed to the summary at generation time (e.g. `focus_area`).
+         * @nullable
+         */
+      readonly extra_summary_context: SingleSessionSummaryMinimalExtraSummaryContext;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface PaginatedSingleSessionSummaryMinimalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SingleSessionSummaryMinimal[];
+    }
+
     export interface SnapshotHistoryEntry {
       current_artifact?: Artifact | null;
       run_id: string;
@@ -37897,6 +37970,65 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
+     */
+    export type SingleSessionSummarySummary = { [key: string]: unknown };
+
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    export type SingleSessionSummaryExtraSummaryContext = {
+      readonly focus_area?: string;
+    } | null;
+
+    /**
+     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+     * @nullable
+     */
+    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown } | null;
+
+    /**
+     * Full session summary, including the generated `summary` JSON content.
+     */
+    export interface SingleSessionSummary {
+      readonly id: string;
+      /** Session replay ID */
+      readonly session_id: string;
+      /**
+         * Distinct ID of the session's user
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Session start time
+         * @nullable
+         */
+      readonly session_start_time: string | null;
+      /**
+         * Session duration in seconds
+         * @nullable
+         */
+      readonly session_duration: number | null;
+      /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
+      readonly summary: SingleSessionSummarySummary;
+      /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
+      readonly exception_event_ids: readonly string[];
+      /**
+         * Optional context passed to the summary at generation time (e.g. `focus_area`).
+         * @nullable
+         */
+      readonly extra_summary_context: SingleSessionSummaryExtraSummaryContext;
+      /**
+         * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+         * @nullable
+         */
+      readonly run_metadata: SingleSessionSummaryRunMetadata;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
@@ -50415,6 +50547,62 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SingleSessionSummariesListParams = {
+    /**
+     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
+     */
+    created_by?: string;
+    /**
+     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
+     */
+    date_to?: string;
+    /**
+     * Filter to summaries for a single user (the session's `distinct_id`).
+     */
+    distinct_id?: string;
+    /**
+     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
+     */
+    has_exceptions?: boolean;
+    /**
+     * When true, only summaries produced via the video-based visual-confirmation workflow.
+     */
+    has_visual_confirmation?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
+     */
+    order?: string;
+    /**
+     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
+     */
+    outcome?: SingleSessionSummariesListOutcome;
+    /**
+     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
+     */
+    session_ids?: string;
+    };
+
+    export type SingleSessionSummariesListOutcome = typeof SingleSessionSummariesListOutcome[keyof typeof SingleSessionSummariesListOutcome];
+
+
+    export const SingleSessionSummariesListOutcome = {
+      Failure: 'failure',
+      Success: 'success',
+      Unknown: 'unknown',
+    } as const;
 
     export type SubscriptionsListParams = {
     /**
