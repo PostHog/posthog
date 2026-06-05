@@ -40,6 +40,23 @@ class LogicalPropertyLowering(CloningVisitor):
         lowered = self._lower_property_field(node)
         return lowered if lowered is not None else super().visit_field(node)
 
+    def visit_alias(self, node: ast.Alias) -> ast.Alias:
+        # An `Alias` over a property read (e.g. the hidden `properties.x AS x` the resolver/swapper inserts) carries a
+        # `FieldAliasType` whose `.type` is the original `PropertyType`. When we lower the inner Field to a
+        # `JSONFieldAccess`, that wrapper's type must stop pointing at the `PropertyType` too — otherwise the printer's
+        # `resolve_field_type` unwraps the `FieldAliasType` back to the `PropertyType` and routes the operand into its
+        # property-decision code (defeating the deletion gate, §4.4/§12.5). Repoint it at the lowered value type. This
+        # only rewrites the alias-type wrapper; printing reads `expr` + `alias`, not the wrapper's inner type, so output
+        # is unchanged.
+        lowered = super().visit_alias(node)
+        if (
+            isinstance(lowered.expr, ast.JSONFieldAccess)
+            and isinstance(lowered.type, ast.FieldAliasType)
+            and isinstance(lowered.type.type, ast.PropertyType)
+        ):
+            lowered.type = ast.FieldAliasType(alias=lowered.type.alias, type=lowered.expr.type)
+        return lowered
+
     def _lower_property_field(self, node: ast.Field) -> ast.JSONFieldAccess | None:
         property_type = node.type
         if not isinstance(property_type, ast.PropertyType):
@@ -63,10 +80,17 @@ class LogicalPropertyLowering(CloningVisitor):
         keys: list[str | int] = [str(chain[0])]
         keys.extend(link if isinstance(link, int) else str(link) for link in chain[1:])
 
+        # §4.4: the node carries its *value* type (the raw JSON-extract result, a nullable String), NOT the original
+        # `PropertyType`. Carrying the `PropertyType` would make the node mean "this is still a property access" (the
+        # ambient-meaning smell) — and would route a lowered comparison operand back into the printer's property-decision
+        # code via `resolve_field_type`, defeating the deletion gate. Everything a downstream pass needs (table, field,
+        # property name) is in `expr` (the blob `Field`, whose `.type` is the source `FieldType`) plus `keys`. The
+        # nullable String keeps the printer's comparison `ifNull(...)` wrapping identical to the `PropertyType` it
+        # replaced (`_is_type_nullable` returns True for both).
         return ast.JSONFieldAccess(
             expr=ast.Field(chain=[base_field_type.name], type=base_field_type),
             keys=keys,
-            type=node.type,
+            type=ast.StringType(nullable=True),
         )
 
 

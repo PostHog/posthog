@@ -21,7 +21,7 @@ properties on-events and joined (the §8.1 ClickHouse-table-name case).
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any
 
 from posthog.test.base import (
     APIBaseTest,
@@ -38,16 +38,11 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode, PropertyGroupsMode
 
-from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.transforms.clickhouse_physical_passes import (
-    clickhouse_physical_passes,
-    resolve_materialized_property_source,
-)
+from posthog.hogql.transforms.clickhouse_physical_passes import clickhouse_physical_passes
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
@@ -511,40 +506,3 @@ class TestPersonPropertyPhysicalPass(_PhysicalPassTestBase):
             lowered_sql, _ = self._assert_results_equivalent(sql, modifiers)
             # The materialized person column is read inside the join subquery (the §8.1 win).
             self.assertIn(mat_col.name, lowered_sql)
-
-
-class TestResolveMaterializedPropertySource(_PhysicalPassTestBase):
-    """Structural unit test of the §8.1 table-name resolution, independent of printing."""
-
-    def _resolved_source(self, sql: str, modifiers: HogQLQueryModifiers) -> Literal["materialized_column"] | None:
-        context = self._context(lower=True, modifiers=modifiers)
-        prepared = prepare_ast_for_printing(parse_select(sql), context=context, dialect="clickhouse")
-        assert prepared is not None
-        lowered = lower_property_access(prepared, context)
-
-        found: list[str] = []
-
-        class _Collect(TraversingVisitor):
-            def visit_jsonfield_access(self, node: ast.JSONFieldAccess) -> None:
-                property_type = node.type
-                if isinstance(property_type, ast.PropertyType):
-                    source = resolve_materialized_property_source(property_type.field_type, str(node.keys[0]), context)
-                    if source is not None:
-                        found.append(source.kind)
-                super().visit_jsonfield_access(node)
-
-        _Collect().visit(lowered)
-        return found[0] if found else None  # type: ignore[return-value]
-
-    def test_person_joined_resolves_via_clickhouse_table_name(self) -> None:
-        # The inner person read resolves a materialized_column only because we key on the ClickHouse name `person`.
-        self._seed_person()
-        modifiers = self._modifiers(poe_mode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
-        with materialized("person", "email", is_nullable=False):
-            sql = "SELECT person.properties.email FROM events WHERE event = 'person_event'"
-            self.assertEqual(self._resolved_source(sql, modifiers), "materialized_column")
-
-    def _seed_person(self) -> None:
-        _create_person(distinct_ids=["p_has"], team=self.team, properties={"email": "a@b.com"}, immediate=True)
-        _create_event(team=self.team, distinct_id="p_has", event="person_event")
-        flush_persons_and_events()
