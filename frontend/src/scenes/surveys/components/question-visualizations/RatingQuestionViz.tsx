@@ -680,7 +680,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
         <>
             <div className="flex flex-col gap-1">
                 <div className="h-50 border rounded pt-8">
-                    <div className="relative h-full w-full">
+                    <div className="relative h-full w-full flex flex-col">
                         <BarChart
                             series={series}
                             labels={chartLabels}
