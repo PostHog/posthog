@@ -823,12 +823,14 @@ class TestSignalsDismissReport(TestCase):
             HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
         )
 
+    @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
-    def test_dismiss_suppresses_report_and_writes_artefact(self, mock_config, mock_requests_post):
+    def test_dismiss_suppresses_report_and_writes_artefact(self, mock_config, mock_requests_post, mock_is_org_member):
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = MagicMock()  # clicker resolves to an org member
         report = self._make_ready_report()
 
         response = self._post_interactivity(self._dismiss_payload(str(report.id)))
@@ -841,6 +843,22 @@ class TestSignalsDismissReport(TestCase):
         ).exists()
         # The original message is replaced with a dismissed acknowledgement.
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_dismiss_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
+        from products.signals.backend.models import SignalReport
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = None  # clicker is not a PostHog org member
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id)))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY  # not suppressed
 
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")

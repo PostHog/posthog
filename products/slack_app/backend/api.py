@@ -2534,10 +2534,9 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
     try:
         # Slack webhook: no team context; scoped by PK + kind + workspace ID. The team match below
         # ensures the report belongs to the workspace's integration before we touch it.
-        integration = (
-            Integration.objects.get(  # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
-                id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
-            )
+        # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
+        integration = Integration.objects.get(
+            id=integration_id, kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
         )
     except Integration.DoesNotExist:
         logger.info("signals_dismiss_report_no_integration", integration_id=integration_id)
@@ -2552,6 +2551,15 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     slack_user_id = payload.get("user", {}).get("id", "")
+    # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
+    if _is_org_member(integration, slack_user_id) is None:
+        logger.warning(
+            "signals_dismiss_report_not_org_member",
+            integration_id=integration.id,
+            slack_user_id=slack_user_id,
+        )
+        return HttpResponse(status=200)
+
     suppressed = dismiss_report_from_slack(report_team_id, str(report_id), slack_user_id=slack_user_id)
 
     _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
