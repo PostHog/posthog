@@ -51,11 +51,6 @@ export function TurnRow({
                     data-pending={pending ? 'true' : undefined}
                 >
                     <div>{turn.text}</div>
-                    {pending ? (
-                        <div className="mt-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-                            Queued · sends after current turn
-                        </div>
-                    ) : null}
                 </div>
             </div>
         )

@@ -22,7 +22,7 @@
  *   failed                   → `{ reason, turns }`     state=failed
  */
 
-import type { AssistantTurn, AssistantTurnPart, ChatSession, Turn } from '@posthog/agent-chat'
+import type { AssistantTurn, AssistantTurnPart, ChatSession, Turn, UserTurn } from '@posthog/agent-chat'
 
 import type { SessionEvent } from './agentIngressClient'
 
@@ -30,6 +30,51 @@ export function applyEvent(session: ChatSession, event: SessionEvent): ChatSessi
     switch (event.kind) {
         case 'session_started':
             return { ...session, state: 'streaming' }
+
+        case 'user_message': {
+            // Server-confirmed user message — emitted when the runner drains
+            // an entry from pending_inputs. Reconciles the optimistic local
+            // bubble (added in useRealRunner.send) with server-authoritative
+            // conversation order. Search BACKWARDS across the whole turn
+            // list: pi-agent-core fires turn_start before its
+            // getSteeringMessages hook, so by the time user_message arrives
+            // an assistant turn may already have been appended AFTER the
+            // matching user turn. A post-last-assistant search would miss
+            // it and double-render the bubble.
+            const text = asString(event.data.text)
+            if (!text) {
+                return session
+            }
+            let matchIndex = -1
+            for (let i = session.turns.length - 1; i >= 0; i--) {
+                const t = session.turns[i]
+                if (t.kind === 'user' && t.text === text) {
+                    matchIndex = i
+                    break
+                }
+            }
+            if (matchIndex !== -1) {
+                const existing = session.turns[matchIndex] as UserTurn
+                if (existing.pending !== true) {
+                    // turn_started already cleared the pending flag — the
+                    // bubble is already confirmed in the transcript.
+                    return session
+                }
+                const turns = session.turns.slice()
+                turns[matchIndex] = { ...existing, pending: false }
+                return { ...session, turns }
+            }
+            // No matching optimistic turn — append. Happens for messages
+            // injected by another client on the same session, or when the
+            // optimistic append was missed.
+            const confirmed: UserTurn = {
+                kind: 'user',
+                id: `user-${asString(event.data.timestamp) || event.ts}`,
+                timestamp: event.ts,
+                text,
+            }
+            return { ...session, turns: [...session.turns, confirmed] }
+        }
 
         case 'turn_started': {
             const turnId = `assistant-${event.data.turn ?? Date.now()}`
@@ -132,8 +177,27 @@ export function applyEvent(session: ChatSession, event: SessionEvent): ChatSessi
         case 'waiting':
             return { ...session, state: 'awaiting_approval' }
 
-        case 'failed':
-            return { ...finalizeActiveTurn(session), state: 'failed' }
+        case 'failed': {
+            // Surface a generic, non-leaky message to the end user. The
+            // raw `reason` from the runner can carry implementation
+            // detail (transport type, internal URLs, stack-shaped strings,
+            // upstream provider error bodies) that doesn't belong in
+            // someone-else's-agent chat surfaces. The raw reason is
+            // still on the bus event for anything downstream that
+            // needs it, and the worker writes it to log_entries for
+            // the agent owner to read via the session-detail page —
+            // the chat just renders a session-id reference the user
+            // can share with the agent owner. Also clear `pending` on
+            // any optimistic user turn — the message reached the
+            // server (the failure happened after enqueue), so it
+            // shouldn't stay "Sending…" forever.
+            const errorMessage = `This session failed. Reference: ${session.id} — share with the agent owner to investigate.`
+            const finalized = finalizeActiveTurn(session)
+            const turns = finalized.turns.map<Turn>((t) =>
+                t.kind === 'user' && t.pending ? { ...t, pending: false } : t
+            )
+            return { ...finalized, turns, state: 'failed', error: errorMessage }
+        }
 
         default:
             return session

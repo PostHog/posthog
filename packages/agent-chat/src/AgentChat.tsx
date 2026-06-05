@@ -144,7 +144,12 @@ export function AgentChat({
     const streaming = session.state === 'streaming'
     const awaitingClientTool = session.state === 'awaiting_client_tool'
     const sending = streaming || awaitingClientTool
-    const inputDisabled = awaitingClientTool || session.state === 'awaiting_approval' || session.state === 'error'
+    const inputDisabled =
+        awaitingClientTool ||
+        session.state === 'awaiting_approval' ||
+        session.state === 'error' ||
+        session.state === 'failed' ||
+        session.state === 'cancelled'
     const waiting = session.turns.length === 0
     const effectivePrompts = starterPrompts ?? getStarterPrompts(context)
     const turnCount = session.turns.length
@@ -224,7 +229,9 @@ export function AgentChat({
                             <ApprovalCard key={a.callId} approval={a} onApprove={onApprove} onDeny={onDeny} />
                         ))}
                         {session.state === 'disconnected' ? <DisconnectedBanner onReconnect={onReconnect} /> : null}
-                        {session.state === 'error' && session.error ? <ErrorBanner message={session.error} /> : null}
+                        {(session.state === 'error' || session.state === 'failed') && session.error ? (
+                            <ErrorBanner message={session.error} />
+                        ) : null}
                     </div>
                 )}
             </div>

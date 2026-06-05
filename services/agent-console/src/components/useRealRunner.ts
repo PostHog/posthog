@@ -414,12 +414,12 @@ export function useRealRunner({
                 return
             }
             setError(null)
-            // Optimistic: append the user turn locally so the UI feels
-            // instant. The runner doesn't echo user input back over SSE.
-            // While a turn is in flight, mark the new turn as `pending`
-            // — `/send` queues it into `pending_inputs` server-side and
-            // the runner only drains it on the next turn boundary. We
-            // clear the flag on the next `turn_started` event.
+            // Optimistic: append a pending user turn locally so the UI
+            // feels instant. Always marked `pending` — the runner echoes
+            // the message back via `user_message` SSE the moment it's
+            // drained from `pending_inputs`, and the reducer swaps the
+            // pending entry for the server-confirmed one. `turn_started`
+            // also clears pending as a safety net against a missed echo.
             setSession((prev) => {
                 const queued = prev.state === 'streaming' || prev.state === 'awaiting_client_tool'
                 return {
@@ -434,7 +434,7 @@ export function useRealRunner({
                             id: `user-${Date.now()}`,
                             timestamp: new Date().toISOString(),
                             text: trimmed,
-                            pending: queued,
+                            pending: true,
                         },
                     ],
                 }
