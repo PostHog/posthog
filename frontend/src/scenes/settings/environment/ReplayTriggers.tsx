@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
@@ -465,6 +465,43 @@ function LegacyRecordingConditions(): JSX.Element {
     )
 }
 
+function SdkCompatibilityBanner(): JSX.Element {
+    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk } = useValues(replayTriggersLogic)
+
+    if (shouldMinimizeLegacyConditions) {
+        return (
+            <LemonBanner type="success">
+                All your recent web SDK traffic is on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups apply to
+                every session. The legacy recording conditions below are kept only as a fallback for older SDKs.
+            </LemonBanner>
+        )
+    }
+
+    if (hasOutdatedWebSdk) {
+        return (
+            <LemonBanner type="warning">
+                <strong>Some of your web traffic is on an older posthog-js</strong> (before v
+                {TRIGGER_GROUPS_MIN_SDK_VERSION}), which uses the legacy recording conditions below. Upgrade posthog-js
+                to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ so trigger groups apply to every session. Until then, both
+                configurations are sent for backward compatibility.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <strong>JavaScript SDK version compatibility</strong>
+            <ul className="list-disc ml-4 mt-2 space-y-1">
+                <li>
+                    SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION} use trigger groups if configured, otherwise
+                    fall back to the legacy recording conditions
+                </li>
+                <li>Both configurations are sent to ensure backward compatibility with all JavaScript SDK versions</li>
+            </ul>
+        </LemonBanner>
+    )
+}
+
 export function ReplayTriggers(): JSX.Element {
     const { selectedPlatform, shouldMinimizeLegacyConditions } = useValues(replayTriggersLogic)
     const { selectPlatform } = useActions(replayTriggersLogic)
@@ -482,22 +519,17 @@ export function ReplayTriggers(): JSX.Element {
                 <div className="flex flex-col gap-y-4">
                     {isV2TriggersEnabled && (
                         <>
-                            <LemonBanner type="warning">
-                                <strong>JavaScript SDK version compatibility</strong>
-                                <ul className="list-disc ml-4 mt-2 space-y-1">
-                                    <li>
-                                        SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION} use trigger groups if
-                                        configured, otherwise fall back to the legacy recording conditions
-                                    </li>
-                                    <li>
-                                        Both configurations are sent to ensure backward compatibility with all
-                                        JavaScript SDK versions
-                                    </li>
-                                </ul>
-                            </LemonBanner>
+                            <SdkCompatibilityBanner />
 
                             <TriggerGroupsEditor />
                         </>
+                    )}
+
+                    {isV2TriggersEnabled && (
+                        <div className="mt-2">
+                            <LemonDivider className="mb-4" />
+                            <h3 className="text-base font-semibold mb-1">Legacy recording conditions</h3>
+                        </div>
                     )}
 
                     {isV2TriggersEnabled && shouldMinimizeLegacyConditions ? (
@@ -506,13 +538,10 @@ export function ReplayTriggers(): JSX.Element {
                                 {
                                     key: 'legacy-recording-conditions',
                                     header: (
-                                        <div className="flex flex-col">
-                                            <span className="font-semibold">Legacy recording conditions</span>
-                                            <span className="text-muted text-xs font-normal">
-                                                Hidden because your web SDKs (v{TRIGGER_GROUPS_MIN_SDK_VERSION}+) use
-                                                trigger groups. Expand to configure fallbacks for older SDK versions.
-                                            </span>
-                                        </div>
+                                        <span className="text-muted text-sm font-normal">
+                                            Hidden because your web SDKs (v{TRIGGER_GROUPS_MIN_SDK_VERSION}+) use
+                                            trigger groups. Expand to configure fallbacks for older SDK versions.
+                                        </span>
                                     ),
                                     content: (
                                         <div className="flex flex-col gap-y-4 pt-2">
@@ -525,13 +554,10 @@ export function ReplayTriggers(): JSX.Element {
                     ) : (
                         <>
                             {isV2TriggersEnabled && (
-                                <>
-                                    <h3 className="text-base font-semibold">Legacy recording conditions</h3>
-                                    <LemonBanner type="warning">
-                                        Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for
-                                        newer versions if trigger groups are not configured.
-                                    </LemonBanner>
-                                </>
+                                <LemonBanner type="warning">
+                                    Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for
+                                    newer versions if trigger groups are not configured.
+                                </LemonBanner>
                             )}
                             <LegacyRecordingConditions />
                         </>

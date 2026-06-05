@@ -29,19 +29,25 @@ export function isStringWithLength(x: unknown): x is string {
  * window, so this answers "have only new SDKs been seen recently". Returns false when there's no web data
  * (e.g. a brand-new or self-hosted team) — we never minimize the legacy UI without positive evidence.
  */
+// Unparseable versions count as "predates" so we stay conservative (prompt upgrade / keep legacy visible).
+function webSdkPredatesTriggerGroups(version: string): boolean {
+    try {
+        return compareVersion(version, TRIGGER_GROUPS_MIN_SDK_VERSION) < 0
+    } catch {
+        return true
+    }
+}
+
 export function legacyConditionsAreInactive(webVersions: string[]): boolean {
     if (webVersions.length === 0) {
         return false
     }
-    // Unparseable versions count as "old" so we stay conservative and keep the legacy UI visible.
-    const isOld = (v: string): boolean => {
-        try {
-            return compareVersion(v, TRIGGER_GROUPS_MIN_SDK_VERSION) < 0
-        } catch {
-            return true
-        }
-    }
-    return !webVersions.some(isOld)
+    return !webVersions.some(webSdkPredatesTriggerGroups)
+}
+
+/** True when there's web SDK data and at least one version predates trigger-group support. */
+export function hasOutdatedWebSdk(webVersions: string[]): boolean {
+    return webVersions.some(webSdkPredatesTriggerGroups)
 }
 
 function ensureAnchored(url: string): string {
@@ -211,6 +217,11 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
             (s) => [s.augmentedData],
             (augmentedData): boolean =>
                 legacyConditionsAreInactive((augmentedData?.web?.allReleases ?? []).map((r) => r.version)),
+        ],
+        hasOutdatedWebSdk: [
+            (s) => [s.augmentedData],
+            (augmentedData): boolean =>
+                hasOutdatedWebSdk((augmentedData?.web?.allReleases ?? []).map((r) => r.version)),
         ],
         isAddUrlTriggerConfigFormVisible: [
             (s) => [s.editUrlTriggerIndex],
