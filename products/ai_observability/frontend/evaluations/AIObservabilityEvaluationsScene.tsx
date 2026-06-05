@@ -78,6 +78,10 @@ function getActiveTab(
 }
 
 function getProviderKeyIssue(evaluation: EvaluationConfig, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
+    if (evaluation.evaluation_type === 'hog') {
+        return null
+    }
+
     return getUnhealthyProviderKey(providerKeys, evaluation.model_configuration?.provider_key_id)
 }
 

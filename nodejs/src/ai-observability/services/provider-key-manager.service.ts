@@ -36,8 +36,8 @@ export class ProviderKeyManagerService {
         )
     }
 
-    public async getProviderKey(id: ProviderKey['id']): Promise<ProviderKey | null> {
-        return (await this.lazyLoader.get(id)) ?? null
+    public getProviderKey(id: ProviderKey['id']): Promise<ProviderKey | null> {
+        return this.lazyLoader.get(id)
     }
 
     private onProviderKeysReloaded(providerKeyIds: ProviderKey['id'][]): void {
