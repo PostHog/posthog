@@ -158,6 +158,7 @@ class OAuthApplication(AbstractApplication):
     )
     provisioning_issues_personal_api_key: models.BooleanField = models.BooleanField(
         default=False,
+        db_default=False,
         help_text=(
             "Whether provisioning mints a Personal API Key for this app. Off by default; "
             "only grandfathered apps (the legacy Stripe app) still issue one, capped at the app's scopes."
