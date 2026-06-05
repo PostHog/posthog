@@ -600,6 +600,7 @@ class TestSharing(APIBaseTest):
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_get_sharing_succeeds_with_duplicate_active_configs(self, _patched_exporter_task: Mock) -> None:
+        # Share modal loads via GET .../sharing/ (sharingLogic.loadSharingConfiguration)
         dashboard = Dashboard.objects.create(team=self.team, name="duplicate sharing dashboard", created_by=self.user)
         SharingConfiguration.objects.create(
             team=self.team,
@@ -618,6 +619,34 @@ class TestSharing(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count() == 1
+        body = response.json()
+        assert body["enabled"] is True
+        assert body["access_token"] in {"duplicate_token_one", "duplicate_token_two"}
+
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_patch_sharing_succeeds_with_duplicate_active_configs(self, _patched_exporter_task: Mock) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="duplicate patch dashboard", created_by=self.user)
+        SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=False,
+            access_token="duplicate_patch_one",
+        )
+        SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=dashboard,
+            enabled=False,
+            access_token="duplicate_patch_two",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing",
+            {"enabled": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert SharingConfiguration.objects.filter(dashboard=dashboard, expires_at__isnull=True).count() == 1
+        assert response.json()["enabled"] is True
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_refresh_sharing_succeeds_with_duplicate_active_configs(self, _patched_exporter_task: Mock) -> None:
