@@ -32,7 +32,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.revenueAnalytics(),
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS],
+        // Enable the quill charts flag so the stories snapshot the new chart rendering. The
+        // flag-off (legacy LineGraph) path is unchanged from master and already covered there.
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.REVENUE_ANALYTICS_QUILL_CHARTS],
         testOptions: {
             waitForLoadersToDisappear: true,
         },

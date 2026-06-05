@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -20,6 +21,8 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
+        // Render the quill chart path; the legacy LineGraph path is unchanged from master.
+        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS_QUILL_CHARTS],
     },
 }
 export default meta

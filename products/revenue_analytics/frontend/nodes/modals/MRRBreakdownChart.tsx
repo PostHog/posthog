@@ -1,13 +1,17 @@
 import { useValues } from 'kea'
 
 import { getBarColorFromStatus } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
+import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
-import { GraphDataset } from '~/types'
+import { GraphDataset, GraphType } from '~/types'
 
+import { revenueAnalyticsLogic } from '../../revenueAnalyticsLogic'
 import { RevenueAnalyticsChart } from '../RevenueAnalyticsChart'
 import { extractLabelAndDatasets } from '../shared'
 import { mrrBreakdownModalLogic } from './mrrBreakdownModalLogic'
@@ -16,6 +20,8 @@ type RevenueAnalyticsStatus = `revenue-analytics-${keyof RevenueAnalyticsMRRQuer
 
 export function MRRBreakdownChart(): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
+    const { dateFilter } = useValues(revenueAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { data, newDatasets, expansionDatasets, contractionDatasets, churnDatasets } =
         useValues(mrrBreakdownModalLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
@@ -41,24 +47,41 @@ export function MRRBreakdownChart(): JSX.Element {
             }) as GraphDataset
     )
 
+    const trendsFilter = {
+        aggregationAxisFormat: 'numeric' as const,
+        aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
+        aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+    }
+
     return (
         <div className="w-full">
             <InsightsWrapper>
                 <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
-                    <RevenueAnalyticsChart
-                        dataAttr="mrr-breakdown-chart"
-                        datasets={datasetsWithIds}
-                        labels={labels}
-                        kind="bar"
-                        divergingStack
-                        legend={{ show: true, position: 'right' }}
-                        getColor={(dataset) => getBarColorFromStatus(dataset.status as RevenueAnalyticsStatus)}
-                        trendsFilter={{
-                            aggregationAxisFormat: 'numeric',
-                            aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
-                            aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
-                        }}
-                    />
+                    {featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS_QUILL_CHARTS] ? (
+                        <RevenueAnalyticsChart
+                            dataAttr="mrr-breakdown-chart"
+                            datasets={datasetsWithIds}
+                            labels={labels}
+                            kind="bar"
+                            divergingStack
+                            // The modal renders its own descriptive MRRLegend above the chart, so we
+                            // don't show the chart's built-in legend (it would duplicate it).
+                            getColor={(dataset) => getBarColorFromStatus(dataset.status as RevenueAnalyticsStatus)}
+                            trendsFilter={trendsFilter}
+                        />
+                    ) : (
+                        <LineGraph
+                            datasets={datasetsWithIds}
+                            labels={labels}
+                            type={GraphType.Bar}
+                            data-attr="mrr-breakdown-chart"
+                            labelGroupType="none"
+                            isStacked={true}
+                            isInProgress={!dateFilter.dateTo}
+                            legend={{ display: true, position: 'right' }}
+                            trendsFilter={trendsFilter}
+                        />
+                    )}
                 </div>
             </InsightsWrapper>
         </div>
