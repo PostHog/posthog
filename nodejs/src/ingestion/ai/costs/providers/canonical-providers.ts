@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-05 20:33:30 UTC
+// Generated at: 2026-06-05 11:04:37 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -17,6 +17,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
     | 'ambient'
+    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'

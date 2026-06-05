@@ -46,89 +46,22 @@ jobs:
 
     notify-approval-needed:
         name: Notify Slack - Approval Needed
-        needs: [check-changesets, cli-release-preview]
+        needs: check-changesets
         if: needs.check-changesets.outputs.has-changesets == 'true'
-        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5fc4680761e8ac29a61b212756230eba0e276d8c
         with:
-            checkout_repository: false
             slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
             slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
-            tag_pattern: posthog-cli/v*
-            tag_sort: version
         secrets:
             slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
             posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
 
-    cli-release-preview:
-        name: Generate CLI release preview
-        needs: check-changesets
-        if: needs.check-changesets.outputs.has-changesets == 'true'
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        steps:
-            - name: Write CLI diff summary
-              env:
-                  REPOSITORY: ${{ github.repository }}
-              run: |
-                  set -euo pipefail
-
-                  repo_url="https://github.com/$REPOSITORY.git"
-                  base_tag=$(
-                    git ls-remote --tags --refs --sort=-version:refname "$repo_url" 'refs/tags/posthog-cli/v*' |
-                      awk -F 'refs/tags/' 'NR == 1 { print $2 }'
-                  )
-
-                  if [ -z "$base_tag" ]; then
-                    echo "::error::No posthog-cli release tags found"
-                    exit 1
-                  fi
-
-                  mkdir release-preview
-                  cd release-preview
-                  git init -q
-                  git remote add origin "$repo_url"
-
-                  # Fetch the exact tag and branch instead of using actions/checkout,
-                  # which would fetch every branch/tag in this large monorepo.
-                  git fetch --depth=1 --filter=blob:none --no-tags origin \
-                    "refs/tags/$base_tag:refs/tags/$base_tag" \
-                    "refs/heads/master:refs/remotes/origin/master"
-
-                  {
-                    echo "## posthog-cli release preview"
-                    echo
-                    echo "- Base: \`$base_tag\`"
-                    echo "- Head: \`master\`"
-                    echo
-                    echo "### CLI diff"
-                    echo
-                    echo "\`\`\`text"
-                    git diff --shortstat "$base_tag..origin/master" -- cli cli/.sampo
-                    echo "\`\`\`"
-                    echo
-                    echo "<details>"
-                    echo "<summary>Changed CLI files</summary>"
-                    echo
-                    echo "\`\`\`text"
-                    git diff --stat "$base_tag..origin/master" -- cli cli/.sampo
-                    echo "\`\`\`"
-                    echo "</details>"
-                    echo
-                    echo "<details>"
-                    echo "<summary>Pending CLI changesets</summary>"
-                    echo
-                    echo "\`\`\`text"
-                    git diff --name-only "$base_tag..origin/master" -- ':(glob)cli/.sampo/changesets/*.md'
-                    echo "\`\`\`"
-                    echo "</details>"
-                  } >> "$GITHUB_STEP_SUMMARY"
-
     release:
         name: Prepare CLI release
-        needs: [check-changesets, cli-release-preview, notify-approval-needed]
+        needs: [check-changesets, notify-approval-needed]
         runs-on: ubuntu-latest
         timeout-minutes: 30
-        if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
+        if: always() && needs.check-changesets.outputs.has-changesets == 'true'
         environment: Release SDK
         permissions:
             contents: write
@@ -139,7 +72,7 @@ jobs:
         steps:
             - name: Notify Slack - Approved
               if: needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -273,7 +206,7 @@ jobs:
 
             - name: Notify Slack - Failed
               if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -655,7 +588,7 @@ jobs:
         if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
             - name: Notify Slack - Release Published
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}

@@ -702,7 +702,11 @@ const HealthTabLabel = (): JSX.Element => {
     )
 }
 
-const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
+const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
+        return []
+    }
+
     return [
         {
             key: ProductTab.HEALTH,
@@ -838,6 +842,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         interaction: 'function',
         callback: () => setProductTab(ProductTab.HEALTH),
         scope: Scene.WebAnalytics,
+        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
 
     useEffect(() => {
@@ -859,7 +864,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
                 ...liveTab(featureFlags),
                 ...botAnalyticsTab(featureFlags),
-                ...healthTab(),
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
