@@ -163,8 +163,9 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
     let index = 0
 
     const pushText = (text: string): void => {
-        if (text) {
-            nodes.push({ type: 'text', text, marks: marks.length ? [...marks] : undefined })
+        const unescapedText = unescapeMarkdownText(text)
+        if (unescapedText) {
+            nodes.push({ type: 'text', text: unescapedText, marks: marks.length ? [...marks] : undefined })
         }
     }
 
@@ -940,6 +941,10 @@ function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
 
 function escapeMarkdownText(text: string): string {
     return text.replace(/\\/g, '\\\\')
+}
+
+function unescapeMarkdownText(text: string): string {
+    return text.replace(/\\\\/g, '\\')
 }
 
 function escapeMarkdownImageAlt(text: string): string {

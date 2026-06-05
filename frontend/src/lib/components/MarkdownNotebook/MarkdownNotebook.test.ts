@@ -103,6 +103,21 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
     })
 
+    it('preserves literal backslashes when serializing markdown text', () => {
+        const markdown = String.raw`Path C:\\Users\\marius and regex \\d+
+
+- Keep C:\\Temp
+
+| Pattern |
+| --- |
+| \\w+ |`
+
+        const onceSerialized = serializeMarkdownNotebook(parseMarkdownNotebook(markdown))
+
+        expect(onceSerialized).toEqual(markdown)
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(onceSerialized))).toEqual(markdown)
+    })
+
     it('strips unsafe protocols from markdown links', () => {
         const document = parseMarkdownNotebook(
             'Safe [link](https://posthog.com), unsafe [link](javascript:alert), relative [link](/project), and mail [link](mailto:test@example.com).'
@@ -1029,6 +1044,44 @@ Third paragraph`,
         expect(onChange).toHaveBeenLastCalledWith('')
         expect(document.activeElement).toEqual(container.querySelector('[contenteditable="true"]'))
         expect(window.getSelection()?.focusOffset).toEqual(0)
+    })
+
+    it('applies remote markdown updates while showing an AI thinking placeholder', async () => {
+        const onAskAI = jest.fn()
+        const onInteractionStateChange = jest.fn()
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: '',
+                remoteValue: '',
+                onAskAI,
+                onInteractionStateChange,
+            })
+        )
+        const row = container.querySelector('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
+
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        editableTextBlock.textContent = 'Add a summary here'
+        fireEvent.input(editableTextBlock)
+        fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
+
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Thinking ...')
+        expect(onInteractionStateChange).toHaveBeenLastCalledWith(false)
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '',
+                remoteValue: 'AI response',
+                onAskAI,
+                onInteractionStateChange,
+            })
+        )
+
+        await waitFor(() => expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')).toBeNull())
+        expect(container.querySelector('[contenteditable="true"]')?.textContent).toEqual('AI response')
     })
 
     it('moves focus through an AI thinking placeholder and deletes it from keyboard focus', () => {

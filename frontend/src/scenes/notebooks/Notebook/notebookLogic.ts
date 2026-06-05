@@ -1089,24 +1089,6 @@ export const notebookLogic = kea<notebookLogicType>([
             }
         },
 
-        setAutosavePaused: ({ paused }) => {
-            if (
-                paused ||
-                values.isLocalOnly ||
-                values.previewContent ||
-                !values.localContent ||
-                values.notebookLoading ||
-                !values.notebook
-            ) {
-                return
-            }
-
-            actions.saveNotebook({
-                content: values.content,
-                title: values.title,
-            })
-        },
-
         setPreviewContent: async () => {
             values.editor?.setContent(values.content)
         },

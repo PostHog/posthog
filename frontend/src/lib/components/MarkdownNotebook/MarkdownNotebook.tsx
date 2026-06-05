@@ -434,10 +434,14 @@ export function MarkdownNotebook({
         }
 
         pendingRemoteValueRef.current = null
+        if (insertMenu?.mode === 'thinking') {
+            setInsertMenu(null)
+        }
         applyRemoteValue(nextRemoteValue)
-    }, [remoteValue, deferRemoteValue, applyRemoteValue])
+    }, [remoteValue, deferRemoteValue, applyRemoteValue, insertMenu?.mode])
 
-    const isTransientInteractionActive = mode === 'edit' && (!!insertMenu || !!floatingToolbar)
+    const isInsertMenuInteractionActive = !!insertMenu && insertMenu.mode !== 'thinking'
+    const isTransientInteractionActive = mode === 'edit' && (isInsertMenuInteractionActive || !!floatingToolbar)
 
     useEffect(() => {
         onInteractionStateChange?.(isTransientInteractionActive)

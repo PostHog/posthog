@@ -173,6 +173,8 @@ class TestSaveNotebookToDb(BaseTest):
                 ],
             },
         )
+        original_version = notebook.version
+        original_last_modified_at = notebook.last_modified_at
 
         async_to_sync(save_notebook_to_db)(
             team=self.team,
@@ -186,6 +188,9 @@ class TestSaveNotebookToDb(BaseTest):
 
         notebook.refresh_from_db()
         self.assertEqual(notebook.title, "Updated title")
+        self.assertEqual(notebook.text_content, "# Updated\n\nAdd this here.")
+        self.assertEqual(notebook.version, original_version + 1)
+        self.assertGreater(notebook.last_modified_at, original_last_modified_at)
         self.assertEqual(
             notebook.content,
             {

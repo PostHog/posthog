@@ -138,7 +138,7 @@ describe('Notebook history revert flow', () => {
         expect(apiUpdateSpy).not.toHaveBeenCalled()
     })
 
-    it('pauses autosave until notebook interaction resumes', async () => {
+    it('saves through the pending content debounce after autosave resumes', async () => {
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook', cachedNotebook })
         logic.mount()
         logic.actions.loadNotebook()
@@ -146,15 +146,14 @@ describe('Notebook history revert flow', () => {
 
         logic.actions.setAutosavePaused(true)
         logic.actions.setLocalContent(HISTORICAL_DOC)
+        logic.actions.setAutosavePaused(false)
+        expect(apiUpdateSpy).not.toHaveBeenCalled()
+
         await expectLogic(logic)
             .delay(SYNC_DELAY + 100)
             .toFinishAllListeners()
 
-        expect(apiUpdateSpy).not.toHaveBeenCalled()
-
-        logic.actions.setAutosavePaused(false)
-        await expectLogic(logic).toFinishAllListeners()
-
+        expect(apiUpdateSpy).toHaveBeenCalledTimes(1)
         expect(apiUpdateSpy).toHaveBeenCalledWith(
             SHORT_ID,
             expect.objectContaining({ content: HISTORICAL_DOC, version: 1 })

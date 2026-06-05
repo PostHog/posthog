@@ -6,7 +6,7 @@ import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEdito
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
-import { DataVisualizationNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { DataVisualizationNode, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -18,19 +18,31 @@ export const EMBEDDED_SQL_EDITOR_MIN_HEIGHT = 200
 export const getNotebookSqlEditorTabId = (nodeId: string | null | undefined, suffix: string | null = null): string =>
     `notebook-sql-${suffix ? `${suffix}-` : ''}${nodeId ?? 'new'}`
 
+const withNotebookHogQLTags = (query: DataVisualizationNode): DataVisualizationNode => ({
+    ...query,
+    source: {
+        ...query.source,
+        tags: {
+            ...query.source.tags,
+            productKey: query.source.tags?.productKey ?? ProductKey.NOTEBOOKS,
+            scene: query.source.tags?.scene ?? 'Notebook',
+        },
+    },
+})
+
 export const getSqlEditorSourceQuery = (query: QuerySchema): DataVisualizationNode | null => {
     const convertedQuery = convertDataTableNodeToDataVisualizationNode(query)
 
     if (isDataVisualizationNode(convertedQuery) && isHogQLQuery(convertedQuery.source)) {
-        return convertedQuery
+        return withNotebookHogQLTags(convertedQuery)
     }
 
     if (isHogQLQuery(query)) {
-        return {
+        return withNotebookHogQLTags({
             kind: NodeKind.DataVisualizationNode,
             source: query,
             display: ChartDisplayType.ActionsTable,
-        }
+        })
     }
 
     return null
@@ -41,6 +53,10 @@ const buildSourceQuery = (query: string): DataVisualizationNode => ({
     source: {
         kind: NodeKind.HogQLQuery,
         query,
+        tags: {
+            productKey: ProductKey.NOTEBOOKS,
+            scene: 'Notebook',
+        },
     },
     display: ChartDisplayType.ActionsTable,
 })
