@@ -1352,7 +1352,9 @@ def _maybe_create_provisioned_pat(
 
     When enabled (the grandfathered legacy Stripe app), the key is scoped to the
     app's ``scopes`` ceiling rather than ``["*"]`` so a provisioned PAT can never
-    exceed what the issuing app is itself allowed.
+    exceed what the issuing app is itself allowed. A flag-on app with an unseeded
+    ceiling mints nothing: an empty-scope PAT fails every scope check, and widening
+    to a wildcard would bypass the ceiling.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -1363,6 +1365,9 @@ def _maybe_create_provisioned_pat(
     ``None`` (or any falsy value) to label the key with just the team name.
     """
     if not app or not app.provisioning_issues_personal_api_key:
+        return None
+    if not app.scopes:
+        _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
         return None
     try:
         api_key_value = generate_random_token_personal()

@@ -589,6 +589,12 @@ class TestProvisioningResources(ProvisioningTestBase):
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestCreateProvisionedPat(ProvisioningTestBase):
+    def _minting_app(self) -> OAuthApplication:
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["query:read"]
+        app.save(update_fields=["scopes"])
+        return app
+
     @parameterized.expand(
         [
             ("default_when_none", None, "{team_name}"),
@@ -597,8 +603,7 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         ]
     )
     def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
-        api_key = _maybe_create_provisioned_pat(self.user, self.team, app, label_prefix=label_prefix)
+        api_key = _maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), label_prefix=label_prefix)
         assert api_key is not None
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
@@ -607,9 +612,17 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     def test_label_is_truncated_to_40_chars(self):
         self.team.name = "A" * 60
         self.team.save()
-        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
-        _maybe_create_provisioned_pat(self.user, self.team, app, label_prefix="LongPartnerName")
+        _maybe_create_provisioned_pat(self.user, self.team, self._minting_app(), label_prefix="LongPartnerName")
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
         assert len(pat.label) == 40
         assert pat.label.startswith("LongPartnerName - ")
+
+    def test_no_pat_when_ceiling_unseeded(self):
+        # A flag-on app without a scope ceiling must not fall back to ["*"] or
+        # mint an empty-scope key — skip the mint entirely.
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        assert app.scopes == []
+        initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
+        assert _maybe_create_provisioned_pat(self.user, self.team, app) is None
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count
