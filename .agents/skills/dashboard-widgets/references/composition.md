@@ -218,12 +218,12 @@ References: `EditErrorTrackingWidgetModal.tsx`, `EditSessionReplayWidgetModal.ts
 
 **`widgetFilters`** on config (persisted property filter selections). Edit modal = test accounts + limit + sort. Tile bar = date + type pickers + property filters.
 
-| Layer               | Path                                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------------- |
-| Zod                 | `configSchemas.ts`                                                                                  |
-| FE helpers          | `widgetFilters.ts`                                                                                  |
-| BE validate + HogQL | `backend/widgets/widget_filters.py` — product property allowlists (e.g. SR `constants.ts`)          |
-| Tile bar            | `*WidgetTileFilters.tsx`, `WidgetPropertyFiltersSection` (direct `config.widgetFilters` read/write) |
+| Layer               | Path                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------------------------- |
+| Zod                 | `configSchemas.ts`                                                                                      |
+| FE helpers          | `widgetFilters.ts`                                                                                      |
+| BE validate + HogQL | `backend/widgets/widget_filters.py` — generic `validate_widget_filters` + `build_*_from_widget_filters` |
+| Tile bar            | `*WidgetTileFilters.tsx`, `WidgetPropertyFiltersSection` (direct `config.widgetFilters` read/write)     |
 
 `DashboardWidgetItem` mounts registry `TileFilters`; `canEditDashboard` gates edit vs read-only bar (`DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON` in `constants.ts`). Not coupled to the dashboard quick-filter bar.
 

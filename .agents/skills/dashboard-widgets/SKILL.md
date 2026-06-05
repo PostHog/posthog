@@ -21,11 +21,12 @@ Human overview: [`products/dashboards/CONTRIBUTING.md`](../../../products/dashbo
 
 ## 1. Route first
 
-| Request                                                                | Path       | Start here                                                         |
-| ---------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------ |
-| New **`widget_type`** that does not exist                              | **Ship**   | [§2 Ship a new type](#2-ship-a-new-widget_type) — intake mandatory |
-| Change a **shipped** type (config, query, UI, layout, RBAC, deprecate) | **Update** | [§3 Update a shipped type](#3-update-a-shipped-type) — skip intake |
-| Add existing type to a dashboard                                       | —          | MCP only — not this skill                                          |
+| Request                                                                | Path       | Start here                                                                                                                      |
+| ---------------------------------------------------------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| New **`widget_type`** that does not exist                              | **Ship**   | [§2 Ship a new type](#2-ship-a-new-widget_type) — intake mandatory                                                              |
+| Change a **shipped** type (config, query, UI, layout, RBAC, deprecate) | **Update** | [§3 Update a shipped type](#3-update-a-shipped-type) — skip intake                                                              |
+| Add existing type to a dashboard                                       | —          | MCP only — not this skill                                                                                                       |
+| **Chart / trend / graph** for product metrics on a dashboard           | —          | **Insight tile** — [architecture.md § Charts → insight tiles](references/architecture.md#charts--use-insight-tiles-not-widgets) |
 
 Shipped types (code truth): [architecture.md § Shipped types](references/architecture.md#shipped-types-source-of-truth).
 
@@ -35,13 +36,15 @@ Shipped types (code truth): [architecture.md § Shipped types](references/archit
 
 **Mandatory for new types only.** Read [widget-intake.md](references/widget-intake.md) and:
 
-1. Infer from the request ([§2.2 defaults](#22-infer--defaults)).
-2. Ask **one batched follow-up** for gaps — max 6 questions ([question bank](references/widget-intake.md#ask-when-not-stated)).
-3. Post the [spec table](references/widget-intake.md#spec-fields-to-lock); get confirmation before checklist §1.
+1. [Discover product UI in the repo](references/widget-intake.md#discover-product-ui-in-the-repo) — concrete components/scenes before generic tile-body questions.
+2. Infer `groupId` + [implementation template](references/widget-intake.md#infer-implementation-template) from product + catalog — **never** AskQuestion those.
+3. Apply [§2.2 defaults](#22-infer--defaults).
+4. [Resolve ambiguity](references/widget-intake.md#resolve-ambiguity-ask-dont-guess) — one batched follow-up for gaps, max 6 questions ([question bank](references/widget-intake.md#ask-when-not-stated)).
+5. Post the [spec table](references/widget-intake.md#spec-fields-to-lock); get confirmation before checklist §1.
 
 ### 2.2 Infer — defaults
 
-Apply silently; ask only when the request is silent on a [question-bank](references/widget-intake.md) row.
+Apply when confident after discovery; if ambiguous, [ask](references/widget-intake.md#resolve-ambiguity-ask-dont-guess) — do not silently default.
 
 | Derive              | Default                                                                                                                                                                                                                                            |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -55,6 +58,8 @@ Apply silently; ask only when the request is silent on a [question-bank](referen
 | Layout              | Sibling `defaultLayout`; explicit `minH` for dense lists                                                                                                                                                                                           |
 | Setup gating        | Match sibling pattern                                                                                                                                                                                                                              |
 | `sharedPlaceholder` | Platform default                                                                                                                                                                                                                                   |
+| Product UI          | Reuse scene list/card/empty/skeleton components — [composition.md § Product visual parity](references/composition.md#product-visual-parity)                                                                                                        |
+| Chart / graph body  | **Do not ship** — insight tile ([architecture.md § Charts](references/architecture.md#charts--use-insight-tiles-not-widgets))                                                                                                                      |
 
 ### 2.3 Execute
 
@@ -70,7 +75,7 @@ After spec confirmation → [checklist-new-widget-type.md](references/checklist-
 
 **Cannot change in place:** `widget_type` string on existing rows; stored `w`/`h` for tiles already on dashboards when catalog defaults change.
 
-**New visualization kind** = ship a new type ([§2](#2-ship-a-new-widget_type)), not an update.
+**New visualization kind** = ship a new type ([§2](#2-ship-a-new-widget_type)), not an update. **Chart-primary** = insight tile, not a widget ([architecture.md § Charts](references/architecture.md#charts--use-insight-tiles-not-widgets)).
 
 ## 4. Platform invariants
 
@@ -81,6 +86,7 @@ Both paths:
 3. **Per-type code in product paths** — not in platform shells. [architecture.md § Platform files](references/architecture.md#platform-files--do-not-branch-per-type)
 4. **WidgetCard compound pattern** — [composition.md](references/composition.md)
 5. **Config PATCH = JSONField** — typed OpenAPI in `widget_openapi_serializers.py` only.
+6. **No chart-primary widgets** — trends/graphs belong on insight tiles, not new `widget_type`s ([architecture.md § Charts](references/architecture.md#charts--use-insight-tiles-not-widgets)).
 
 New `widget_type` strings need **no migration** — register registries + catalogs only.
 
