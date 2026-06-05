@@ -3,8 +3,6 @@ import { dayjs } from 'lib/dayjs'
 import type { VisionQuotaApi } from '../generated/api.schemas'
 
 export const QUOTA_WARN_THRESHOLD = 0.8
-// Burn-rate samples from the first couple of days swing too widely (a single high day dominates).
-// Three days smooths weekend/weekday cycles enough to commit to a specific cap-reach date.
 export const MIN_DAYS_FOR_PROJECTED_DATE = 3
 
 export type QuotaStatus = 'safe' | 'warning' | 'danger'

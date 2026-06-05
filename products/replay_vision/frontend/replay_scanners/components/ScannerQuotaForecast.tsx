@@ -42,14 +42,10 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
         combinedDailyRate,
     } = projection
 
-    // Without a candidate scanner we have nothing project; keep visuals neutral until the estimate lands.
     const effectiveStatus: QuotaStatus = projected === null ? 'safe' : status
     const styles = STATUS_STYLES[effectiveStatus]
     const percentLabel = hasCap ? Math.round(projectedPeriodEndRatio * 100) : 0
 
-    // Bar segments must agree with the badge: badge reads `projectedPeriodEndRatio` (historical + scanner),
-    // so the additional fill uses combinedDailyRate, not just scannerDailyRate. Otherwise the badge says
-    // 80% while the bar visually fills to 40%.
     const usedPct = hasCap ? Math.min((used / cap) * 100, 100) : 0
     const additionalUsagePct =
         hasCap && projected !== null ? Math.min((combinedDailyRate * daysRemaining * 100) / cap, 100 - usedPct) : 0
