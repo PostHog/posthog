@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { PieChart } from '@posthog/quill-charts'
@@ -7,6 +8,7 @@ import type { PieChartConfig, Series, TooltipContext } from '@posthog/quill-char
 import { buildTheme } from 'lib/charts/utils/theme'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { ChoiceQuestionProcessedResponses, MultipleSurveyQuestion } from '~/types'
 
 interface Props {
@@ -41,7 +43,9 @@ export function SingleChoiceQuestionViz({
     question,
     processedData: { data, totalResponses },
 }: Props): JSX.Element | null {
-    const theme = useMemo(() => buildTheme(), [])
+    const { isDarkModeOn } = useValues(themeLogic)
+    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
+    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const series = useMemo<Series[]>(
         () =>
@@ -77,7 +81,7 @@ export function SingleChoiceQuestionViz({
                 )}
             >
                 {data.map((d: { value: number; label: string }, i: number) => {
-                    const percentage = ((d.value / totalResponses) * 100).toFixed(1)
+                    const percentage = totalResponses > 0 ? ((d.value / totalResponses) * 100).toFixed(1) : '0.0'
 
                     return (
                         <div key={`single-choice-legend-${question.id}-${i}`} className="flex items-center mr-6">

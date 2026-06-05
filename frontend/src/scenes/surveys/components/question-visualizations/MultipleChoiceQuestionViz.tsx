@@ -15,6 +15,7 @@ import { VirtualizedResponseList } from 'scenes/surveys/components/question-visu
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
+import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     ChoiceQuestionResponseData,
     EventPropertyFilter,
@@ -84,7 +85,9 @@ export function MultipleChoiceQuestionViz({
 }: Props): JSX.Element | null {
     const { answerFilters } = useValues(surveyLogic)
     const { setAnswerFilters } = useActions(surveyLogic)
-    const theme = useMemo(() => buildTheme(), [])
+    const { isDarkModeOn } = useValues(themeLogic)
+    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
+    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const { chartData, openEndedResponses } = useMemo((): ProcessedData => {
         const predefinedResponses = responseData.filter((d) => d.isPredefined)
