@@ -6,10 +6,14 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination, create_run
-from posthog.api.test.batch_exports.operations import get_batch_export_backfill_ok
-
 from products.batch_exports.backend.models.batch_export import BatchExportBackfill, BatchExportRun
+from products.batch_exports.backend.tests.api.fixtures import (
+    create_backfill,
+    create_batch_export,
+    create_destination,
+    create_run,
+)
+from products.batch_exports.backend.tests.api.operations import get_batch_export_backfill_ok
 
 pytestmark = [
     pytest.mark.django_db,
@@ -179,8 +183,9 @@ def test_can_get_backfills_for_your_organizations(
 
 
 def test_cannot_get_backfills_for_other_organizations(client: HttpClient, organization, team):
-    from posthog.api.test.batch_exports.fixtures import create_organization
     from posthog.api.test.test_user import create_user
+
+    from products.batch_exports.backend.tests.api.fixtures import create_organization
 
     destination = create_destination()
     batch_export = create_batch_export(team, destination)

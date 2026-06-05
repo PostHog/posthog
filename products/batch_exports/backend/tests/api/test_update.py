@@ -9,21 +9,21 @@ from django.test.client import Client as HttpClient
 from asgiref.sync import async_to_sync
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import (
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
+from products.batch_exports.backend.service import sync_batch_export
+from products.batch_exports.backend.tests.api.conftest import (
     assert_is_daily_schedule,
     assert_is_weekly_schedule,
     describe_schedule,
 )
-from posthog.api.test.batch_exports.operations import (
+from products.batch_exports.backend.tests.api.operations import (
     create_batch_export_ok,
     get_batch_export_ok,
     patch_batch_export,
     put_batch_export,
 )
-from posthog.models.integration import Integration
-
-from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
-from products.batch_exports.backend.service import sync_batch_export
 
 pytestmark = [
     pytest.mark.django_db,

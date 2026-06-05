@@ -4,10 +4,9 @@ import pytest
 
 from django.test.client import Client as HttpClient
 
-from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination
-from posthog.api.test.batch_exports.operations import list_batch_export_backfills_ok
-
 from products.batch_exports.backend.models.batch_export import BatchExportBackfill
+from products.batch_exports.backend.tests.api.fixtures import create_backfill, create_batch_export, create_destination
+from products.batch_exports.backend.tests.api.operations import list_batch_export_backfills_ok
 
 pytestmark = [pytest.mark.django_db]
 
@@ -61,9 +60,10 @@ def test_cannot_list_batch_export_backfills_for_other_organizations(client: Http
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
 
-    from posthog.api.test.batch_exports.fixtures import create_organization
     from posthog.api.test.test_team import create_team
     from posthog.api.test.test_user import create_user
+
+    from products.batch_exports.backend.tests.api.fixtures import create_organization
 
     other_organization = create_organization("Other Test Org")
     other_team = create_team(other_organization)

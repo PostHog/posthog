@@ -7,19 +7,21 @@ from zoneinfo import ZoneInfo
 import pytest
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.management import call_command
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from temporalio.service import RPCError
 
-from posthog.api.test.batch_exports.operations import start_test_worker
 from posthog.management.commands.backfill_batch_export_runs import find_missing_intervals, get_batch_exports
 from posthog.models import Organization, Team
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.test_utils import start_test_worker
 from posthog.temporal.tests.utils.models import create_batch_export
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.batch_exports.backend.tests.temporal.backfills.conftest import wait_for_workflows
 
 
@@ -414,7 +416,12 @@ class TestBackfillCommand:
 
         Uses class scoped fixture to save time (stopping the worker takes a while).
         """
-        with start_test_worker(temporal_client):
+        with start_test_worker(
+            temporal_client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=WORKFLOWS,
+            activities=ACTIVITIES,
+        ):
             yield temporal_client
 
     @pytest.fixture

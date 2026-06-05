@@ -8,15 +8,14 @@ from unittest.mock import patch
 
 from django.test.client import Client as HttpClient
 
-from posthog.api.test.batch_exports.operations import (
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.batch_exports.backend.tests.api.operations import (
     backfill_batch_export_ok,
     cancel_batch_export_backfill_ok,
     create_batch_export_ok,
     get_batch_export_backfill_ok,
     list_batch_export_backfills_ok,
 )
-
-from products.batch_exports.backend.models.batch_export import BatchExportRun
 
 pytestmark = [
     pytest.mark.usefixtures("temporal_worker", "cleanup"),

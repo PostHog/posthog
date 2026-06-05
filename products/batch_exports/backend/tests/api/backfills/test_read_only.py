@@ -6,9 +6,8 @@ from django.test.client import Client as TestClient
 
 from rest_framework import status
 
-from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination
-
 from products.batch_exports.backend.models.batch_export import BatchExportBackfill
+from products.batch_exports.backend.tests.api.fixtures import create_backfill, create_batch_export, create_destination
 
 pytestmark = [pytest.mark.django_db]
 
