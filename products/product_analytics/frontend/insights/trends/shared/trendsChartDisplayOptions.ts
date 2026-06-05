@@ -29,7 +29,6 @@ export interface GoalLineLike {
 // so the transforms stay free of third-party stats deps the MCP bundle doesn't carry.
 export type CiRangesFn = (data: number[], confidence: number) => [number[], number[]]
 
-// Single source of truth for what the trends line chart can display.
 export interface TrendsChartDisplayOptions {
     /** Area fill under each series (web: `display === ActionsAreaGraph`). */
     isArea?: boolean
@@ -42,7 +41,7 @@ export interface TrendsChartDisplayOptions {
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
-    formatter?: YFormatterFields | null
+    yFormatterFields?: YFormatterFields | null
     baseCurrency?: string
     showValuesOnSeries?: boolean
     showCrosshair?: boolean

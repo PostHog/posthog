@@ -89,7 +89,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     const lineDisplayOptions: TrendsChartDisplayOptions = {
         isArea: displayType === 'ActionsAreaGraph',
-        formatter: query?.trendsFilter,
+        yFormatterFields: query?.trendsFilter,
+        yAxisLabel: results.length === 1 && results[0] ? getSeriesLabel(results[0], 0) : undefined,
         showValuesOnSeries: query?.trendsFilter?.showValuesOnSeries,
         showCrosshair: true,
     }

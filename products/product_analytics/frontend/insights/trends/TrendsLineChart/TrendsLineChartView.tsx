@@ -75,7 +75,7 @@ export function TrendsLineChartView<R extends TrendsResultLike, M = unknown>({
         () =>
             buildTrendsLineTimeSeriesConfig<R>({
                 results,
-                trendsFilter: displayOptions.formatter,
+                trendsFilter: displayOptions.yFormatterFields,
                 baseCurrency: displayOptions.baseCurrency,
                 isPercentStackView: !!displayOptions.isPercentStackView,
                 isStickiness,

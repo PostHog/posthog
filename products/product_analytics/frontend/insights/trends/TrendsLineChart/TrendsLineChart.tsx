@@ -97,7 +97,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             allDays: currentPeriodResult?.days ?? [],
             xAxisLabel: trendsFilter?.xAxisLabel,
             yAxisLabel: trendsFilter?.yAxisLabel,
-            formatter: trendsFilter,
+            yFormatterFields: trendsFilter,
             baseCurrency,
             showValuesOnSeries,
             showCrosshair: true,
@@ -232,7 +232,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    const showAnnotations = !inSharedMode
+    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (

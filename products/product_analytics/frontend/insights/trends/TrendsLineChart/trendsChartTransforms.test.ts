@@ -380,6 +380,17 @@ describe('trendsChartTransforms', () => {
             }
         )
 
+        it('passes xAxisTickFormatter through to the x-axis', () => {
+            const tickFormatter = (value: string): string => `tick:${value}`
+            const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts, xAxisTickFormatter: tickFormatter })
+            expect(config.xAxis.tickFormatter).toBe(tickFormatter)
+        })
+
+        it('leaves the x-axis tick formatter unset when xAxisTickFormatter is omitted', () => {
+            const config = buildTrendsLineTimeSeriesConfig({ ...baseOpts })
+            expect(config.xAxis.tickFormatter).toBeUndefined()
+        })
+
         describe('valueLabels', () => {
             it('passes through valueLabels: false unchanged', () => {
                 const config = buildTrendsLineTimeSeriesConfig({
