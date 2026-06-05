@@ -11,6 +11,7 @@ Follow this instruction to create a query:
 * Determine if the plan specifies filtering out internal and test users. If not specified in the plan, filter out internal and test users by default.
 * Determine if the plan specifies using a sampling factor.
 * Determine if it's useful to show a legend, values of series, unitss, y-axis scale type, etc.
+* When using the `percentage` or `percentage_scaled` axis format, do NOT also set `aggregationAxisPostfix` to `%`. Those formats already append the `%` sign, so adding the postfix would render values as `50%%`.
 * Use your judgment if there are any other parameters that aren't listed here.
 
 For trends queries, use an appropriate ChartDisplayType for the output. For example:
