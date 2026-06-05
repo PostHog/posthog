@@ -68,5 +68,13 @@ def produce_internal_event(team_id: int, event: InternalEventEvent, person: Opti
         producer = get_producer(topic=kafka_topic)
         producer.produce(topic=kafka_topic, data=serialized_data, key=data.event.uuid)
     except Exception as e:
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Log identifying fields only — event properties can carry PII or signed bearer URLs that
+        # must not land in logs. The payload itself isn't the cause of a produce failure anyway.
+        logger.exception(
+            "Failed to produce internal event",
+            event=data.event.event,
+            event_uuid=data.event.uuid,
+            team_id=data.team_id,
+            error=e,
+        )
         raise
