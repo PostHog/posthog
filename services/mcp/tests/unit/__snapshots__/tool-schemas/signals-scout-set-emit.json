@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request to flip scout `emit` for one scout or every scout on the project.",
+    "properties": {
+        "emit": {
+            "description": "Target emit posture. True lets the scout(s) write findings to the inbox; False is dry-run — the scout still runs and records findings but emits nothing.",
+            "type": "boolean"
+        },
+        "ensure_source": {
+            "default": true,
+            "description": "When enabling emit, also enable the project's `signals_scout` / `cross_source_issue` SignalSourceConfig — the team-level source gate that emit also requires. Ignored when emit is False.",
+            "type": "boolean"
+        },
+        "skill_name": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "A single `signals-scout-*` skill to target. Omit or pass null to apply to every scout config on the project."
+        }
+    },
+    "required": ["emit"],
+    "type": "object"
+}
