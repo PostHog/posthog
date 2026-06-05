@@ -3,9 +3,15 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { installAgentsMdSnippet } from '@/cli/agents-md'
+import { AGENTS_MD_PROMPT, installAgentsMdSnippet } from '@/cli/agents-md'
 
 describe('CLI AGENTS.md installer', () => {
+    it('loads the canonical PostHog CLI guidance snippet', () => {
+        expect(AGENTS_MD_PROMPT).toContain('required progressive disclosure workflow')
+        expect(AGENTS_MD_PROMPT).toContain('This `info` step is required before every `call`')
+        expect(AGENTS_MD_PROMPT).not.toContain('posthog-cli-api:start')
+    })
+
     it('creates an AGENTS.md file with PostHog CLI guidance', async () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-agents-md-'))
         const target = await installAgentsMdSnippet({ cwd: dir })
