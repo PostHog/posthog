@@ -103,6 +103,7 @@ the row lists both.
 | polar            | HTTP                        | requests                                                        | ✅                          |
 | postgres         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark         | HTTP                        | requests                                                        | ✅                          |
+| productboard     | HTTP                        | requests                                                        | ✅                          |
 | recurly          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge         | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -211,7 +212,6 @@ doesn't conflict with concurrent PRs.
 - paypal
 - pendo
 - plaid
-- productboard
 - quickbooks
 - ringcentral
 - salesloft
