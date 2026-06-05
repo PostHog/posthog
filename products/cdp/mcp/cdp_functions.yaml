@@ -56,6 +56,12 @@ tools:
                      {"type": "header", "text": {"type": "plain_text",
                        "text": "Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'"}},
                      {"type": "section", "text": {"type": "plain_text", "text": "{event.properties.breaches}"}},
+                     # Chart image. The ternary falls back to a valid image so a missing URL never
+                     # makes Slack reject the whole message. Required for the chart to render — the
+                     # backend only generates it when a Slack destination references chart_image_url.
+                     {"type": "image",
+                      "image_url": "{event.properties.chart_image_url ? event.properties.chart_image_url : 'https://posthog.com/brand/posthog-logo.png'}",
+                      "alt_text": "Chart for insight '{event.properties.insight_name}'"},
                      {"type": "context", "elements": [{"type": "mrkdwn",
                        "text": "Project: <{project.url}|{project.name}>"}]},
                      {"type": "divider"},
@@ -73,10 +79,12 @@ tools:
             4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,
                insight_id (short_id), state (always "Firing" — the event is only emitted on a firing transition,
                not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.
-               "Series A is below 1000"), and detector metadata: alert_mode (always present), detector_type and
-               ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is
-               available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do
-               not reference value, threshold_lower, or insight_url — those are not emitted.
+               "Series A is below 1000"), chart_image_url (signed PNG of the insight; only populated for Slack
+               destinations whose blocks reference it, so keep the image block above to receive it), and detector
+               metadata: alert_mode (always present), detector_type and ensemble_operator (null for threshold
+               alerts, set for anomaly detection). Project context is available as {project.url} (already includes
+               /project/<team_id>), {project.id}, {project.name}. Do not reference value, threshold_lower, or
+               insight_url — those are not emitted.
         exclude_params:
             - _create_in_folder
             - batch_export_id

@@ -363,6 +363,9 @@ def generate_alert_chart_image_url(alert: AlertConfiguration) -> str | None:
             created_by=alert.created_by,
             # System-generated: excluded from the per-team user-export quota.
             is_system=True,
+            # Expire with the delivery URL rather than the default 6-month PNG retention — these
+            # are single-use Slack assets and Slack caches the image on first fetch.
+            expires_after=timezone.now() + ALERT_CHART_IMAGE_URL_TTL,
         )
     except Exception as e:
         capture_exception(e, additional_properties={"alert_id": str(alert.id), "feature": "alerts"})

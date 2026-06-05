@@ -1,5 +1,9 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -156,6 +160,8 @@ class TestAlertChartImage(APIBaseTest):
         assert asset.export_format == ExportedAsset.ExportFormat.PNG
         assert asset.is_system is True
         assert asset.team == self.team
+        # Short retention, not the default 6-month PNG TTL.
+        assert asset.expires_after is not None and asset.expires_after < timezone.now() + timedelta(days=30)
         mock_export.assert_called_once()
         assert url is not None and asset.filename in url
 
