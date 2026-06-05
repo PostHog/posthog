@@ -7,10 +7,10 @@ from django.utils import timezone as tz
 import dateutil.parser
 import temporalio.activity
 from asgiref.sync import sync_to_async
-from prometheus_client import Counter
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
@@ -75,12 +75,30 @@ async def _persist_ai_report(delivery_id: uuid.UUID, markdown: str) -> None:
     await _write()
 
 
-# Parallels SUBSCRIPTION_SUMMARY_SKIPPED_OVER_CREDIT_BUDGET in snapshot_activities.py — the AI
-# *summary* path and the AI *subscription* path both skip on the same billing signal.
-SUBSCRIPTION_AI_SKIPPED_OVER_CREDIT_BUDGET = Counter(
-    "posthog_subscription_ai_report_skipped_over_credit_budget_total",
-    "AI subscription delivery skipped because the organization is over its AI credit budget",
-)
+def _capture_ai_credit_event(
+    subscription: Subscription, event: str, properties: dict[str, object] | None = None
+) -> None:
+    try:
+        distinct_id = (
+            subscription.created_by.distinct_id
+            if subscription.created_by and subscription.created_by.distinct_id
+            else f"team_{subscription.team_id}"
+        )
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=distinct_id,
+                event=event,
+                properties={
+                    "subscription_id": subscription.id,
+                    "team_id": subscription.team_id,
+                    "$process_person_profile": False,
+                    **(properties or {}),
+                },
+                groups={"organization": str(subscription.team.organization_id)},
+            )
+    except Exception:
+        LOGGER.warning(f"{event}.capture_failed", subscription_id=subscription.id, exc_info=True)
+
 
 # If the org's AI-credit balance isn't synced yet, reschedule roughly a billing cycle out so a
 # skipped sub still moves forward instead of re-firing every tick.
@@ -90,8 +108,9 @@ _CREDIT_RESET_FALLBACK_DAYS = 31
 def _ai_credit_reset_date(subscription: Subscription) -> datetime:
     usage = subscription.team.organization.usage
     # usage["period"] is [current_period_start, current_period_end] as ISO strings (set in
-    # billing_manager.py); index 1 — the period end — is when AI credits reset.
-    period = usage.get("period") if usage else None
+    # billing_manager.py); index 1 — the period end — is when AI credits reset. isinstance guard:
+    # a non-dict `usage` would raise AttributeError on .get, which the parse except below misses.
+    period = usage.get("period") if isinstance(usage, dict) else None
     if period and len(period) == 2 and period[1]:
         try:
             reset_date = dateutil.parser.isoparse(period[1])
@@ -125,6 +144,9 @@ def _skip_ai_delivery_over_credit_limit_sync(subscription: Subscription) -> date
             # dedups to one notice per credit-reset cycle.
             billing_period_key=reset_date.date().isoformat(),
         )
+    _capture_ai_credit_event(
+        subscription, "ai_subscription_skipped_over_credit_budget", {"resumes_at": reset_date.isoformat()}
+    )
     return reset_date
 
 
@@ -169,8 +191,12 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
             error=str(exc),
             exc_info=True,
         )
+        # Fail-open is invisible to alerting otherwise — the report ships while billing against a
+        # possibly-exhausted balance, the exact failure mode this gate exists to prevent.
+        await sync_to_async(_capture_ai_credit_event, thread_sensitive=False)(
+            subscription, "ai_subscription_credit_check_failed", {"error": str(exc)}
+        )
     if over_credit_budget:
-        SUBSCRIPTION_AI_SKIPPED_OVER_CREDIT_BUDGET.inc()
         reset_date = await database_sync_to_async(_skip_ai_delivery_over_credit_limit_sync, thread_sensitive=False)(
             subscription
         )
