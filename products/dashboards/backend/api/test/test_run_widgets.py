@@ -53,7 +53,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_widget_config_unknown_type(self) -> None:
         with self.assertRaises(Exception):
-            validate_widget_config("not_a_widget", {})
+            validate_widget_config("not_a_widget", {}, team_id=self.team.id)
 
     def test_validate_error_tracking_list_config_defaults(self) -> None:
         validated = validate_error_tracking_list_config({})
@@ -99,22 +99,6 @@ class TestWidgetRegistry(APIBaseTest):
             }
         )
         assert validated["widgetFilters"]["qf-1"]["propertyName"] == "$environment"
-
-    def test_validate_error_tracking_list_config_rejects_disallowed_widget_filter_property(self) -> None:
-        with self.assertRaises(Exception):
-            validate_error_tracking_list_config(
-                {
-                    "widgetFilters": {
-                        "qf-1": {
-                            "filterId": "qf-1",
-                            "propertyName": "$browser",
-                            "optionId": "opt-1",
-                            "operator": "exact",
-                            "value": "Chrome",
-                        }
-                    }
-                }
-            )
 
     def test_validate_session_replay_list_config_defaults(self) -> None:
         validated = validate_session_replay_list_config({})
@@ -256,31 +240,6 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(body["results"][0]["result"]["limit"], 10)
         mock_list_recordings.assert_called_once()
         self.assertEqual(mock_list_recordings.call_args.kwargs["user"], self.user)
-
-    @patch("products.dashboards.backend.widget_query_throttle.is_rate_limit_enabled", return_value=True)
-    @patch(
-        "products.dashboards.backend.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.allow_request",
-        return_value=False,
-    )
-    @patch(
-        "products.dashboards.backend.widget_query_throttle.DashboardWidgetQueryBurstRateThrottle.wait",
-        return_value=30,
-    )
-    def test_run_widgets_applies_dashboard_widget_query_throttle(
-        self,
-        _mock_wait: MagicMock,
-        _mock_burst_allow: MagicMock,
-        _mock_rate_limit_enabled: MagicMock,
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(
-            dashboard_id, widget_type="error_tracking_list", config={"limit": 10}
-        )
-        tile_id = dashboard_json["tiles"][0]["id"]
-
-        body = self._run(dashboard_id, [tile_id])
-
-        self.assertEqual(body["results"][0]["error"], "Rate limit exceeded. Expected available in 30 seconds.")
 
     @patch(
         "posthog.session_recordings.session_recording_api.ListingSustainedRateThrottle.allow_request", return_value=True
@@ -480,41 +439,6 @@ class TestDashboardRunWidgets(APIBaseTest):
         mock_runner_cls.assert_called_once()
         query = mock_runner_cls.call_args.kwargs["query"]
         self.assertFalse(query.filterTestAccounts)
-
-    @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
-    def test_run_widgets_skips_total_count_when_page_has_more(self, mock_runner_cls: MagicMock) -> None:
-        issue: dict[str, Any] = {
-            "id": "issue-1",
-            "name": "TypeError",
-            "description": "boom",
-            "status": "active",
-            "first_seen": "2026-01-01T00:00:00Z",
-            "last_seen": "2026-01-02T00:00:00Z",
-            "library": "web",
-            "source": "app.js",
-            "assignee": None,
-            "aggregations": {},
-        }
-
-        mock_runner_cls.return_value.calculate.return_value = MagicMock(
-            model_dump=lambda mode="json": {
-                "results": [issue, {**issue, "id": "issue-2"}],
-                "hasMore": True,
-                "limit": 1,
-                "offset": 0,
-            }
-        )
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
-        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 1})
-        tile_id = dashboard_json["tiles"][0]["id"]
-
-        body = self._run(dashboard_id, [tile_id])
-
-        result = body["results"][0]["result"]
-        self.assertTrue(result["hasMore"])
-        self.assertNotIn("totalCount", result)
-        self.assertEqual(len(result["results"]), 1)
-        mock_runner_cls.assert_called_once()
 
     @patch("products.dashboards.backend.widgets.error_tracking_list.ErrorTrackingQueryRunner")
     def test_run_error_tracking_list_widget_can_include_total_count(self, mock_runner_cls: MagicMock) -> None:

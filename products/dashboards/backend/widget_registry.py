@@ -67,16 +67,9 @@ def get_widget_registry_entry(widget_type: str) -> WidgetRegistryEntry | None:
     return WIDGET_REGISTRY.get(widget_type)
 
 
-def validate_widget_config(
-    widget_type: str,
-    config: dict[str, Any],
-    *,
-    team_id: int | None = None,
-) -> dict[str, Any]:
+def validate_widget_config(widget_type: str, config: dict[str, Any], *, team_id: int) -> dict[str, Any]:
     entry = get_widget_registry_entry(widget_type)
     if entry is None:
         raise DRFValidationError({"widget_type": f"Unknown widget type: {widget_type}"})
     _ = team_id
-    if widget_type == SESSION_REPLAY_LIST_WIDGET_TYPE:
-        return validate_session_replay_list_config(config)
     return entry["validate_config"](config)

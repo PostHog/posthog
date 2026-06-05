@@ -22,7 +22,7 @@ from products.dashboards.backend.widgets.config import (
 )
 from products.dashboards.backend.widgets.widget_filters import (
     build_property_group_filter_from_widget_filters,
-    validate_error_tracking_widget_filters,
+    validate_widget_filters,
     widget_filters_from_config,
 )
 from products.error_tracking.backend.api.query import is_error_tracking_query_v3_enabled, query_v3_volume_resolution
@@ -71,7 +71,7 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
 
     validated_date_range = validate_widget_list_date_range_if_present(config)
     validated_assignee = _validate_error_tracking_widget_assignee(config)
-    validated_widget_filters = validate_error_tracking_widget_filters(config)
+    validated_widget_filters = validate_widget_filters(config)
 
     validated: dict[str, Any] = {
         "limit": limit,

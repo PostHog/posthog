@@ -1453,7 +1453,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             raise serializers.ValidationError({"widget": "widget_type cannot be changed."})
 
         if "config" in widget_data:
-            widget.config = validate_widget_config(widget.widget_type, widget_data["config"])
+            widget.config = validate_widget_config(widget.widget_type, widget_data["config"], team_id=widget.team_id)
         if "name" in widget_data:
             widget.name = widget_data["name"] or None
         if "description" in widget_data:

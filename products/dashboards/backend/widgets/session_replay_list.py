@@ -24,7 +24,7 @@ from products.dashboards.backend.widgets.config import (
 )
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
-    validate_session_replay_widget_filters,
+    validate_widget_filters,
     widget_filters_from_config,
 )
 
@@ -59,7 +59,7 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
     order_by = validate_widget_list_order_by(config, allowed=SESSION_REPLAY_ORDER_BY, default="start_time")
     order_direction = validate_widget_list_order_direction(config)
     validated_date_range = validate_widget_list_date_range_if_present(config)
-    validated_widget_filters = validate_session_replay_widget_filters(config)
+    validated_widget_filters = validate_widget_filters(config)
 
     return {
         "limit": limit,
