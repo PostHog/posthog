@@ -45,6 +45,11 @@ class HogQLContext:
     values: dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
+    # Strangler-fig gate for the printer rearchitecture (PRINTER_REARCHITECTURE.md §12.8): when True, the logical
+    # lowering pass rewrites JSON-blob `properties.X` reads to dialect-neutral `JSONFieldAccess` nodes so the printer no
+    # longer decides them. Default False keeps behavior byte-identical to master; a user-facing modifier wired to this
+    # flag (for the gated/shadow production rollout) is a follow-up. Off => no behavior change.
+    lower_property_access: bool = False
     # Enable full SELECT queries and subqueries in ClickHouse
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?

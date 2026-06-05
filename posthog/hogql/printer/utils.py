@@ -23,6 +23,7 @@ from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.visitor import clone_expr
@@ -152,6 +153,11 @@ def prepare_ast_for_printing(
     if dialect in ("postgres", "duckdb"):
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+        # Lower JSON-blob property reads to dialect-neutral JSONFieldAccess nodes (strangler gate, off by default).
+        # The warehouse dialects have no materialized columns, so logical lowering is the whole story for them.
+        with context.timings.measure("lower_property_access"):
+            node = lower_property_access(node, context)
 
     if dialect == "clickhouse":
         with context.timings.measure("resolve_property_types"):
