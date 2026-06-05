@@ -15,6 +15,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.conversion_goal_attributed_sql import (
     TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL,
 )
+from posthog.clickhouse.preaggregation.marketing_touchpoints_sql import TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import ConversionGoalProcessor
@@ -33,6 +34,7 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
     def _clean_preaggregation_data(self):
         sync_execute(TRUNCATE_CONVERSION_GOAL_ATTRIBUTED_TABLE_SQL())
+        sync_execute(TRUNCATE_MARKETING_TOUCHPOINTS_TABLE_SQL())
         PreaggregationJob.objects.all().delete()
 
     def _seed_events(self):
