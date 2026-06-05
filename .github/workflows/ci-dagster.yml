@@ -123,6 +123,7 @@ jobs:
                         - 'ee/clickhouse/**'
                         - 'ee/hogai/**'
                         # --- Only the products that DAGs actually import from ---
+                        - 'products/analytics_platform/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
