@@ -341,31 +341,47 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertEqual(redirect_to, "https://example.com/callback?error=access_denied")
 
-    def test_authorize_with_prompt_none_openid_does_not_500(self):
-        # Regression: a missing `validate_silent_login` override on OAuthValidator caused
-        # oauthlib to raise NotImplementedError -> 500 whenever an OIDC client sent
-        # `prompt=none` with the `openid` scope. Any well-formed response (consent page,
-        # spec-compliant error redirect, or successful auth) is acceptable here — the
-        # point is the request must not crash.
+    def test_authorize_with_prompt_none_openid_is_rejected_not_500(self):
+        # PostHog does not support OIDC silent authentication: `prompt=none` is always rejected
+        # with a spec-compliant error, never a token and never a 500. On the GET validate path
+        # oauthlib hasn't attached the user yet, so it rejects at the first gate with
+        # `login_required` (a missing validate_silent_login override used to crash here instead).
         url = f"{self.base_authorization_url}&scope=openid&prompt=none"
 
         response = self.client.get(url)
 
         self.assertLess(response.status_code, 500)
+        self.assertIn("error=login_required", response.headers["Location"])
 
-    def test_validate_silent_login_returns_true_for_authenticated_user(self):
-        # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
-        # requests before validate_silent_login runs, so the validator's False branch can't
-        # be exercised through the HTTP flow — call it directly instead.
-        self.assertTrue(OAuthValidator().validate_silent_login(SimpleNamespace(user=self.user)))
+    # The @login_required decorator on OAuthAuthorizationView intercepts unauthenticated
+    # requests before validate_silent_login runs, so the validator's False branch can't
+    # be exercised through the HTTP flow — call it directly instead.
+    @parameterized.expand(
+        [
+            ("authenticated_user", lambda self: SimpleNamespace(user=self.user), True),
+            ("unauthenticated_user", lambda self: SimpleNamespace(user=SimpleNamespace(is_authenticated=False)), False),
+            ("no_user_attr", lambda self: SimpleNamespace(), False),
+            ("none_user", lambda self: SimpleNamespace(user=None), False),
+        ]
+    )
+    def test_validate_silent_login(self, _name, make_request, expected):
+        self.assertEqual(OAuthValidator().validate_silent_login(make_request(self)), expected)
 
-    def test_validate_silent_login_returns_false_for_unauthenticated_request(self):
-        unauthenticated = SimpleNamespace(user=SimpleNamespace(is_authenticated=False))
-        self.assertFalse(OAuthValidator().validate_silent_login(unauthenticated))
+    def test_validate_silent_authorization_always_false(self):
+        # PostHog never authorizes silently; prompt=none must fall back to interactive consent.
+        self.assertFalse(OAuthValidator().validate_silent_authorization(SimpleNamespace(user=self.user)))
 
-        # request object with no `user` attribute at all
-        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace()))
-        self.assertFalse(OAuthValidator().validate_silent_login(SimpleNamespace(user=None)))
+    def test_authorize_post_allow_with_prompt_none_returns_consent_required(self):
+        # The authorization-completion path (unlike the GET validate path) attaches the
+        # authenticated user, so oauthlib runs validate_silent_authorization here. We reject
+        # silent authorization with a spec-compliant consent_required error rather than a 500.
+        response = self.client.post(
+            "/oauth/authorize/?scope=openid&prompt=none",
+            {**self.base_authorization_post_body, "allow": True},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("error=consent_required", response.json()["redirect_to"])
 
     def test_cannot_get_token_with_invalid_code(self):
         data = {

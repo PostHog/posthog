@@ -4043,7 +4043,10 @@ const api = {
         },
         async update(
             annotationId: RawAnnotationType['id'],
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id' | 'emoji'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
@@ -4057,7 +4060,10 @@ const api = {
                 .get()
         },
         async create(
-            data: Pick<RawAnnotationType, 'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id'>
+            data: Pick<
+                RawAnnotationType,
+                'date_marker' | 'scope' | 'content' | 'dashboard_item' | 'dashboard_id' | 'emoji'
+            >
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotations().create({ data })
         },
@@ -6210,7 +6216,7 @@ const api = {
         },
         async list(
             insightId?: InsightModel['id'],
-            params: { limit?: number; offset?: number } = {}
+            params: { limit?: number; offset?: number; search?: string; created_by?: string } = {}
         ): Promise<CountedPaginatedResponse<AlertType>> {
             const queryParams: Record<string, any> = { ...params }
             if (insightId !== undefined) {

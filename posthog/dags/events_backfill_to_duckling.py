@@ -110,11 +110,13 @@ def iceberg_enabled_for_team(team_id: int) -> bool:
 # A backfill connection may have to wait for duckgres to spin up a fresh worker
 # (a cold worker can require provisioning a new node, which takes minutes), so
 # the handshake budget is generous and `_connect_duckgres` retries with backoff.
-# Must exceed the duckgres control-plane warmAcquireTimeout (5m): on a warm-pool
-# miss the CP now blocks the connect server-side up to ~5m waiting for a colocated
-# worker (which may need a cold node) instead of bouncing us with "no warm worker
-# available". 330s gives margin over the 300s server block + TLS/handshake.
-DUCKGRES_CONNECT_TIMEOUT = 330  # seconds
+# Must exceed the binding duckgres server-side wait, which is the OUTER
+# workerQueueTimeout (5m) — not warmAcquireTimeout (4m). On a warm-pool miss the
+# CP blocks the connect server-side waiting for a colocated worker (which may need
+# a cold node) instead of bouncing us with "no warm worker available"; that whole
+# block is bounded by workerQueueTimeout. 360s gives margin over the 300s server
+# block + TLS/handshake. Ladder: warmAcquire 4m < workerQueueTimeout 5m < 360s.
+DUCKGRES_CONNECT_TIMEOUT = 360  # seconds
 DUCKGRES_STATEMENT_TIMEOUT_MS = 300_000  # 5 minutes
 
 # Worker-profile opt-in. When enabled, a backfill connection asks duckgres for a
@@ -181,15 +183,15 @@ def _get_cluster() -> ClickhouseCluster:
 
 
 @retry(
-    # The duckgres CP now absorbs a warm-pool miss by blocking the connect itself
-    # up to ~5m (DUCKGRES_K8S_WARM_ACQUIRE_TIMEOUT) for a colocated worker — so a
-    # single attempt can run the full connect_timeout (330s). The retry budget here
+    # The duckgres CP absorbs a warm-pool miss by blocking the connect itself for
+    # up to the outer workerQueueTimeout (5m) waiting for a colocated worker — so a
+    # single attempt can run the full connect_timeout (360s). The retry budget here
     # is the BACKSTOP for fast failures (network blip, CP pod rolled mid-handshake,
     # or the CP giving up after its block): the delay cap must exceed one full
-    # attempt so a second one can actually run, hence 700s (~2 attempts) rather
-    # than 300s (which a single 330s attempt would exhaust, making retries a no-op).
+    # attempt so a second one can actually run, hence 780s (~2 attempts) rather
+    # than 360s (which a single 360s attempt would exhaust, making retries a no-op).
     # statement_timeout (set per connection) is separate.
-    stop=stop_after_delay(700) | stop_after_attempt(12),
+    stop=stop_after_delay(780) | stop_after_attempt(12),
     wait=wait_exponential(multiplier=1, min=5, max=60),
     retry=retry_if_exception_type((psycopg.OperationalError, OSError)),
     reraise=True,
