@@ -240,8 +240,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         // before preflight resolves — once loaded we gate on cloud/dev or the key being present.
         isMaxAvailable: [
             (s) => [s.isCloudOrDev, s.preflight],
-            (isCloudOrDev, preflight): boolean =>
-                !preflight || !!isCloudOrDev || !!preflight.anthropic_available,
+            (isCloudOrDev, preflight): boolean => !preflight || !!isCloudOrDev || !!preflight.anthropic_available,
         ],
         dataProcessingApprovalDisabledReason: [
             (s) => [s.currentOrganization],

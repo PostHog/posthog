@@ -1,4 +1,4 @@
-import { IconKey } from '@posthog/icons'
+import { IconLock } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
@@ -17,7 +17,7 @@ export function MaxNotConfigured(): JSX.Element {
             </div>
             <div>
                 <h2 className="text-xl font-bold mb-2 flex items-center justify-center gap-2">
-                    <IconKey />
+                    <IconLock />
                     PostHog AI isn't set up yet
                 </h2>
                 <p className="text-sm text-tertiary text-pretty mb-0">
@@ -29,8 +29,8 @@ export function MaxNotConfigured(): JSX.Element {
                 ANTHROPIC_API_KEY=sk-ant-...
             </CodeSnippet>
             <p className="text-sm text-tertiary text-pretty mb-0">
-                On a hobby deploy, add the key to your <code>.env</code> file and run{' '}
-                <code>./bin/upgrade-hobby</code>, or set it during install.{' '}
+                On a hobby deploy, add the key to your <code>.env</code> file and run <code>./bin/upgrade-hobby</code>,
+                or set it during install.{' '}
                 <Link
                     to="https://posthog.com/docs/self-host/configure/environment-variables?utm_medium=in-product&utm_campaign=max-not-configured"
                     target="_blank"
