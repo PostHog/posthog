@@ -127,6 +127,20 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED
 
+    def test_create_session_analysis_cluster_omitting_enabled_rejected_without_consent(self):
+        # `enabled` is optional and defaults to True at the model level, so omitting it must still
+        # hit the approval gate — not silently save an enabled session-analysis source.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        response = self.client.post(
+            self._url(),
+            data={"source_product": "session_replay", "source_type": "session_analysis_cluster"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "AI data processing" in str(response.json())
+        assert not SignalSourceConfig.objects.filter(team=self.team, source_type="session_analysis_cluster").exists()
+
     def test_create_duplicate_source_type_per_team_rejected(self):
         SignalSourceConfig.objects.create(
             team=self.team,
@@ -165,6 +179,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
             ("valid_recording_filters", {"recording_filters": {"duration_min": 5}}, status.HTTP_201_CREATED),
             ("empty_config", {}, status.HTTP_201_CREATED),
             ("recording_filters_not_dict", {"recording_filters": "bad"}, status.HTTP_400_BAD_REQUEST),
+            ("config_is_string", "not-an-object", status.HTTP_400_BAD_REQUEST),
+            ("config_is_list", [1, 2, 3], status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_create_config_validation(self, _name, config, expected_status):
@@ -304,23 +320,29 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "recording_filters must be a JSON object" in str(response.json())
 
-    def test_update_source_type_is_not_writable(self):
+    @parameterized.expand(
+        [
+            ("source_type", "issue"),
+            ("source_product", "github"),
+        ]
+    )
+    def test_update_identity_field_is_immutable(self, field, new_value):
         config = SignalSourceConfig.objects.create(
             team=self.team,
             source_product="session_replay",
             source_type="session_analysis_cluster",
             created_by=self.user,
         )
+        original = getattr(config, field)
         response = self.client.patch(
             self._url(str(config.id)),
-            data={"source_type": "nonexistent_type"},
+            data={field: new_value},
             format="json",
         )
-        # source_type is not read_only in serializer, so this may succeed
-        # but the value is validated
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert f"{field} cannot be changed after creation" in str(response.json())
         config.refresh_from_db()
-        # Should either be rejected or keep original value
-        assert config.source_type == "session_analysis_cluster" or response.status_code == status.HTTP_400_BAD_REQUEST
+        assert getattr(config, field) == original
 
     def test_delete_other_teams_config_forbidden(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

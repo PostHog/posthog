@@ -108,8 +108,24 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
-        enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
+        # On create `self.instance` is None and `enabled` is optional; fall back to the model
+        # default (True), not False — otherwise omitting `enabled` skips the approval gate below
+        # while the model still saves the row enabled.
+        enabled = attrs.get("enabled", getattr(self.instance, "enabled", True))
         config = attrs.get("config", {})
+        # `source_product` / `source_type` are the row's identity (unique together with team) and are
+        # immutable after creation — repointing an existing row at a different source would leave it
+        # enabled without that source's setup/backfill, which only run on a false→true `enabled` flip.
+        if self.instance is not None:
+            for identity_field in ("source_product", "source_type"):
+                if identity_field in attrs and attrs[identity_field] != getattr(self.instance, identity_field):
+                    raise serializers.ValidationError(
+                        {identity_field: f"{identity_field} cannot be changed after creation."}
+                    )
+        # `config` is a JSONField so the API accepts any JSON value; require an object so the
+        # per-product checks below (and downstream consumers) can rely on a mapping.
+        if "config" in attrs and not isinstance(config, dict):
+            raise serializers.ValidationError({"config": "config must be a JSON object."})
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
