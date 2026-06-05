@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.tasks.alerts.utils import (
+    CHART_IMAGE_URL_PROPERTY,
     INSIGHT_ALERT_FIRING_EVENT,
     alert_has_slack_destination,
     generate_alert_chart_image_url,
@@ -16,6 +17,10 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
 SLACK_FILTERS = {"events": [{"id": INSIGHT_ALERT_FIRING_EVENT, "type": "events"}]}
+# Mirrors the sub-template: blocks that template the chart image URL.
+CHART_INPUTS = {
+    "blocks": {"value": [{"type": "image", "image_url": f"{{event.properties.{CHART_IMAGE_URL_PROPERTY}}}"}]}
+}
 
 
 def _filters_scoped_to_alert(alert_id: str) -> dict:
@@ -45,6 +50,7 @@ class TestAlertChartImage(APIBaseTest):
         template_id: str = "template-slack",
         type: str = HogFunctionType.INTERNAL_DESTINATION,
         filters: dict | None = None,
+        inputs: dict | None = None,
     ) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
@@ -53,6 +59,9 @@ class TestAlertChartImage(APIBaseTest):
             enabled=enabled,
             deleted=deleted,
             filters=SLACK_FILTERS if filters is None else filters,
+            # inputs_schema must declare `blocks` or HogFunction.save() drops it (move_secret_inputs).
+            inputs_schema=[{"key": "blocks", "type": "json"}],
+            inputs=CHART_INPUTS if inputs is None else inputs,
         )
 
     def test_no_destinations_means_no_slack(self) -> None:
@@ -72,6 +81,11 @@ class TestAlertChartImage(APIBaseTest):
             team=self.team, insight=self.insight, name="other", enabled=True, created_by=self.user
         )
         self._create_slack_destination(filters=_filters_scoped_to_alert(str(other_alert.id)))
+        assert alert_has_slack_destination(self.alert) is False
+
+    def test_destination_without_chart_block_ignored(self) -> None:
+        # Pre-existing Slack destination whose stored blocks don't template the chart URL.
+        self._create_slack_destination(inputs={"blocks": {"value": [{"type": "section", "text": "hi"}]}})
         assert alert_has_slack_destination(self.alert) is False
 
     @parameterized.expand(

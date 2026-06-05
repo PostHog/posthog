@@ -1,5 +1,6 @@
+import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from django.utils import timezone
 
@@ -37,6 +38,11 @@ logger = structlog.get_logger(__name__)
 
 # Internal event that alert HogFunction destinations (Slack, webhook, …) subscribe to.
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+# Event property the Slack template reads to render the chart image.
+CHART_IMAGE_URL_PROPERTY = "chart_image_url"
+# Short-lived so the bearer URL carried in the event isn't a long-lived credential. Slack proxies
+# and caches the image on first fetch, so a few days comfortably covers display.
+ALERT_CHART_IMAGE_URL_TTL = timedelta(days=7)
 
 
 @dataclass
@@ -258,7 +264,8 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     logger.info(
         "Triggering internal event for alert destinations/hog functions",
         alert_id=alert.id,
-        properties=properties,
+        # chart_image_url is a signed bearer URL — keep it out of logs.
+        properties={k: v for k, v in properties.items() if k != CHART_IMAGE_URL_PROPERTY},
     )
 
     try:
@@ -310,25 +317,34 @@ def _destination_targets_alert(filters: dict | None, alert_id: str) -> bool:
     )
 
 
-def alert_has_slack_destination(alert: AlertConfiguration) -> bool:
-    """Whether *this* alert has an enabled Slack HogFunction destination that would render the chart.
+def _inputs_reference_chart_image(inputs: dict | None) -> bool:
+    """Whether a destination's stored inputs actually template the chart URL. Destinations created
+    before this feature (or otherwise not displaying the chart) don't, so we skip the render for
+    them rather than producing an asset nothing will show."""
+    return CHART_IMAGE_URL_PROPERTY in json.dumps(inputs or {})
 
-    Gates the (heavy) browser screenshot so we only render a chart image when a Slack destination
-    actually exists to consume it. Matches destinations scoped to this alert via the ``alert_id``
-    property filter (created by the alert UI) as well as team-wide ``$insight_alert_firing`` Slack
-    destinations — but not destinations bound to a *different* alert, which would otherwise cause
-    needless renders. The candidate set per team is small, so the alert_id check runs in Python to
-    sidestep JSONB null semantics for destinations without a ``properties`` filter.
+
+def alert_has_slack_destination(alert: AlertConfiguration) -> bool:
+    """Whether *this* alert has an enabled Slack destination that will actually display the chart.
+
+    Gates the (heavy) browser screenshot so we only render when a Slack destination both targets
+    this alert (or is team-wide) *and* references the chart image in its blocks. This skips
+    destinations bound to a different alert and pre-existing destinations whose stored blocks don't
+    yet template the chart URL. The candidate set per team is small, so these checks run in Python
+    to sidestep JSONB null semantics for destinations without a ``properties`` filter.
     """
-    candidate_filters = HogFunction.objects.filter(
+    candidates = HogFunction.objects.filter(
         team_id=alert.team_id,
         enabled=True,
         deleted=False,
         type=HogFunctionType.INTERNAL_DESTINATION,
         template_id="template-slack",
         filters__events__contains=[{"id": INSIGHT_ALERT_FIRING_EVENT}],
-    ).values_list("filters", flat=True)
-    return any(_destination_targets_alert(filters, str(alert.id)) for filters in candidate_filters)
+    ).values_list("filters", "inputs")
+    return any(
+        _destination_targets_alert(filters, str(alert.id)) and _inputs_reference_chart_image(inputs)
+        for filters, inputs in candidates
+    )
 
 
 def generate_alert_chart_image_url(alert: AlertConfiguration) -> str | None:
@@ -361,7 +377,7 @@ def generate_alert_chart_image_url(alert: AlertConfiguration) -> str | None:
         capture_exception(e, additional_properties={"alert_id": str(alert.id), "feature": "alerts"})
         logger.exception("alerts.chart_image_render_failed", alert_id=str(alert.id), asset_id=asset.id)
 
-    return asset.get_subscription_delivery_content_url()
+    return asset.get_subscription_delivery_content_url(expiry_delta=ALERT_CHART_IMAGE_URL_TTL)
 
 
 def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
@@ -394,11 +410,11 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         message.send()
 
     hog_function_properties: dict = {"breaches": ", ".join(breaches)}
-    # Only render the chart when a Slack destination exists to show it — the screenshot is expensive.
+    # Only render when a Slack destination will actually display the chart — the screenshot is expensive.
     if alert_has_slack_destination(alert):
         chart_image_url = generate_alert_chart_image_url(alert)
         if chart_image_url:
-            hog_function_properties["chart_image_url"] = chart_image_url
+            hog_function_properties[CHART_IMAGE_URL_PROPERTY] = chart_image_url
 
     trigger_alert_hog_functions(alert=alert, properties=hog_function_properties)
 
