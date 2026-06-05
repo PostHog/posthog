@@ -520,3 +520,34 @@ class TestWriteMisalignedDecimalEndToEnd:
         assert set(final.column("amount").to_pylist()) == {5, 7}
         closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
         assert closed.column("valid_to").to_pylist() == [ts2]
+
+
+class TestResetTableDeleteGating:
+    @pytest.mark.parametrize(
+        "delete_s3_data,expect_delete",
+        [(True, True), (False, False)],
+        ids=["delete", "skip"],
+    )
+    @pytest.mark.asyncio
+    async def test_reset_table_only_deletes_s3_when_requested(
+        self, helper: DeltaTableHelper, delete_s3_data: bool, expect_delete: bool
+    ) -> None:
+        helper._is_first_sync = False
+        s3 = AsyncMock()
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=s3)
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://bucket/path")),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper.aget_s3_client",
+                return_value=s3_cm,
+            ) as mock_client,
+        ):
+            await helper.reset_table(delete_s3_data=delete_s3_data)
+
+        assert mock_client.called is expect_delete
+        assert s3._rm.called is expect_delete
+        # always flags a fresh sync so the next write overwrites
+        assert helper._is_first_sync is True
