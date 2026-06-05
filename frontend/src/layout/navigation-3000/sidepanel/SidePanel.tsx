@@ -124,14 +124,20 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
 
-    // If the selected tab is no longer available (e.g. navigating away from a scene
-    // with Settings or Info), fall back to Info or Max instead of closing
+    // If the selected tab is no longer available (e.g. navigating away from a scene with an
+    // Actions/Info panel), fall back to Info when the new scene has it, otherwise close —
+    // restoring the original behavior from #49764. We deliberately don't fall back to
+    // PostHog AI (Max): surfacing the AI panel the user never opened is surprising and
+    // intrusive, especially on smaller screens.
     useEffect(() => {
         if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
-            const fallbackTab = enabledTabs.includes(SidePanelTab.Info) ? SidePanelTab.Info : SidePanelTab.Max
-            openSidePanel(fallbackTab)
+            if (enabledTabs.includes(SidePanelTab.Info)) {
+                openSidePanel(SidePanelTab.Info)
+            } else {
+                closeSidePanel()
+            }
         }
-    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel])
+    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel, closeSidePanel])
 
     const { windowSize } = useWindowSize()
 
