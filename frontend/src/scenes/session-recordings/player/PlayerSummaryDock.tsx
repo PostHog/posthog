@@ -166,7 +166,7 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         type="secondary"
                         icon={<IconMagicWand />}
                         to={urls.moveToPostHogCloud()}
-                        tooltip="AI session summaries are available on PostHog Cloud"
+                        tooltip="AI session summaries are a PostHog Cloud feature (separate from Max, which runs on your own provider key)"
                         data-attr="session-summary-move-to-cloud"
                     >
                         Summarize with PostHog Cloud

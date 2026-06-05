@@ -236,9 +236,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         // On Cloud/dev a provider key is always present. On a self-hosted (hobby) instance Max only
         // works once ANTHROPIC_API_KEY is configured, so we surface a "set the key" state instead.
+        // Treat a not-yet-loaded preflight (null) as available so the empty-state doesn't flash
+        // before preflight resolves — once loaded we gate on cloud/dev or the key being present.
         isMaxAvailable: [
             (s) => [s.isCloudOrDev, s.preflight],
-            (isCloudOrDev, preflight): boolean => !!isCloudOrDev || !!preflight?.anthropic_available,
+            (isCloudOrDev, preflight): boolean =>
+                !preflight || !!isCloudOrDev || !!preflight.anthropic_available,
         ],
         dataProcessingApprovalDisabledReason: [
             (s) => [s.currentOrganization],
