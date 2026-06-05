@@ -66,7 +66,7 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
 
 
 class BasePrinter(Visitor[str]):
-    # NOTE: Call "print_ast()", not this class directly.
+    # NOTE: Call "prepare_and_print_ast()", not this class directly.
     # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
     # Each subclass sets ``DIALECT_NAME`` to identify itself for error messages and
     # resolver wiring; dialect-specific rendering lives in subclass-overridden hooks.
