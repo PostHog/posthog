@@ -819,12 +819,12 @@
                 "summary": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "A one-sentence headline summarising your feedback (e.g. \"query-trends descriptions made it hard to choose between trends and funnels\")."
+                    "description": "A one-sentence headline naming the problem (e.g. \"query-trends descriptions made it hard to choose between trends and funnels\"). Only submit when something went wrong or was missing — never for positive or \"everything worked\" feedback."
                 },
                 "sentiment": {
                     "type": "string",
-                    "enum": ["positive", "negative", "mixed"],
-                    "description": "Your overall impression of the MCP server for this task. Use \"positive\" if it helped you, \"negative\" if it blocked you, \"mixed\" for a bit of both."
+                    "enum": ["negative", "mixed"],
+                    "description": "How much the MCP server got in your way for this task. Use \"negative\" if it blocked you, \"mixed\" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems."
                 },
                 "category": {
                     "type": "string",
@@ -857,7 +857,7 @@
                     "type": "string"
                 },
                 "suggested_improvement": {
-                    "description": "The single most impactful change you would make to the MCP server right now. Be specific (e.g. \"add a `filters` example to query-funnel's description\").",
+                    "description": "The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. \"add a `filters` example to query-funnel's description\"). If you cannot name a specific change, do not submit feedback.",
                     "type": "string"
                 },
                 "user_request": {

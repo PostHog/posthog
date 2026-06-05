@@ -198,6 +198,8 @@ export type ActivityLogLogicProps = {
     scope: ActivityScope | ActivityScope[]
     // if no id is provided, the list is not scoped by id and shows all activity ordered by time
     id?: number | string
+    // page to load on mount (callers that deep-link into a paginated activity feed)
+    startingPage?: number
 }
 
 export const activityLogLogic = kea<activityLogLogicType>([
@@ -220,9 +222,9 @@ export const activityLogLogic = kea<activityLogLogicType>([
             },
         ],
     })),
-    reducers(() => ({
+    reducers(({ props }) => ({
         page: [
-            1,
+            props.startingPage ?? 1,
             {
                 setPage: (_, { page }) => page,
             },
