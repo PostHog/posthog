@@ -8,7 +8,7 @@ use axum::Router;
 use envconfig::Envconfig;
 use futures::future::ready;
 use lifecycle::{ComponentOptions, Manager};
-use metrics_exporter_prometheus::PrometheusBuilder;
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -89,10 +89,34 @@ async fn async_main(config: Config) -> Result<()> {
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
-    // Install Prometheus recorder
+    // Install Prometheus recorder with custom histogram buckets matching the
+    // Node.js ingestion consumer, so existing dashboards and alerts work during switchover.
     let recorder_handle = if config.export_prometheus {
         Some(
             PrometheusBuilder::new()
+                .set_buckets_for_metric(
+                    Matcher::Full("ingestionLagHistogram".into()),
+                    &[
+                        1_000.0, 2_000.0, 5_000.0, 10_000.0, 30_000.0, 60_000.0, 120_000.0,
+                        300_000.0, 600_000.0, 900_000.0,
+                    ],
+                )
+                .expect("ingestionLagHistogram buckets")
+                .set_buckets_for_metric(
+                    Matcher::Full("consumerBatchSize".into()),
+                    &[
+                        0.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1_000.0, 1_500.0, 2_000.0, 3_000.0,
+                    ],
+                )
+                .expect("consumerBatchSize buckets")
+                .set_buckets_for_metric(
+                    Matcher::Full("consumerBatchSizeKb".into()),
+                    &[
+                        0.0, 128.0, 512.0, 1_024.0, 5_120.0, 10_240.0, 20_480.0, 51_200.0,
+                        102_400.0, 204_800.0,
+                    ],
+                )
+                .expect("consumerBatchSizeKb buckets")
                 .install_recorder()
                 .expect("failed to install Prometheus recorder"),
         )

@@ -15,6 +15,44 @@ use crate::dispatcher::Dispatcher;
 use crate::transport::HttpTransport;
 use crate::types::SerializedKafkaMessage;
 
+/// Statistics gathered while collecting a batch, used to emit parity metrics.
+struct BatchStats {
+    /// Max Kafka message timestamp (ms) per (topic, partition) — for `latestOffsetTimestampGauge`.
+    latest_kafka_ts: HashMap<(String, i32), i64>,
+    /// Max ingestion lag (ms) per (topic, partition) — for `ingestionLagGauge`.
+    max_lag_ms: HashMap<(String, i32), i64>,
+    /// Per-message (partition, lag_ms) pairs — for `ingestionLagHistogram`.
+    message_lags_ms: Vec<(i32, i64)>,
+    /// Total byte size of message payloads — for `consumerBatchSizeKb`.
+    total_bytes: usize,
+}
+
+impl BatchStats {
+    fn new() -> Self {
+        Self {
+            latest_kafka_ts: HashMap::new(),
+            max_lag_ms: HashMap::new(),
+            message_lags_ms: Vec::new(),
+            total_bytes: 0,
+        }
+    }
+}
+
+/// Output of `collect_batch`.
+struct CollectedBatch {
+    messages: Vec<SerializedKafkaMessage>,
+    offsets: HashMap<(String, i32), i64>,
+    stats: BatchStats,
+}
+
+/// Options for constructing an [`IngestionConsumer`] from pre-built parts.
+/// Used in integration tests where the Kafka consumer is created externally.
+pub struct IngestionConsumerOptions {
+    pub batch_size: usize,
+    pub batch_timeout: Duration,
+    pub group_id: String,
+}
+
 /// The main consumer loop: reads from Kafka, routes messages by distinct_id
 /// via the health-aware Dispatcher, dispatches sub-batches to workers over
 /// HTTP, and commits offsets only after all workers ACK.
@@ -26,6 +64,7 @@ pub struct IngestionConsumer {
     batch_size: usize,
     batch_timeout: Duration,
     handle: Handle,
+    group_id: String,
 }
 
 impl IngestionConsumer {
@@ -36,8 +75,7 @@ impl IngestionConsumer {
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
         worker_urls: Vec<String>,
-        batch_size: usize,
-        batch_timeout: Duration,
+        options: IngestionConsumerOptions,
         handle: Handle,
     ) -> Self {
         Self {
@@ -45,9 +83,10 @@ impl IngestionConsumer {
             dispatcher,
             transport,
             worker_urls,
-            batch_size,
-            batch_timeout,
+            batch_size: options.batch_size,
+            batch_timeout: options.batch_timeout,
             handle,
+            group_id: options.group_id,
         }
     }
 
@@ -82,6 +121,7 @@ impl IngestionConsumer {
             batch_size: config.consumer_batch_size,
             batch_timeout: Duration::from_millis(config.consumer_batch_timeout_ms),
             handle,
+            group_id: config.ingestion_consumer_group_id.clone(),
         })
     }
 
@@ -134,21 +174,57 @@ impl IngestionConsumer {
     /// Collect a batch, assign it via the Dispatcher, scatter to workers,
     /// gather results, feed passive health signals, and commit offsets.
     async fn process_batch(&self) -> anyhow::Result<usize> {
-        let (messages, offsets) = self.collect_batch().await?;
-        if messages.is_empty() {
+        let collected = self.collect_batch().await?;
+        if collected.messages.is_empty() {
             return Ok(0);
         }
 
-        let batch_size = messages.len();
+        let batch_size = collected.messages.len();
         let batch_id = make_batch_id();
         let start = Instant::now();
 
         counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
         gauge!("ingestion_consumer_batch_size").set(batch_size as f64);
 
+        // Batch size distribution — matches Node.js `consumerBatchSize` histogram.
+        histogram!("consumerBatchSize").record(batch_size as f64);
+        histogram!("consumerBatchSizeKb").record(collected.stats.total_bytes as f64 / 1024.0);
+
+        // Per-partition latest committed timestamp — matches Node.js `latestOffsetTimestampGauge`.
+        for ((topic, partition), ts_ms) in &collected.stats.latest_kafka_ts {
+            gauge!(
+                "latestOffsetTimestampGauge",
+                "topic" => topic.clone(),
+                "partition" => partition.to_string(),
+                "groupId" => self.group_id.clone()
+            )
+            .set(*ts_ms as f64);
+        }
+
+        // Per-partition ingestion lag gauge — matches Node.js `ingestionLagGauge`.
+        for ((topic, partition), max_lag) in &collected.stats.max_lag_ms {
+            gauge!(
+                "ingestionLagGauge",
+                "topic" => topic.clone(),
+                "partition" => partition.to_string(),
+                "groupId" => self.group_id.clone()
+            )
+            .set(*max_lag as f64);
+        }
+
+        // Per-message lag histogram — matches Node.js `ingestionLagHistogram`.
+        for (partition, lag_ms) in &collected.stats.message_lags_ms {
+            histogram!(
+                "ingestionLagHistogram",
+                "groupId" => self.group_id.clone(),
+                "partition" => partition.to_string()
+            )
+            .record(*lag_ms as f64);
+        }
+
         // Health-aware assignment: groups by routing key, honors stickiness,
         // skips unhealthy/dead workers.
-        let sub_batches = self.dispatcher.assign(messages);
+        let sub_batches = self.dispatcher.assign(collected.messages);
 
         if sub_batches.is_empty() {
             counter!("ingestion_consumer_no_healthy_workers_total").increment(1);
@@ -190,7 +266,7 @@ impl IngestionConsumer {
         }
 
         // All workers ACK'd — commit offsets.
-        self.commit_offsets(&offsets)?;
+        self.commit_offsets(&collected.offsets)?;
 
         let elapsed = start.elapsed();
         histogram!("ingestion_consumer_batch_processing_duration_seconds")
@@ -201,12 +277,12 @@ impl IngestionConsumer {
     }
 
     /// Collect messages from Kafka up to batch_size or batch_timeout.
-    async fn collect_batch(
-        &self,
-    ) -> anyhow::Result<(Vec<SerializedKafkaMessage>, HashMap<(String, i32), i64>)> {
+    async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
         let mut messages = Vec::with_capacity(self.batch_size);
         let mut offsets: HashMap<(String, i32), i64> = HashMap::new();
+        let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
+        let batch_start_ms = current_time_ms();
 
         let mut stream = self.consumer.stream();
 
@@ -235,6 +311,20 @@ impl IngestionConsumer {
                         })
                         .or_insert(offset);
 
+                    let kafka_ts = borrowed_message.timestamp().to_millis().unwrap_or(0);
+                    stats
+                        .latest_kafka_ts
+                        .entry((topic.clone(), partition))
+                        .and_modify(|t| {
+                            if kafka_ts > *t {
+                                *t = kafka_ts;
+                            }
+                        })
+                        .or_insert(kafka_ts);
+
+                    let payload_bytes = borrowed_message.payload().map(|v| v.len()).unwrap_or(0);
+                    stats.total_bytes += payload_bytes;
+
                     let mut headers = HashMap::new();
                     if let Some(rdkafka_headers) = borrowed_message.headers() {
                         use rdkafka::message::Headers;
@@ -248,11 +338,25 @@ impl IngestionConsumer {
                         }
                     }
 
+                    if let Some(capture_ms) = headers.get("now").and_then(|v| parse_now_ms(v)) {
+                        let lag_ms = (batch_start_ms - capture_ms).max(0);
+                        stats
+                            .max_lag_ms
+                            .entry((topic.clone(), partition))
+                            .and_modify(|l| {
+                                if lag_ms > *l {
+                                    *l = lag_ms;
+                                }
+                            })
+                            .or_insert(lag_ms);
+                        stats.message_lags_ms.push((partition, lag_ms));
+                    }
+
                     let serialized = SerializedKafkaMessage {
                         topic,
                         partition,
                         offset,
-                        timestamp: borrowed_message.timestamp().to_millis().unwrap_or(0),
+                        timestamp: kafka_ts,
                         key: borrowed_message
                             .key()
                             .and_then(|k| std::str::from_utf8(k).ok())
@@ -276,7 +380,11 @@ impl IngestionConsumer {
             }
         }
 
-        Ok((messages, offsets))
+        Ok(CollectedBatch {
+            messages,
+            offsets,
+            stats,
+        })
     }
 
     /// Commit the max offset for each topic-partition.
@@ -305,4 +413,19 @@ fn make_batch_id() -> String {
         .as_millis();
     let rand: u32 = rand::random();
     format!("{ts:x}-{rand:08x}")
+}
+
+fn current_time_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64
+}
+
+/// Parse an ISO 8601 / RFC 3339 timestamp string into milliseconds since epoch.
+/// Returns `None` if the string is missing or unparseable.
+fn parse_now_ms(value: &str) -> Option<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|dt| dt.timestamp_millis())
 }

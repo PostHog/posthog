@@ -22,7 +22,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use ingestion_consumer::consumer::IngestionConsumer;
+use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::transport::HttpTransport;
 use ingestion_consumer::types::{IngestBatchRequest, IngestBatchResponse};
@@ -256,8 +256,11 @@ impl Harness {
             dispatcher,
             transport,
             worker_urls,
-            50,
-            Duration::from_millis(100),
+            IngestionConsumerOptions {
+                batch_size: 50,
+                batch_timeout: Duration::from_millis(100),
+                group_id: "e2e-test".to_string(),
+            },
             handle,
         );
 
