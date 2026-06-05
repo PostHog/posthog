@@ -46,6 +46,7 @@ the row lists both.
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
+| ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
@@ -175,7 +176,6 @@ doesn't conflict with concurrent PRs.
 - amplitude
 - apple_search_ads
 - appsflyer
-- ashby
 - auth0
 - azure_blob
 - bigcommerce
