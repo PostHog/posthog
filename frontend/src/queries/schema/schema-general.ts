@@ -441,6 +441,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
+    /** Lower JSON-blob property reads to their physical column in an early AST pass instead of in the ClickHouse printer (printer rearchitecture). Set by an org feature flag for gradual rollout; unset keeps the legacy printer path. */
+    propertyLowering?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     useWebAnalyticsPreAggregatedTables?: boolean
     formatCsvAllowDoubleQuotes?: boolean

@@ -108,6 +108,12 @@ def prepare_ast_for_printing(
     settings: HogQLGlobalSettings | None = None,
     resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST | None:
+    # Org feature flag (printer rearchitecture): when `propertyLowering` is enabled for the org, serve the new lowering
+    # path. Unset/False leaves the legacy printer path. The modifier is set in `create_default_modifiers_for_team`; this
+    # is the one place that maps it onto the context gate, so it covers every compile boundary (the executor included).
+    if context.modifiers.propertyLowering:
+        context.lower_property_access = True
+
     if context.database is None:
         with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
             # Passing both `team_id` and `team` because `team` is not always available in the context
