@@ -646,7 +646,8 @@ class PinterestAdsSourceConfig(config.Config):
 
 @config.config
 class PipedriveSourceConfig(config.Config):
-    pass
+    company_domain: str
+    api_token: str
 
 
 @config.config

@@ -92,6 +92,7 @@ the row lists both.
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
+| pipedrive        | HTTP                        | requests                                                        | ✅                          |
 | plain            | HTTP                        | requests                                                        | ✅                          |
 | polar            | HTTP                        | requests                                                        | ✅                          |
 | postgres         | DB protocol                 | psycopg                                                         | ➖                          |
@@ -205,7 +206,6 @@ doesn't conflict with concurrent PRs.
 - pardot
 - paypal
 - pendo
-- pipedrive
 - plaid
 - productboard
 - quickbooks
