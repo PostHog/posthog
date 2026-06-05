@@ -21,7 +21,7 @@ from temporalio.client import (
 )
 from temporalio.service import RPCError
 
-from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.client import async_connect, connect
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -55,6 +55,17 @@ async def _connect_with_keys(settings, secret_key: str, fallback_keys: list[str]
     settings.TEMPORAL_SECRET_KEY = secret_key
     settings.TEMPORAL_FALLBACK_SECRET_KEYS = fallback_keys or []
     return await async_connect()
+
+
+async def _connect_without_encryption(settings) -> Client:
+    return await connect(
+        settings.TEMPORAL_HOST,
+        settings.TEMPORAL_PORT,
+        settings.TEMPORAL_NAMESPACE,
+        settings.TEMPORAL_CLIENT_CERT,
+        settings.TEMPORAL_CLIENT_KEY,
+        settings=None,
+    )
 
 
 async def _create_schedule(
@@ -179,6 +190,33 @@ async def test_rotate_by_id_skips_schedule_already_using_main_key(
     description = await _describe_schedule(new_key_client, schedule_id)
     assert description.schedule.state.note == "existing note"
     assert await _decode_schedule_args(new_key_client, schedule_id) == [{"schedule_id": schedule_id}]
+
+
+async def test_rotate_by_id_skips_schedule_without_encrypted_args(
+    settings, schedule_ids: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    schedule_id = _schedule_id()
+    schedule_ids.append(schedule_id)
+    unencrypted_client = await _connect_without_encryption(settings)
+    await _create_schedule(unencrypted_client, schedule_id, _workflow_name())
+
+    await _connect_with_keys(settings, NEW_TEMPORAL_SECRET_KEY, [OLD_TEMPORAL_SECRET_KEY])
+
+    await _call_command(
+        "--format=csv",
+        "id",
+        schedule_id,
+    )
+
+    captured = capsys.readouterr()
+    assert _csv_output(captured.out) == [
+        ["schedule_id", "status", "details"],
+        [schedule_id, "skipped", "No encryption in use"],
+    ]
+
+    description = await _describe_schedule(unencrypted_client, schedule_id)
+    assert description.schedule.state.note == "existing note"
+    assert await _decode_schedule_args(unencrypted_client, schedule_id) == [{"schedule_id": schedule_id}]
 
 
 async def test_dry_run_does_not_update_schedule(

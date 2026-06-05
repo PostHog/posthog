@@ -250,6 +250,23 @@ Examples:
 
             action = description.schedule.action
             assert isinstance(action, ScheduleActionStartWorkflow)
+
+            is_not_encrypted = any(
+                payload.metadata.get("encoding") != b"binary/encrypted" for payload in list(action.args)
+            )
+            if is_not_encrypted:
+                LOGGER.info(
+                    "Skipping schedule that is NOT encrypted",
+                    schedule_id=schedule_id,
+                    dry_run=dry_run,
+                )
+                skipped_schedule: SkippedSchedule = {
+                    "id": schedule_id,
+                    "reason": "No encryption in use",
+                }
+                skipped.append(skipped_schedule)
+                continue
+
             uses_main_key = await _payloads_use_main_key(list(action.args))
 
             if uses_main_key:
@@ -258,7 +275,7 @@ Examples:
                     schedule_id=schedule_id,
                     dry_run=dry_run,
                 )
-                skipped_schedule: SkippedSchedule = {
+                skipped_schedule = {
                     "id": schedule_id,
                     "reason": "Main encryption key already in use",
                 }
@@ -301,8 +318,6 @@ async def _as_async_iter(
 async def _payloads_use_main_key(payloads) -> bool:
     if not payloads:
         return True
-    if any(payload.metadata.get("encoding") != b"binary/encrypted" for payload in payloads):
-        return False
     main_key_codec = codec.EncryptionCodec(codec._prepare_key(settings.TEMPORAL_SECRET_KEY), [])
     try:
         await main_key_codec.decode(payloads)
