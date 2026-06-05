@@ -15,7 +15,7 @@ See products/dashboards/CONTRIBUTING.md.
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
@@ -49,14 +49,20 @@ class WidgetRegistryEntry(TypedDict):
 # Per-type validate_config / query_fn / access control. Keys must match EXPECTED_WIDGET_TYPES.
 WIDGET_REGISTRY: dict[str, WidgetRegistryEntry] = {
     ERROR_TRACKING_LIST_WIDGET_TYPE: {
-        "validate_config": validate_error_tracking_list_config,
-        "query_fn": run_error_tracking_list_widget,
+        "validate_config": cast(
+            Callable[[dict[str, Any]], dict[str, Any]],
+            validate_error_tracking_list_config,
+        ),
+        "query_fn": cast(Callable[[Team, dict[str, Any]], dict[str, Any]], run_error_tracking_list_widget),
         "required_scopes": ["error_tracking:read"],
         "required_product_access": "error_tracking",
     },
     SESSION_REPLAY_LIST_WIDGET_TYPE: {
-        "validate_config": validate_session_replay_list_config,
-        "query_fn": run_session_replay_list_widget,
+        "validate_config": cast(
+            Callable[[dict[str, Any]], dict[str, Any]],
+            validate_session_replay_list_config,
+        ),
+        "query_fn": cast(Callable[[Team, dict[str, Any]], dict[str, Any]], run_session_replay_list_widget),
         "required_scopes": ["session_recording:read"],
         "required_product_access": "session_recording",
     },

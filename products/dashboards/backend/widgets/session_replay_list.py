@@ -125,7 +125,7 @@ def _count_matching_session_recordings(
 
 def run_session_replay_list_widget(
     team: Team,
-    config: dict[str, Any],
+    config: SessionReplayListWidgetConfigInput,
     user: User | None = None,
     *,
     include_total_count: bool = True,

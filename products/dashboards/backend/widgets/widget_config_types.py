@@ -35,7 +35,7 @@ class WidgetListConfigInputBase(TypedDict, total=False):
     limit: int
     orderBy: str
     orderDirection: str
-    dateRange: WidgetDateRange
+    dateRange: dict[str, object]
     filterTestAccounts: bool
     widgetFilters: dict[str, object]
 
