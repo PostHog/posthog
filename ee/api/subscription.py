@@ -792,24 +792,33 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     ]
     ordering = ["-created_at"]
 
+    # Writing an AI prompt subscription also requires query-read access: it runs LLM-generated
+    # HogQL and delivers the results, so subscription:write alone could exfiltrate analytics. Both
+    # gates below decide this off _write_touches_ai_subscription — tokens via a required scope,
+    # session users (which bypass scopes) via an RBAC check.
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
-        # Reads use the default scope derivation; session auth bypasses API-scope checks entirely.
         if request.method in ("GET", "HEAD", "OPTIONS"):
             return None
-        # Every write needs subscription:write. Writes that create or operate on an AI prompt
-        # subscription (create, update/re-enable, test-delivery) also need query:read: they run
-        # LLM-generated HogQL and deliver the results, so subscription:write alone would let a
-        # scoped key exfiltrate analytics it could not otherwise read.
         scopes = [f"{self.scope_object}:write"]
         if self._write_touches_ai_subscription(request, view):
             scopes.append("query:read")
         return scopes
 
+    def check_permissions(self, request) -> None:
+        super().check_permissions(request)
+        # Session auth bypasses the query:read scope above, so enforce query access here instead.
+        if (
+            request.method not in ("GET", "HEAD", "OPTIONS")
+            and isinstance(request.successful_authenticator, SessionAuthentication)
+            and self._write_touches_ai_subscription(request, self)
+            and not self.user_access_control.check_access_level_for_resource("query", "viewer")
+        ):
+            raise exceptions.PermissionDenied("You need query access to create or deliver AI prompt subscriptions.")
+
     def _write_touches_ai_subscription(self, request, view) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
-        # Mutating or test-delivering an existing subscription — resolve its kind by pk, scoped to
-        # the current team. Keyed on prompt presence (the same signal safely_get_queryset uses).
+        # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
         pk = view.kwargs.get("pk")
         return bool(pk) and (
             Subscription.objects.filter(pk=pk, team_id=self.team_id)
@@ -817,21 +826,6 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
             .exclude(prompt="")
             .exists()
         )
-
-    def check_permissions(self, request) -> None:
-        super().check_permissions(request)
-        # dangerously_get_required_scopes enforces query:read for AI writes, but only for
-        # API-token auth — session-authenticated requests bypass API scopes entirely. Mirror
-        # the requirement here so a session user with subscription write but no query access
-        # can't have an AI subscription run HogQL and deliver analytics on their behalf.
-        if request.method in ("GET", "HEAD", "OPTIONS"):
-            return
-        if not isinstance(request.successful_authenticator, SessionAuthentication):
-            return
-        if self._write_touches_ai_subscription(
-            request, self
-        ) and not self.user_access_control.check_access_level_for_resource("query", "viewer"):
-            raise exceptions.PermissionDenied("You need query access to create or deliver AI prompt subscriptions.")
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         request_params = self.request.GET.dict()
