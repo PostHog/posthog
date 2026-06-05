@@ -996,3 +996,11 @@ environment:
         bin_script: wait-for-postgres-tables
         description: 'Block until the named Postgres tables exist'
         hidden: true
+    dev:sandbox:
+        bin_script: dev-sandbox
+        description: 'Run a command inside the dev filesystem sandbox (internal; used by hogli dev:generate when POSTHOG_DEV_SANDBOX=1)'
+        hidden: true
+    dev:sandbox:selftest:
+        bin_script: dev-sandbox-selftest
+        description: 'Verify the dev sandbox profile: blocks credentials/escapes, allows the toolchain'
+        hidden: true
