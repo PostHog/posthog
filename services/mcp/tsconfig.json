@@ -16,7 +16,6 @@
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
         "noUncheckedIndexedAccess": true,
-        "exactOptionalPropertyTypes": true,
         "skipLibCheck": true,
         "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
         "paths": {

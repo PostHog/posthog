@@ -3,18 +3,15 @@ import type {
     ConfidenceIntervalConfig,
     MovingAverageConfig,
     Series,
+    TimeInterval,
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
 } from '@posthog/quill-charts'
 
-import { ciRanges } from 'lib/statistics'
-
-import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import { ChartDisplayType, type IntervalType } from '~/types'
-
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -30,7 +27,8 @@ export interface TrendsResultLike {
 }
 
 export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
-    display?: ChartDisplayType
+    /** Area fill under each series (web maps `display === ActionsAreaGraph`). */
+    isArea?: boolean
     showMultipleYAxes?: boolean
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
@@ -71,7 +69,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
         color: opts.getColor(r, index),
         yAxisId,
         meta,
-        fill: opts.display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,
+        fill: opts.isArea ? {} : undefined,
         stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
         visibility: excluded ? { excluded: true } : undefined,
     }
@@ -87,6 +85,8 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
 export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
+    // Injected so the transforms stay free of `lib/statistics`. CI is skipped when omitted.
+    ciRanges?: CiRangesFn
     showMovingAverage?: boolean
     movingAverageIntervals?: number
     showTrendLines?: boolean
@@ -111,8 +111,9 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
         return out
     }
 
-    if (opts.showConfidenceIntervals) {
+    if (opts.showConfidenceIntervals && opts.ciRanges) {
         const ci = (opts.confidenceLevel ?? 95) / 100
+        const ciRanges = opts.ciRanges
         out.confidenceIntervals = results.map((r) => {
             const [lower, upper] = ciRanges(r.data, ci)
             return { seriesKey: String(r.id), lower, upper }
@@ -169,22 +170,26 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
 
 export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike> {
     results: readonly R[]
-    trendsFilter?: TrendsFilter | null
-    baseCurrency?: CurrencyCode
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     isPercentStackView: boolean
     isStickiness?: boolean
     yAxisScaleType?: string | null
-    interval?: IntervalType | null
+    interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
-    goalLines?: SchemaGoalLine[] | null
+    // Explicit x-axis tick formatter. When set it wins over the auto date formatter — used by
+    // hosts (e.g. MCP) that have label strings but no interval/timezone for auto formatting.
+    xAxisTickFormatter?: (value: string, index: number) => string | null
+    goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
 
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
+    ciRanges?: CiRangesFn
     showMovingAverage?: boolean
     movingAverageIntervals?: number
     showTrendLines?: boolean
@@ -206,6 +211,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     const derivedConfigs = buildDerivedConfigs(opts.results, {
         showConfidenceIntervals: opts.showConfidenceIntervals,
         confidenceLevel: opts.confidenceLevel,
+        ciRanges: opts.ciRanges,
         showMovingAverage: opts.showMovingAverage,
         movingAverageIntervals: opts.movingAverageIntervals,
         showTrendLines: opts.showTrendLines,
@@ -219,6 +225,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
+            tickFormatter: opts.xAxisTickFormatter,
         },
         yAxis: {
             ...yAxis,
