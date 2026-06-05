@@ -1,5 +1,5 @@
 import time
-import threading
+import asyncio
 
 import pytest
 
@@ -8,7 +8,8 @@ from posthog.temporal.common.test_utils import ThreadedWorker
 
 class _FakeWorker(ThreadedWorker):
     def __init__(self) -> None:
-        self._shutdown_event = threading.Event()
+        # Match the base Worker's asyncio.Event type; only .set()/.is_set() are used (both sync).
+        self._shutdown_event = asyncio.Event()
 
     @property
     def is_running(self) -> bool:
@@ -22,7 +23,8 @@ class _WorkerDiesOnStartup(_FakeWorker):
 
 class _WorkerNeverReady(_FakeWorker):
     def run_using_loop(self, loop) -> None:
-        self._shutdown_event.wait(30)
+        while not self._shutdown_event.is_set():
+            time.sleep(0.05)
 
 
 def test_run_in_thread_surfaces_worker_startup_failure():
