@@ -1,6 +1,6 @@
 import type { GraphDataset } from '~/types'
 
-import { buildRevenueAnalyticsSeries } from './revenueAnalyticsChartTransforms'
+import { buildRevenueAnalyticsSeries, type RevenueAnalyticsChartKind } from './revenueAnalyticsChartTransforms'
 
 const dataset = (overrides: Partial<GraphDataset> = {}): GraphDataset =>
     ({ id: 0, label: 'stripe.saas', data: [1, 2, 3], ...overrides }) as GraphDataset
@@ -37,31 +37,60 @@ describe('buildRevenueAnalyticsSeries', () => {
         expect(series.meta?.order).toBe(5)
     })
 
-    it('adds an area fill only for the area kind', () => {
-        expect(buildRevenueAnalyticsSeries([dataset()], { kind: 'area' })[0].fill).toEqual({})
-        expect(buildRevenueAnalyticsSeries([dataset()], { kind: 'line' })[0].fill).toBeUndefined()
-        expect(buildRevenueAnalyticsSeries([dataset()], { kind: 'bar' })[0].fill).toBeUndefined()
+    it.each<{ kind: RevenueAnalyticsChartKind; expectedFill: Record<string, never> | undefined }>([
+        { kind: 'area', expectedFill: {} },
+        { kind: 'line', expectedFill: undefined },
+        { kind: 'bar', expectedFill: undefined },
+    ])('adds an area fill only for the area kind (kind=$kind)', ({ kind, expectedFill }) => {
+        expect(buildRevenueAnalyticsSeries([dataset()], { kind })[0].fill).toEqual(expectedFill)
     })
 
-    it('dashes the final segment for in-progress line/area charts', () => {
-        expect(
-            buildRevenueAnalyticsSeries([dataset({ data: [1, 2, 3] })], { kind: 'line', isInProgress: true })[0].stroke
-        ).toEqual({
-            partial: { fromIndex: 2 },
-        })
-        expect(buildRevenueAnalyticsSeries([dataset()], { kind: 'area', isInProgress: true })[0].stroke).toEqual({
-            partial: { fromIndex: 2 },
-        })
-    })
-
-    it('does not dash bars, complete charts, or single-point series', () => {
-        expect(buildRevenueAnalyticsSeries([dataset()], { kind: 'bar', isInProgress: true })[0].stroke).toBeUndefined()
-        expect(
-            buildRevenueAnalyticsSeries([dataset()], { kind: 'line', isInProgress: false })[0].stroke
-        ).toBeUndefined()
-        expect(
-            buildRevenueAnalyticsSeries([dataset({ data: [1] })], { kind: 'line', isInProgress: true })[0].stroke
-        ).toBeUndefined()
+    it.each<{
+        name: string
+        kind: RevenueAnalyticsChartKind
+        data: number[]
+        isInProgress: boolean
+        expectedStroke: { partial: { fromIndex: number } } | undefined
+    }>([
+        {
+            name: 'line in-progress dashes the final segment',
+            kind: 'line',
+            data: [1, 2, 3],
+            isInProgress: true,
+            expectedStroke: { partial: { fromIndex: 2 } },
+        },
+        {
+            name: 'area in-progress dashes the final segment',
+            kind: 'area',
+            data: [1, 2, 3],
+            isInProgress: true,
+            expectedStroke: { partial: { fromIndex: 2 } },
+        },
+        {
+            name: 'bars never dash',
+            kind: 'bar',
+            data: [1, 2, 3],
+            isInProgress: true,
+            expectedStroke: undefined,
+        },
+        {
+            name: 'complete (not in-progress) charts do not dash',
+            kind: 'line',
+            data: [1, 2, 3],
+            isInProgress: false,
+            expectedStroke: undefined,
+        },
+        {
+            name: 'single-point series do not dash',
+            kind: 'line',
+            data: [1],
+            isInProgress: true,
+            expectedStroke: undefined,
+        },
+    ])('$name', ({ kind, data, isInProgress, expectedStroke }) => {
+        expect(buildRevenueAnalyticsSeries([dataset({ data })], { kind, isInProgress })[0].stroke).toEqual(
+            expectedStroke
+        )
     })
 
     it('applies the color override when provided and leaves color unset otherwise', () => {
