@@ -5,7 +5,7 @@ from typing import Any, cast
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from posthog.schema import DateRange, ErrorTrackingQuery
+from posthog.schema import DateRange, ErrorTrackingIssueAssignee, ErrorTrackingQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
@@ -20,10 +20,10 @@ from products.dashboards.backend.widgets.config import (
     validate_widget_list_order_by,
     validate_widget_list_order_direction,
 )
+from products.dashboards.backend.widgets.widget_config_types import ErrorTrackingListWidgetConfig
 from products.dashboards.backend.widgets.widget_filters import (
     build_property_group_filter_from_widget_filters,
     validate_widget_filters,
-    widget_filters_from_config,
 )
 from products.error_tracking.backend.api.query import is_error_tracking_query_v3_enabled, query_v3_volume_resolution
 from products.error_tracking.backend.api.query_serializers import ErrorTrackingAssigneeSerializer
@@ -46,7 +46,7 @@ ERROR_TRACKING_WIDGET_STATUS_CHOICES = frozenset(
 )
 
 
-def _validate_error_tracking_widget_assignee(config: dict[str, Any]) -> dict[str, Any] | None:
+def _validate_error_tracking_widget_assignee(config: dict[str, Any]) -> ErrorTrackingIssueAssignee | None:
     if "assignee" not in config:
         return None
     assignee = config["assignee"]
@@ -54,10 +54,10 @@ def _validate_error_tracking_widget_assignee(config: dict[str, Any]) -> dict[str
         return None
     serializer = ErrorTrackingAssigneeSerializer(data=assignee)
     serializer.is_valid(raise_exception=True)
-    return cast(dict[str, Any], serializer.validated_data)
+    return ErrorTrackingIssueAssignee.model_validate(serializer.validated_data)
 
 
-def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any]:
+def validate_error_tracking_list_config(config: dict[str, Any]) -> ErrorTrackingListWidgetConfig:
     if not isinstance(config, dict):
         raise DRFValidationError({"config": "Config must be an object."})
 
@@ -73,7 +73,7 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
     validated_assignee = _validate_error_tracking_widget_assignee(config)
     validated_widget_filters = validate_widget_filters(config)
 
-    validated: dict[str, Any] = {
+    validated: ErrorTrackingListWidgetConfig = {
         "limit": limit,
         "orderBy": order_by,
         "orderDirection": order_direction,
@@ -89,7 +89,7 @@ def validate_error_tracking_list_config(config: dict[str, Any]) -> dict[str, Any
 def _build_error_tracking_list_query(
     *,
     team: Team,
-    config: dict[str, Any],
+    config: ErrorTrackingListWidgetConfig,
     user: User | None,
     limit: int,
     offset: int,
@@ -98,18 +98,16 @@ def _build_error_tracking_list_query(
     date_range_raw = config.get("dateRange")
     use_query_v3 = is_error_tracking_query_v3_enabled(user, team) if user is not None else False
     volume_resolution = ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
-    filter_group = build_property_group_filter_from_widget_filters(
-        cast(dict[str, dict[str, Any]] | None, widget_filters_from_config(config))
-    )
+    filter_group = build_property_group_filter_from_widget_filters(config.get("widgetFilters"))
     return ErrorTrackingQuery(
         kind="ErrorTrackingQuery",
         dateRange=DateRange(**build_date_range(date_range_raw)),
-        status=cast(str, config.get("status", "active")),
-        assignee=cast(Any, config.get("assignee")),
+        status=config["status"],
+        assignee=config.get("assignee"),
         filterGroup=filter_group,
         filterTestAccounts=resolve_filter_test_accounts(config, team),
-        orderBy=cast(str, config.get("orderBy", "occurrences")),
-        orderDirection=cast(str, config.get("orderDirection", "DESC")),
+        orderBy=config["orderBy"],
+        orderDirection=config["orderDirection"],
         limit=limit,
         offset=offset,
         volumeResolution=query_v3_volume_resolution(volume_resolution) if use_query_v3 else volume_resolution,
@@ -128,7 +126,7 @@ def _run_error_tracking_list_query(team: Team, query: ErrorTrackingQuery, user: 
 
 def _count_matching_error_tracking_issues(
     team: Team,
-    config: dict[str, Any],
+    config: ErrorTrackingListWidgetConfig,
     user: User | None,
     *,
     cap: int = MAX_WIDGET_RESULT_LIMIT,
@@ -156,13 +154,14 @@ def run_error_tracking_list_widget(
     *,
     include_total_count: bool = True,
 ) -> dict[str, Any]:
-    limit = cast(int, config["limit"])
+    typed_config = validate_error_tracking_list_config(config)
+    limit = typed_config["limit"]
     offset = 0
     data = _run_error_tracking_list_query(
         team,
         _build_error_tracking_list_query(
             team=team,
-            config=config,
+            config=typed_config,
             user=user,
             limit=limit,
             offset=offset,
@@ -186,7 +185,7 @@ def run_error_tracking_list_widget(
     if has_more:
         if include_total_count:
             try:
-                total_count, total_count_capped = _count_matching_error_tracking_issues(team, config, user)
+                total_count, total_count_capped = _count_matching_error_tracking_issues(team, typed_config, user)
                 payload["totalCount"] = total_count
                 payload["totalCountCapped"] = total_count_capped
             except Exception:

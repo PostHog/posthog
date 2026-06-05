@@ -22,10 +22,10 @@ from products.dashboards.backend.widgets.config import (
     validate_widget_list_order_by,
     validate_widget_list_order_direction,
 )
+from products.dashboards.backend.widgets.widget_config_types import SessionReplayListWidgetConfig
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
     validate_widget_filters,
-    widget_filters_from_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,7 @@ ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
 }
 
 
-def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any]:
+def validate_session_replay_list_config(config: dict[str, Any]) -> SessionReplayListWidgetConfig:
     if not isinstance(config, dict):
         raise DRFValidationError({"config": "Config must be an object."})
 
@@ -61,7 +61,7 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
     validated_date_range = validate_widget_list_date_range_if_present(config)
     validated_widget_filters = validate_widget_filters(config)
 
-    return {
+    validated: SessionReplayListWidgetConfig = {
         "limit": limit,
         "orderBy": order_by,
         "orderDirection": order_direction,
@@ -69,26 +69,26 @@ def validate_session_replay_list_config(config: dict[str, Any]) -> dict[str, Any
         **({"widgetFilters": validated_widget_filters} if validated_widget_filters is not None else {}),
         **merge_base_widget_config_fields(config),
     }
+    return validated
 
 
-def _build_recordings_query(team: Team, config: dict[str, Any]):
-    order_by = cast(str, config.get("orderBy", "start_time"))
+def _build_recordings_query(team: Team, config: SessionReplayListWidgetConfig):
     date_range_raw = config.get("dateRange")
     date_from = "-7d"
-    if isinstance(date_range_raw, dict) and isinstance(date_range_raw.get("date_from"), str):
-        date_from = date_range_raw["date_from"]
+    if date_range_raw is not None:
+        date_from_value = date_range_raw.get("date_from")
+        if isinstance(date_from_value, str):
+            date_from = date_from_value
 
     params: dict[str, Any] = {
         "limit": config["limit"],
         "offset": 0,
         "date_from": date_from,
         "filter_test_accounts": resolve_filter_test_accounts(config, team),
-        "order": ORDER_BY_TO_RECORDING_ORDER[order_by],
-        "order_direction": config.get("orderDirection", "DESC"),
+        "order": ORDER_BY_TO_RECORDING_ORDER[config["orderBy"]],
+        "order_direction": config["orderDirection"],
     }
-    property_filters = build_event_property_filters_from_widget_filters(
-        cast(dict[str, dict[str, Any]] | None, widget_filters_from_config(config))
-    )
+    property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
     if property_filters:
         params["properties"] = property_filters
 
@@ -97,7 +97,7 @@ def _build_recordings_query(team: Team, config: dict[str, Any]):
 
 def _run_session_replay_list_query(
     team: Team,
-    config: dict[str, Any],
+    config: SessionReplayListWidgetConfig,
     user: User | None,
 ) -> dict[str, Any]:
     query = _build_recordings_query(team, config)
@@ -112,13 +112,13 @@ def _run_session_replay_list_query(
 
 def _count_matching_session_recordings(
     team: Team,
-    config: dict[str, Any],
+    config: SessionReplayListWidgetConfig,
     user: User | None,
     *,
     cap: int = MAX_WIDGET_RESULT_LIMIT,
 ) -> tuple[int, bool]:
     """Return how many recordings match the widget filters, and whether the count hit the cap."""
-    count_config = {**config, "limit": cap}
+    count_config = cast(SessionReplayListWidgetConfig, {**config, "limit": cap})
     data = _run_session_replay_list_query(team, count_config, user)
     raw_results_value = data.get("results")
     raw_results = raw_results_value if isinstance(raw_results_value, list) else []
@@ -132,9 +132,9 @@ def run_session_replay_list_widget(
     *,
     include_total_count: bool = True,
 ) -> dict[str, Any]:
-    query_config = dict(config)
-    limit = cast(int, query_config["limit"])
-    data = _run_session_replay_list_query(team, query_config, user)
+    typed_config = validate_session_replay_list_config(config)
+    limit = typed_config["limit"]
+    data = _run_session_replay_list_query(team, typed_config, user)
     raw_results_value = data.get("results")
     raw_results = raw_results_value if isinstance(raw_results_value, list) else []
     results = raw_results[:limit]
@@ -151,7 +151,7 @@ def run_session_replay_list_widget(
     if has_more:
         if include_total_count:
             try:
-                total_count, total_count_capped = _count_matching_session_recordings(team, query_config, user)
+                total_count, total_count_capped = _count_matching_session_recordings(team, typed_config, user)
                 payload["totalCount"] = total_count
                 payload["totalCountCapped"] = total_count_capped
             except Exception:
