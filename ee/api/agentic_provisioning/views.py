@@ -1336,7 +1336,7 @@ def _extract_label_prefix(request: Request) -> str | None:
     return stripped
 
 
-def _create_provisioned_pat(
+def _maybe_create_provisioned_pat(
     user: User, team: Team, app: OAuthApplication | None, label_prefix: str | None = None
 ) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
@@ -1650,7 +1650,7 @@ def provisioning_resources_create(request: Request) -> Response:
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team, access_token.application, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(user, team, access_token.application, label_prefix=label_prefix):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1739,7 +1739,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _create_provisioned_pat(user, team, access_token.application, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(user, team, access_token.application, label_prefix=label_prefix):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(

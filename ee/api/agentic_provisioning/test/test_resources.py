@@ -9,7 +9,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
-from ee.api.agentic_provisioning.views import _create_provisioned_pat
+from ee.api.agentic_provisioning.views import _maybe_create_provisioned_pat
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -198,7 +198,7 @@ class TestProvisioningResources(ProvisioningTestBase):
             scopes=["insight:read"],
             provisioning_issues_personal_api_key=gate_on,
         )
-        result = _create_provisioned_pat(self.user, self.team, app)
+        result = _maybe_create_provisioned_pat(self.user, self.team, app)
         if gate_on:
             assert result is not None
             pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
@@ -598,7 +598,7 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     )
     def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
         app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
-        api_key = _create_provisioned_pat(self.user, self.team, app, label_prefix=label_prefix)
+        api_key = _maybe_create_provisioned_pat(self.user, self.team, app, label_prefix=label_prefix)
         assert api_key is not None
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
@@ -608,7 +608,7 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         self.team.name = "A" * 60
         self.team.save()
         app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
-        _create_provisioned_pat(self.user, self.team, app, label_prefix="LongPartnerName")
+        _maybe_create_provisioned_pat(self.user, self.team, app, label_prefix="LongPartnerName")
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
         assert len(pat.label) == 40
