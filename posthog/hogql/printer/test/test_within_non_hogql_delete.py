@@ -121,11 +121,10 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
             # The compared value is parameterized (not inlined), and resolves to the literal we passed.
             assert params == {"hogql_val_0": "Chrome"}, params
 
-    def test_lowering_gate_on_keeps_within_non_hogql_predicate_unqualified(self) -> None:
-        # The property-lowering gate must NOT touch within_non_hogql_query queries: the lowered physical pass builds
+    def test_within_non_hogql_predicate_stays_unqualified_with_materialized_column(self) -> None:
+        # The lowering pass declines for within_non_hogql_query queries: the lowered physical pass would build
         # table-qualified synthetic fields (`events.mat_$browser`), which the lightweight-delete mutation analyzer
-        # rejects (§8.4). With the gate ON, the predicate must STILL compile to the unqualified printer form — the
-        # lowering pass declines for within_non_hogql_query, so this stays byte-identical to the gate-off path.
+        # rejects (§8.4). So the predicate compiles to the unqualified printer form via the legacy property path.
         self.addCleanup(cleanup_materialized_columns)
         with materialized("events", "$browser", is_nullable=False):
             mat_name = self._materialized_column_name("events", "$browser")
@@ -133,7 +132,6 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
                 team_id=self.team.pk,
                 within_non_hogql_query=True,
                 enable_select_queries=True,
-                lower_property_access=True,
             )
             sql = translate_hogql("properties.$browser = 'Chrome'", context, dialect="clickhouse")
             self._assert_unqualified_and_mutation_safe(sql, mat_name)
