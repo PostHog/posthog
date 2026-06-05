@@ -7,6 +7,7 @@ import { installAgentsMdSnippet } from './agents-md'
 import type { CliConfig } from './config'
 import { resolveCliConfig, requireApiKey } from './config'
 import { buildCliContext } from './context'
+import { EXPERIMENTAL_API_ENV, requireExperimentalApiEnabled } from './experimental'
 import { installSkill, listSkills } from './skills'
 import { getCliTools } from './tools'
 
@@ -28,6 +29,7 @@ function usage(): string {
     return `PostHog agent CLI
 
 Usage:
+  posthog-cli api --experimental <command>
   posthog-cli api tools
   posthog-cli api search <regex>
   posthog-cli api info [--json] <tool>
@@ -37,6 +39,7 @@ Usage:
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
 
+Experimental: set ${EXPERIMENTAL_API_ENV}=1 or pass --experimental to enable this command group.
 Destructive tools require --confirm when executed. Use --dry-run before mutations.`
 }
 
@@ -179,12 +182,15 @@ async function runAgentsMdCommand(args: string[]): Promise<void> {
 
 async function main(): Promise<void> {
     const args = process.argv.slice(2)
+    const experimental = takeFlag(args, '--experimental')
     const command = args.shift()
 
     if (!command || command === 'help' || command === '--help' || command === '-h') {
         process.stdout.write(`${usage()}\n`)
         return
     }
+
+    requireExperimentalApiEnabled({ flagEnabled: experimental })
 
     switch (command) {
         case 'tools':
