@@ -69,6 +69,7 @@ export function MetricsTable({
         updateMetricBreakdown,
         removeMetricBreakdown,
         updateMetricAttribution,
+        updateMetricBreakdownLimit,
         removeMetric,
         removeSharedMetricFromExperiment,
         reorderMetrics,
@@ -289,6 +290,13 @@ export function MetricsTable({
                                                     attributionType,
                                                     attributionValue
                                                 )
+                                            }}
+                                            onBreakdownLimitChange={(breakdownLimit) => {
+                                                if (!metric.uuid) {
+                                                    return
+                                                }
+
+                                                updateMetricBreakdownLimit(metric.uuid, breakdownLimit)
                                             }}
                                             error={error}
                                             isLoading={isLoading}
