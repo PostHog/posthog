@@ -744,7 +744,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if new_result.get("action") is not None and "days" in new_result["action"]:
                 action_days = new_result["action"]["days"]
                 new_result["action"] = {**new_result["action"]}
-                new_result["action"]["days"] = [d for d in action_days if d.weekday() < 5]
+                new_result["action"]["days"] = [d for d in action_days if datetime.strptime(d[:10], "%Y-%m-%d").weekday() < 5]
 
             filtered.append(new_result)
         return filtered

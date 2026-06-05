@@ -1111,6 +1111,44 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results[1]["data"]) == 12
         assert len(response.results[1]["days"]) == 12
 
+
+    def test_hide_weekends_action_days_mid_week_range(self):
+        """
+        Regression test: hideWeekends zeroes out the current in-progress week.
+        action["days"] was filtered using d.weekday() on raw strings instead of
+        parsed datetimes, corrupting results for all days after the last weekend.
+        """
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-13",  # Mon
+            "2020-01-16",  # Thu — ends mid-week, no trailing weekend
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            trends_filters=TrendsFilter(hideWeekends=True),
+        )
+
+        result = response.results[0]
+
+        # All four days are weekdays — none should be filtered
+        assert result["days"] == [
+            "2020-01-13",  # Mon
+            "2020-01-14",  # Tue
+            "2020-01-15",  # Wed
+            "2020-01-16",  # Thu
+        ], f"Expected all weekdays present, got: {result['days']}"
+
+        # Data must not be zeroed out
+        assert any(v > 0 for v in result["data"]), (
+            f"All values zero — mid-week days incorrectly zeroed: {result['data']}"
+        )
+
+        # action["days"] must not be corrupted
+        if result.get("action") is not None and "days" in result["action"]:
+            for day_str in result["action"]["days"]:
+                parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
+                assert parsed.weekday() < 5, f"Weekend day {day_str} found in action['days']"
+
     @parameterized.expand(
         [
             ("2_cohorts_limit_1", 2, 1),
