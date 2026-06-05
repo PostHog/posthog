@@ -5,36 +5,14 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 import structlog
-import temporalio
 
-from products.data_warehouse.backend.data_load.service import sync_external_data_job_workflow
+from products.data_warehouse.backend.data_load.service import bulk_update_external_data_job_schedules
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     sync_frequency_to_sync_frequency_interval,
 )
 
 logger = structlog.get_logger(__name__)
-
-
-def _update_external_data_schema_schedule(external_data_schema: ExternalDataSchema):
-    logger.info("Updating external data schema schedule...", external_data_schema_id=str(external_data_schema.id))
-
-    try:
-        sync_external_data_job_workflow(
-            external_data_schema, create=False, should_sync=external_data_schema.should_sync
-        )
-    except temporalio.service.RPCError as e:
-        if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
-            # if the schema was never activated, then there won't be a schedule
-            pass
-        else:
-            logger.exception(
-                "Error updating external data schema schedule", external_data_schema_id=str(external_data_schema.id)
-            )
-    except Exception:
-        logger.exception(
-            "Error updating external data schema schedule", external_data_schema_id=str(external_data_schema.id)
-        )
 
 
 def _get_external_data_schemas(**options) -> list[ExternalDataSchema]:
@@ -171,8 +149,15 @@ class Command(BaseCommand):
                 logger.info("Aborting")
                 return
 
-        for num, external_data_schema in enumerate(external_data_schemas):
-            _update_external_data_schema_schedule(external_data_schema)
-            logger.info(f"Updated schedule {num + 1} of {len(external_data_schemas)}")
+        # `bulk_update_external_data_job_schedules` re-issues each schedule over a single
+        # shared Temporal connection and runs the updates concurrently — far faster than
+        # reconnecting per schema. It returns skipped (never-activated) schemas and failures
+        # instead of raising, so one bad schema doesn't abort the rest.
+        skipped, failures = bulk_update_external_data_job_schedules(external_data_schemas)
+        for schema_id, exc in failures:
+            logger.exception(
+                "Error updating external data schema schedule", external_data_schema_id=schema_id, exc_info=exc
+            )
 
-        logger.info("Done!")
+        updated = len(external_data_schemas) - len(skipped) - len(failures)
+        logger.info("Done!", updated=updated, skipped=len(skipped), failed=len(failures))
