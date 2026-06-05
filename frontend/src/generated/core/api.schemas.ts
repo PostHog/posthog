@@ -2943,6 +2943,11 @@ export interface OrganizationApi {
     enforce_2fa?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
+    /**
+     * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+     * @nullable
+     */
+    members_can_create_projects?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
     readonly member_count: number
@@ -3657,7 +3662,7 @@ export type PropertyDefinitionsListParams = {
      */
     excluded_properties?: string
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null
@@ -3666,7 +3671,7 @@ export type PropertyDefinitionsListParams = {
      */
     group_type_index?: number
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null

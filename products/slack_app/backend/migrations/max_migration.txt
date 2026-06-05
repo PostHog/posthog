@@ -1,1 +1,1 @@
-0004_slackuserprofilecache_refreshed_at
+0005_slackchannel
