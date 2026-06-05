@@ -18,8 +18,6 @@ To run::
 
 from __future__ import annotations
 
-import pytest
-
 from ee.hogai.eval.sandboxed.base import SandboxedPublicEval
 from ee.hogai.eval.sandboxed.cohorts.scorers import (
     COHORTS_ADD_PERSONS_TOOL,
@@ -30,7 +28,6 @@ from ee.hogai.eval.sandboxed.config import SandboxedEvalCase
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero, NoToolCall
 
 
-@pytest.mark.django_db
 async def eval_cohort_from_query(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases = [
         SandboxedEvalCase(

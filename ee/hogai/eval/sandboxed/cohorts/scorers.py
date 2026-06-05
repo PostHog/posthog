@@ -15,6 +15,7 @@ identically in ``mcp_mode=tools`` (per-tool MCP) and ``mcp_mode=cli`` (single
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from braintrust import Score
@@ -148,7 +149,12 @@ class QueryTargetsActorColumn(Scorer):
             # ActorsQuery / InsightActorsQuery resolve the actor server-side.
             return Score(name=self._name(), score=1.0, metadata={"kind": kind})
         sql = str(last_query.get("query", "")).lower()
-        if any(col in sql for col in ID_COLUMN_NAMES) or "from events" in sql or "from persons" in sql:
+        # Word-boundary match so a column like ``activity_id`` doesn't count as a bare ``id``.
+        if (
+            any(re.search(rf"\b{col}\b", sql) for col in ID_COLUMN_NAMES)
+            or "from events" in sql
+            or "from persons" in sql
+        ):
             return Score(name=self._name(), score=1.0, metadata={"kind": kind})
         return Score(
             name=self._name(),
