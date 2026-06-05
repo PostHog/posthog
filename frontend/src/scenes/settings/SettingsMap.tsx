@@ -50,6 +50,7 @@ import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorT
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
+import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -1227,6 +1228,38 @@ export const SETTINGS_MAP: SettingSection[] = [
                 platformSupport: FEATURE_SUPPORT.webVitals,
                 component: <WebVitalsAutocaptureSettings />,
                 keywords: ['lcp', 'cls', 'fcp', 'inp', 'performance', 'core web vitals'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-workflows',
+        title: 'Workflows',
+        group: 'Products',
+        flag: 'WORKFLOWS_ENGAGEMENT_EVENTS',
+        settings: [
+            {
+                id: 'workflows-engagement-events',
+                title: 'Engagement events',
+                description:
+                    'When enabled, email engagement activity (sent, delivered, opened, link clicked, bounced, blocked, failed) is captured as standard PostHog events alongside the existing workflow metrics. This lets you build insights, funnels, and dashboards from workflows data. These events count toward your event usage and are billed like any other event.',
+                docsUrl: 'https://posthog.com/docs/workflows/engagement-events',
+                component: <WorkflowsEngagementEventsSettings />,
+                keywords: [
+                    'workflows',
+                    'email',
+                    'engagement',
+                    'events',
+                    'capture',
+                    'tracking',
+                    'sent',
+                    'delivered',
+                    'opened',
+                    'clicked',
+                    'bounced',
+                    'blocked',
+                    'failed',
+                ],
             },
         ],
     },
