@@ -2,100 +2,59 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonLabel, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { EndpointVersionType } from '~/types'
+import { EndpointRunRequest } from '~/queries/schema/schema-general'
+import { EndpointType } from '~/types'
 
 import { CodeExampleTab, endpointLogic } from '../endpointLogic'
-import { endpointSceneLogic, generateEndpointPayload } from '../endpointSceneLogic'
-
-function formatPayloadForCodeExample(payload: Record<string, any>): string {
-    const entries = Object.entries(payload)
-    if (entries.length === 0) {
-        return ''
-    }
-
-    return entries
-        .map(([key, value], index) => {
-            const isLast = index === entries.length - 1
-            const comma = isLast ? '' : ','
-
-            // Format nested objects
-            if (typeof value === 'object' && value !== null && Object.keys(value).length === 0) {
-                return `    "${key}": {}${comma}  // Add ${key} here`
-            }
-
-            // Format variables specially
-            if (key === 'variables' && typeof value === 'object') {
-                const varEntries = Object.entries(value)
-                if (varEntries.length === 0) {
-                    return `    "${key}": {\n      // No variables defined\n    }${comma}`
-                }
-                const formattedVars = varEntries
-                    .map(([varKey, varValue], varIndex) => {
-                        const isLastVar = varIndex === varEntries.length - 1
-                        const varComma = isLastVar ? '' : ','
-                        return `      "${varKey}": ${JSON.stringify(varValue)}${varComma}`
-                    })
-                    .join('\n')
-                return `    "${key}": {\n${formattedVars}\n    }${comma}`
-            }
-
-            return `    "${key}": ${JSON.stringify(value, null, 2).replace(/\n/g, '\n    ')}${comma}`
-        })
-        .join('\n')
-}
+import { endpointSceneLogic } from '../endpointSceneLogic'
+import { EndpointPlaygroundForm } from './EndpointPlaygroundForm'
+import { EndpointPlaygroundJSONPreview } from './EndpointPlaygroundJSONPreview'
 
 function getEndpointUrl(endpointPath: string): string {
     return `${window.location.origin}${endpointPath}`
 }
 
-function generateTerminalExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
-    const payload = generateEndpointPayload(endpoint)
-    const hasPayload = Object.keys(payload).length > 0
-    const versionParam =
-        selectedVersion !== null && selectedVersion !== endpoint.current_version
-            ? `    "version": ${selectedVersion}`
-            : ''
-
-    // If no payload and no version, omit the -d flag entirely
-    if (!hasPayload && !versionParam) {
-        return `curl -X POST ${getEndpointUrl(endpoint.endpoint_path)} \\
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"`
+/**
+ * Code example formatting. These render the *live* playground payload — so the snippet a
+ * user copies always matches what the form would POST. No silent reseeding from defaults.
+ */
+function formatBodyJson(payload: EndpointRunRequest, indent: number): string {
+    if (Object.keys(payload).length === 0) {
+        return ''
     }
-
-    const payloadBody = formatPayloadForCodeExample(payload)
-    const dataContent = [payloadBody, versionParam].filter(Boolean).join(',\n')
-
-    return `curl -X POST ${getEndpointUrl(endpoint.endpoint_path)} \\
-  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-${dataContent}
-  }'`
+    return JSON.stringify(payload, null, 2)
+        .split('\n')
+        .map((line, i) => (i === 0 ? line : ' '.repeat(indent) + line))
+        .join('\n')
 }
 
-function generatePythonExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
-    const payload = generateEndpointPayload(endpoint)
-    const hasPayload = Object.keys(payload).length > 0
-    const versionParam =
-        selectedVersion !== null && selectedVersion !== endpoint.current_version
-            ? `    "version": ${selectedVersion}`
-            : ''
+function generateTerminalExample(endpoint: EndpointType, payload: EndpointRunRequest): string {
+    const url = getEndpointUrl(endpoint.endpoint_path)
+    if (Object.keys(payload).length === 0) {
+        return `curl -X POST ${url} \\
+  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY"`
+    }
+    return `curl -X POST ${url} \\
+  -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '${formatBodyJson(payload, 2)}'`
+}
 
-    // If no payload and no version, omit payload variable entirely
-    if (!hasPayload && !versionParam) {
+function generatePythonExample(endpoint: EndpointType, payload: EndpointRunRequest): string {
+    const url = getEndpointUrl(endpoint.endpoint_path)
+    if (Object.keys(payload).length === 0) {
         return `import requests
 
-url = "${getEndpointUrl(endpoint.endpoint_path)}"
+url = "${url}"
 
 headers = {
     'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
@@ -104,111 +63,69 @@ headers = {
 response = requests.post(url, headers=headers)
 print(response.json())`
     }
-
-    const payloadBody = formatPayloadForCodeExample(payload)
-    const dataContent = [payloadBody, versionParam].filter(Boolean).join(',\n')
-
     return `import requests
-import json
 
-url = "${getEndpointUrl(endpoint.endpoint_path)}"
+url = "${url}"
 
 headers = {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
 }
 
-payload = {
-${dataContent}
-}
+payload = ${formatBodyJson(payload, 0)}
 
-response = requests.post(url, headers=headers, data=json.dumps(payload))
+response = requests.post(url, headers=headers, json=payload)
 print(response.json())`
 }
 
-function generateNodeExample(endpoint: EndpointVersionType, selectedVersion: number | null): string {
-    const payload = generateEndpointPayload(endpoint)
-    const hasPayload = Object.keys(payload).length > 0
-    const versionParam =
-        selectedVersion !== null && selectedVersion !== endpoint.current_version
-            ? `    "version": ${selectedVersion}`
-            : ''
-
-    // If no payload and no version, omit payload variable and body entirely
-    if (!hasPayload && !versionParam) {
+function generateNodeExample(endpoint: EndpointType, payload: EndpointRunRequest): string {
+    const url = getEndpointUrl(endpoint.endpoint_path)
+    if (Object.keys(payload).length === 0) {
         return `const fetch = require('node-fetch');
 
-const url = '${getEndpointUrl(endpoint.endpoint_path)}';
+const url = '${url}';
 
 const headers = {
     'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
 };
 
-fetch(url, {
-    method: 'POST',
-    headers: headers
-})
-.then(response => response.json())
-.then(data => console.log(data))
-.catch(error => console.error('Error:', error));`
+fetch(url, { method: 'POST', headers })
+    .then((response) => response.json())
+    .then((data) => console.log(data))
+    .catch((error) => console.error('Error:', error));`
     }
-
-    const payloadBody = formatPayloadForCodeExample(payload)
-    const dataContent = [payloadBody, versionParam].filter(Boolean).join(',\n')
-
     return `const fetch = require('node-fetch');
 
-const url = '${getEndpointUrl(endpoint.endpoint_path)}';
+const url = '${url}';
 
 const headers = {
     'Content-Type': 'application/json',
     'Authorization': 'Bearer {POSTHOG_PERSONAL_API_KEY}'
 };
 
-const payload = {
-${dataContent}
-};
+const payload = ${formatBodyJson(payload, 0)};
 
-fetch(url, {
-    method: 'POST',
-    headers: headers,
-    body: JSON.stringify(payload)
-})
-.then(response => response.json())
-.then(data => console.log(data))
-.catch(error => console.error('Error:', error));`
+fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) })
+    .then((response) => response.json())
+    .then((data) => console.log(data))
+    .catch((error) => console.error('Error:', error));`
 }
 
 export function EndpointPlayground(): JSX.Element {
     const { endpoint } = useValues(endpointLogic)
-    const { payloadJson, payloadJsonError, endpointResult, endpointResultLoading, viewingVersion, debugMode } =
-        useValues(endpointSceneLogic)
-    const { setPayloadJson, setPayloadJsonError, loadEndpointResult, setDebugMode } = useActions(endpointSceneLogic)
-    const { setActiveCodeExampleTab, setSelectedCodeExampleVersion } = useActions(endpointLogic)
-    const { activeCodeExampleTab, selectedCodeExampleVersion } = useValues(endpointLogic)
-    const { superpowersEnabled } = useValues(superpowersLogic)
-
-    // When viewing a specific version, use that version for code examples
-    const effectiveVersion = viewingVersion?.version ?? selectedCodeExampleVersion
+    const { endpointResult, endpointResultLoading, playgroundPayload } = useValues(endpointSceneLogic)
+    const { loadEndpointResult, setPlaygroundExecutionError } = useActions(endpointSceneLogic)
+    const { setActiveCodeExampleTab } = useActions(endpointLogic)
+    const { activeCodeExampleTab } = useValues(endpointLogic)
 
     const handleExecute = (): void => {
         if (!endpoint?.name) {
             return
         }
-
-        let data: any = {}
-        try {
-            data = payloadJson && payloadJson.trim() !== '' ? JSON.parse(payloadJson) : {}
-        } catch {
-            setPayloadJsonError('Invalid JSON in request payload')
-            return
-        }
-
-        if (debugMode) {
-            data = { ...data, debug: true }
-        }
-
-        loadEndpointResult({ name: endpoint.name, data })
+        // playgroundPayload already incorporates debug via the selector; no need to re-merge.
+        // Clear any prior per-variable error so a successful execution wipes the red border.
+        setPlaygroundExecutionError(null)
+        loadEndpointResult({ name: endpoint.name, data: playgroundPayload })
     }
 
     useEffect(() => {
@@ -222,7 +139,26 @@ export function EndpointPlayground(): JSX.Element {
 
         window.addEventListener('keydown', handleKeyDown, true)
         return () => window.removeEventListener('keydown', handleKeyDown, true)
-    }, [endpoint?.name, payloadJson, handleExecute])
+    }, [endpoint?.name, playgroundPayload, handleExecute])
+
+    // Detect Required-variable failures coming back from the server and route them to the
+    // matching variable input — the user gets a red border on the input that actually needs
+    // a value instead of a generic page-level banner.
+    useEffect(() => {
+        if (!endpointResult || endpointResultLoading) {
+            return
+        }
+        try {
+            const parsed = JSON.parse(endpointResult)
+            if (parsed?.error && typeof parsed.detail === 'string') {
+                if (parsed.detail.includes('Required variable')) {
+                    setPlaygroundExecutionError(parsed.detail)
+                }
+            }
+        } catch {
+            // Not JSON or no error — nothing to surface.
+        }
+    }, [endpointResult, endpointResultLoading, setPlaygroundExecutionError])
 
     if (!endpoint) {
         return <></>
@@ -231,13 +167,13 @@ export function EndpointPlayground(): JSX.Element {
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(endpoint, effectiveVersion)
+                return generateTerminalExample(endpoint, playgroundPayload)
             case 'python':
-                return generatePythonExample(endpoint, effectiveVersion)
+                return generatePythonExample(endpoint, playgroundPayload)
             case 'nodejs':
-                return generateNodeExample(endpoint, effectiveVersion)
+                return generateNodeExample(endpoint, playgroundPayload)
             default:
-                return generateTerminalExample(endpoint, effectiveVersion)
+                return generateTerminalExample(endpoint, playgroundPayload)
         }
     }
 
@@ -254,47 +190,20 @@ export function EndpointPlayground(): JSX.Element {
         }
     }
 
-    // Generate version options
-    const versionOptions = Array.from({ length: endpoint.current_version }, (_, i) => {
-        const version = i + 1
-        return {
-            value: version,
-            label: version === endpoint.current_version ? `v${version} (Current)` : `v${version}`,
-        }
-    })
-
     return (
         <SceneSection
             title="Playground"
             description={
                 <>
-                    Send API requests to your endpoints, play with setting different parameters in the request body and
-                    see what the resulting JSON response would look like. <br />
-                    Once you're done experimenting, find the code snippet for your use case below.
+                    Pick variable values and request options below, then execute against this endpoint to see what /run
+                    returns. The code snippet below mirrors the request the form would send.
                 </>
             }
         >
             <div className="flex gap-4" data-attr="endpoint-playground">
-                <div className="flex-1 flex flex-col gap-2">
-                    <LemonField.Pure
-                        label="Request payload"
-                        info={
-                            <>
-                                JSON payload sent with the request. Use <code className="text-xs">"variables"</code> to
-                                pass query parameters.
-                            </>
-                        }
-                    />
-
-                    <CodeEditorInline
-                        embedded
-                        language="json"
-                        value={payloadJson}
-                        onChange={(value) => setPayloadJson(value ?? '')}
-                        maxHeight={400}
-                    />
-                    {payloadJsonError && <LemonField.Pure error={payloadJsonError} />}
-
+                <div className="flex-1 flex flex-col gap-3 min-w-0">
+                    <EndpointPlaygroundForm />
+                    <EndpointPlaygroundJSONPreview />
                     <div className="flex items-center gap-2">
                         <LemonButton
                             type="primary"
@@ -311,9 +220,6 @@ export function EndpointPlayground(): JSX.Element {
                         >
                             Execute endpoint
                         </LemonButton>
-                        {superpowersEnabled && (
-                            <LemonSwitch checked={debugMode} onChange={setDebugMode} label="Debug" bordered />
-                        )}
                     </div>
                     {endpointResult &&
                         !endpointResultLoading &&
@@ -365,12 +271,6 @@ export function EndpointPlayground(): JSX.Element {
                     Example usage
                 </LemonLabel>
                 <div className="flex gap-2">
-                    <LemonSelect
-                        options={versionOptions}
-                        onChange={setSelectedCodeExampleVersion}
-                        value={effectiveVersion || endpoint.current_version}
-                        placeholder="Select version"
-                    />
                     <LemonSelect
                         options={[
                             { value: 'terminal', label: 'Terminal' },

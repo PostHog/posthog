@@ -9,7 +9,14 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    EndpointRefreshMode,
+    EndpointRunRequest,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
@@ -46,61 +53,125 @@ export function extractBreakdownPropertyNames(query: unknown): string[] {
         .filter((p): p is string => !!p)
 }
 
-export function generateEndpointPayload(endpoint: EndpointVersionType | null): Record<string, any> {
+/**
+ * Playground variable contract — drives the typed form, the Send checkbox state, and the
+ * code-example snippets. Stays in lockstep with the runtime contract enforced by
+ * `_get_required_variables` / `_get_allowed_variables` on the backend.
+ */
+export type PlaygroundVariableKind = 'hogql' | 'breakdown' | 'date'
+export type PlaygroundVariableInputType = 'text' | 'number' | 'boolean' | 'date' | 'list'
+
+export interface PlaygroundVariableSpec {
+    /** code_name (HogQL) or property name (insight breakdown / date_from / date_to). */
+    name: string
+    kind: PlaygroundVariableKind
+    inputType: PlaygroundVariableInputType
+    /** Server will 400 if this variable is omitted at /run time. */
+    required: boolean
+    /** Seed value for the input. */
+    defaultValue: unknown
+    /** Initial state of the Send checkbox. */
+    defaultSent: boolean
+    /** When true, the Send checkbox is disabled — used for required vars that can't be sensibly unsent. */
+    sendLocked: boolean
+}
+
+/**
+ * Derive the playground form's per-variable contract from an endpoint version. The form
+ * uses this to render the right widget per variable and to set Send-checkbox state /
+ * lock state in a way that matches what the server will accept at /run time.
+ */
+export function derivePlaygroundVariableSpecs(
+    endpoint: EndpointVersionType | null,
+    viewingVersion: EndpointVersionType | null
+): PlaygroundVariableSpec[] {
     if (!endpoint) {
-        return {}
+        return []
     }
 
-    const query = endpoint.query
-    const isMaterialized = endpoint.is_materialized
-    const queryKind = query?.kind
+    const effective = viewingVersion ?? endpoint
+    const query = effective.query
+    const isMaterialized = effective.is_materialized
+    const optionalBreakdowns = new Set(effective.optional_breakdown_properties ?? [])
+    const specs: PlaygroundVariableSpec[] = []
 
-    if (queryKind === NodeKind.HogQLQuery) {
-        // HogQL: include variables with default values
-        const variables = query.variables || {}
-        const entries = Object.entries(variables)
-
-        if (entries.length === 0) {
-            return {}
-        }
-
-        const variablesValues: Record<string, any> = {}
-        entries.forEach(([_, value]: [string, any]) => {
-            variablesValues[value.code_name] = value.value
+    if (query?.kind === NodeKind.HogQLQuery) {
+        const variables = (query as any).variables ?? {}
+        Object.values(variables).forEach((value: any) => {
+            const codeName = value?.code_name
+            if (!codeName) {
+                return
+            }
+            const defaultValue = value?.value ?? ''
+            const hasDefault = defaultValue !== '' && defaultValue !== null && defaultValue !== undefined
+            specs.push({
+                name: codeName,
+                kind: 'hogql',
+                inputType: 'text',
+                // Materialized HogQL endpoints require every materialized variable; inline HogQL
+                // substitutes the default or NULL, so it's effectively optional.
+                required: isMaterialized,
+                defaultValue,
+                defaultSent: isMaterialized || !hasDefault,
+                sendLocked: isMaterialized,
+            })
         })
-
-        return { variables: variablesValues }
+        return specs
     }
 
     if (isInsightQueryNode(query)) {
-        // Insight query - build variables based on what's available
-        const variablesValues: Record<string, any> = {}
-
-        // Only include breakdown for query types that support it
-        if (queryKind && BREAKDOWN_SUPPORTED_QUERY_TYPES.has(queryKind as NodeKind)) {
-            const breakdownNames = extractBreakdownPropertyNames(query)
-            // The legacy playground payload only supports a single breakdown variable.
-            if (breakdownNames.length === 1) {
-                variablesValues[breakdownNames[0]] = ''
-            }
+        if (query?.kind && BREAKDOWN_SUPPORTED_QUERY_TYPES.has(query.kind as NodeKind)) {
+            extractBreakdownPropertyNames(query).forEach((name) => {
+                const isOptional = optionalBreakdowns.has(name)
+                specs.push({
+                    name,
+                    kind: 'breakdown',
+                    inputType: 'text',
+                    required: !isOptional,
+                    defaultValue: '',
+                    defaultSent: !isOptional,
+                    sendLocked: !isOptional,
+                })
+            })
         }
-
-        // Non-materialized also supports date filtering
         if (!isMaterialized) {
-            variablesValues['date_from'] = '-7d'
-            variablesValues['date_to'] = ''
-        }
-
-        if (Object.keys(variablesValues).length > 0) {
-            return { variables: variablesValues }
+            specs.push(
+                {
+                    name: 'date_from',
+                    kind: 'date',
+                    inputType: 'text',
+                    required: false,
+                    defaultValue: '-7d',
+                    defaultSent: false,
+                    sendLocked: false,
+                },
+                {
+                    name: 'date_to',
+                    kind: 'date',
+                    inputType: 'text',
+                    required: false,
+                    defaultValue: '',
+                    defaultSent: false,
+                    sendLocked: false,
+                }
+            )
         }
     }
 
-    return {}
+    return specs
 }
 
-function generateInitialPayloadJson(endpoint: EndpointVersionType | null): string {
-    return JSON.stringify(generateEndpointPayload(endpoint), null, 2)
+function seedPlaygroundFormFromSpecs(specs: PlaygroundVariableSpec[]): {
+    values: Record<string, unknown>
+    sent: Record<string, boolean>
+} {
+    const values: Record<string, unknown> = {}
+    const sent: Record<string, boolean> = {}
+    specs.forEach((spec) => {
+        values[spec.name] = spec.defaultValue
+        sent[spec.name] = spec.defaultSent
+    })
+    return { values, sent }
 }
 
 export enum EndpointTab {
@@ -131,18 +202,24 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 'loadEndpoint',
                 'loadEndpointSuccess',
                 'loadVersions',
+                'loadVersionsSuccess',
                 'setEndpointDescription',
                 'clearMaterializationStatus',
                 'updateEndpointSuccess',
             ],
         ],
-        values: [endpointLogic(), ['endpoint', 'endpointLoading']],
+        values: [endpointLogic(), ['endpoint', 'endpointLoading', 'versions']],
     })),
     actions({
         setLocalQuery: (query: Node | null) => ({ query }),
         setActiveTab: (tab: EndpointTab) => ({ tab }),
-        setPayloadJson: (value: string) => ({ value }),
-        setPayloadJsonError: (error: string | null) => ({ error }),
+        setPlaygroundVariableValue: (name: string, value: unknown) => ({ name, value }),
+        setPlaygroundVariableSent: (name: string, sent: boolean) => ({ name, sent }),
+        resetPlaygroundForm: (specs: PlaygroundVariableSpec[]) => ({ specs }),
+        setPlaygroundRefresh: (refresh: EndpointRefreshMode) => ({ refresh }),
+        setPlaygroundLimit: (limit: number | null) => ({ limit }),
+        setPlaygroundVersion: (version: number | null) => ({ version }),
+        setPlaygroundExecutionError: (error: string | null) => ({ error }),
         setDataFreshness: (dataFreshness: number) => ({ dataFreshness }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
@@ -172,20 +249,50 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 loadEndpoint: () => EndpointTab.QUERY,
             },
         ],
-        payloadJson: [
-            '' as string,
+        playgroundVariableValues: [
+            {} as Record<string, unknown>,
             {
-                setPayloadJson: (_, { value }) => value,
-                loadEndpoint: () => '',
+                setPlaygroundVariableValue: (state, { name, value }) => ({ ...state, [name]: value }),
+                resetPlaygroundForm: (_, { specs }) => seedPlaygroundFormFromSpecs(specs).values,
+                loadEndpoint: () => ({}),
             },
         ],
-        payloadJsonError: [
+        playgroundVariableSent: [
+            {} as Record<string, boolean>,
+            {
+                setPlaygroundVariableSent: (state, { name, sent }) => ({ ...state, [name]: sent }),
+                resetPlaygroundForm: (_, { specs }) => seedPlaygroundFormFromSpecs(specs).sent,
+                loadEndpoint: () => ({}),
+            },
+        ],
+        playgroundRefresh: [
+            'cache' as EndpointRefreshMode,
+            {
+                setPlaygroundRefresh: (_, { refresh }) => refresh,
+                loadEndpoint: () => 'cache' as EndpointRefreshMode,
+            },
+        ],
+        playgroundLimit: [
+            null as number | null,
+            {
+                setPlaygroundLimit: (_, { limit }) => limit,
+                loadEndpoint: () => null,
+            },
+        ],
+        playgroundVersion: [
+            null as number | null,
+            {
+                setPlaygroundVersion: (_, { version }) => version,
+                loadEndpoint: () => null,
+            },
+        ],
+        playgroundExecutionError: [
             null as string | null,
             {
-                setPayloadJsonError: (_, { error }) => error,
-                setPayloadJson: () => null,
+                setPlaygroundExecutionError: (_, { error }) => error,
+                loadEndpointResult: () => null,
+                resetPlaygroundForm: () => null,
                 loadEndpoint: () => null,
-                updateEndpointSuccess: () => null,
             },
         ],
         dataFreshness: [
@@ -309,6 +416,80 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 viewingVersion: EndpointVersionType | null
             ): Node | null => localQuery || viewingVersion?.query || endpoint?.query || null,
         ],
+        playgroundVariableSpecs: [
+            (s) => [s.endpoint, s.viewingVersion, s.playgroundVersion, s.versions],
+            (
+                endpoint: EndpointType | null,
+                viewingVersion: EndpointVersionType | null,
+                playgroundVersion: number | null,
+                versions: EndpointVersionType[] | null
+            ): PlaygroundVariableSpec[] => {
+                // The playground can pin a version independently of the editor's viewing version —
+                // the variable contract must follow the version the request will actually run against.
+                const playgroundTarget =
+                    playgroundVersion !== null
+                        ? ((versions ?? []).find((v) => v.version === playgroundVersion) ?? null)
+                        : null
+                if (playgroundTarget) {
+                    return derivePlaygroundVariableSpecs(endpoint as EndpointVersionType | null, playgroundTarget)
+                }
+                // The endpoint payload also includes the bucket overrides, but the playground
+                // form only knows about the variable contract — bucket settings live in
+                // Configuration. Cast through EndpointVersionType because the runtime shape
+                // includes the version-detail fields when viewingVersion is set; for the base
+                // current-version case we have all the fields we need on EndpointType too.
+                return derivePlaygroundVariableSpecs(endpoint as EndpointVersionType | null, viewingVersion)
+            },
+        ],
+        playgroundPayload: [
+            (s) => [
+                s.playgroundVariableSpecs,
+                s.playgroundVariableValues,
+                s.playgroundVariableSent,
+                s.playgroundRefresh,
+                s.playgroundLimit,
+                s.playgroundVersion,
+                s.debugMode,
+            ],
+            (
+                specs: PlaygroundVariableSpec[],
+                values: Record<string, unknown>,
+                sent: Record<string, boolean>,
+                refresh: EndpointRefreshMode,
+                limit: number | null,
+                version: number | null,
+                debugMode: boolean
+            ): EndpointRunRequest => {
+                const variables: Record<string, unknown> = {}
+                specs.forEach((spec) => {
+                    if (sent[spec.name]) {
+                        variables[spec.name] = values[spec.name] ?? spec.defaultValue
+                    }
+                })
+                const payload: EndpointRunRequest = {}
+                if (Object.keys(variables).length > 0) {
+                    payload.variables = variables as Record<string, string>
+                }
+                // Only emit fields that diverge from defaults — keeps the JSON preview tight.
+                if (refresh && refresh !== 'cache') {
+                    payload.refresh = refresh
+                }
+                if (limit !== null && limit !== undefined) {
+                    ;(payload as any).limit = limit
+                }
+                if (version !== null && version !== undefined) {
+                    ;(payload as any).version = version
+                }
+                if (debugMode) {
+                    ;(payload as any).debug = true
+                }
+                return payload
+            },
+        ],
+        playgroundPayloadJsonPreview: [
+            (s) => [s.playgroundPayload],
+            (payload: EndpointRunRequest): string => JSON.stringify(payload, null, 2),
+        ],
         queryToRender: [
             (s) => [s.currentQuery],
             (currentQuery: Node | null): Node | null => {
@@ -352,6 +533,22 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        setPlaygroundVersion: ({ version }: { version: number | null }) => {
+            // Keep the variable form in lockstep with the version the request will run against.
+            if (version !== null && !(values.versions ?? []).some((v: EndpointVersionType) => v.version === version)) {
+                if (values.endpoint?.name) {
+                    actions.loadVersions(values.endpoint.name)
+                }
+                return // reseed happens in loadVersionsSuccess once the version is resolvable
+            }
+            actions.resetPlaygroundForm(values.playgroundVariableSpecs)
+        },
+        loadVersionsSuccess: () => {
+            // Finish a playground reseed that was waiting on the versions list.
+            if (values.playgroundVersion !== null) {
+                actions.resetPlaygroundForm(values.playgroundVariableSpecs)
+            }
+        },
         keepSqlEditorMounted: ({ editorTabId }) => {
             // Already holding a mount for this editor
             if (cache.sqlEditorTabId === editorTabId) {
@@ -367,8 +564,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             cache.sqlEditorTabId = null
         },
         loadEndpointSuccess: async ({ endpoint }: { endpoint: EndpointVersionType | null; payload?: string }) => {
-            const initialPayload = generateInitialPayloadJson(endpoint)
-            actions.setPayloadJson(initialPayload)
+            actions.resetPlaygroundForm(derivePlaygroundVariableSpecs(endpoint, null))
             actions.setDataFreshness(endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS)
             actions.resetOptionalBreakdownProperties(endpoint?.optional_breakdown_properties ?? [])
 
@@ -460,15 +656,13 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 actions.setEndpointDescription(values.endpoint.description || '')
             }
 
-            // Update payload with version field if viewing a specific version
-            if (values.endpoint) {
-                const basePayload = generateEndpointPayload(values.endpoint)
-                if (version && version.version !== values.endpoint.current_version) {
-                    const payloadWithVersion = { ...basePayload, version: version.version }
-                    actions.setPayloadJson(JSON.stringify(payloadWithVersion, null, 2))
-                } else {
-                    actions.setPayloadJson(JSON.stringify(basePayload, null, 2))
-                }
+            // Re-seed the playground form against the version the user is viewing.
+            actions.resetPlaygroundForm(derivePlaygroundVariableSpecs(values.endpoint, version))
+            // Pin the version field on the playground request if the user is viewing a non-current version.
+            if (version && version.version !== values.endpoint?.current_version) {
+                actions.setPlaygroundVersion(version.version)
+            } else {
+                actions.setPlaygroundVersion(null)
             }
 
             // Update URL when viewing version changes
