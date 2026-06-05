@@ -49,8 +49,8 @@ class TestFrontSource:
         config = FrontSource().get_source_config
         assert config.label == "Front"
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Finished-but-alpha source is visible (no unreleasedSource flag)
-        assert config.unreleasedSource is None
+        # Shipped behind unreleasedSource while the source is still alpha
+        assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_token"]
         assert config.fields[0].type == "password"
