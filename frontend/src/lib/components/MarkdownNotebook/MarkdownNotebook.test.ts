@@ -1352,6 +1352,53 @@ Closing`
         )
     })
 
+    it('lets native copy handle text selected inside a focused component', () => {
+        expect.hasAssertions()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                ViewComponent: () => createElement('div', { 'data-testid': 'component-output' }, 'Copy this result'),
+            },
+        ])
+        const { container } = render(createElement(MarkdownNotebook, { value: '<Embed />', registry }))
+        const notebook = container.querySelector('.MarkdownNotebook') as HTMLElement
+        const component = container.querySelector('.MarkdownNotebook__component-shell') as HTMLElement
+        const output = container.querySelector('[data-testid="component-output"]') as HTMLElement
+        const originalClipboard = navigator.clipboard
+        const clipboard = {
+            writeText: jest.fn(() => Promise.resolve()),
+            readText: jest.fn(() => Promise.resolve('')),
+        }
+
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: clipboard,
+        })
+
+        try {
+            component.focus()
+            selectTextNode(getFirstTextNode(output), 5, 9)
+
+            fireEvent.keyDown(component, { key: 'c', metaKey: true })
+
+            expect(clipboard.writeText).not.toHaveBeenCalled()
+
+            const clipboardData = {
+                setData: jest.fn(),
+            }
+            fireEvent.copy(notebook, { clipboardData })
+
+            expect(clipboardData.setData).not.toHaveBeenCalled()
+        } finally {
+            Object.defineProperty(navigator, 'clipboard', {
+                configurable: true,
+                value: originalClipboard,
+            })
+        }
+    })
+
     it('copies and pastes a focused component as a cloned notebook block', async () => {
         expect.hasAssertions()
         const onChange = jest.fn()

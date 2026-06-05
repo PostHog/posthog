@@ -920,6 +920,11 @@ export function MarkdownNotebook({
             return
         }
 
+        const selection = window.getSelection()
+        if (getComponentNodeForSelection(selection, documentRef.current.nodes, blockRefs.current)) {
+            return
+        }
+
         const focusedComponentNode = getFocusedComponentNode(
             window.document.activeElement,
             documentRef.current.nodes,
@@ -936,7 +941,7 @@ export function MarkdownNotebook({
         const notebookElement = notebookRef.current
         const markdown = notebookElement
             ? getSelectedNotebookMarkdown(
-                  window.getSelection(),
+                  selection,
                   notebookElement,
                   documentRef.current.nodes,
                   blockRefs.current,
@@ -1411,6 +1416,11 @@ export function MarkdownNotebook({
             blockRefs.current
         )
         if (focusedComponentNode && !event.shiftKey && key === 'c') {
+            const focusedComponentElement = blockRefs.current[focusedComponentNode.id]
+            if (focusedComponentElement && isSelectionInsideElement(window.getSelection(), focusedComponentElement)) {
+                return
+            }
+
             copyMarkdownToNotebookClipboard(serializeNotebookNodes([focusedComponentNode]))
             event.preventDefault()
             event.stopPropagation()
@@ -4990,6 +5000,36 @@ function getFocusedComponentNode(
             (node): node is NotebookComponentBlockNode => node.type === 'component' && blockRefs[node.id] === element
         ) ?? null
     )
+}
+
+function getComponentNodeForSelection(
+    selection: Selection | null,
+    nodes: NotebookBlockNode[],
+    blockRefs: Record<string, HTMLElement | null>
+): NotebookComponentBlockNode | null {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return null
+    }
+
+    return (
+        nodes.find((node): node is NotebookComponentBlockNode => {
+            if (node.type !== 'component') {
+                return false
+            }
+
+            const element = blockRefs[node.id]
+            return !!element && isSelectionInsideElement(selection, element)
+        }) ?? null
+    )
+}
+
+function isSelectionInsideElement(selection: Selection | null, element: HTMLElement): boolean {
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        return false
+    }
+
+    const range = selection.getRangeAt(0)
+    return element.contains(range.startContainer) && element.contains(range.endContainer)
 }
 
 function getSelectedTextBlockNode(
