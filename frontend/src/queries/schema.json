@@ -811,9 +811,6 @@
                     "$ref": "#/definitions/WebPageURLSearchQuery"
                 },
                 {
-                    "$ref": "#/definitions/WebTrendsQuery"
-                },
-                {
                     "$ref": "#/definitions/WebAnalyticsExternalSummaryQuery"
                 },
                 {
@@ -10855,132 +10852,6 @@
             ],
             "type": "object"
         },
-        "CachedWebTrendsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "cache_key": {
-                    "type": "string"
-                },
-                "cache_target_age": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "calculation_trigger": {
-                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
-                    "type": "string"
-                },
-                "clickhouse": {
-                    "description": "Executed ClickHouse query",
-                    "type": "string"
-                },
-                "columns": {
-                    "description": "Returned columns",
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "explain": {
-                    "description": "Query explanation output",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "is_cached": {
-                    "type": "boolean"
-                },
-                "last_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "metadata": {
-                    "$ref": "#/definitions/HogQLMetadataResponse",
-                    "description": "Query metadata output"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "next_allowed_client_refresh": {
-                    "format": "date-time",
-                    "type": "string"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query": {
-                    "description": "Input query string",
-                    "type": "string"
-                },
-                "query_metadata": {
-                    "type": "object"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebTrendsItem"
-                    },
-                    "type": "array"
-                },
-                "samplingRate": {
-                    "$ref": "#/definitions/SamplingRate"
-                },
-                "timezone": {
-                    "type": "string"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "description": "Types of returned columns",
-                    "items": {},
-                    "type": "array"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": [
-                "cache_key",
-                "is_cached",
-                "last_refresh",
-                "next_allowed_client_refresh",
-                "results",
-                "timezone"
-            ],
-            "type": "object"
-        },
         "CachedWebVitalsPathBreakdownQueryResponse": {
             "additionalProperties": false,
             "properties": {
@@ -19998,6 +19869,7 @@
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
+                "GoogleSearchConsole",
                 "MetaAds",
                 "Klaviyo",
                 "Mailchimp",
@@ -21271,6 +21143,11 @@
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
                 },
+                "showAnnotations": {
+                    "default": true,
+                    "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
+                    "type": "boolean"
+                },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
                     "type": "boolean"
@@ -22441,6 +22318,9 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
+                "pushDownPredicates": {
+                    "type": "boolean"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
@@ -23554,13 +23434,13 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
                 "snapchat",
@@ -27928,7 +27808,6 @@
                 "WebVitalsQuery",
                 "WebVitalsPathBreakdownQuery",
                 "WebPageURLSearchQuery",
-                "WebTrendsQuery",
                 "WebAnalyticsExternalSummaryQuery",
                 "WebNotableChangesQuery",
                 "RevenueAnalyticsGrossRevenueQuery",
@@ -41172,6 +41051,10 @@
                     "default": false,
                     "type": "boolean"
                 },
+                "showAnnotations": {
+                    "default": true,
+                    "type": "boolean"
+                },
                 "showConfidenceIntervals": {
                     "type": "boolean"
                 },
@@ -43313,235 +43196,6 @@
                 },
                 "usedLazyPrecompute": {
                     "type": "boolean"
-                },
-                "usedPreAggregatedTables": {
-                    "type": "boolean"
-                },
-                "warnings": {
-                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries.",
-                    "items": {
-                        "$ref": "#/definitions/DataWarehouseSyncWarning"
-                    },
-                    "type": "array"
-                }
-            },
-            "required": ["results"],
-            "type": "object"
-        },
-        "WebTrendsItem": {
-            "additionalProperties": false,
-            "properties": {
-                "bucket": {
-                    "type": "string"
-                },
-                "metrics": {
-                    "additionalProperties": false,
-                    "properties": {
-                        "Bounces": {
-                            "type": "number"
-                        },
-                        "PageViews": {
-                            "type": "number"
-                        },
-                        "SessionDuration": {
-                            "type": "number"
-                        },
-                        "Sessions": {
-                            "type": "number"
-                        },
-                        "TotalSessions": {
-                            "type": "number"
-                        },
-                        "UniqueUsers": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
-                }
-            },
-            "required": ["bucket", "metrics"],
-            "type": "object"
-        },
-        "WebTrendsMetric": {
-            "enum": ["UniqueUsers", "PageViews", "Sessions", "Bounces", "SessionDuration", "TotalSessions"],
-            "type": "string"
-        },
-        "WebTrendsQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
-                },
-                "compareFilter": {
-                    "$ref": "#/definitions/CompareFilter"
-                },
-                "conversionGoal": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "dataColorTheme": {
-                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
-                    "type": ["number", "null"]
-                },
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange"
-                },
-                "doPathCleaning": {
-                    "type": "boolean"
-                },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
-                "includeRevenue": {
-                    "deprecated": "ignored, always treated as disabled",
-                    "type": "boolean"
-                },
-                "interval": {
-                    "$ref": "#/definitions/IntervalType",
-                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
-                },
-                "kind": {
-                    "const": "WebTrendsQuery",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "metrics": {
-                    "items": {
-                        "$ref": "#/definitions/WebTrendsMetric"
-                    },
-                    "type": "array"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "orderBy": {
-                    "$ref": "#/definitions/WebAnalyticsOrderBy"
-                },
-                "properties": {
-                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
-                },
-                "response": {
-                    "$ref": "#/definitions/WebTrendsQueryResponse"
-                },
-                "sampling": {
-                    "$ref": "#/definitions/WebAnalyticsSampling",
-                    "deprecated": "Use samplingFactor instead"
-                },
-                "samplingFactor": {
-                    "description": "Sampling rate",
-                    "type": ["number", "null"]
-                },
-                "tags": {
-                    "$ref": "#/definitions/QueryLogTags"
-                },
-                "useSessionsTable": {
-                    "deprecated": "ignored, always treated as enabled *",
-                    "type": "boolean"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["interval", "kind", "metrics", "properties"],
-            "type": "object"
-        },
-        "WebTrendsQueryResponse": {
-            "additionalProperties": false,
-            "properties": {
-                "clickhouse": {
-                    "description": "Executed ClickHouse query",
-                    "type": "string"
-                },
-                "columns": {
-                    "description": "Returned columns",
-                    "items": {},
-                    "type": "array"
-                },
-                "error": {
-                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
-                    "type": "string"
-                },
-                "explain": {
-                    "description": "Query explanation output",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "hasMore": {
-                    "type": "boolean"
-                },
-                "hogql": {
-                    "description": "Generated HogQL query.",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "metadata": {
-                    "$ref": "#/definitions/HogQLMetadataResponse",
-                    "description": "Query metadata output"
-                },
-                "modifiers": {
-                    "$ref": "#/definitions/HogQLQueryModifiers",
-                    "description": "Modifiers used when performing the query"
-                },
-                "offset": {
-                    "$ref": "#/definitions/integer"
-                },
-                "query": {
-                    "description": "Input query string",
-                    "type": "string"
-                },
-                "query_status": {
-                    "$ref": "#/definitions/QueryStatus",
-                    "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "resolved_date_range": {
-                    "$ref": "#/definitions/ResolvedDateRangeResponse",
-                    "description": "The date range used for the query"
-                },
-                "results": {
-                    "items": {
-                        "$ref": "#/definitions/WebTrendsItem"
-                    },
-                    "type": "array"
-                },
-                "samplingRate": {
-                    "$ref": "#/definitions/SamplingRate"
-                },
-                "timings": {
-                    "description": "Measured timings for different parts of the query generation process",
-                    "items": {
-                        "$ref": "#/definitions/QueryTiming"
-                    },
-                    "type": "array"
-                },
-                "types": {
-                    "description": "Types of returned columns",
-                    "items": {},
-                    "type": "array"
                 },
                 "usedPreAggregatedTables": {
                     "type": "boolean"

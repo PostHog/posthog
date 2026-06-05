@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -24,6 +24,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
+        ),
+    priority: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
     source_product: zod

@@ -176,6 +176,34 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
+// Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
+// next occurrence for recurring changes too, so it is a uniform sort key across all change types.
+// Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
+export function byScheduledAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.scheduled_at) {
+            return Number.POSITIVE_INFINITY
+        }
+        const ms = dayjs(sc.scheduled_at).valueOf()
+        return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms
+    }
+    return epoch(a) - epoch(b) || a.id - b.id
+}
+
+// Order executed changes by `executed_at`, most recently executed first, so the history reads as a
+// real execution timeline even when execution is delayed. Unparseable/missing dates sort last; ties
+// break by `id` (creation order) for a stable order.
+export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.executed_at) {
+            return Number.NEGATIVE_INFINITY
+        }
+        const ms = dayjs(sc.executed_at).valueOf()
+        return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
+    }
+    return epoch(b) - epoch(a) || b.id - a.id
+}
+
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
     business_hours: {
         label: 'Business hours',
@@ -878,7 +906,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return {
                         ...state,
-                        features: [...(state.features || []), newEarlyAccessFeature],
+                        features: [
+                            ...(state.features || []),
+                            {
+                                id: newEarlyAccessFeature.id,
+                                name: newEarlyAccessFeature.name,
+                                description: newEarlyAccessFeature.description,
+                                stage: newEarlyAccessFeature.stage,
+                                documentationUrl: newEarlyAccessFeature.documentation_url,
+                                flagKey: newEarlyAccessFeature.feature_flag?.key ?? null,
+                                payload: newEarlyAccessFeature.payload,
+                            },
+                        ],
                     }
                 },
                 createSurveySuccess: (state, { newSurvey }) => {
@@ -2495,15 +2534,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         completedSchedules: [
             (s) => [s.scheduledChanges],
-            (scheduledChanges: ScheduledChangeType[]) => scheduledChanges.filter((sc) => !!sc.executed_at),
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter((sc) => !!sc.executed_at).sort(byExecutedAt),
         ],
         activeSchedules: [
             (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
-            (activeRecurring, pausedRecurring, upcomingOneTime) => [
-                ...activeRecurring,
-                ...pausedRecurring,
-                ...upcomingOneTime,
-            ],
+            // Interleave all schedule types so the upcoming list reads soonest first.
+            (activeRecurring, pausedRecurring, upcomingOneTime) =>
+                [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
         ],
         emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
         templates: [

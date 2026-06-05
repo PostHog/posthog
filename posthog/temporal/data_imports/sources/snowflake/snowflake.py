@@ -90,13 +90,12 @@ def _build_query(
         db_incremental_field_last_value = incremental_type_to_initial_value(incremental_field_type)
 
     operator = incremental_type_to_operator(incremental_field_type)
+    quoted_field = _SNOWFLAKE_IDENTIFIER_QUOTER.quote(incremental_field)
     return (
-        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE IDENTIFIER(%s) {operator} %s ORDER BY IDENTIFIER(%s) ASC",
+        f"SELECT {select_clause} FROM IDENTIFIER(%s) WHERE {quoted_field} {operator} %s ORDER BY {quoted_field} ASC",
         (
             f"{database}.{schema}.{table_name}",
-            incremental_field,
             db_incremental_field_last_value,
-            incremental_field,
         ),
     )
 

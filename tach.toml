@@ -622,6 +622,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
@@ -688,13 +689,14 @@ from = [
 ]
 
 # TODO: legacy leaks — posthog/temporal/mcp_analytics/* and the dashboard
-# integration import models / dashboard_templates directly. Move those into
-# the product (and through the facade) so this interface can shrink back to
-# the isolated default.
+# integration import models / dashboard_templates / intent_clustering directly.
+# Move those into the product (and through the facade) so this interface can
+# shrink back to the isolated default.
 
 [[interfaces]]
 expose = [
     "backend\\.dashboard_templates.*",
+    "backend\\.intent_clustering.*",
     "backend\\.models.*",
 ]
 from = [
@@ -721,6 +723,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.access_control",
@@ -748,6 +751,15 @@ expose = [
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
+    "backend\\.temporal.*",
+]
+from = [
+    "products.business_knowledge",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.routes.*",
 ]
 from = [
     "products.business_knowledge",
@@ -776,6 +788,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.wizard",
@@ -790,6 +803,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.engineering_analytics",

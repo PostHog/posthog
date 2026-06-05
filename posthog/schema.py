@@ -2141,6 +2141,7 @@ class ExternalDataSourceType(StrEnum):
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
     MAILCHIMP = "Mailchimp"
@@ -2805,13 +2806,13 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
-    SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
     GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
+    GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
@@ -3734,7 +3735,6 @@ class NodeKind(StrEnum):
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
     WEB_PAGE_URL_SEARCH_QUERY = "WebPageURLSearchQuery"
-    WEB_TRENDS_QUERY = "WebTrendsQuery"
     WEB_ANALYTICS_EXTERNAL_SUMMARY_QUERY = "WebAnalyticsExternalSummaryQuery"
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     REVENUE_ANALYTICS_GROSS_REVENUE_QUERY = "RevenueAnalyticsGrossRevenueQuery"
@@ -5416,35 +5416,6 @@ class WebStatsBreakdown(StrEnum):
     TIMEZONE = "Timezone"
     LANGUAGE = "Language"
     FRUSTRATION_METRICS = "FrustrationMetrics"
-
-
-class Metrics(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    Bounces: float | None = None
-    PageViews: float | None = None
-    SessionDuration: float | None = None
-    Sessions: float | None = None
-    TotalSessions: float | None = None
-    UniqueUsers: float | None = None
-
-
-class WebTrendsItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bucket: str
-    metrics: Metrics
-
-
-class WebTrendsMetric(StrEnum):
-    UNIQUE_USERS = "UniqueUsers"
-    PAGE_VIEWS = "PageViews"
-    SESSIONS = "Sessions"
-    BOUNCES = "Bounces"
-    SESSION_DURATION = "SessionDuration"
-    TOTAL_SESSIONS = "TotalSessions"
 
 
 class WebVitalsMetric(StrEnum):
@@ -7673,6 +7644,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,
@@ -9624,6 +9596,7 @@ class TrendsFilter(BaseModel):
         )
     )
     showAlertThresholdLines: bool | None = False
+    showAnnotations: bool | None = True
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
@@ -21823,54 +21796,6 @@ class WebStatsTableQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class WebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    limit: int | None = None
-    metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    query: str | None = Field(default=None, description="Input query string")
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    samplingRate: SamplingRate | None = None
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = Field(default=None, description="Types of returned columns")
-    usedPreAggregatedTables: bool | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
 class WebVitalsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22434,65 +22359,6 @@ class CachedNewExperimentQueryResponse(BaseModel):
     )
 
 
-class CachedWebTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
-    error: str | None = Field(
-        default=None,
-        description=(
-            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
-        ),
-    )
-    explain: list[str] | None = Field(default=None, description="Query explanation output")
-    hasMore: bool | None = None
-    hogql: str | None = Field(default=None, description="Generated HogQL query.")
-    is_cached: bool
-    last_refresh: AwareDatetime
-    limit: int | None = None
-    metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    next_allowed_client_refresh: AwareDatetime
-    offset: int | None = None
-    query: str | None = Field(default=None, description="Input query string")
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    resolved_date_range: ResolvedDateRangeResponse | None = Field(
-        default=None, description="The date range used for the query"
-    )
-    results: list[WebTrendsItem]
-    samplingRate: SamplingRate | None = None
-    timezone: str
-    timings: list[QueryTiming] | None = Field(
-        default=None,
-        description=("Measured timings for different parts of the query generation process"),
-    )
-    types: list | None = Field(default=None, description="Types of returned columns")
-    usedPreAggregatedTables: bool | None = None
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=(
-            "Warnings about data warehouse sources referenced by the query whose latest"
-            " sync failed, is paused, hit a billing limit, or is otherwise stale."
-            " Results may not reflect current source data. Accumulated across every"
-            " HogQL execution that contributes to this response — so insights backed by"
-            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
-            " HogQL queries."
-        ),
-    )
-
-
 class CachedWebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -22922,6 +22788,10 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
+    )
+    showAnnotations: bool | None = Field(
+        default=True,
+        description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
     )
     showTrendLines: bool | None = Field(
         default=None,
@@ -23618,45 +23488,6 @@ class VectorSearchQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: VectorSearchQueryResponse | None = None
     tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class WebTrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(
-        default=None,
-        description=("Groups aggregation - not used in Web Analytics but required for type compatibility"),
-    )
-    compareFilter: CompareFilter | None = None
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = None
-    dataColorTheme: float | None = Field(
-        default=None,
-        description=(
-            "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility"
-        ),
-    )
-    dateRange: DateRange | None = None
-    doPathCleaning: bool | None = None
-    filterTestAccounts: bool | None = None
-    includeRevenue: bool | None = None
-    interval: IntervalType = Field(
-        ...,
-        description=("Interval for date range calculation (affects date_to rounding for hour vs day ranges)"),
-    )
-    kind: Literal["WebTrendsQuery"] = "WebTrendsQuery"
-    limit: int | None = None
-    metrics: list[WebTrendsMetric]
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    offset: int | None = None
-    orderBy: list[WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection] | None = None
-    properties: list[EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter]
-    response: WebTrendsQueryResponse | None = None
-    sampling: WebAnalyticsSampling | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    tags: QueryLogTags | None = None
-    useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -26719,7 +26550,6 @@ class HogQLAutocomplete(BaseModel):
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
-        | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
         | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
@@ -26808,7 +26638,6 @@ class HogQLMetadata(BaseModel):
         | WebVitalsQuery
         | WebVitalsPathBreakdownQuery
         | WebPageURLSearchQuery
-        | WebTrendsQuery
         | WebAnalyticsExternalSummaryQuery
         | WebNotableChangesQuery
         | SessionAttributionExplorerQuery
