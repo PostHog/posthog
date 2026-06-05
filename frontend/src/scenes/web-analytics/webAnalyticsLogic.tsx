@@ -995,7 +995,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         showFocusMode: [
             (s) => [s.featureFlags, s.productTab],
             (featureFlags, productTab: ProductTab): boolean =>
-                !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] && productTab === ProductTab.ANALYTICS,
+                featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE] === 'test' && productTab === ProductTab.ANALYTICS,
         ],
         hasSavedFocusMode: [
             (s) => [s.focusModeConcerns],
