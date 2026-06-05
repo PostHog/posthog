@@ -39,19 +39,21 @@ describe('chart theme', () => {
         expect(theme.backgroundColor).toBe('#f0f0f0')
     })
 
-    it('prefers the quill token over the app compat name', () => {
-        const root = rootWithVars({
-            '--background': '#quill0',
-            '--color-bg-surface-primary': '#app000',
-        })
+    it.each([
+        {
+            name: 'prefers the quill token over the app compat name',
+            vars: { '--background': '#quill0', '--color-bg-surface-primary': '#app000' },
+            expected: '#quill0',
+        },
+        {
+            name: 'falls back to the app compat name when the quill token is absent',
+            vars: { '--color-bg-surface-primary': '#app000' },
+            expected: '#app000',
+        },
+    ])('backgroundColor $name', ({ vars, expected }) => {
+        const root = rootWithVars(vars)
 
-        expect(themeFromCssVars({ root }).backgroundColor).toBe('#quill0')
-    })
-
-    it('falls back to the app compat name when the quill token is absent', () => {
-        const root = rootWithVars({ '--color-bg-surface-primary': '#app000' })
-
-        expect(themeFromCssVars({ root }).backgroundColor).toBe('#app000')
+        expect(themeFromCssVars({ root }).backgroundColor).toBe(expected)
     })
 
     it('falls back to DEFAULT_CHART_COLORS for unset color vars', () => {
