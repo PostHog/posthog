@@ -22716,10 +22716,19 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    accountExecutive: str | int | None = None
-    accountOwner: str | int | None = None
+    accountExecutive: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account executive is any of these user ids (OR semantics)."),
+    )
+    accountOwner: list[int] | None = Field(
+        default=None,
+        description=("Match accounts whose account owner is any of these user ids (OR semantics)."),
+    )
     allRolesUnassigned: bool | None = None
-    csm: str | int | None = None
+    csm: list[int] | None = Field(
+        default=None,
+        description="Match accounts whose CSM is any of these user ids (OR semantics).",
+    )
     filterExpression: str | None = Field(
         default=None,
         description=(
