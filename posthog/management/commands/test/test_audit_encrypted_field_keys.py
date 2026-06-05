@@ -1,5 +1,7 @@
 import base64
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase, override_settings
 
 from cryptography.fernet import Fernet, MultiFernet
@@ -83,14 +85,44 @@ class TestAuditClassify(SimpleTestCase):
         assert classify(raw, self.salt_only, self.legacy) == LEGACY
 
     def test_json_field_with_one_plaintext_leaf_is_plaintext(self):
-        # A leaf that was never encrypted dominates — the whole row needs inspection
+        # With no legacy/unreadable leaf, a never-encrypted leaf dominates clean ones — needs inspection
         raw = {"a": self._enc_salt("x"), "b": "leaked-plaintext"}
         assert classify(raw, self.salt_only, self.legacy) == PLAINTEXT
+
+    def test_json_field_legacy_leaf_beats_plaintext_leaf(self):
+        # Regression: a legacy token is stranded on rotation, so it must win over a plaintext sibling —
+        # otherwise the row would be hidden from `legacy` and safe_to_drop_secret_key could read true
+        raw = {"a": self._enc_legacy("x"), "b": "leaked-plaintext"}
+        assert classify(raw, self.salt_only, self.legacy) == LEGACY
+
+    def test_json_field_legacy_leaf_beats_unreadable_leaf(self):
+        raw = {"a": self._enc_legacy("x"), "b": self._enc_other("y")}
+        assert classify(raw, self.salt_only, self.legacy) == LEGACY
+
+    def test_json_field_unreadable_leaf_beats_plaintext_leaf(self):
+        raw = {"a": self._enc_other("x"), "b": "leaked-plaintext"}
+        assert classify(raw, self.salt_only, self.legacy) == UNREADABLE
 
     @override_settings(SECRET_KEY="new-secret", SECRET_KEY_FALLBACKS=[SECRET], SALT_KEY=[SALT_RAW])
     def test_secret_derived_leaf_still_legacy_via_fallback(self):
         legacy = _legacy_fernet()
         assert classify(self._enc_legacy(), self.salt_only, legacy) == LEGACY
+
+
+@override_settings(
+    ENCRYPTION_SALT_KEYS=[ENCRYPTION_KEY], SECRET_KEY=SECRET, SECRET_KEY_FALLBACKS=[], SALT_KEY=[SALT_RAW]
+)
+class TestAuditFieldArgument(SimpleTestCase):
+    # --field resolves against the app registry before any DB access, so these need no database
+
+    def test_unknown_field_raises_clear_error_listing_available_fields(self):
+        with self.assertRaises(CommandError) as ctx:
+            call_command("audit_encrypted_field_keys", field="nope.Nope.nope")
+        message = str(ctx.exception)
+        assert "nope.Nope.nope" in message
+        assert "did not match" in message
+        # lists real fields so the user can fix the typo instead of concluding there are none
+        assert "posthog.Integration.sensitive_config" in message
 
 
 class TestAuditFernetBuilders(SimpleTestCase):

@@ -100,17 +100,30 @@ def _decryptable(fernet: MultiFernet | None, token: str) -> bool:
         return False
 
 
+def _classify_leaf(leaf: str, salt_only: MultiFernet | None, legacy: MultiFernet | None) -> str:
+    if not _looks_like_fernet_token(leaf):
+        return PLAINTEXT
+    if _decryptable(salt_only, leaf):
+        return CLEAN
+    if _decryptable(legacy, leaf):
+        return LEGACY
+    return UNREADABLE
+
+
 def classify(raw: object, salt_only: MultiFernet | None, legacy: MultiFernet | None) -> str:
     leaves = [leaf for leaf in _leaves(raw) if leaf not in _EMPTY_MARKERS]
     if not leaves:
         return EMPTY
-    if any(not _looks_like_fernet_token(leaf) for leaf in leaves):
-        return PLAINTEXT
-    if all(_decryptable(salt_only, leaf) for leaf in leaves):
-        return CLEAN
-    if all(_decryptable(salt_only, leaf) or _decryptable(legacy, leaf) for leaf in leaves):
-        return LEGACY
-    return UNREADABLE
+
+    # Classify per leaf, then collapse to the row's most severe leaf. LEGACY must win over PLAINTEXT /
+    # UNREADABLE: a single legacy-encrypted leaf is stranded on rotation, so a row containing one must
+    # count as LEGACY even if a sibling leaf is plaintext — otherwise `safe_to_drop_secret_key` could
+    # report true while legacy tokens are still present. CLEAN only when every leaf is clean.
+    buckets = {_classify_leaf(leaf, salt_only, legacy) for leaf in leaves}
+    for bucket in (LEGACY, UNREADABLE, PLAINTEXT):
+        if bucket in buckets:
+            return bucket
+    return CLEAN
 
 
 class Command(BaseCommand):
@@ -137,9 +150,15 @@ class Command(BaseCommand):
         if salt_only is None:
             raise CommandError("ENCRYPTION_SALT_KEYS is empty — nothing can be classified as clean")
 
-        fields = self._discover_fields(options.get("field"))
-        if not fields:
+        all_fields = self._discover_fields()
+        if not all_fields:
             raise CommandError("No encrypted fields found")
+
+        only = options.get("field")
+        fields = [(m, f) for m, f in all_fields if only is None or self._label(m, f) == only]
+        if only and not fields:
+            available = "\n  ".join(sorted(self._label(m, f) for m, f in all_fields))
+            raise CommandError(f"--field {only!r} did not match any encrypted field. Available:\n  {available}")
 
         reports = [self._audit_field(model, model_field, salt_only, legacy, options) for model, model_field in fields]
 
@@ -148,23 +167,22 @@ class Command(BaseCommand):
         else:
             self._emit_console(reports)
 
-    def _discover_fields(self, only: str | None):
+    @staticmethod
+    def _label(model, model_field) -> str:
+        return f"{model._meta.app_label}.{model.__name__}.{model_field.name}"
+
+    def _discover_fields(self):
         discovered = []
         for model in apps.get_models():
             if model._meta.proxy:
                 continue
             for model_field in model._meta.concrete_fields:
-                if not isinstance(model_field, EncryptedFieldMixin):
-                    continue
-                label = f"{model._meta.app_label}.{model.__name__}.{model_field.name}"
-                if only and label != only:
-                    continue
-                discovered.append((model, model_field))
+                if isinstance(model_field, EncryptedFieldMixin):
+                    discovered.append((model, model_field))
         return discovered
 
     def _audit_field(self, model, model_field, salt_only, legacy, options) -> FieldReport:
-        label = f"{model._meta.app_label}.{model.__name__}.{model_field.name}"
-        report = FieldReport(label=label)
+        report = FieldReport(label=self._label(model, model_field))
         samples = options["samples"]
 
         connection = connections[router.db_for_read(model)]
