@@ -922,7 +922,7 @@ class UserAccessControl:
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
-        blocked_resource_ids, allowed_resource_ids = self._resolve_object_blocked_allowed(access_controls)
+        blocked_resource_ids, allowed_resource_ids = self._blocked_and_allowed_object_ids(access_controls)
 
         # Apply filtering logic based on resource-level access
         if not has_resource_access and allowed_resource_ids:
@@ -941,7 +941,7 @@ class UserAccessControl:
 
         return queryset
 
-    def _resolve_object_blocked_allowed(self, access_controls: list[_AccessControl]) -> tuple[set[str], set[str]]:
+    def _blocked_and_allowed_object_ids(self, access_controls: list[_AccessControl]) -> tuple[set[str], set[str]]:
         """Canonical object-level decision over a pool of object access controls (rows with
         `resource_id` set), returning (blocked_ids, allowed_ids).
 
@@ -1005,7 +1005,7 @@ class UserAccessControl:
 
         result: dict[APIScopeObject, set[str]] = {}
         for resource, acs in object_rows_by_resource.items():
-            blocked, _allowed = self._resolve_object_blocked_allowed(acs)
+            blocked, _allowed = self._blocked_and_allowed_object_ids(acs)
             if blocked:
                 result[resource] = blocked
         return result
