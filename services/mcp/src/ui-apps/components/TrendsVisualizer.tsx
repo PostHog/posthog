@@ -111,7 +111,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 // The shared view's chart root is `flex: 1; height: 100%`, so it needs a flex-column
                 // parent with a height. The MCP host imposes none (the web app sizes it via the
                 // insight container), so provide one here.
-                <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '400px' }}>
+                <div className="flex flex-col w-full h-[400px]">
                     <TrendsLineChartView
                         results={results.map((item, i) => ({
                             id: i,
