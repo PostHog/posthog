@@ -53,10 +53,13 @@ There is no sampling. Each scout has its own `SignalScoutConfig` row (one per
 `(team, skill_name)`) carrying a `run_interval_minutes` schedule (default 1440 =
 daily) and a `last_run_at` stamp. Every tick the coordinator:
 
-1. Bounds candidates to dogfood teams — those with a `signals-scout-*` skill or
-   config, gated by the `signals-scout` feature flag (`_participating_teams`).
+1. Bounds candidates to the teams enrolled via the `signals-scout` feature flag's
+   JSON payload allowlist (`guaranteed_team_ids` minus `skip_team_ids`,
+   `_participating_teams` → `_enrolled_team_ids`). Editing the payload in the flag UI
+   enrolls or drains a team next tick — no manual seed.
 2. Auto-registers a config for any `signals-scout-*` skill missing one
-   (`_register_missing_configs`) — authoring a skill is enough to get a scout.
+   (`_register_missing_configs`) — on an enrolled team, authoring a skill is enough
+   to get a scout.
 3. Dispatches every enabled scout whose schedule is due (`last_run_at is None`, or
    `now - last_run_at >= run_interval_minutes`), most-overdue first, capped at
    `MAX_RUNS_PER_TICK` per tick. Each due scout becomes one `RunSignalsScoutWorkflow`

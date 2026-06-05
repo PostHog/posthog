@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
@@ -13,6 +15,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -26,9 +29,17 @@ from products.signals.backend.temporal.agentic.scout_scheduler import RunSignals
 
 logger = structlog.get_logger(__name__)
 
-# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag
-# picks which teams run scouts; per-scout SignalScoutConfig rows pick which scouts/schedules.
+# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag's JSON
+# payload picks which teams run scouts; per-scout SignalScoutConfig rows pick which
+# scouts/schedules.
 SIGNALS_SCOUT_DOGFOOD_FLAG = "signals-scout"
+
+# Fixed distinct_id for the payload read — enrollment is team-list-in-payload, not per-user.
+SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID = "internal_signals_scout_team_discovery"
+
+# Fail-safe allowlist used when the flag payload is missing/invalid — but only on PostHog
+# Cloud or local dev (see `_fallback_team_ids`). 1 (local dev), 2 (internal), 148051 (dev).
+DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
 # we run the most-overdue first and the rest catch up next tick (a poor-man's queue).
@@ -91,7 +102,11 @@ async def fetch_enabled_signals_scout_runs_activity(
     schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
     """
     async with Heartbeater():
-        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)()
+        # Read the flag payload off the DB thread pool — the SDK call can block on a cold
+        # cache, and database_sync_to_async's pool is sized for DB-bound work (mirrors the
+        # asyncio.to_thread split in ai_observability/team_discovery.py).
+        enrolled_team_ids = await asyncio.to_thread(_enrolled_team_ids)
+        planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(enrolled_team_ids)
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     return FetchEnabledRunsOutput(planned_runs=planned)
 
@@ -132,11 +147,14 @@ class _DueRun:
     skill_name: str
 
 
-def _collect_planned_runs() -> list[PlannedRun]:
-    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt."""
+def _collect_planned_runs(enrolled_team_ids: set[int]) -> list[PlannedRun]:
+    """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
+
+    Takes the already-resolved enrolled team ids so the flag read stays off this DB pool.
+    """
     now = timezone.now()
     due: list[_DueRun] = []
-    for team in _participating_teams():
+    for team in _participating_teams(enrolled_team_ids):
         # Sync canonical scouts so a freshly-enrolled team has skills to register on.
         # `prune=True`: the periodic tick is a deliberate reconciliation path, so it also
         # tombstones rows whose canonical was removed from disk (the runner cold-start sync
@@ -180,56 +198,65 @@ def _collect_planned_runs() -> list[PlannedRun]:
     return planned
 
 
-def _participating_teams() -> list[Team]:
-    """Canonical dogfood teams: those with a scout skill or config, gated by the flag.
+def _participating_teams(enrolled: set[int]) -> list[Team]:
+    """Resolve enrolled team ids to canonical `Team`s to run scouts on.
 
-    Bounded to teams that have opted into scouts (canonical fleet seeded or a user-authored
-    `signals-scout-*` skill) so the flag isn't evaluated against every team.
+    Enrollment is flag-driven: a team runs scouts iff its id is in the `signals-scout` flag
+    payload allowlist (resolved by `_enrolled_team_ids`, passed in). Adding an id in the flag
+    UI enrolls the team on the next tick with no manual seed — the tick body seeds canonical
+    skills + registers configs for it; removing it (or listing it in `skip_team_ids`) drains
+    it the next tick. Child envs canonicalize to their parent project so the per-project
+    singleton config is found once.
     """
-    team_ids = set(
-        LLMSkill.objects.filter(
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        )
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
-    team_ids |= set(SignalScoutConfig.all_teams.values_list("team_id", flat=True).distinct())
-    candidates = Team.objects.filter(id__in=team_ids)
+    if not enrolled:
+        return []
+    candidates = Team.objects.filter(id__in=enrolled)
     canonical_ids = {team.parent_team_id or team.id for team in candidates}
-    canonical_teams = Team.objects.filter(id__in=canonical_ids).order_by("id")
-    return [team for team in canonical_teams if _team_passes_rollout_flag(team)]
+    return list(Team.objects.filter(id__in=canonical_ids).order_by("id"))
 
 
-def _team_passes_rollout_flag(team: Team) -> bool:
-    """Whether the `signals-scout` dogfood flag is on for this team.
+def _fallback_team_ids() -> list[int]:
+    """Default allowlist when the flag payload is absent/unreadable — gated to PostHog Cloud
+    and local dev. A self-hosted instance (where teams 1/2 exist but no one opted into scouts)
+    fails closed instead, so the coordinator never starts LLM scout runs for an unintended
+    tenant; a self-hoster opts in by setting the payload explicitly."""
+    return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
 
-    Passes organization + project group context — mirroring the inbox gate in
-    `backend/access.py` and the house pattern in `posthog/permissions.py` — so the flag is
-    targetable per project/org from the PostHog UI. A group-aggregated release condition only
-    matches when its group is supplied here, so without this the flag could only ever be a
-    blanket rollout %. Remote eval; fails closed (eval error → team dropped).
+
+def _enrolled_team_ids() -> set[int]:
+    """Project ids enrolled in scouts, read from the `signals-scout` flag's JSON payload.
+
+    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
+    drain) a team on the next tick; `skip_team_ids` is an override kill-switch. The flag must
+    stay 100%-on so the payload is served for the synthetic discovery distinct_id —
+    `match_value=True` additionally forces the true-variant payload under local evaluation.
+    Fail-safe: a missing/invalid payload or a read error falls back to `_fallback_team_ids`.
+    Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
-    org_id = str(team.organization_id)
-    project_id = str(team.id)
+    fallback = _fallback_team_ids()
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SIGNALS_SCOUT_DOGFOOD_FLAG,
-                project_id,
-                groups={"organization": org_id, "project": project_id},
-                group_properties={
-                    "organization": {"id": org_id},
-                    "project": {"id": project_id},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
+        payload = posthoganalytics.get_feature_flag_payload(
+            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
         )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            return set(fallback)
+
+        # Absent key or malformed value → fallback. An explicit empty list is honored as an
+        # intentional "drain all teams" — not coerced to the fallback.
+        guaranteed = payload.get("guaranteed_team_ids", fallback)
+        if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
+            guaranteed = fallback
+
+        skip = payload.get("skip_team_ids", [])
+        if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
+            skip = []
+
+        return set(guaranteed) - set(skip)
     except Exception as error:
         capture_exception(error)
-        return False
+        return set(fallback)
 
 
 def _register_missing_configs(team: Team) -> set[str]:
