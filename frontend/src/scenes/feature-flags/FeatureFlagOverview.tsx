@@ -22,7 +22,7 @@ import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
-interface FeatureFlagOverviewV2Props {
+interface FeatureFlagOverviewProps {
     featureFlag: FeatureFlagType
 }
 
@@ -53,13 +53,9 @@ function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }
 }
 
 /**
- * V2 readonly overview for feature flags, gated behind FEATURE_FLAGS_V2.
- *
- * NOTE: This component is currently rendered conditionally in FeatureFlag.tsx
- * based on the useFormUI flag. If other entry points need to render this overview,
- * ensure the gate is checked there as well.
+ * Readonly overview for feature flags, rendered as the Overview tab in FeatureFlag.tsx.
  */
-export function FeatureFlagOverviewV2({ featureFlag }: FeatureFlagOverviewV2Props): JSX.Element {
+export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { recordingFilterForFlag, featureFlagActiveUpdateLoading } = useValues(featureFlagLogic)
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
