@@ -18,7 +18,9 @@ const STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
 }
 
 export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element | null {
-    const { scanner, scannerEstimate, scannerEstimateLoading } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+    const { scanner, scannerEstimate, scannerEstimateLoading, isNew } = useValues(
+        replayScannerLogic({ id: scannerId, tabId })
+    )
     const { quota } = useValues(visionQuotaLogic)
 
     if (!scanner) {
@@ -31,7 +33,10 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
 
-    const projection = projectQuota(quota, projected)
+    // On edit, this scanner's existing contribution is already inside `usage_this_month`, so adding
+    // its projection on top of historical burn would double-count. Skip the addition; the headline
+    // number still reads the new projection so the user can compare it to current burn.
+    const projection = projectQuota(quota, isNew ? projected : null)
     const {
         status,
         capReachDate,

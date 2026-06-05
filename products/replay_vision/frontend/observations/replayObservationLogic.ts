@@ -63,7 +63,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     response.scanner_snapshot?.name ?? null
                 )
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to load observation')
+                lemonToast.error(`Failed to load observation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadObservationFailure()
             }
         },

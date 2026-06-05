@@ -165,6 +165,22 @@ describe('replayScannerLogic', () => {
                     scanner_config: expect.objectContaining({ tags: 'Tags must be unique' }),
                 },
             },
+            {
+                name: 'flags classifier with blank/whitespace tags',
+                setup: () => {
+                    logic.actions.setScannerType('classifier')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'tag this',
+                            tags: ['bug', '   '],
+                            multi_label: true,
+                        } as ClassifierScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ tags: "Tags can't be blank" }),
+                },
+            },
         ])('$name', async ({ setup, expectedErrors }) => {
             setup()
             await expectLogic(logic).toMatchValues({

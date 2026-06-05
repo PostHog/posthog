@@ -248,6 +248,18 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "Tag vocabulary must have at least one tag.",
             ),
             (
+                "classifier_blank_tag",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["bug", "   "]},
+                "Tags can't be blank.",
+            ),
+            (
+                "classifier_duplicate_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["Bug", "bug"]},
+                "Tags must be unique.",
+            ),
+            (
                 "monitor_missing_prompt",
                 ScannerType.MONITOR,
                 {},

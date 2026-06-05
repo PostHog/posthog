@@ -64,8 +64,15 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     prompt = scanner_config.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return "Prompt is required."
-    if scanner_type == ScannerType.CLASSIFIER and not scanner_config.get("tags"):
-        return "Tag vocabulary must have at least one tag."
+    if scanner_type == ScannerType.CLASSIFIER:
+        tags = scanner_config.get("tags") or []
+        if len(tags) == 0:
+            return "Tag vocabulary must have at least one tag."
+        if any(not isinstance(t, str) or not t.strip() for t in tags):
+            return "Tags can't be blank."
+        normalized = {t.strip().lower() for t in tags}
+        if len(normalized) != len(tags):
+            return "Tags must be unique."
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):

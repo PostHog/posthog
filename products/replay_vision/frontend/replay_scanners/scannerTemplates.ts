@@ -26,22 +26,22 @@ interface BaseTemplate {
     scanner_description: string
 }
 
-export interface MonitorTemplate extends BaseTemplate {
+interface MonitorTemplate extends BaseTemplate {
     scanner_type: 'monitor'
     scanner_config: MonitorScannerConfig
 }
 
-export interface SummarizerTemplate extends BaseTemplate {
+interface SummarizerTemplate extends BaseTemplate {
     scanner_type: 'summarizer'
     scanner_config: SummarizerScannerConfig
 }
 
-export interface ClassifierTemplate extends BaseTemplate {
+interface ClassifierTemplate extends BaseTemplate {
     scanner_type: 'classifier'
     scanner_config: ClassifierScannerConfig
 }
 
-export interface ScorerTemplate extends BaseTemplate {
+interface ScorerTemplate extends BaseTemplate {
     scanner_type: 'scorer'
     scanner_config: ScorerScannerConfig
 }
@@ -116,8 +116,6 @@ export const defaultScannerTemplates: readonly ScannerTemplate[] = [
         },
     },
 ] as const
-
-export type ScannerTemplateKey = (typeof defaultScannerTemplates)[number]['key']
 
 export function findScannerTemplate(key: string | undefined): ScannerTemplate | undefined {
     if (!key) {

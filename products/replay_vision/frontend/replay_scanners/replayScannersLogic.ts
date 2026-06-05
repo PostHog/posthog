@@ -285,7 +285,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 const response = await visionScannersList(String(teamId), params)
                 actions.loadScannersSuccess(scannersFromApi(response.results ?? []), response.count ?? 0)
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to load scanners')
+                lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadScannersFailure(String(error))
             }
         },
@@ -304,7 +304,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 actions.deleteScannerSuccess(id)
                 lemonToast.success('Scanner deleted')
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to delete scanner')
+                lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -335,7 +335,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 const response = await visionScannersCreate(String(teamId), scannerToApiBody(duplicate))
                 actions.duplicateScannerSuccess(scannerFromApi(response))
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to duplicate scanner')
+                lemonToast.error(`Failed to duplicate scanner${error.detail ? `: ${error.detail}` : ''}`)
             }
         },
 
@@ -398,7 +398,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 actions.toggleScannerEnabledDone(id)
             } catch (error: any) {
                 const verb = scanner.enabled ? 'enable' : 'disable'
-                lemonToast.error(error.detail || `Failed to ${verb} scanner`)
+                lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertScannerEnabled(id)
             }
         },
