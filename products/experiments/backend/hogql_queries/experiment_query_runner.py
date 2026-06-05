@@ -33,6 +33,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.constants import EXPERIMENT_METRIC_EVENT_BREAKDOWNS_FEATURE_FLAG_KEY
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -60,6 +61,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
 )
+from products.experiments.backend.hogql_queries.metric_breakdown_injector import MetricBreakdownInjector
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -315,6 +317,23 @@ class ExperimentQueryRunner(QueryRunner):
 
         return breakdowns
 
+    def _metric_event_breakdowns_enabled(self) -> bool:
+        """Team-scoped, local-only flag gating the metric-event breakdown injector.
+
+        Local-only evaluation keeps this off the network in the query hot path and
+        fails closed (old behavior) when flag definitions aren't cached.
+        """
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENT_METRIC_EVENT_BREAKDOWNS_FEATURE_FLAG_KEY,
+                str(self.team.id),
+                groups={"project": str(self.team.id)},
+                group_properties={"project": {"id": str(self.team.id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         """
         Ensures lazy-computed exposure data exists for this experiment.
@@ -448,6 +467,11 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
+        breakdowns = self._get_breakdowns_for_builder()
+        breakdown_injector: MetricBreakdownInjector | None = None
+        if breakdowns and isinstance(self.metric, ExperimentFunnelMetric) and self._metric_event_breakdowns_enabled():
+            breakdown_injector = MetricBreakdownInjector(breakdowns, self.metric)
+
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
@@ -458,7 +482,8 @@ class ExperimentQueryRunner(QueryRunner):
             date_range_query=self.date_range_query,
             entity_key=self.entity_key,
             metric=self.metric,
-            breakdowns=self._get_breakdowns_for_builder(),
+            breakdowns=breakdowns,
+            breakdown_injector=breakdown_injector,
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
         )
