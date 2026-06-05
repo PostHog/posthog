@@ -63,10 +63,14 @@ def validate_session_replay_list_config(config: SessionReplayListWidgetConfigInp
         "limit": limit,
         "orderBy": order_by,
         "orderDirection": order_direction,
-        **({"dateRange": validated_date_range} if validated_date_range is not None else {}),
-        **({"widgetFilters": validated_widget_filters} if validated_widget_filters is not None else {}),
-        **merge_base_widget_config_fields(config),
     }
+    if validated_date_range is not None:
+        validated["dateRange"] = validated_date_range
+    if validated_widget_filters is not None:
+        validated["widgetFilters"] = validated_widget_filters
+    base_fields = merge_base_widget_config_fields(config)
+    if "filterTestAccounts" in base_fields:
+        validated["filterTestAccounts"] = base_fields["filterTestAccounts"]
     return validated
 
 

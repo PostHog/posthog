@@ -1,9 +1,12 @@
+from typing import cast
+
 from django.test import TestCase
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import EventPropertyFilter
 
+from products.dashboards.backend.widgets.widget_config_types import WidgetListConfigInputBase
 from products.dashboards.backend.widgets.widget_filters import (
     build_event_property_filters_from_widget_filters,
     build_property_group_filter_from_widget_filters,
@@ -14,7 +17,7 @@ from products.dashboards.backend.widgets.widget_filters import (
 class TestWidgetFilters(TestCase):
     def test_validate_widget_filters_rejects_invalid_shape(self) -> None:
         with self.assertRaises(DRFValidationError):
-            validate_widget_filters({"widgetFilters": "nope"})
+            validate_widget_filters(cast(WidgetListConfigInputBase, {"widgetFilters": "nope"}))
 
     def test_validate_widget_filters_normalizes_entries(self) -> None:
         validated = validate_widget_filters(

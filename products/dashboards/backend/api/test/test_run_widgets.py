@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -33,6 +33,10 @@ from products.dashboards.backend.widgets.session_replay_list import (
     run_session_replay_list_widget,
     validate_session_replay_list_config,
 )
+from products.dashboards.backend.widgets.widget_config_types import (
+    ErrorTrackingListWidgetConfigInput,
+    SessionReplayListWidgetConfigInput,
+)
 from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
 
@@ -63,7 +67,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_error_tracking_list_config_rejects_invalid_filter_test_accounts(self) -> None:
         with self.assertRaises(Exception):
-            validate_error_tracking_list_config({"filterTestAccounts": "yes"})
+            validate_error_tracking_list_config(cast(ErrorTrackingListWidgetConfigInput, {"filterTestAccounts": "yes"}))
 
     def test_validate_error_tracking_list_config_rejects_high_limit(self) -> None:
         with self.assertRaises(Exception):
@@ -112,7 +116,7 @@ class TestWidgetRegistry(APIBaseTest):
 
     def test_validate_session_replay_list_config_rejects_invalid_filter_test_accounts(self) -> None:
         with self.assertRaises(Exception):
-            validate_session_replay_list_config({"filterTestAccounts": "yes"})
+            validate_session_replay_list_config(cast(SessionReplayListWidgetConfigInput, {"filterTestAccounts": "yes"}))
 
     def test_validate_session_replay_list_config_rejects_high_limit(self) -> None:
         with self.assertRaises(Exception):
