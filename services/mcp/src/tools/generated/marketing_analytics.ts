@@ -12,16 +12,16 @@ import {
 } from '@/generated/marketing_analytics/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const MarketingAnalyticsConversionGoalsRetrieveSchema = z.object({})
+const MarketingAnalyticsConversionGoalsSchema = z.object({})
 
-const marketingAnalyticsConversionGoalsRetrieve = (): ToolBase<
-    typeof MarketingAnalyticsConversionGoalsRetrieveSchema,
+const marketingAnalyticsConversionGoals = (): ToolBase<
+    typeof MarketingAnalyticsConversionGoalsSchema,
     Schemas.ConversionGoalsListResponse
 > => ({
-    name: 'marketing-analytics-conversion-goals-retrieve',
-    schema: MarketingAnalyticsConversionGoalsRetrieveSchema,
+    name: 'marketing-analytics-conversion-goals',
+    schema: MarketingAnalyticsConversionGoalsSchema,
     // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsConversionGoalsRetrieveSchema>) => {
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsConversionGoalsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ConversionGoalsListResponse>({
             method: 'GET',
@@ -31,15 +31,15 @@ const marketingAnalyticsConversionGoalsRetrieve = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsDataSourcesRetrieveSchema = MarketingAnalyticsDataSourcesRetrieveQueryParams
+const MarketingAnalyticsDataSourcesSchema = MarketingAnalyticsDataSourcesRetrieveQueryParams
 
-const marketingAnalyticsDataSourcesRetrieve = (): ToolBase<
-    typeof MarketingAnalyticsDataSourcesRetrieveSchema,
+const marketingAnalyticsDataSources = (): ToolBase<
+    typeof MarketingAnalyticsDataSourcesSchema,
     Schemas.DataSourceHealthResponse
 > => ({
-    name: 'marketing-analytics-data-sources-retrieve',
-    schema: MarketingAnalyticsDataSourcesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDataSourcesRetrieveSchema>) => {
+    name: 'marketing-analytics-data-sources',
+    schema: MarketingAnalyticsDataSourcesSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDataSourcesSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.DataSourceHealthResponse>({
             method: 'GET',
@@ -52,15 +52,15 @@ const marketingAnalyticsDataSourcesRetrieve = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsDiagnoseRetrieveSchema = MarketingAnalyticsDiagnoseRetrieveQueryParams
+const MarketingAnalyticsDiagnoseSchema = MarketingAnalyticsDiagnoseRetrieveQueryParams
 
-const marketingAnalyticsDiagnoseRetrieve = (): ToolBase<
-    typeof MarketingAnalyticsDiagnoseRetrieveSchema,
+const marketingAnalyticsDiagnose = (): ToolBase<
+    typeof MarketingAnalyticsDiagnoseSchema,
     Schemas.MarketingDiagnosticResponse
 > => ({
-    name: 'marketing-analytics-diagnose-retrieve',
-    schema: MarketingAnalyticsDiagnoseRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDiagnoseRetrieveSchema>) => {
+    name: 'marketing-analytics-diagnose',
+    schema: MarketingAnalyticsDiagnoseSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsDiagnoseSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MarketingDiagnosticResponse>({
             method: 'GET',
@@ -75,18 +75,15 @@ const marketingAnalyticsDiagnoseRetrieve = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsExplainConversionGoalRetrieveSchema = MarketingAnalyticsExplainConversionGoalRetrieveQueryParams
+const MarketingAnalyticsExplainConversionGoalSchema = MarketingAnalyticsExplainConversionGoalRetrieveQueryParams
 
-const marketingAnalyticsExplainConversionGoalRetrieve = (): ToolBase<
-    typeof MarketingAnalyticsExplainConversionGoalRetrieveSchema,
+const marketingAnalyticsExplainConversionGoal = (): ToolBase<
+    typeof MarketingAnalyticsExplainConversionGoalSchema,
     Schemas.GoalExplanation
 > => ({
-    name: 'marketing-analytics-explain-conversion-goal-retrieve',
-    schema: MarketingAnalyticsExplainConversionGoalRetrieveSchema,
-    handler: async (
-        context: Context,
-        params: z.infer<typeof MarketingAnalyticsExplainConversionGoalRetrieveSchema>
-    ) => {
+    name: 'marketing-analytics-explain-conversion-goal',
+    schema: MarketingAnalyticsExplainConversionGoalSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsExplainConversionGoalSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.GoalExplanation>({
             method: 'GET',
@@ -123,15 +120,15 @@ const marketingAnalyticsSuggestConversionGoals = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsSuggestUtmMappingsRetrieveSchema = MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams
+const MarketingAnalyticsSuggestUtmMappingsSchema = MarketingAnalyticsSuggestUtmMappingsRetrieveQueryParams
 
-const marketingAnalyticsSuggestUtmMappingsRetrieve = (): ToolBase<
-    typeof MarketingAnalyticsSuggestUtmMappingsRetrieveSchema,
+const marketingAnalyticsSuggestUtmMappings = (): ToolBase<
+    typeof MarketingAnalyticsSuggestUtmMappingsSchema,
     Schemas.UtmMappingSuggestionsResponse
 > => ({
-    name: 'marketing-analytics-suggest-utm-mappings-retrieve',
-    schema: MarketingAnalyticsSuggestUtmMappingsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsSuggestUtmMappingsRetrieveSchema>) => {
+    name: 'marketing-analytics-suggest-utm-mappings',
+    schema: MarketingAnalyticsSuggestUtmMappingsSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsSuggestUtmMappingsSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UtmMappingSuggestionsResponse>({
             method: 'GET',
@@ -145,15 +142,12 @@ const marketingAnalyticsSuggestUtmMappingsRetrieve = (): ToolBase<
     },
 })
 
-const MarketingAnalyticsUtmAuditRetrieveSchema = MarketingAnalyticsUtmAuditRetrieveQueryParams
+const MarketingAnalyticsUtmAuditSchema = MarketingAnalyticsUtmAuditRetrieveQueryParams
 
-const marketingAnalyticsUtmAuditRetrieve = (): ToolBase<
-    typeof MarketingAnalyticsUtmAuditRetrieveSchema,
-    Schemas.UtmAuditResponse
-> => ({
-    name: 'marketing-analytics-utm-audit-retrieve',
-    schema: MarketingAnalyticsUtmAuditRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsUtmAuditRetrieveSchema>) => {
+const marketingAnalyticsUtmAudit = (): ToolBase<typeof MarketingAnalyticsUtmAuditSchema, Schemas.UtmAuditResponse> => ({
+    name: 'marketing-analytics-utm-audit',
+    schema: MarketingAnalyticsUtmAuditSchema,
+    handler: async (context: Context, params: z.infer<typeof MarketingAnalyticsUtmAuditSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.UtmAuditResponse>({
             method: 'GET',
@@ -168,11 +162,11 @@ const marketingAnalyticsUtmAuditRetrieve = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'marketing-analytics-conversion-goals-retrieve': marketingAnalyticsConversionGoalsRetrieve,
-    'marketing-analytics-data-sources-retrieve': marketingAnalyticsDataSourcesRetrieve,
-    'marketing-analytics-diagnose-retrieve': marketingAnalyticsDiagnoseRetrieve,
-    'marketing-analytics-explain-conversion-goal-retrieve': marketingAnalyticsExplainConversionGoalRetrieve,
+    'marketing-analytics-conversion-goals': marketingAnalyticsConversionGoals,
+    'marketing-analytics-data-sources': marketingAnalyticsDataSources,
+    'marketing-analytics-diagnose': marketingAnalyticsDiagnose,
+    'marketing-analytics-explain-conversion-goal': marketingAnalyticsExplainConversionGoal,
     'marketing-analytics-suggest-conversion-goals': marketingAnalyticsSuggestConversionGoals,
-    'marketing-analytics-suggest-utm-mappings-retrieve': marketingAnalyticsSuggestUtmMappingsRetrieve,
-    'marketing-analytics-utm-audit-retrieve': marketingAnalyticsUtmAuditRetrieve,
+    'marketing-analytics-suggest-utm-mappings': marketingAnalyticsSuggestUtmMappings,
+    'marketing-analytics-utm-audit': marketingAnalyticsUtmAudit,
 }

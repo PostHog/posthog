@@ -9,7 +9,7 @@ feature: marketing_analytics
 url_prefix: /marketing
 ui_apps: {}
 tools:
-    marketing-analytics-conversion-goals-retrieve:
+    marketing-analytics-conversion-goals:
         operation: marketing_analytics_conversion_goals_retrieve
         enabled: true
         scopes:
@@ -26,7 +26,7 @@ tools:
             events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
             may differ from the dashboard's attribution-windowed number.
         feature_flag: marketing-analytics-mcp
-    marketing-analytics-data-sources-retrieve:
+    marketing-analytics-data-sources:
         operation: marketing_analytics_data_sources_retrieve
         enabled: true
         scopes:
@@ -39,9 +39,9 @@ tools:
         description: >
             List the platform-side health of every native marketing integration: connected/not, last sync time and
             status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side
-            only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose-retrieve.
+            only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.
         feature_flag: marketing-analytics-mcp
-    marketing-analytics-diagnose-retrieve:
+    marketing-analytics-diagnose:
         operation: marketing_analytics_diagnose_retrieve
         enabled: true
         scopes:
@@ -59,7 +59,7 @@ tools:
             next actions each pointing to the right follow-up tool. USE THIS TOOL FIRST whenever the user asks why
             marketing analytics looks wrong, missing, or broken. Do NOT speculate about causes before calling this tool.
         feature_flag: marketing-analytics-mcp
-    marketing-analytics-explain-conversion-goal-retrieve:
+    marketing-analytics-explain-conversion-goal:
         operation: marketing_analytics_explain_conversion_goal_retrieve
         enabled: true
         scopes:
@@ -93,7 +93,7 @@ tools:
             coverage, and uniqueness of users. Excludes autocapture / system events and events that are already
             configured as goals.
         feature_flag: marketing-analytics-mcp
-    marketing-analytics-suggest-utm-mappings-retrieve:
+    marketing-analytics-suggest-utm-mappings:
         operation: marketing_analytics_suggest_utm_mappings_retrieve
         enabled: true
         scopes:
@@ -116,7 +116,7 @@ tools:
     marketing-analytics-test-mapping-create:
         operation: marketing_analytics_test_mapping_create
         enabled: false
-    marketing-analytics-utm-audit-retrieve:
+    marketing-analytics-utm-audit:
         operation: marketing_analytics_utm_audit_retrieve
         enabled: true
         scopes:
