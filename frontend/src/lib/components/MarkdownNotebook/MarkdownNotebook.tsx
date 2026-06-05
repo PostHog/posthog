@@ -152,6 +152,7 @@ type FloatingToolbarState = {
 
 type CrossBlockSelectionDragState = {
     anchorRange: Range
+    anchorEditableElement: HTMLElement | null
     originX: number
     originY: number
     isDragging: boolean
@@ -229,8 +230,9 @@ const INSERT_MENU_PLACEHOLDER = 'Search for a tool'
 const INSERT_MENU_WIDTH = 384
 const INSERT_MENU_VIEWPORT_PADDING = 12
 const MAX_UNDO_HISTORY_ENTRIES = 100
-const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR =
-    '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block'
+const NOTEBOOK_EDITABLE_BLOCK_SELECTOR =
+    '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content'
+const NOTEBOOK_SELECTABLE_BLOCK_SELECTOR = `${NOTEBOOK_EDITABLE_BLOCK_SELECTOR}, .MarkdownNotebook__component-shell, .MarkdownNotebook__list-block, .MarkdownNotebook__table-block, .MarkdownNotebook__code-block`
 
 function getAskAIMarkdownPlaceholder(placeholderNodeId: string): string {
     return `<!-- Ask PostHog AI insertion placeholder block id: ${placeholderNodeId} -->`
@@ -842,12 +844,9 @@ export function MarkdownNotebook({
                 return
             }
 
-            if (!dragState.isDragging) {
-                const distance = Math.hypot(event.clientX - dragState.originX, event.clientY - dragState.originY)
-                if (distance < CROSS_BLOCK_SELECTION_DRAG_THRESHOLD) {
-                    return
-                }
-                dragState.isDragging = true
+            const distance = Math.hypot(event.clientX - dragState.originX, event.clientY - dragState.originY)
+            if (distance < CROSS_BLOCK_SELECTION_DRAG_THRESHOLD) {
+                return
             }
 
             const focusRange = getNotebookBlockCaretRangeFromPoint(event.clientX, event.clientY, notebookElement)
@@ -855,6 +854,12 @@ export function MarkdownNotebook({
                 return
             }
 
+            const focusEditableElement = getEditableBlockElementForRange(focusRange)
+            if (dragState.anchorEditableElement && focusEditableElement === dragState.anchorEditableElement) {
+                return
+            }
+
+            dragState.isDragging = true
             event.preventDefault()
             selectBetweenRanges(dragState.anchorRange, focusRange)
             setFloatingToolbar(null)
@@ -890,6 +895,7 @@ export function MarkdownNotebook({
 
         crossBlockSelectionRef.current = {
             anchorRange: anchorRange.cloneRange(),
+            anchorEditableElement: getClosestEditableBlockElement(event.currentTarget),
             originX: event.clientX,
             originY: event.clientY,
             isDragging: false,
@@ -4835,9 +4841,7 @@ function getNotebookBlockCaretRangeFromPoint(
     const range = getCaretRangeFromPoint(clientX, clientY)
     if (range) {
         const element = getElementForNode(range.startContainer)
-        const editableTextElement = element?.closest(
-            '.MarkdownNotebook__text-block, .MarkdownNotebook__list-item-content, .MarkdownNotebook__table-cell-content'
-        )
+        const editableTextElement = getClosestEditableBlockElement(element)
         if (editableTextElement && notebookElement.contains(editableTextElement)) {
             return range
         }
@@ -4878,6 +4882,15 @@ function getCaretRangeFromPoint(clientX: number, clientY: number): Range | null 
 
 function getElementForNode(node: Node): Element | null {
     return node instanceof Element ? node : node.parentElement
+}
+
+function getClosestEditableBlockElement(element: Element | null): HTMLElement | null {
+    const editableElement = element?.closest(NOTEBOOK_EDITABLE_BLOCK_SELECTOR)
+    return editableElement instanceof HTMLElement ? editableElement : null
+}
+
+function getEditableBlockElementForRange(range: Range): HTMLElement | null {
+    return getClosestEditableBlockElement(getElementForNode(range.startContainer))
 }
 
 function selectBetweenRanges(anchorRange: Range, focusRange: Range): void {

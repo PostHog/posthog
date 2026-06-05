@@ -1294,6 +1294,84 @@ Second paragraph`,
         })
     })
 
+    it('lets native selection handle reversed drags within a text block', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph' }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        const textNode = textBlock.firstChild
+
+        expect(textNode).toBeInstanceOf(Text)
+
+        const rightRange = document.createRange()
+        rightRange.setStart(textNode as Text, 10)
+        rightRange.collapse(true)
+        const leftRange = document.createRange()
+        leftRange.setStart(textNode as Text, 2)
+        leftRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn((clientX: number) => (clientX === 40 ? rightRange : leftRange)),
+        })
+
+        fireEvent.mouseDown(textBlock, { button: 0, clientX: 40, clientY: 10 })
+
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })).toBe(true)
+
+        fireEvent.mouseUp(window.document)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+    })
+
+    it('supports reversed drag selection across text blocks', () => {
+        const caretDocument = document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }
+        const originalCaretRangeFromPoint = caretDocument.caretRangeFromPoint
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: `First paragraph
+
+Second paragraph`,
+            })
+        )
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        const firstTextNode = textBlocks[0].firstChild
+        const secondTextNode = textBlocks[1].firstChild
+
+        expect(firstTextNode).toBeInstanceOf(Text)
+        expect(secondTextNode).toBeInstanceOf(Text)
+
+        const firstRange = document.createRange()
+        firstRange.setStart(firstTextNode as Text, 2)
+        firstRange.collapse(true)
+        const secondRange = document.createRange()
+        secondRange.setStart(secondTextNode as Text, 4)
+        secondRange.collapse(true)
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: jest.fn((_clientX: number, clientY: number) => (clientY === 40 ? secondRange : firstRange)),
+        })
+
+        fireEvent.mouseDown(textBlocks[1], { button: 0, clientX: 40, clientY: 40 })
+
+        expect(fireEvent.mouseMove(window.document, { clientX: 10, clientY: 10 })).toBe(false)
+
+        fireEvent.mouseUp(window.document)
+
+        const selectedText = window.getSelection()?.toString() ?? ''
+        expect(selectedText).toContain('rst paragraph')
+        expect(selectedText).toContain('Seco')
+
+        Object.defineProperty(document, 'caretRangeFromPoint', {
+            configurable: true,
+            value: originalCaretRangeFromPoint,
+        })
+    })
+
     it('keeps text visible when changing a paragraph to a heading', () => {
         const { container, rerender } = render(createElement(MarkdownNotebook, { value: 'Selected heading text' }))
 
