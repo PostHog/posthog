@@ -185,12 +185,13 @@ def _is_json_blob_access(node: ast.JSONFieldAccess, context: HogQLContext) -> bo
 
 
 def _sentinel(value: str) -> ast.Constant:
-    """A fixed materialization sentinel constant ('' / 'null' / the trim regex).
+    """A fixed materialization sentinel constant ('' / 'null' / the trim regex), rendered inline like the printer.
 
-    Result-equivalence bar (§8.7): the printer renders these inline, the lowered form parameterizes them. They evaluate
-    identically and do not affect skip-index eligibility (which depends on the *column* being bare, not the literal).
+    These are fixed, known-safe literals; `inline=True` makes the ClickHouse printer emit them inline (escaped) exactly
+    as `BasePrinter.visit_property_type` hand-builds them, so the lowered SQL is byte-identical, not merely result-
+    equivalent (§8.7). They do not affect skip-index eligibility (which depends on the *column* being bare).
     """
-    return ast.Constant(value=value)
+    return ast.Constant(value=value, inline=True)
 
 
 def _blob_field(field_type: ast.FieldType) -> ast.Field:
