@@ -63,7 +63,8 @@ def _request(
         raise PendoRetryableError(f"Pendo API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Pendo API error: status={response.status_code}, body={response.text}, url={url}")
+        # Cap the body so an HTML error page (e.g. a WAF 503) can't blow up the log line.
+        logger.error(f"Pendo API error: status={response.status_code}, body={response.text[:500]!r}, url={url}")
         response.raise_for_status()
 
     return response
@@ -75,7 +76,7 @@ def validate_credentials(integration_key: str, region: Optional[str]) -> tuple[b
     url = f"{get_base_url(region)}/api/v1/page"
     try:
         response = make_tracked_session().get(url, headers=_get_headers(integration_key), timeout=10)
-    except Exception:
+    except (requests.RequestException, OSError):
         return False, "Could not reach Pendo. Check your network connection and the selected region."
 
     if response.status_code == 200:
@@ -166,7 +167,8 @@ def get_rows(
         logger.debug(f"Pendo: resuming endpoint={endpoint} from offset={start_offset}")
 
     if config.is_aggregation:
-        assert config.aggregation_source is not None
+        if config.aggregation_source is None:
+            raise ValueError(f"Endpoint '{endpoint}' is marked as aggregation but has no aggregation_source")
         yield from _iter_aggregation(
             session,
             base_url,
@@ -177,7 +179,8 @@ def get_rows(
             start_offset,
         )
     else:
-        assert config.path is not None
+        if config.path is None:
+            raise ValueError(f"Endpoint '{endpoint}' is not an aggregation but has no path")
         yield from _iter_list_endpoint(
             session,
             base_url,

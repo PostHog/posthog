@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.temporal.data_imports.sources.pendo import pendo as pendo_module
 from posthog.temporal.data_imports.sources.pendo.pendo import (
     PendoResumeConfig,
@@ -76,6 +78,7 @@ class TestValidateCredentials:
         if expected_substr is None:
             assert message is None
         else:
+            assert message is not None
             assert expected_substr in message
 
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
@@ -88,7 +91,7 @@ class TestValidateCredentials:
 
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
     def test_swallows_network_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
 
         is_valid, message = validate_credentials("key", "us")
 
