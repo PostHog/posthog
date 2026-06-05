@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
+from django.contrib.admin.widgets import AutocompleteSelect
 from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
 from django.test import RequestFactory
@@ -235,6 +236,16 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         )
         self.admin.delete_model(self._request(), document)
         mock_pandadoc_cls.assert_not_called()
+
+    def test_add_form_uses_autocomplete_for_organization(self) -> None:
+        # The organization FK must render an autocomplete widget, not the default
+        # <select> — the latter loads every org row into the page and times out
+        # the add view on Cloud.
+        add_form_class = self.admin.get_form(self._request(), obj=None, change=False)
+        widget = add_form_class.base_fields["organization"].widget
+        # Admin wraps FK widgets in RelatedFieldWidgetWrapper (the +add/edit links).
+        inner = getattr(widget, "widget", widget)
+        self.assertIsInstance(inner, AutocompleteSelect)
 
     def test_change_view_form_saves_without_signed_pdf(self) -> None:
         # The add form (LegalDocumentAdminForm) declares signed_pdf
