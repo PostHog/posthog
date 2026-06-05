@@ -2,7 +2,7 @@
 
 A single Dagster job that pre-warms the lazy precompute cache for the
 Web analytics dashboard's main tile matrix over the trailing 28 days,
-for every team in the hardcoded `EAGER_BASELINE_TEAM_IDS` list.
+for every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting.
 
 The job is intentionally thin: it enumerates the dashboard's query
 families and dispatches each through `get_query_runner(...).run(...)`.
@@ -20,11 +20,12 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-The audience is a hardcoded `EAGER_BASELINE_TEAM_IDS` tuple kept in
-source. To enroll or remove a team, open a PR editing the constant.
-The list intentionally mirrors `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`
-on the runtime read path so warmer and reader stay in sync; do not
-silently let them drift.
+The audience is the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` runtime
+setting (env-var default, overridable via instance settings). The
+runtime read-path gate (`is_precompute_enabled_for_team`) consults the
+*same* setting to bypass the org rollout flag, so warmer and reader read
+one source of truth and cannot drift. To enroll or remove a team, change
+the setting — no code change or redeploy required.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
 since the lazy precompute infrastructure is Cloud-only.
@@ -36,9 +37,11 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 
 import time
 
+from django.utils import timezone as django_timezone
+
 import dagster
 import structlog
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 
 from posthog.schema import WebStatsBreakdown
 
@@ -50,17 +53,17 @@ from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
+from posthog.models.instance_setting import get_instance_setting
 
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    PRECOMPUTE_TEAM_IDS_SETTING,
+    is_precompute_enabled_for_team,
+)
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
 
-
-# Audience: teams that should have the dashboard's main tile matrix
-# perpetually warmed. Keep this in sync with the runtime read-path
-# `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env var on Django pods —
-# warming a team here that the reader doesn't serve is wasted compute.
-EAGER_BASELINE_TEAM_IDS: tuple[int, ...] = (2,)
 
 # Single warming window: the trailing 28 days. The lazy precompute path
 # stores per-day buckets, so a 28-day warm naturally serves any user
@@ -109,6 +112,19 @@ EAGER_PRECOMPUTE_BASELINE_FAILED = Counter(
     "Total baseline queries that failed during eager web analytics warming, labeled by query kind and exception type.",
     ["query_kind", "error_type"],
 )
+EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE = Counter(
+    "web_analytics_eager_precompute_not_lazy_eligible_total",
+    "Teams skipped by the eager warmer because they are not lazy-precompute eligible "
+    "(the gate would route every tile through the raw path).",
+)
+# Number of READY precompute cache jobs present for a team after warming. Zero
+# is the alarm: it means the lazy path inserted nothing, i.e. the warmer fell
+# through to the raw path and nothing was actually warmed.
+EAGER_PRECOMPUTE_CACHE_KEYS = Gauge(
+    "web_analytics_eager_precompute_cache_keys",
+    "Count of READY (non-expired) precompute cache jobs for a team after eager warming.",
+    ["team_id"],
+)
 
 
 def _resolve_eager_audience() -> tuple[list[int], str, dict]:
@@ -120,11 +136,22 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     if not is_cloud():
         return [], "not_cloud", {}
 
-    team_ids = list(EAGER_BASELINE_TEAM_IDS)
+    team_ids = list(get_instance_setting(PRECOMPUTE_TEAM_IDS_SETTING))
     diag = {"teams_configured": len(team_ids)}
     if not team_ids:
         return [], "no_teams_configured", diag
     return team_ids, "ok", diag
+
+
+def _count_precompute_cache_keys(team: Team) -> int:
+    """Count READY, non-expired precompute jobs for a team. Zero after a warm
+    run means the lazy path inserted nothing — the warmer fell through to the
+    raw path, which is the silent failure this check exists to surface."""
+    return PreaggregationJob.objects.filter(
+        team=team,
+        status=PreaggregationJob.Status.READY,
+        expires_at__gte=django_timezone.now(),
+    ).count()
 
 
 def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> tuple[int, int]:
@@ -234,7 +261,7 @@ def _warm_baseline_for_team(context: dagster.OpExecutionContext, team: Team) -> 
 
 @dagster.op
 def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int]:
-    """Run the baseline tile matrix against every team in `EAGER_BASELINE_TEAM_IDS`."""
+    """Run the baseline tile matrix against every team in the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` setting."""
     started = time.monotonic()
     team_ids, gate_reason, diagnostics = _resolve_eager_audience()
     diag_str = " ".join(f"{k}={v}" for k, v in diagnostics.items())
@@ -260,13 +287,39 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
             skipped += 1
             continue
 
+        # Eligibility pre-check. The audience IS the precompute team list, so a
+        # team reaching here should always be eligible. If it isn't, the gate
+        # and the warmer audience have drifted and every tile would silently
+        # warm via the raw path — skip loudly rather than burn compute on it.
+        if not is_precompute_enabled_for_team(team):
+            EAGER_PRECOMPUTE_NOT_LAZY_ELIGIBLE.inc()
+            context.log.error(
+                f"eager_baseline_warming_not_lazy_eligible team={team_id} — "
+                f"skipping; the lazy gate would route every tile through the raw path"
+            )
+            logger.error("eager_baseline_warming_not_lazy_eligible", team_id=team_id)
+            skipped += 1
+            continue
+
         team_started = time.monotonic()
         team_warmed, team_failed = _warm_baseline_for_team(context, team)
+        # Post-check: confirm the lazy path actually populated the cache. Zero
+        # READY jobs after a warm run means it fell through to raw and warmed
+        # nothing — the failure mode that ran silently for days.
+        cache_keys = _count_precompute_cache_keys(team)
+        EAGER_PRECOMPUTE_CACHE_KEYS.labels(team_id=str(team_id)).set(cache_keys)
+        if cache_keys == 0:
+            context.log.error(
+                f"eager_baseline_warming_no_cache_keys team={team_id} warmed={team_warmed} — "
+                f"lazy path inserted no precompute jobs (raw fallback?)"
+            )
+            logger.error("eager_baseline_warming_no_cache_keys", team_id=team_id, warmed=team_warmed)
         logger.info(
             "eager_baseline_warming_team",
             team_id=team_id,
             warmed=team_warmed,
             failed=team_failed,
+            cache_keys=cache_keys,
             duration_ms=round((time.monotonic() - team_started) * 1000),
         )
         warmed += team_warmed
@@ -294,7 +347,7 @@ def warm_eager_baseline_op(context: dagster.OpExecutionContext) -> dict[str, int
 @dagster.job(
     description=(
         "Hourly pre-warmer for Web analytics: runs the dashboard's main tile matrix over the last "
-        f"{BASELINE_WINDOW_DAYS} days for every team in `EAGER_BASELINE_TEAM_IDS`. Each query is "
+        f"{BASELINE_WINDOW_DAYS} days for every team in `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS`. Each query is "
         "dispatched through its standard runner, which routes through the family's lazy precompute "
         "path — the runner decides what's stale and inserts only what's missing."
     ),

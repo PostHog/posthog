@@ -284,6 +284,11 @@ CONSTANCE_CONFIG = {
         "Team IDs that use prefiltered events subqueries in web analytics bounce/scroll queries for better granule pruning",
         list[int],
     ),
+    "WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS": (
+        get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", default=[2], type_cast=list[int]),
+        "Team IDs force-enrolled in web analytics lazy precompute: the runtime gate bypasses the org feature flag for these, and the eager warmer uses this same list as its audience",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -334,6 +339,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
     "WEB_ANALYTICS_EVENTS_PREFILTER_TEAM_IDS",
+    "WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
