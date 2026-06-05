@@ -343,15 +343,23 @@ export class LazyLoader<T> {
             return await this.options.loader(keys)
         }
 
-        const deadline = Date.now() + retry.maxElapsedMs
+        const deadline = performance.now() + retry.maxElapsedMs
         let attempt = 0
         for (;;) {
             try {
                 return await this.options.loader(keys)
             } catch (error) {
                 attempt++
-                if (error?.isRetriable !== true || Date.now() >= deadline) {
-                    // Only retry known-transient failures; rethrow anything else (and on budget exhaustion).
+                if (error?.isRetriable !== true) {
+                    // Non-transient: rethrow immediately so genuine bugs surface rather than being masked.
+                    throw error
+                }
+                if (performance.now() >= deadline) {
+                    logger.warn('🔁', `[LazyLoader:${this.options.name}] Loader retries exhausted, giving up`, {
+                        attempt,
+                        keys: keys.length,
+                        error: String(error),
+                    })
                     throw error
                 }
                 const jitter = retry.retryJitterMs ? Math.floor(Math.random() * retry.retryJitterMs) : 0

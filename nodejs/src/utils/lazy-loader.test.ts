@@ -19,7 +19,7 @@ describe('LazyLoader', () => {
     })
 
     afterEach(() => {
-        jest.spyOn(Date, 'now').mockRestore()
+        jest.restoreAllMocks()
     })
 
     describe('constructor', () => {
@@ -430,13 +430,13 @@ describe('LazyLoader', () => {
         })
 
         it('gives up and rethrows once maxElapsedMs is exceeded', async () => {
-            let now = start
-            jest.spyOn(Date, 'now').mockImplementation(() => now)
+            let elapsed = 0
+            jest.spyOn(performance, 'now').mockImplementation(() => elapsed)
 
             const { retryLoader, retryLazyLoader } = makeRetryLoader()
             // Each attempt advances the clock by 600ms; the 1000ms budget allows only one retry.
             retryLoader.mockImplementation(() => {
-                now += 600
+                elapsed += 600
                 return Promise.reject(retriable('blip'))
             })
 
@@ -450,6 +450,34 @@ describe('LazyLoader', () => {
 
             await expect(noRetryLazyLoader.get('key1')).rejects.toThrow('blip')
             expect(noRetryLoader).toHaveBeenCalledTimes(1)
+        })
+
+        it('serves a get() for a different key while the loader is retrying, without hanging', async () => {
+            const { retryLoader, retryLazyLoader } = makeRetryLoader()
+
+            let allowAToSucceed = false
+            retryLoader.mockImplementation((keys: string[]) => {
+                if (keys.includes('A')) {
+                    return allowAToSucceed ? Promise.resolve({ A: 'valueA' }) : Promise.reject(retriable('blip'))
+                }
+                return Promise.resolve({ B: 'valueB' })
+            })
+
+            // Start A; it fails and enters the retry loop (its buffer has already fired and cleared).
+            const aPromise = retryLazyLoader.get('A')
+            for (let i = 0; i < 100 && !retryLoader.mock.calls.some((c) => c[0].includes('A')); i++) {
+                await delay(2)
+            }
+
+            // A get() for a different key must resolve on its own buffer, not block on A's retry.
+            await expect(retryLazyLoader.get('B')).resolves.toBe('valueB')
+
+            // A still completes once its dependency recovers.
+            allowAToSucceed = true
+            await expect(aPromise).resolves.toBe('valueA')
+
+            // B was loaded by its own independent loader call, not merged into A's retry.
+            expect(retryLoader).toHaveBeenCalledWith(['B'])
         })
     })
 })
