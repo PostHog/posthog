@@ -27,7 +27,7 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
-    "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "posthog_code": ProductCostLimit(limit_usd=1500.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
     "signals": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
