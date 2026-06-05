@@ -188,9 +188,18 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
                 duplicates = duplicates.exclude(pk=self.instance.pk)
             if duplicates.exists():
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
+        self._reject_scanner_type_change(attrs)
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         return attrs
+
+    def _reject_scanner_type_change(self, attrs: dict[str, Any]) -> None:
+        if self.instance is None or "scanner_type" not in attrs:
+            return
+        if attrs["scanner_type"] != self.instance.scanner_type:
+            raise serializers.ValidationError(
+                {"scanner_type": "Scanner type is fixed after creation. Create a new scanner to use a different type."}
+            )
 
     def _validate_scanner_config(self, attrs: dict[str, Any]) -> None:
         # Skip when neither field is touched on PATCH — the existing combination has already been validated.
@@ -557,7 +566,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise QuotaLimitExceeded(
                 detail=(
                     f"Monthly Replay Vision quota of {snapshot.monthly_quota:,} observations reached. "
-                    f"Resets {snapshot.period_end.strftime('%b %-d')}."
+                    f"Resets {snapshot.period_end.strftime('%b')} {snapshot.period_end.day}."
                 )
             )
 

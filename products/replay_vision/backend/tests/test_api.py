@@ -300,26 +300,25 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertNotIn("input_value=", detail)
         self.assertEqual(detail, expected_detail)
 
-    def test_patch_scanner_type_validates_against_existing_config(self) -> None:
-        # Existing monitor scanner has {"prompt": "..."}; switching to classifier without tags must 400.
-        scanner = self._create_scanner()
-        resp = self.client.patch(
-            f"{self.scanners_url}{scanner.id}/",
-            data={"scanner_type": ScannerType.CLASSIFIER},
-            format="json",
-        )
-        self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_config")
-
-    def test_patch_can_change_scanner_type_with_matching_config(self) -> None:
+    def test_patch_rejects_scanner_type_change(self) -> None:
         scanner = self._create_scanner()
         resp = self.client.patch(
             f"{self.scanners_url}{scanner.id}/",
             data={"scanner_type": ScannerType.CLASSIFIER, "scanner_config": {"prompt": "p", "tags": ["x"]}},
             format="json",
         )
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "scanner_type")
+        self.assertIn("fixed after creation", resp.json()["detail"])
+
+    def test_patch_accepts_same_scanner_type(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(
+            f"{self.scanners_url}{scanner.id}/",
+            data={"scanner_type": scanner.scanner_type, "scanner_config": {"prompt": "still a monitor"}},
+            format="json",
+        )
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual(resp.json()["scanner_type"], ScannerType.CLASSIFIER)
 
     def test_create_accepts_valid_query(self) -> None:
         resp = self.client.post(
