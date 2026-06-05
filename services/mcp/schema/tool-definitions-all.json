@@ -5016,6 +5016,34 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-config-list": {
+        "description": "List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run, how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune them.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List scout configs",
+        "title": "List scout configs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-config-update": {
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update a scout config",
+        "title": "Update a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-emit-signal": {
         "description": "Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so emit each finding exactly once and never retry an emit.",
         "category": "Signals",
@@ -5296,6 +5324,20 @@
             "readOnlyHint": true
         }
     },
+    "survey-launch": {
+        "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Launch a survey now.",
+        "title": "Launch a survey now.",
+        "required_scopes": ["survey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "survey-stats": {
         "description": "Get response statistics for a specific survey. Includes detailed event counts (shown, dismissed, sent), unique respondents, conversion rates, and timing data. Supports optional date filtering.",
         "category": "Surveys",
@@ -5308,6 +5350,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "survey-stop": {
+        "description": "Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. Prefer this over `survey-update` with a manual `end_date`. No-op if the survey already has an end_date in the past. To hide the survey from the list, archive it via `survey-update` with `archived=true` instead.",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "Stop a survey now.",
+        "title": "Stop a survey now.",
+        "required_scopes": ["survey:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "survey-update": {
@@ -5345,6 +5401,20 @@
         "summary": "Get aggregated response statistics across all surveys.",
         "title": "Get aggregated response statistics across all surveys.",
         "required_scopes": ["survey:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "surveys-responses-list": {
+        "description": "List individual responses for a specific survey. Question text is already resolved server-side — callers do not need to map opaque $survey_response_<id> property keys. Each row carries distinct_id, session_id, and submitted_at so agents can pivot to recordings, persons, or paths in one follow-up call. Use this instead of executing raw SQL against `survey sent` events.\nCommon patterns: - NPS detractors: question_id=<rating question id> + score_lte=6 - Voice-of-customer mining: question_id=<open question id> + since=<date> - Per-respondent context: read distinct_id from a row, then pull recordings or events for that user.\nFor person properties on respondents, follow up with persons-get using the row's distinct_id — this tool only requires survey:read scope and intentionally doesn't return person data inline. Use limit/offset and the has_more field to paginate. For surveys with many thousands of responses, prefer scoping with `since` / `until` over deep offset paging (ClickHouse offset cost grows with skipped rows, and new responses arriving between pages can shift boundaries).",
+        "category": "Surveys",
+        "feature": "surveys",
+        "summary": "List individual survey responses with resolved question text.",
+        "title": "List individual survey responses with resolved question text.",
+        "required_scopes": ["survey:read", "query:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5393,6 +5463,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "tasks-file-create": {
+        "description": "Add a task to the desktop project tree so it can be organized into folders. Optionally pass a destination `folder` path (defaults to `Tasks`). Idempotent — re-filing updates the existing entry.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "File a task into the project tree",
+        "title": "File a task into the project tree",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
     },
     "tasks-list": {
         "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
@@ -5466,6 +5551,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-unfile-create": {
+        "description": "Remove a task's entry from the desktop project tree. The task itself is not deleted.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Remove a task from the project tree",
+        "title": "Remove a task from the project tree",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "tasks"
     },
@@ -6443,6 +6543,20 @@
         "feature": "workflows",
         "summary": "List workflows",
         "title": "List workflows",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-list-batch-jobs": {
+        "description": "List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows the audience filters and variable overrides the run used, plus when it was created. The status field is not tracked — use workflows-logs / workflows-metrics for the outcome of a run.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "List workflow batch runs",
+        "title": "List workflow batch runs",
         "required_scopes": ["hog_flow:read"],
         "annotations": {
             "destructiveHint": false,
