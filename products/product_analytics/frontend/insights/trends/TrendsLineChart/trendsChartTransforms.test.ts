@@ -1,8 +1,9 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { TooltipConfig } from '@posthog/quill-charts'
 
+import { ciRanges } from 'lib/statistics'
+
 import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
-import { ChartDisplayType } from '~/types'
 
 import {
     buildDerivedConfigs,
@@ -71,10 +72,10 @@ describe('trendsChartTransforms', () => {
             expect(series.stroke).toBeUndefined()
         })
 
-        it('attaches an empty fill object for ActionsAreaGraph display', () => {
+        it('attaches an empty fill object when isArea is set', () => {
             const series = buildMainTrendsSeries(makeResult(), 0, {
                 getColor: () => RED,
-                display: ChartDisplayType.ActionsAreaGraph,
+                isArea: true,
             })
             expect(series.fill).toEqual({})
         })
@@ -175,6 +176,7 @@ describe('trendsChartTransforms', () => {
                 const out = buildDerivedConfigs([makeResult({ id: 'a' }), makeResult({ id: 'b' })], {
                     showConfidenceIntervals: true,
                     confidenceLevel: 95,
+                    ciRanges,
                 })
                 expect(out.confidenceIntervals).toHaveLength(2)
                 expect(out.confidenceIntervals?.[0].seriesKey).toBe('a')
@@ -186,9 +188,16 @@ describe('trendsChartTransforms', () => {
                 const explicit = buildDerivedConfigs([makeResult()], {
                     showConfidenceIntervals: true,
                     confidenceLevel: 95,
+                    ciRanges,
                 })
-                const defaulted = buildDerivedConfigs([makeResult()], { showConfidenceIntervals: true })
+                const defaulted = buildDerivedConfigs([makeResult()], { showConfidenceIntervals: true, ciRanges })
                 expect(defaulted.confidenceIntervals?.[0].lower).toEqual(explicit.confidenceIntervals?.[0].lower)
+            })
+
+            it('omits confidenceIntervals when ciRanges is not provided', () => {
+                expect(
+                    buildDerivedConfigs([makeResult()], { showConfidenceIntervals: true }).confidenceIntervals
+                ).toBeUndefined()
             })
 
             it('omits confidenceIntervals when showConfidenceIntervals is false', () => {
@@ -330,6 +339,7 @@ describe('trendsChartTransforms', () => {
                 goalLines: [{ label: 'goal', value: 10 }] satisfies SchemaGoalLine[],
                 showConfidenceIntervals: true,
                 confidenceLevel: 95,
+                ciRanges,
                 valueLabels: false,
                 showCrosshair: true,
                 tooltip: TOOLTIP,
@@ -359,10 +369,12 @@ describe('trendsChartTransforms', () => {
                     results,
                     showConfidenceIntervals: true,
                     confidenceLevel,
+                    ciRanges,
                 })
                 const direct = buildDerivedConfigs(results, {
                     showConfidenceIntervals: true,
                     confidenceLevel,
+                    ciRanges,
                 })
                 expect(config.confidenceIntervals).toEqual(direct.confidenceIntervals)
             }

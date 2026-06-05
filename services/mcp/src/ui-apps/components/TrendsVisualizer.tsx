@@ -3,9 +3,13 @@ import { type ReactElement, useState } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 
-import { BarChart, BigNumber, LineChart, Select, type Series } from './charts'
+import type { TrendsChartDisplayOptions } from 'products/product_analytics/frontend/insights/trends/shared/trendsChartDisplayOptions'
+import { TrendsLineChartView } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChartView'
+
+import { BarChart, BigNumber, Select, type Series } from './charts'
+import { CHART_COLORS, CHART_THEME } from './charts/theme'
 import type { TrendsResultItem, TrendsVisualizerProps } from './types'
-import { getDisplayType, getSeriesLabel, isBarChart } from './utils'
+import { formatDate, getDisplayType, getSeriesLabel, isBarChart } from './utils'
 
 type ChartMode = 'line' | 'bar'
 
@@ -14,6 +18,7 @@ const CHART_MODE_OPTIONS = [
     { value: 'bar' as const, label: 'Bar' },
 ]
 
+// Bar mode still uses the SVG BarChart, which scales against an explicit maxValue.
 function prepareChartData(results: TrendsResultItem[]): {
     series: Series[]
     labels: string[]
@@ -82,6 +87,13 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         return <BigNumber value={total} label={label} />
     }
 
+    const lineDisplayOptions: TrendsChartDisplayOptions = {
+        isArea: displayType === 'ActionsAreaGraph',
+        formatter: query?.trendsFilter,
+        showValuesOnSeries: query?.trendsFilter?.showValuesOnSeries,
+        showCrosshair: true,
+    }
+
     return (
         <div>
             <div className="mb-2 flex justify-end">
@@ -96,11 +108,18 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
                 />
             ) : (
-                <LineChart
-                    series={series}
+                <TrendsLineChartView
+                    results={results.map((item, i) => ({
+                        id: i,
+                        label: getSeriesLabel(item, i),
+                        data: item.data ?? [],
+                        days: item.days,
+                    }))}
                     labels={labels}
-                    maxValue={maxValue}
-                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+                    theme={CHART_THEME}
+                    getColor={(_, index) => CHART_COLORS[index % CHART_COLORS.length]!}
+                    displayOptions={lineDisplayOptions}
+                    xAxisTickFormatter={(value) => formatDate(value)}
                 />
             )}
         </div>
