@@ -81,7 +81,7 @@ Grant read scopes for the resources you want to sync (e.g. `shared_resources:rea
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 description="Only syncs the last 365 days on initial sync" if endpoint == "events" else None,
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
         if names is not None:
             names_set = set(names)
