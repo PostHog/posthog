@@ -7,8 +7,14 @@ from django.test import override_settings
 from django.utils import timezone
 
 from posthog.clickhouse.client.execute import sync_execute
-from posthog.clickhouse.preaggregation.experiment_exposures_sql import TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL
-from posthog.clickhouse.preaggregation.experiment_metric_events_sql import TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL
+from posthog.clickhouse.preaggregation.experiment_exposures_sql import (
+    SHARDED_EXPERIMENT_EXPOSURES_TABLE,
+    TRUNCATE_EXPERIMENT_EXPOSURES_TABLE_SQL,
+)
+from posthog.clickhouse.preaggregation.experiment_metric_events_sql import (
+    SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE,
+    TRUNCATE_EXPERIMENT_METRIC_EVENTS_TABLE_SQL,
+)
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
@@ -47,8 +53,12 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
             self._clean_preaggregation_data()
             # Disable TTL merges so ClickHouse 26.3 doesn't immediately drop
             # rows whose expires_at is in the past (due to freeze_time).
-            sync_execute("SYSTEM STOP TTL MERGES")
-            self.addCleanup(lambda: sync_execute("SYSTEM START TTL MERGES"))
+            for table_name in (
+                SHARDED_EXPERIMENT_EXPOSURES_TABLE(),
+                SHARDED_EXPERIMENT_METRIC_EVENTS_TABLE(),
+            ):
+                sync_execute(f"SYSTEM STOP TTL MERGES {table_name}")
+                self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table_name}")
 
     def _enable_precomputation(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
