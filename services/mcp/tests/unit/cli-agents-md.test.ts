@@ -16,6 +16,7 @@ describe('CLI AGENTS.md installer', () => {
         expect(content).toContain('posthog-cli api search <term>')
         expect(content).toContain('This `info` step is required before every `call`')
         expect(content).toContain('Inspect the expected input schema')
+        expect(content).toContain('POSTHOG_CLI_EXPERIMENTAL_API=1')
         expect(content).toContain('Prefer `posthog-cli api` over direct MCP tool calls')
         expect(content).toContain('posthog-cli api skill list')
     })
