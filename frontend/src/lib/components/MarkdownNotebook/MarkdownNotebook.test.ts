@@ -312,6 +312,55 @@ Activation improved today.`
         expect(unmountComponent).not.toHaveBeenCalled()
     })
 
+    it('does not remount a newly inserted component when the matching remote save arrives', () => {
+        const onChange = jest.fn()
+        const renderComponent = jest.fn()
+        const mountComponent = jest.fn()
+        const unmountComponent = jest.fn()
+        const registry = createMarkdownNotebookRegistry([
+            {
+                tagName: 'Embed',
+                label: 'Embed',
+                category: 'Media',
+                defaultProps: { src: 'https://posthog.com', title: 'PostHog' },
+                ViewComponent: () => {
+                    renderComponent()
+                    useEffect(() => {
+                        mountComponent()
+                        return () => unmountComponent()
+                    }, [])
+                    return createElement('div', { 'data-testid': 'stable-embed' })
+                },
+            },
+        ])
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, { value: '', remoteValue: '', onChange, registry })
+        )
+        const row = container.querySelector('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        editableTextBlock.textContent = 'iframe'
+        fireEvent.input(editableTextBlock)
+        fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
+
+        const savedMarkdown = onChange.mock.calls[onChange.mock.calls.length - 1][0]
+        expect(savedMarkdown).toEqual('<Embed src="https://posthog.com" title="PostHog" />')
+
+        const renderCountBeforeRemoteSave = renderComponent.mock.calls.length
+        const mountCountBeforeRemoteSave = mountComponent.mock.calls.length
+        const unmountCountBeforeRemoteSave = unmountComponent.mock.calls.length
+        rerender(
+            createElement(MarkdownNotebook, { value: savedMarkdown, remoteValue: savedMarkdown, onChange, registry })
+        )
+
+        expect(renderComponent).toHaveBeenCalledTimes(renderCountBeforeRemoteSave)
+        expect(mountComponent).toHaveBeenCalledTimes(mountCountBeforeRemoteSave)
+        expect(unmountComponent).toHaveBeenCalledTimes(unmountCountBeforeRemoteSave)
+    })
+
     it('defers remote markdown updates while requested', () => {
         const { container, rerender } = render(
             createElement(MarkdownNotebook, {

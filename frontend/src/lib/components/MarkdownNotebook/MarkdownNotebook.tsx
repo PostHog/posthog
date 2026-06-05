@@ -387,15 +387,23 @@ export function MarkdownNotebook({
 
     const applyRemoteValue = useCallback(
         (nextRemoteValue: string): void => {
+            if (nextRemoteValue === lastSerializedValueRef.current) {
+                lastRemoteValueRef.current = nextRemoteValue
+                lastBaseValueRef.current = nextRemoteValue
+                historyRef.current = { undo: [], redo: [] }
+                return
+            }
+
             const mergeResult = mergeNotebookMarkdownChanges({
                 baseMarkdown: lastBaseValueRef.current,
                 localMarkdown: lastSerializedValueRef.current,
                 remoteMarkdown: nextRemoteValue,
             })
+            const reconciledDocument = reconcileNotebookDocuments(documentRef.current, mergeResult.document).document
             lastRemoteValueRef.current = nextRemoteValue
             lastBaseValueRef.current = mergeResult.mergedMarkdown
             historyRef.current = { undo: [], redo: [] }
-            commitDocument(mergeResult.document, { addToHistory: false })
+            commitDocument(reconciledDocument, { addToHistory: false })
 
             if (mergeResult.conflicts.length) {
                 onConflict?.(mergeResult.conflicts)
