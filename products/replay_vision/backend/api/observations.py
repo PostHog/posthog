@@ -1,9 +1,11 @@
 import uuid
 from typing import Any
 
-from django.db.models import Case, CharField, F, FloatField, Func, IntegerField, Q, QuerySet, Value, When
+from django.conf import settings
+from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.http import StreamingHttpResponse
 
 import structlog
 import django_filters
@@ -18,7 +20,10 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.renderers import ServerSentEventRenderer
 
+from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
+from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
@@ -38,7 +43,6 @@ logger = structlog.get_logger(__name__)
 
 
 def _jsonb_typeof(expr: Any) -> Func:
-    """Postgres `JSONB_TYPEOF(value)` — built inline to avoid extending a custom Expression class."""
     return Func(expr, function="JSONB_TYPEOF", output_field=CharField())
 
 
@@ -264,23 +268,17 @@ _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS
 
 
-def _ordering_enum(fields: tuple[str, ...] = _ALL_ORDER_KEYS) -> list[str]:
-    """Ascending + descending (`-`-prefixed) variants of each field, matching OrderingFilter's accepted values."""
-    return [value for field in fields for value in (field, f"-{field}")]
+_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
 
 
-class _OrderByFilter(django_filters.CharFilter):
-    """Ordering filter supporting plain columns and JSONB-backed keys with numeric casts and nulls-last."""
+class _ObservationOrderByFilter(OrderByFilter):
+    """Observation-specific ordering: plain columns + JSONB-backed keys with numeric casts and nulls-last."""
 
-    def filter(self, qs: QuerySet[ReplayObservation], value: str) -> QuerySet[ReplayObservation]:
-        if not value:
-            return qs
-        descending = value.startswith("-")
-        key = value[1:] if descending else value
-        if key not in _ALL_ORDER_KEYS:
-            raise ValidationError({"order_by": f"Invalid order_by '{value}'. Allowed keys: {sorted(_ALL_ORDER_KEYS)}."})
+    _allowed_keys = frozenset(_ALL_ORDER_KEYS)
+
+    def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
         if key in OBSERVATION_ORDER_FIELDS:
-            return qs.order_by(("-" if descending else "") + key, "id")
+            return self._order_plain(qs, key, descending)
         if key == "result_score":
             # CASE-guard the cast so a non-numeric `score` (schema drift, manual fixup) doesn't 500 the query.
             score_jsonb = KeyTransform("score", KeyTransform("model_output", "scanner_result"))
@@ -293,8 +291,7 @@ class _OrderByFilter(django_filters.CharFilter):
                     output_field=FloatField(),
                 ),
             )
-            expr = F("_order_score").desc(nulls_last=True) if descending else F("_order_score").asc(nulls_last=True)
-            return qs.order_by(expr, "id")
+            return self._order_nulls_last(qs, "_order_score", descending)
         if key == "scanner_version":
             version_jsonb = KeyTransform("scanner_version", "scanner_snapshot")
             version_text = KeyTextTransform("scanner_version", "scanner_snapshot")
@@ -306,62 +303,25 @@ class _OrderByFilter(django_filters.CharFilter):
                     output_field=IntegerField(),
                 ),
             )
-            expr = F("_order_version").desc(nulls_last=True) if descending else F("_order_version").asc(nulls_last=True)
-            return qs.order_by(expr, "id")
-        # `result_verdict` — short text enum, annotated so we get nulls-last like the other JSONB keys.
+            return self._order_nulls_last(qs, "_order_version", descending)
         qs = qs.annotate(
             _order_verdict=KeyTextTransform("verdict", KeyTextTransform("model_output", "scanner_result")),
         )
-        expr = F("_order_verdict").desc(nulls_last=True) if descending else F("_order_verdict").asc(nulls_last=True)
-        return qs.order_by(expr, "id")
-
-
-_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
-
-
-class _MultiChoiceFilter(django_filters.CharFilter):
-    """CSV-encoded multi-value filter; 400s on values outside `valid_choices` when supplied."""
-
-    def __init__(
-        self,
-        *args: Any,
-        valid_choices: frozenset[str] | None = None,
-        error_key: str | None = None,
-        **kwargs: Any,
-    ) -> None:
-        super().__init__(*args, **kwargs)
-        self._valid_choices = valid_choices
-        # When `field_name` is an ORM traversal path (e.g. `scanner_result__model_output__verdict`), the
-        # default error dict key would leak it; override so the response keys match the public param name.
-        self._error_key = error_key
-
-    def filter(self, qs: QuerySet[ReplayObservation], value: str | None) -> QuerySet[ReplayObservation]:
-        if not value:
-            return qs
-        values = [v for v in (v.strip() for v in value.split(",")) if v]
-        if not values:
-            return qs
-        if self._valid_choices is not None:
-            invalid = sorted({v for v in values if v not in self._valid_choices})
-            if invalid:
-                key = self._error_key or self.field_name
-                raise ValidationError({key: f"Invalid value(s) {invalid}; allowed: {sorted(self._valid_choices)}."})
-        # nosemgrep: orm-field-injection -- `field_name` is a class-init constant; `values` validated above.
-        return qs.filter(**{f"{self.field_name}__in": values})
+        return self._order_nulls_last(qs, "_order_verdict", descending)
 
 
 class ReplayObservationFilter(django_filters.FilterSet):
-    status = _MultiChoiceFilter(
+    status = MultiChoiceFilter(
         field_name="status",
         valid_choices=frozenset(v for v, _ in ObservationStatus.choices),
         help_text="Filter by observation status. Accepts a comma-separated list.",
     )
-    triggered_by = _MultiChoiceFilter(
+    triggered_by = MultiChoiceFilter(
         field_name="triggered_by",
         valid_choices=frozenset(v for v, _ in ObservationTrigger.choices),
         help_text="Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.",
     )
-    verdict = _MultiChoiceFilter(
+    verdict = MultiChoiceFilter(
         field_name="scanner_result__model_output__verdict",
         valid_choices=_MONITOR_VERDICTS,
         error_key="verdict",
@@ -378,7 +338,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
         field_name="session_id",
         help_text="Filter to observations of a specific session recording.",
     )
-    order_by = _OrderByFilter(
+    order_by = _ObservationOrderByFilter(
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, result_score, result_verdict, "
             "or scanner_version. Prefix with `-` for descending. JSONB-backed keys (result_*, scanner_version) "
@@ -429,7 +389,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 str,
                 OpenApiParameter.QUERY,
                 required=False,
-                enum=_ordering_enum(),
+                enum=ordering_enum(_ALL_ORDER_KEYS),
                 description=(
                     "Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: "
                     "result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending."
@@ -544,3 +504,23 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
     # Hide `stats/` on the session-scoped viewset — it has no `parent_lookup_scanner_id` to dispatch on.
     def stats(self, request: Request, **kwargs: Any) -> Response:  # type: ignore[override]
         raise NotFound()
+
+    @extend_schema(exclude=True)
+    @action(detail=True, methods=["GET"], url_path="progress")
+    def progress(self, request: Request, **kwargs: Any) -> StreamingHttpResponse:
+        """Stream live progress (phase + rendering frame counts) for one in-flight observation as SSE.
+
+        `get_object()` applies the same RBAC scoping as retrieve, so this can't leak observations the caller
+        can't read. The stream self-terminates once the observation reaches a terminal state.
+        """
+        # The generator is `async def` — WSGI can't consume an async iterator, so fail loudly there.
+        if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
+            raise RuntimeError("observation progress stream requires ASGI.")
+        observation = self.get_object()
+        response = StreamingHttpResponse(
+            stream_observation_progress(observation),
+            content_type=ServerSentEventRenderer.media_type,
+        )
+        response["Cache-Control"] = "no-cache"
+        response["X-Accel-Buffering"] = "no"
+        return response

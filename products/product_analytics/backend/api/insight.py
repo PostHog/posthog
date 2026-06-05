@@ -7,7 +7,20 @@ from typing import Any, Union, cast
 
 from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, Prefetch, QuerySet, Subquery, Value
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    Max,
+    OuterRef,
+    Prefetch,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
@@ -327,6 +340,14 @@ class InsightBasicSerializer(
     dashboards = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_viewed_at = serializers.SerializerMethodField(read_only=True)
+    search_match_type = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the "
+            "name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are "
+            "ordered exact-first. Null when the list is not filtered by `search`."
+        ),
+    )
 
     class Meta:
         model = Insight
@@ -351,6 +372,7 @@ class InsightBasicSerializer(
             "favorited",
             "user_access_level",
             "last_viewed_at",
+            "search_match_type",
         ]
         read_only_fields = ("short_id", "updated_at", "last_refresh", "refreshing")
 
@@ -366,6 +388,13 @@ class InsightBasicSerializer(
         """Get the last viewed timestamp for this insight by any user in the team."""
         return getattr(instance, "last_viewed_at", None)
 
+    @extend_schema_field(serializers.ChoiceField(choices=["exact", "similar"], allow_null=True))
+    def get_search_match_type(self, instance: Insight) -> str | None:
+        is_exact = getattr(instance, "_is_exact", None)
+        if is_exact is None:
+            return None
+        return "exact" if is_exact else "similar"
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
@@ -380,6 +409,11 @@ class InsightBasicSerializer(
 
         # upgrade the query to the latest version
         representation["query"] = upgrade(representation["query"])
+
+        # search_match_type is a per-row search annotation — only surface it on search results, not on
+        # every serialized insight (unfiltered lists, dashboard-embedded tiles, retrieve, etc.)
+        if getattr(instance, "_is_exact", None) is None:
+            representation.pop("search_match_type", None)
 
         return representation
 
@@ -553,6 +587,7 @@ class InsightSerializer(InsightBasicSerializer):
             "_create_in_folder",
             "alerts",
             "last_viewed_at",
+            "search_match_type",
         ]
         read_only_fields = (
             "created_at",
@@ -1236,7 +1271,11 @@ Background calculation can be tracked using the `query_status` response field.""
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Case-insensitive substring match across name, derived_name, description, and tag names.",
+                description=(
+                    "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive "
+                    "substring matches and fuzzy trigram matches together in one list, ordered exact-first; each "
+                    "result's `search_match_type` is `exact` or `similar`."
+                ),
             ),
             OpenApiParameter(
                 name="created_by",
@@ -1603,51 +1642,52 @@ class InsightViewSet(
         return Response({"count": len(data), "next": None, "previous": None, "results": data})
 
     @staticmethod
+    def _annotate_search_scores(queryset: QuerySet, search: str) -> QuerySet:
+        zero = Value(0.0)
+        return queryset.annotate(
+            _name_word=Coalesce(TrigramWordSimilarity(search, "name"), zero),
+            _name_full=Coalesce(TrigramSimilarity("name", search), zero),
+            _derived_name_word=Coalesce(TrigramWordSimilarity(search, "derived_name"), zero),
+            _description_word=Coalesce(TrigramWordSimilarity(search, "description"), zero),
+        ).annotate(
+            _search_score=F("_name_word")
+            + F("_name_full")
+            + F("_derived_name_word")
+            + F("_description_word") * DESCRIPTION_SCORE_WEIGHT
+        )
+
     @tracer.start_as_current_span("InsightViewSet._apply_search")
-    def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
+    def _apply_search(self, queryset: QuerySet, search: str) -> QuerySet:
         search = normalize_search_term(search)
         span = trace.get_current_span()
         span.set_attribute("insight.search.length", len(search))
         if not search:
             return queryset
 
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        derived_name_word_score = Coalesce(TrigramWordSimilarity(search, "derived_name"), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
+        scored = self._annotate_search_scores(queryset, search)
         matching_tag_ids = queryset.filter(tagged_items__tag__name__icontains=search).values("id")
+        exact_q = (
+            Q(name__icontains=search)
+            | Q(derived_name__icontains=search)
+            | Q(description__icontains=search)
+            | Q(id__in=matching_tag_ids)
+        )
+        similar_q = (
+            Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+            | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
+            | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
+        )
 
         return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _derived_name_word=derived_name_word_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_derived_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-                | Q(id__in=matching_tag_ids)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _derived_name_match_score=F("_derived_name_word"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(
-                _search_score=F("_name_match_score")
-                + F("_derived_name_match_score")
-                + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT
-            )
-            .order_by("-_search_score", "name")
+            scored.annotate(_is_exact=Case(When(exact_q, then=Value(1)), default=Value(0), output_field=IntegerField()))
+            .filter(exact_q | similar_q)
+            .order_by("-_is_exact", "-_search_score", "name")
             .distinct()
         )
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
+        search_term: str | None = None
 
         for key in filters:
             if key == "saved":
@@ -1732,7 +1772,7 @@ class InsightViewSet(
                 term = request.GET["search"]
                 if len(term) > MAX_SEARCH_LENGTH:
                     raise ValidationError({"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."})
-                queryset = self._apply_search(queryset, term)
+                search_term = term
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]
                 if dashboards_filter:
@@ -1774,6 +1814,9 @@ class InsightViewSet(
                 queryset = queryset.filter(
                     last_viewed_at__lt=relative_date_parse(request.GET["last_viewed_date_to"], self.team.timezone_info)
                 )
+
+        if search_term is not None:
+            queryset = self._apply_search(queryset, search_term)
 
         return queryset
 
