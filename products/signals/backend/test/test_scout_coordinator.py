@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import pytest_asyncio
@@ -36,6 +37,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
 )
 
 _PAYLOAD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.posthoganalytics.get_feature_flag_payload"
+_IS_CLOUD_PATH = "products.signals.backend.temporal.agentic.scout_coordinator.is_cloud"
 
 # Enrollment is driven by the `signals-scout` flag payload allowlist. These async tests commit
 # (no transaction rollback across the worker thread), so leftover teams from other modules can
@@ -149,7 +151,9 @@ async def _run_activity() -> list[PlannedRun]:
 )
 @pytest.mark.flag_off
 def test_enrolled_team_ids_parses_payload(payload, expected):
-    with patch(_PAYLOAD_PATH, return_value=payload):
+    # is_cloud → True so the fallback resolves to DEFAULT_ENROLLED_TEAM_IDS (see the
+    # off-cloud fail-closed case below).
+    with patch(_PAYLOAD_PATH, return_value=payload), patch(_IS_CLOUD_PATH, return_value=True):
         assert _enrolled_team_ids() == expected
 
 
@@ -167,8 +171,20 @@ def test_enrolled_team_ids_uses_match_value_true():
 
 @pytest.mark.flag_off
 def test_enrolled_team_ids_falls_back_to_defaults_on_error():
-    with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")):
+    with patch(_PAYLOAD_PATH, side_effect=RuntimeError("flag service down")), patch(_IS_CLOUD_PATH, return_value=True):
         assert _enrolled_team_ids() == set(DEFAULT_ENROLLED_TEAM_IDS)
+
+
+@pytest.mark.flag_off
+@override_settings(DEBUG=False)
+def test_enrolled_team_ids_fails_closed_off_cloud():
+    # Self-hosted (not cloud, not debug): a missing payload enrolls no one, so the coordinator
+    # never starts scout runs for an unintended tenant. An explicit payload is still honored.
+    with patch(_IS_CLOUD_PATH, return_value=False):
+        with patch(_PAYLOAD_PATH, return_value=None):
+            assert _enrolled_team_ids() == set()
+        with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": [5]}):
+            assert _enrolled_team_ids() == {5}
 
 
 @pytest.mark.asyncio

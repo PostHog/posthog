@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.db.models import Q
 from django.utils import timezone
 
@@ -14,6 +15,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -35,8 +37,8 @@ SIGNALS_SCOUT_DOGFOOD_FLAG = "signals-scout"
 # Fixed distinct_id for the payload read — enrollment is team-list-in-payload, not per-user.
 SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID = "internal_signals_scout_team_discovery"
 
-# Fail-safe allowlist used when the flag payload is missing or invalid, so a botched payload
-# can never silently drop every team: 1 (local dev), 2 (internal), 148051 (dev project).
+# Fail-safe allowlist used when the flag payload is missing/invalid — but only on PostHog
+# Cloud or local dev (see `_fallback_team_ids`). 1 (local dev), 2 (internal), 148051 (dev).
 DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
@@ -213,15 +215,25 @@ def _participating_teams(enrolled: set[int]) -> list[Team]:
     return list(Team.objects.filter(id__in=canonical_ids).order_by("id"))
 
 
+def _fallback_team_ids() -> list[int]:
+    """Default allowlist when the flag payload is absent/unreadable — gated to PostHog Cloud
+    and local dev. A self-hosted instance (where teams 1/2 exist but no one opted into scouts)
+    fails closed instead, so the coordinator never starts LLM scout runs for an unintended
+    tenant; a self-hoster opts in by setting the payload explicitly."""
+    return list(DEFAULT_ENROLLED_TEAM_IDS) if (is_cloud() or settings.DEBUG) else []
+
+
 def _enrolled_team_ids() -> set[int]:
     """Project ids enrolled in scouts, read from the `signals-scout` flag's JSON payload.
 
     Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
-    drain) a team on the next tick; `skip_team_ids` is an override kill-switch. `match_value=True`
-    asks for the flag's true-variant payload, so the team list lives in the payload rather than
-    the release conditions. Fail-safe: a missing/invalid payload or a read error falls back to
-    `DEFAULT_ENROLLED_TEAM_IDS`. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
+    drain) a team on the next tick; `skip_team_ids` is an override kill-switch. The flag must
+    stay 100%-on so the payload is served for the synthetic discovery distinct_id —
+    `match_value=True` additionally forces the true-variant payload under local evaluation.
+    Fail-safe: a missing/invalid payload or a read error falls back to `_fallback_team_ids`.
+    Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
+    fallback = _fallback_team_ids()
     try:
         payload = posthoganalytics.get_feature_flag_payload(
             SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
@@ -229,13 +241,13 @@ def _enrolled_team_ids() -> set[int]:
         if isinstance(payload, str):
             payload = json.loads(payload)
         if not isinstance(payload, dict):
-            return set(DEFAULT_ENROLLED_TEAM_IDS)
+            return set(fallback)
 
-        # Absent key or malformed value → defaults (the fail-safe). An explicit empty list is
-        # honored as an intentional "drain all teams" — not coerced to defaults.
-        guaranteed = payload.get("guaranteed_team_ids", DEFAULT_ENROLLED_TEAM_IDS)
+        # Absent key or malformed value → fallback. An explicit empty list is honored as an
+        # intentional "drain all teams" — not coerced to the fallback.
+        guaranteed = payload.get("guaranteed_team_ids", fallback)
         if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
-            guaranteed = DEFAULT_ENROLLED_TEAM_IDS
+            guaranteed = fallback
 
         skip = payload.get("skip_team_ids", [])
         if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
@@ -244,7 +256,7 @@ def _enrolled_team_ids() -> set[int]:
         return set(guaranteed) - set(skip)
     except Exception as error:
         capture_exception(error)
-        return set(DEFAULT_ENROLLED_TEAM_IDS)
+        return set(fallback)
 
 
 def _register_missing_configs(team: Team) -> set[str]:
