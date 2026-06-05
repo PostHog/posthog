@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from posthog.schema import AgentMode
 
-from products.customer_analytics.backend.max_tools import UpsertAccountTool
+from products.customer_analytics.backend.max_tools import UpsertAccountNotebookTool, UpsertAccountTool
 
 from ee.hogai.chat_agent.executables import ChatAgentExecutable, ChatAgentToolsExecutable
 from ee.hogai.tools.todo_write import TodoWriteExample
@@ -17,12 +17,16 @@ if TYPE_CHECKING:
 CUSTOMER_ANALYTICS_MODE_DESCRIPTION = (
     "Specialized mode for managing customer accounts. An account represents a customer organization. "
     "Use this mode to create and update accounts, assign customer-success roles (CSM, account "
-    "executive, account owner), and set external-system identifiers and tags. "
+    "executive, account owner), set external-system identifiers and tags, and save and update notes "
+    "(call recaps, meeting summaries, investigation recaps) on an account. "
     "Each account's usage is already available in the Accounts list — in the expanded row's Usage tab — "
     "so point users there rather than building a new insight for it. "
     "For other questions about an account's activity or behavior, first look up the account — reading "
     "it gives you the context needed to analyze it — then switch_mode to product analytics or SQL to "
     "run the analysis for that account. "
+    "When the user investigates a single account across several turns — follow-up questions or digging "
+    "into an issue — offer once to capture the investigation as a note: a timeline of what was checked "
+    "and what you found, saved with upsert_account_notebook. If they decline, don't ask again. "
     "If an account is not connected to analytics yet, ask the user to finish connecting it in the "
     "Customer analytics > Accounts settings. "
     "Speak to users in terms of the account and its data; keep the underlying mechanics out of your responses."
@@ -71,6 +75,46 @@ POSITIVE_EXAMPLE_ACCOUNT_ANALYTICS_REASONING = """
 3. The account is looked up first, then the analysis runs after switching to product analytics or SQL — reusing the existing usage view as a starting point rather than building from scratch.
 """.strip()
 
+POSITIVE_EXAMPLE_SAVE_NOTE = """
+User: Save a recap on Acme Corp from today's call — they want SSO by Q3 and flagged slow dashboards.
+Assistant: Let me find the Acme Corp account first.
+*Uses search (or list_data with the account kind) to get the account's id*
+Assistant: Saving the recap to Acme Corp's notes.
+*Uses the upsert_account_notebook tool with action=create, account_id=<uuid>, title="Call recap", content="<markdown>"*
+""".strip()
+
+POSITIVE_EXAMPLE_SAVE_NOTE_REASONING = """
+1. A note attaches to a specific account, so its id must be resolved before the note can be created.
+2. Saving one note is a single step once the id is known, so no todo list is needed.
+3. The recap is written as Markdown in the note body.
+""".strip()
+
+POSITIVE_EXAMPLE_DEEP_DIVE = """
+User: (several questions into Acme Corp's activity drop) ...and how does that compare to last quarter?
+Assistant: We're a few questions into Acme Corp's situation — want me to keep a recap of this investigation in the account's notes? I'd capture a timeline of what we've looked at and what we found.
+User: Yes, please.
+Assistant: Will do — I'll answer this, then save the recap.
+*Answers the question, then uses the upsert_account_notebook tool with action=create, account_id=<uuid>, title="Activity drop investigation", content="<markdown timeline: questions explored, what was checked, findings>"*
+""".strip()
+
+POSITIVE_EXAMPLE_DEEP_DIVE_REASONING = """
+1. Several turns focused on one account signal a deep-dive — the moment to offer to capture it, once, rather than on every turn.
+2. The recap is post-hoc and opt-in: on agreement the assistant writes a single timeline note with upsert_account_notebook; if the user declines, it just continues.
+3. Saving the recap is one step, so it needs no todo list of its own — though the investigation it summarizes may itself be todo-tracked.
+""".strip()
+
+POSITIVE_EXAMPLE_UPDATE_NOTE = """
+User: Add to that recap — they also asked about SSO pricing.
+Assistant: I'll update the recap.
+*Uses the upsert_account_notebook tool with action=update, notebook_short_id=<from when the note was created>, content="<full updated markdown>"*
+""".strip()
+
+POSITIVE_EXAMPLE_UPDATE_NOTE_REASONING = """
+1. Updating reuses the note's short_id from when it was created, so no fresh account lookup is needed.
+2. content REPLACES the body, so the assistant sends the full updated note, not just the new line.
+3. It's a single step, so no todo list is needed.
+""".strip()
+
 
 class CustomerAnalyticsAgentToolkit(AgentToolkit):
     POSITIVE_TODO_EXAMPLES = [
@@ -79,11 +123,14 @@ class CustomerAnalyticsAgentToolkit(AgentToolkit):
         TodoWriteExample(
             example=POSITIVE_EXAMPLE_ACCOUNT_ANALYTICS, reasoning=POSITIVE_EXAMPLE_ACCOUNT_ANALYTICS_REASONING
         ),
+        TodoWriteExample(example=POSITIVE_EXAMPLE_SAVE_NOTE, reasoning=POSITIVE_EXAMPLE_SAVE_NOTE_REASONING),
+        TodoWriteExample(example=POSITIVE_EXAMPLE_DEEP_DIVE, reasoning=POSITIVE_EXAMPLE_DEEP_DIVE_REASONING),
+        TodoWriteExample(example=POSITIVE_EXAMPLE_UPDATE_NOTE, reasoning=POSITIVE_EXAMPLE_UPDATE_NOTE_REASONING),
     ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        return [UpsertAccountTool]
+        return [UpsertAccountTool, UpsertAccountNotebookTool]
 
 
 customer_analytics_agent = AgentModeDefinition(

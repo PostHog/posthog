@@ -812,9 +812,8 @@ class AssistantTool(StrEnum):
     SUMMARIZE_REPLAY_VISION_SUMMARIES = "summarize_replay_vision_summaries"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     UPSERT_ACCOUNT = "upsert_account"
-    CREATE_ACCOUNT_NOTEBOOK = "create_account_notebook"
-    FILTER_ACCOUNTS = "filter_accounts"
-    CONFIGURE_ACCOUNT_COLUMNS = "configure_account_columns"
+    UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
+    OPEN_ACCOUNT = "open_account"
 
 
 class AssistantToolCall(BaseModel):

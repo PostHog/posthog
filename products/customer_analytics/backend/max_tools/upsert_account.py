@@ -183,7 +183,7 @@ class UpsertAccountTool(MaxTool):
     @sync_to_async
     def _create_account(self, action: CreateAccountAction, properties: dict[str, Any]) -> Account:
         with transaction.atomic():
-            account = Account.objects.create(
+            account = Account.objects.unscoped().create(
                 team=self._team,
                 created_by=self._user,
                 name=action.name[:400],

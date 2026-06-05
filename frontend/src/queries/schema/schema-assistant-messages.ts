@@ -518,9 +518,8 @@ export type AssistantTool =
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
     | 'upsert_account'
-    | 'create_account_notebook'
-    | 'filter_accounts'
-    | 'configure_account_columns'
+    | 'upsert_account_notebook'
+    | 'open_account'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',

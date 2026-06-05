@@ -83,7 +83,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
     const name = cell?.name ?? ''
     const externalId = cell?.external_id ?? ''
     return (
-        <div className="flex flex-col min-w-40">
+        <div className="flex flex-col min-w-40" data-account-id={cell?.id}>
             <span className="font-medium">{name}</span>
             {externalId ? (
                 <CopyToClipboardInline
