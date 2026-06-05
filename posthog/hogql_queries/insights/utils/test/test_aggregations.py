@@ -148,6 +148,38 @@ class TestFirstTimeForUserEventsQueryAlternator:
         assert query.where.exprs[0] == date_to
         assert query.where.exprs[1] == event_filter
 
+    def test_first_matching_event_pushes_filters_into_where(self):
+        # For first_matching_event_for_user, only matching events can be the first match, so the
+        # filters are pushed into WHERE to prune the scan instead of being evaluated per-row.
+        query = ast.SelectQuery(select=[])
+        date_from, date_to, filters = parse_expr("1 = 1"), parse_expr("2 = 2"), parse_expr("3 = 3")
+
+        builder = FirstTimeForUserEventsQueryAlternator(
+            query, date_from, date_to, filters=filters, is_first_matching_event=True
+        )
+        builder.build()
+
+        assert isinstance(query.where, ast.And)
+        assert filters in query.where.exprs
+
+        # min_timestamp uses minIf over the same filters (unchanged semantics)
+        assert isinstance(query.select[0], ast.Alias)
+        assert query.select[0].alias == "min_timestamp"
+        assert isinstance(query.select[0].expr, ast.Call)
+        assert query.select[0].expr.name == "minIf"
+
+    def test_first_time_for_user_does_not_push_filters_into_where(self):
+        # Plain first_time_for_user must inspect the whole history, so filters stay out of WHERE.
+        query = ast.SelectQuery(select=[])
+        date_from, date_to, filters = parse_expr("1 = 1"), parse_expr("2 = 2"), parse_expr("3 = 3")
+
+        builder = FirstTimeForUserEventsQueryAlternator(
+            query, date_from, date_to, filters=filters, is_first_matching_event=False
+        )
+        builder.build()
+
+        assert query.where == date_to
+
     def test_query_with_ratio_expr(self):
         query = ast.SelectQuery(select=[])
         date_from, date_to, ratio_expr = (

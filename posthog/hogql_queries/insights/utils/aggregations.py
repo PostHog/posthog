@@ -76,7 +76,7 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         self._is_first_matching_event = is_first_matching_event
         query.select = self._select_expr(date_from)
         query.select_from = self._select_from_expr(ratio)
-        query.where = self._where_expr(date_to, event_or_action_filter)
+        query.where = self._where_expr(date_to, event_or_action_filter, self._matching_event_prefilter())
         query.group_by = self._group_by_expr()
         query.having = self._having_expr()
         super().__init__(query)
@@ -115,10 +115,28 @@ class FirstTimeForUserEventsQueryAlternator(QueryAlternator):
         sample_value = ast.SampleExpr(sample_value=ratio) if ratio is not None else None
         return ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e", sample=sample_value)
 
-    def _where_expr(self, date_to: ast.Expr, event_or_action_filter: ast.Expr | None = None) -> ast.Expr:
+    def _matching_event_prefilter(self) -> ast.Expr | None:
+        """
+        For `first_matching_event_for_user`, only events that match the series filters can ever be a
+        user's first *matching* event, so the filters can be applied in WHERE to prune the scan. For
+        plain `first_time_for_user` we must look at the user's whole event history to know which event
+        was first, so the filters stay inside the conditional aggregates and WHERE is left untouched.
+        """
+        if self._is_first_matching_event and self._filters is not None:
+            return self._filters
+        return None
+
+    def _where_expr(
+        self,
+        date_to: ast.Expr,
+        event_or_action_filter: ast.Expr | None = None,
+        prefilter: ast.Expr | None = None,
+    ) -> ast.Expr:
         where_filters = [date_to]
         if event_or_action_filter is not None:
             where_filters.append(event_or_action_filter)
+        if prefilter is not None:
+            where_filters.append(prefilter)
 
         if len(where_filters) > 1:
             where_filters_expr = cast(ast.Expr, ast.And(exprs=where_filters))
