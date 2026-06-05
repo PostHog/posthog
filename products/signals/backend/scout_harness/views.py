@@ -583,11 +583,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         configs_qs = SignalScoutConfig.objects.unscoped().filter(team_id=team_id)
         if skill_name:
             configs_qs = configs_qs.filter(skill_name=skill_name)
-        configs = list(configs_qs.order_by("skill_name"))
-        if not configs:
-            raise exceptions.NotFound("No matching scout config for this project.")
 
         with transaction.atomic():
+            # Lock the rows and re-read inside the transaction: `save()` writes the full row, so a
+            # concurrent PATCH (e.g. run_interval_minutes) between a pre-fetch and the save would be
+            # clobbered. select_for_update serializes against those writes.
+            configs = list(configs_qs.select_for_update().order_by("skill_name"))
+            if not configs:
+                raise exceptions.NotFound("No matching scout config for this project.")
             for config in configs:
                 if config.emit != emit:
                     config.emit = emit

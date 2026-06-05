@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from django.conf import settings
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
@@ -546,7 +547,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
         ).first()
 
-    def test_set_emit_all_scouts_enables_emit_and_source(self) -> None:
+    def test_set_emit_all_scouts_flips_every_config(self) -> None:
         self._approve_ai()
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-beta")
@@ -554,17 +555,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.post(self._set_emit_url(), data={"emit": True}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert [(c["skill_name"], c["emit"]) for c in body["configs"]] == [
+        assert [(c["skill_name"], c["emit"]) for c in response.json()["configs"]] == [
             ("signals-scout-alpha", True),
             ("signals-scout-beta", True),
         ]
-        assert body["source_enabled"] is True
-        assert body["ai_processing_approved"] is True
-        assert body["emit_effective"] is True
         assert SignalScoutConfig.objects.filter(team_id=self.team.id, emit=True).count() == 2
-        source = self._scout_source()
-        assert source is not None and source.enabled is True
 
     def test_set_emit_targets_a_single_scout_by_skill_name(self) -> None:
         self._approve_ai()
@@ -603,30 +598,32 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         source = self._scout_source()
         assert source is not None and source.enabled is True
 
-    def test_set_emit_ensure_source_false_does_not_create_source(self) -> None:
-        self._approve_ai()
-        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
-
-        response = self.client.post(self._set_emit_url(), data={"emit": True, "ensure_source": False}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK
-        body = response.json()
-        assert body["source_enabled"] is False
-        assert body["emit_effective"] is False  # source gate still closed
-        assert self._scout_source() is None
-
-    def test_set_emit_emit_effective_false_without_org_approval(self) -> None:
-        self.organization.is_ai_data_processing_approved = False
+    @parameterized.expand(
+        [
+            # name, ensure_source, ai_approved, expected_source_enabled, expected_emit_effective
+            ("all_gates_open", True, True, True, True),
+            ("source_gate_closed", False, True, False, False),
+            ("org_gate_closed", True, False, True, False),
+        ]
+    )
+    def test_set_emit_emit_effective_reflects_all_gates(
+        self, _name, ensure_source, ai_approved, expected_source_enabled, expected_emit_effective
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
         self.organization.save()
         SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
 
-        response = self.client.post(self._set_emit_url(), data={"emit": True}, format="json")
+        response = self.client.post(
+            self._set_emit_url(), data={"emit": True, "ensure_source": ensure_source}, format="json"
+        )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert body["source_enabled"] is True
-        assert body["ai_processing_approved"] is False
-        assert body["emit_effective"] is False  # org approval gate closed
+        assert body["ai_processing_approved"] is ai_approved
+        assert body["source_enabled"] is expected_source_enabled
+        assert body["emit_effective"] is expected_emit_effective
+        # source row exists iff the source gate is reported open
+        assert (self._scout_source() is not None) is expected_source_enabled
 
     def test_set_emit_no_matching_config_returns_404(self) -> None:
         response = self.client.post(

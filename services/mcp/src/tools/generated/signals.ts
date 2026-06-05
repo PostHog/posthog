@@ -232,32 +232,6 @@ const signalsScoutConfigUpdate = (): ToolBase<
     },
 })
 
-const SignalsScoutSetEmitSchema = SignalsScoutSetEmitBody
-
-const signalsScoutSetEmit = (): ToolBase<typeof SignalsScoutSetEmitSchema, Schemas.SignalScoutSetEmitResponse> => ({
-    name: 'signals-scout-set-emit',
-    schema: SignalsScoutSetEmitSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutSetEmitSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.emit !== undefined) {
-            body['emit'] = params.emit
-        }
-        if (params.skill_name !== undefined) {
-            body['skill_name'] = params.skill_name
-        }
-        if (params.ensure_source !== undefined) {
-            body['ensure_source'] = params.ensure_source
-        }
-        const result = await context.api.request<Schemas.SignalScoutSetEmitResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/set-emit/`,
-            body,
-        })
-        return result
-    },
-})
-
 const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
     SignalsScoutEmitSignalBody.shape
 )
@@ -441,6 +415,32 @@ const signalsScoutScratchpadSearch = (): ToolBase<
     },
 })
 
+const SignalsScoutSetEmitSchema = SignalsScoutSetEmitBody
+
+const signalsScoutSetEmit = (): ToolBase<typeof SignalsScoutSetEmitSchema, Schemas.SignalScoutSetEmitResponse> => ({
+    name: 'signals-scout-set-emit',
+    schema: SignalsScoutSetEmitSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutSetEmitSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.emit !== undefined) {
+            body['emit'] = params.emit
+        }
+        if (params.skill_name !== undefined) {
+            body['skill_name'] = params.skill_name
+        }
+        if (params.ensure_source !== undefined) {
+            body['ensure_source'] = params.ensure_source
+        }
+        const result = await context.api.request<Schemas.SignalScoutSetEmitResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/set-emit/`,
+            body,
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
@@ -449,7 +449,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-update': signalsScoutConfigUpdate,
-    'signals-scout-set-emit': signalsScoutSetEmit,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-list': signalsScoutRunsList,
@@ -457,4 +456,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-scratchpad-forget': signalsScoutScratchpadForget,
     'signals-scout-scratchpad-remember': signalsScoutScratchpadRemember,
     'signals-scout-scratchpad-search': signalsScoutScratchpadSearch,
+    'signals-scout-set-emit': signalsScoutSetEmit,
 }
