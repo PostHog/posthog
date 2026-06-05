@@ -1032,3 +1032,45 @@ class TestSCIMUsersAPI(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         user.refresh_from_db()
         assert user.email == "multiat@example.com"
+
+    def test_patch_replace_email_case_collision_rejected(self):
+        # A case-variant of an existing account's email collides at login time (email__iexact),
+        # so SCIM must reject it even though the unique index is case-sensitive.
+        user_a = User.objects.create_user(
+            email="existing@example.com", password=None, first_name="A", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        user_b = User.objects.create_user(
+            email="userb@example.com", password=None, first_name="B", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user_b,
+            organization_domain=self.domain,
+            username="userb@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "EXISTING@example.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user_b.refresh_from_db()
+        assert user_b.email == "userb@example.com"

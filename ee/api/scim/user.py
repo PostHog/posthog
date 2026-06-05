@@ -352,6 +352,8 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
+                        raise ValueError("Email belongs to another user")
                     _validate_email_domain_is_verified(email, self._organization_domain.organization)
                     # Org must also own the current email domain to prevent cross-tenant account takeover
                     _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
@@ -416,6 +418,8 @@ class PostHogSCIMUser(SCIMUser):
                     email = self._extract_email_from_value(value)
 
                 if email:
+                    if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
+                        raise ValueError("Email belongs to another user")
                     _validate_email_domain_is_verified(email, self._organization_domain.organization)
                     # Org must also own the current email domain to prevent cross-tenant account takeover
                     _validate_email_domain_is_verified(self.obj.email, self._organization_domain.organization)
