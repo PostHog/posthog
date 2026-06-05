@@ -533,7 +533,12 @@ export class KafkaConsumerV2 {
     // === RdKafkaConsumer construction + event wiring ===
 
     private createConsumer(): RdKafkaConsumer {
-        const consumer = new RdKafkaConsumer(this.rdKafkaConfig, { 'auto.offset.reset': 'earliest' })
+        // auto.offset.reset is a topic-level property: a value in the global config is ignored by
+        // librdkafka unless mirrored into the topic config here. Honor an override carried on the
+        // resolved config (e.g. `latest`) and default to earliest.
+        const consumer = new RdKafkaConsumer(this.rdKafkaConfig, {
+            'auto.offset.reset': (this.rdKafkaConfig['auto.offset.reset'] as string) ?? 'earliest',
+        })
 
         consumer.on('event.log', (log) => logger.info('📝', 'kafka_consumer_v2_librdkafka_log', { log }))
         consumer.on('event.error', (error: LibrdKafkaError) => {
