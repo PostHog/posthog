@@ -42,6 +42,7 @@ dependencies = [
  "clap",
  "determinator",
  "guppy",
+ "rstest",
  "serde",
  "serde_json",
  "tempfile",

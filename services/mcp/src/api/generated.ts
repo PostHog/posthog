@@ -7870,6 +7870,17 @@ export namespace Schemas {
       PositionBased: 'position_based',
     } as const;
 
+    export interface Author {
+      /** Login handle of the pull request author. */
+      handle: string;
+      /** Human-readable name; equals the handle in v1. */
+      display_name: string;
+      /** URL of the author's avatar image. */
+      avatar_url: string;
+      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
+      is_bot: boolean;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -10194,6 +10205,17 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    export interface CICardSummary {
+      /** Count of open pull requests. */
+      open_prs: number;
+      /** Distinct repositories with at least one open pull request. */
+      repos: number;
+      /** Open, non-draft, non-bot pull requests older than 7 days. */
+      stuck: number;
+      /** Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions. */
+      failing_ci: number;
+    }
+
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -10224,6 +10246,17 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** Plaintext token, only returned on creation */
       readonly value: string;
+    }
+
+    export interface CIStatusRollup {
+      /** Distinct workflows run on the PR's head SHA. */
+      runs: number;
+      /** Latest runs that completed with conclusion 'success'. */
+      passing: number;
+      /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+      failing: number;
+      /** Latest runs not yet completed (queued or in progress). */
+      pending: number;
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -14625,6 +14658,20 @@ export namespace Schemas {
     export const EngineEnum = {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
+    } as const;
+
+    /**
+     * * `open` - OPEN
+    * `closed` - CLOSED
+    * `merged` - MERGED
+     */
+    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
+
+
+    export const EngineeringAnalyticsPRStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
     } as const;
 
     /**
@@ -22355,6 +22402,20 @@ export namespace Schemas {
       SetConfigOption: 'set_config_option',
     } as const;
 
+    /**
+     * * `precise` - PRECISE
+    * `coarse` - COARSE
+    * `partial` - PARTIAL
+     */
+    export type MetricQualityEnum = typeof MetricQualityEnum[keyof typeof MetricQualityEnum];
+
+
+    export const MetricQualityEnum = {
+      Precise: 'precise',
+      Coarse: 'coarse',
+      Partial: 'partial',
+    } as const;
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -23183,6 +23244,97 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface PullRequest {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** GitHub pull request id. */
+      id: number;
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+
+      * `open` - OPEN
+      * `closed` - CLOSED
+      * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * When the pull request was closed, or null.
+         * @nullable
+         */
+      closed_at: string | null;
+    }
+
+    /**
+     * * `opened` - OPENED
+    * `ci_started` - CI_STARTED
+    * `ci_finished` - CI_FINISHED
+    * `merged` - MERGED
+    * `closed` - CLOSED
+     */
+    export type PRLifecycleEventKindEnum = typeof PRLifecycleEventKindEnum[keyof typeof PRLifecycleEventKindEnum];
+
+
+    export const PRLifecycleEventKindEnum = {
+      Opened: 'opened',
+      CiStarted: 'ci_started',
+      CiFinished: 'ci_finished',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
+    export interface PRLifecycleEvent {
+      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+
+      * `opened` - OPENED
+      * `ci_started` - CI_STARTED
+      * `ci_finished` - CI_FINISHED
+      * `merged` - MERGED
+      * `closed` - CLOSED */
+      kind: PRLifecycleEventKindEnum;
+      /** When the event occurred. */
+      at: string;
+      /**
+         * Optional detail, e.g. workflow name and conclusion for CI events.
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface PRLifecycle {
+      /** The pull request header. */
+      pull_request: PullRequest;
+      /** Lifecycle events ordered by time. */
+      events: PRLifecycleEvent[];
+      /** Always 'partial' — CI events only; reviews and comments are not yet available.
+
+      * `precise` - PRECISE
+      * `coarse` - COARSE
+      * `partial` - PARTIAL */
+      metric_quality?: MetricQualityEnum;
+    }
 
     export interface PaginatedAccountList {
       count: number;
@@ -34898,6 +35050,50 @@ export namespace Schemas {
       max_proxy_records: number;
     }
 
+    export interface PullRequestListItem {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** CI status from the latest workflow runs on the head SHA. */
+      ci: CIStatusRollup;
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+
+      * `open` - OPEN
+      * `closed` - CLOSED
+      * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+         * @nullable
+         */
+      open_to_merge_seconds: number | null;
+      /** GitHub label names on the pull request. */
+      labels: string[];
+    }
+
+    export interface PullRequestList {
+      /** Pull requests, newest first, capped at `limit`. */
+      items: PullRequestListItem[];
+      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
+    }
+
     /**
      * * `ios` - iOS
     * `android` - Android
@@ -40391,6 +40587,33 @@ export namespace Schemas {
     export interface WidgetCatalogResponse {
       /** Registered dashboard widget types available when dashboard-widgets is enabled. */
       results: WidgetCatalogEntry[];
+    }
+
+    export interface WorkflowHealthItem {
+      /** GitHub Actions workflow name. */
+      workflow_name: string;
+      /** Total runs started in the window. */
+      run_count: number;
+      /**
+         * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+         * @nullable
+         */
+      success_rate: number | null;
+      /**
+         * Median duration of completed runs, in seconds. Null if none completed.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * When the most recent run with conclusion 'failure' started, or null.
+         * @nullable
+         */
+      last_failure_at: string | null;
     }
 
     export interface _CompareFilter {
@@ -47056,6 +47279,35 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EngineeringAnalyticsPrLifecycleParams = {
+    /**
+     * Pull request number to inspect.
+     */
+    pr_number: number;
+    /**
+     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+     */
+    repo?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
     };
 
     export type EnvironmentsListParams = {

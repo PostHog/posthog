@@ -51,6 +51,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'getaddrinfo EAI_AGAIN',
     'Connection terminated unexpectedly',
     'ECONNREFUSED',
+    'ECONNRESET', // Connection reset by peer, e.g. PgBouncer/PG closed an idle or in-flight connection
     'ETIMEDOUT',
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
