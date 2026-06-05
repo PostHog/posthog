@@ -2784,7 +2784,6 @@
         "summary": "Build a correct PostHog app URL for a page or entity.",
         "title": "Generate app URL",
         "required_scopes": [],
-        "always_available": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
