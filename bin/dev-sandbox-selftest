@@ -134,6 +134,34 @@ else
     echo "  --   no reachable docker daemon, skipping escape check"
 fi
 
+# 10. SSH agent unreachable inside the sandbox — otherwise a dep could use your
+#     keys (auth/sign) without reading ~/.ssh. Only meaningful with a live agent.
+if [[ -n "${SSH_AUTH_SOCK:-}" ]] && ssh-add -l >/dev/null 2>&1; then
+    if $SANDBOX 'ssh-add -l' >/dev/null 2>&1; then
+        die "ssh agent reachable inside sandbox (keys usable)"
+    else
+        pass "ssh agent unreachable"
+    fi
+else
+    echo "  --   no usable ssh agent, skipping"
+fi
+
+# 11. Execute-later write targets are read-only inside the sandbox (poisoning
+#     them would run code OUTSIDE the sandbox). Probe files only — never real ones.
+check_write_blocked() {
+    if $SANDBOX "echo x > '$1'" >/dev/null 2>&1; then
+        die "writable, should be blocked: $2"
+        rm -f "$1"
+    else
+        pass "write blocked: $2"
+    fi
+}
+check_write_blocked "bin/.dev_sandbox_selftest_probe" "repo bin/"
+mkdir -p .git/hooks 2>/dev/null || true
+check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
+mkdir -p "$HOME/.cargo/bin" 2>/dev/null || true
+check_write_blocked "$HOME/.cargo/bin/.dev_sandbox_selftest_probe" "cargo bin"
+
 echo
 if [[ $fail -eq 0 ]]; then
     echo "PASS — all dev-sandbox self-tests passed"

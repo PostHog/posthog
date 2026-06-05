@@ -66,6 +66,11 @@ rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$(printf %s "$project" | /usr/bin/
     printf '(allow file-read*'
     printf ' (literal "%s")' "${ancestors[@]}"
     printf ')\n'
+    # Deny the SSH agent socket (its path varies per agent: Secretive, 1Password,
+    # launchd, gpg). Reaching it lets a dep use your keys without reading them.
+    if [[ "${SSH_AUTH_SOCK:-}" == /* ]]; then
+        printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
+    fi
 } >"$rendered" 2>/dev/null || run_unsandboxed
 
 sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
@@ -85,4 +90,5 @@ exec env \
     -u NPM_TOKEN \
     -u NPM_AUTH_TOKEN \
     -u OP_SERVICE_ACCOUNT_TOKEN \
+    -u SSH_AUTH_SOCK \
     "${sandbox[@]}" /bin/bash -c "$cmd"
