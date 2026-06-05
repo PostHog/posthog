@@ -11,6 +11,7 @@ import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/T
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { exceptionCardLogic } from './exceptionCardLogic'
+import { AITraceTab } from './Tabs/AITraceTab'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StackTraceTab } from './Tabs/StackTraceTab'
@@ -22,6 +23,8 @@ interface ExceptionCardContentProps {
     hideEventMeta?: boolean
 
     renderStackTraceActions?: () => JSX.Element | null
+    traceId?: string | null
+    spanId?: string | null
 }
 
 export interface ExceptionCardProps extends ExceptionCardContentProps {
@@ -59,7 +62,12 @@ export function ExceptionCard({
         <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
             <BindLogic logic={errorPropertiesLogic} props={eventProps}>
                 <BindLogic logic={releasePreviewLogic} props={eventProps}>
-                    <ExceptionCardContent timestamp={event?.timestamp} {...contentProps} />
+                    <ExceptionCardContent
+                        timestamp={event?.timestamp}
+                        traceId={getStringProperty(event?.properties?.$ai_trace_id)}
+                        spanId={getStringProperty(event?.properties?.$ai_span_id)}
+                        {...contentProps}
+                    />
                 </BindLogic>
             </BindLogic>
         </BindLogic>
@@ -71,9 +79,17 @@ function ExceptionCardContent({
     renderStackTraceActions,
     label,
     hideEventMeta,
+    traceId,
+    spanId,
 }: ExceptionCardContentProps): JSX.Element {
     const { currentTab } = useValues(exceptionCardLogic)
     const { setCurrentTab } = useActions(exceptionCardLogic)
+
+    useEffect(() => {
+        if (currentTab === 'ai_trace' && !traceId) {
+            setCurrentTab('stack_trace')
+        }
+    }, [currentTab, setCurrentTab, traceId])
 
     return (
         <LemonCard hoverEffect={false} className="p-0 relative w-full h-full border-0 rounded-none flex flex-col">
@@ -96,6 +112,11 @@ function ExceptionCardContent({
                             <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="session">
                                 Session
                             </TabsPrimitiveTrigger>
+                            {traceId ? (
+                                <TabsPrimitiveTrigger className="px-2 whitespace-nowrap" value="ai_trace">
+                                    AI trace
+                                </TabsPrimitiveTrigger>
+                            ) : null}
                         </div>
                         <div className="w-full flex gap-2 justify-end items-center">
                             {!hideEventMeta && timestamp && <TZLabel className="text-muted text-xs" time={timestamp} />}
@@ -106,7 +127,20 @@ function ExceptionCardContent({
                 <StackTraceTab value="stack_trace" renderActions={renderStackTraceActions} className="flex-1 min-h-0" />
                 <PropertiesTab value="properties" className="flex-1 min-h-0" />
                 <SessionTab value="session" timestamp={timestamp} className="flex-1 min-h-0" />
+                {traceId ? (
+                    <AITraceTab
+                        value="ai_trace"
+                        traceId={traceId}
+                        spanId={spanId}
+                        timestamp={timestamp}
+                        className="flex-1 min-h-0"
+                    />
+                ) : null}
             </TabsPrimitive>
         </LemonCard>
     )
+}
+
+function getStringProperty(value: unknown): string | null {
+    return typeof value === 'string' && value.length > 0 ? value : null
 }

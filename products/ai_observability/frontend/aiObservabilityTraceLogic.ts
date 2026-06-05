@@ -434,7 +434,11 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 if (traceId) {
                     const params: any = {}
                     if (eventId) {
-                        params.event = eventId
+                        if (typeof router.values.searchParams.span_id === 'string') {
+                            params.span_id = eventId
+                        } else {
+                            params.event = eventId
+                        }
                     }
                     if (dateRange) {
                         if (dateRange.dateFrom && !dateRange.dateTo) {
@@ -476,13 +480,16 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     })),
 
     tabAwareUrlToAction(({ actions }) => ({
-        [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
+        [urls.aiObservabilityTrace(':id')]: (
+            { id },
+            { event, span_id, timestamp, exception_ts, search, line, tab, msg }
+        ) => {
             actions.setTraceId(id ?? '')
             void addProductIntent({
                 product_type: ProductKey.AI_OBSERVABILITY,
                 intent_context: ProductIntentContext.LLM_ANALYTICS_TRACE_VIEWED,
             })
-            actions.setEventId(event || null)
+            actions.setEventId(span_id || event || null)
             const parsedMsg = msg ? parseInt(msg, 10) : NaN
             actions.setHighlightMessageIndex(!isNaN(parsedMsg) ? parsedMsg : null)
             const parsedLine = line ? parseInt(line, 10) : NaN
@@ -510,7 +517,12 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             }
             const params: Record<string, unknown> = { ...router.values.searchParams }
             if (values.eventId) {
-                params.event = values.eventId
+                if (typeof params.span_id === 'string') {
+                    params.span_id = values.eventId
+                    delete params.event
+                } else {
+                    params.event = values.eventId
+                }
             }
             if (values.dateRange) {
                 if (values.dateRange.dateFrom && !values.dateRange.dateTo) {

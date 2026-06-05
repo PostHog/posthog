@@ -801,6 +801,7 @@ export const productUrls = {
         id: string,
         params?: {
             event?: string
+            span_id?: string
             timestamp?: string
             exception_ts?: string
             search?: string

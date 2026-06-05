@@ -68,6 +68,18 @@ describe('aiObservabilityTraceLogic', () => {
         })
     })
 
+    it('handles trace ID with explicit span_id parameter', async () => {
+        const traceId = 'trace-123'
+        const spanId = 'span-456'
+        const traceUrl = combineUrl(urls.aiObservabilityTrace(traceId, { span_id: spanId }))
+
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toMatchValues({
+            traceId,
+            eventId: spanId,
+        })
+    })
+
     it('handles trace ID with event and exception_ts parameters', async () => {
         const traceIdWithColon = 'session-summary:group:16-16:81008d53ff0a708b:da6c0390-409f-485c-aab3-5e910bcf8b33'
         const eventId = 'event123'
@@ -382,6 +394,23 @@ describe('aiObservabilityTraceLogic', () => {
                     event: 'event-456',
                     timestamp: '2024-01-01T00:00:00Z',
                     search: 'search with params',
+                })
+            )
+        })
+
+        it('preserves explicit span_id when search query changes', async () => {
+            window.location.search = '?span_id=span-456'
+            logic.actions.setTraceId('test-trace-123')
+            logic.actions.setEventId('span-456')
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSearchQuery('span search')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(routerSpy).toHaveBeenCalledWith(
+                urls.aiObservabilityTrace('test-trace-123', {
+                    span_id: 'span-456',
+                    search: 'span search',
                 })
             )
         })

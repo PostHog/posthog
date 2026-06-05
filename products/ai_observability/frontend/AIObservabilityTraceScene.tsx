@@ -1257,6 +1257,7 @@ const TreeNode = React.memo(function TraceNode({
                 to={
                     combineUrl(urls.aiObservabilityTrace(topLevelTrace.id), {
                         ...searchParams,
+                        span_id: undefined,
                         event: item.id,
                         timestamp: getTraceTimestamp(topLevelTrace.createdAt),
                         ...(searchQuery?.trim() && { search: searchQuery }),

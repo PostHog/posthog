@@ -34,6 +34,9 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityDashboard()).toBe('/ai-observability/dashboard')
         expect(urls.aiObservabilityReviews()).toBe('/ai-observability/reviews')
         expect(urls.aiObservabilityTrace('trace-1')).toBe('/ai-observability/traces/trace-1')
+        expect(urls.aiObservabilityTrace('trace-1', { span_id: 'span-1' })).toBe(
+            '/ai-observability/traces/trace-1?span_id=span-1'
+        )
         expect(urls.aiObservabilityDatasets()).toBe('/ai-evals/datasets')
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')

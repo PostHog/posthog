@@ -85,7 +85,9 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                         event.properties.$ai_trace_id,
                         event.event === '$ai_trace'
                             ? { event: event.id, exception_ts: event.timestamp }
-                            : { event: event.id }
+                            : typeof event.properties.$ai_span_id === 'string'
+                              ? { span_id: event.properties.$ai_span_id }
+                              : { event: event.id }
                     )}
                 >
                     View LLM trace
