@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
@@ -23,6 +24,7 @@ import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
+import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
 
 const PREVIEW_MAX_CHARS = 200
@@ -69,6 +71,12 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
                         to={link.to ?? undefined}
                         targetBlank={link.targetBlank}
                         disabledReason={link.disabledReason ?? undefined}
+                        onClick={() =>
+                            posthog.capture(AccountsEvents.LinkClicked, {
+                                link_key: link.key,
+                                has_destination: !!link.to,
+                            })
+                        }
                     >
                         {link.label}
                     </LemonButton>
@@ -97,7 +105,15 @@ export function AccountNotebooksExpansion({
                 const preview = getPreview(notebook)
                 return (
                     <div className="flex flex-col gap-1 py-1 max-w-2xl">
-                        <Link to={urls.notebook(notebook.short_id)} className="font-medium">
+                        <Link
+                            to={urls.notebook(notebook.short_id)}
+                            className="font-medium"
+                            onClick={() =>
+                                posthog.capture(AccountsEvents.NoteClicked, {
+                                    notebook_short_id: notebook.short_id,
+                                })
+                            }
+                        >
                             {notebook.title || 'Untitled note'}
                         </Link>
                         {preview ? (
@@ -147,7 +163,10 @@ export function AccountNotebooksExpansion({
                 <div className="flex-1 min-w-0">
                     <LemonTabs
                         activeKey={activeTab}
-                        onChange={setActiveTab}
+                        onChange={(tab) => {
+                            setActiveTab(tab)
+                            posthog.capture(AccountsEvents.TabViewed, { tab })
+                        }}
                         size="small"
                         tabs={[
                             {

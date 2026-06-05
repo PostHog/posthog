@@ -36,6 +36,11 @@
                     },
                     "type": "object"
                 },
+                "excludeAttributes": {
+                    "default": false,
+                    "description": "Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+                    "type": "boolean"
+                },
                 "filterGroup": {
                     "default": [],
                     "description": "Property filters for the query.",
