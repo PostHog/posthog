@@ -52,7 +52,10 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     if not _is_pipeline_v3_enabled(inputs.team_id, source.source_type):
         return AcquireV3LockActivityOutputs(acquired=True, is_v3=False, token="")
 
-    token = activity.info().workflow_run_id
+    token = activity.info().workflow_run_id or ""
+    if not token:
+        return AcquireV3LockActivityOutputs(acquired=True, is_v3=True, token="")
+
     acquired = acquire_v3_pipeline_lock(inputs.team_id, str(inputs.schema_id), token)
 
     logger = LOGGER.bind()
