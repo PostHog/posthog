@@ -14,7 +14,7 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { isSubscriptionEnabled } from 'scenes/subscriptions/components/SubscriptionsTable'
 import { urls } from 'scenes/urls'
 
-import { SubscriptionType } from '~/types'
+import { SubscriptionResourceType, SubscriptionType } from '~/types'
 
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
@@ -47,7 +47,7 @@ export function SubscriptionListItem({
     const enabled = isSubscriptionEnabled(subscription)
     const sideActionBusy = isDelivering || isToggling
 
-    const aiPrompt = subscription.resource_type === 'ai_prompt' ? subscription.prompt : null
+    const aiPrompt = subscription.resource_type === SubscriptionResourceType.AiPrompt ? subscription.prompt : null
     const aiPromptTruncated = aiPrompt && aiPrompt.length > PROMPT_PREVIEW_MAX_CHARS
     const aiPromptPreview = aiPromptTruncated ? `${aiPrompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…` : aiPrompt
 
@@ -233,7 +233,7 @@ export function ManageSubscriptions({
                                 </div>
                                 {aiSubscriptions.length > AI_PREVIEW_LIMIT ? (
                                     <Link to={urls.subscriptions()} className="text-xs">
-                                        View {aiSubscriptions.length - AI_PREVIEW_LIMIT} more in all subscriptions
+                                        View all {aiSubscriptions.length} AI subscriptions
                                     </Link>
                                 ) : null}
                             </div>

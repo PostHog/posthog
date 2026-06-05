@@ -34,11 +34,26 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceType, SubscriptionType } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { subscriptionLogic } from '../subscriptionLogic'
+import { subscriptionsLogic } from '../subscriptionsLogic'
+import {
+    bysetposOptions,
+    frequencyOptionsPlural,
+    frequencyOptionsSingular,
+    getAiSubscriptionGate,
+    getNextDeliveryDate,
+    intervalOptions,
+    monthlyWeekdayOptions,
+    targetTypeOptions,
+    timeOptions,
+    weekdayOptions,
+    WEEKDAYS,
+    AI_PROMPT_MAX_LENGTH,
+} from '../utils'
 
 // Shown wherever AI subscriptions are gated off (org hasn't approved AI data
 // processing). Mirrors the backend gate in `_ai_create_gate_reason`, which 403s
@@ -75,21 +90,6 @@ const AI_PROMPT_EXAMPLES: { label: string; prompt: string }[] = [
         prompt: 'Which events we normally track received no data in the last 7 days? List them so I can catch broken instrumentation.',
     },
 ]
-import { subscriptionsLogic } from '../subscriptionsLogic'
-import {
-    bysetposOptions,
-    frequencyOptionsPlural,
-    frequencyOptionsSingular,
-    getAiSubscriptionGate,
-    getNextDeliveryDate,
-    intervalOptions,
-    monthlyWeekdayOptions,
-    targetTypeOptions,
-    timeOptions,
-    weekdayOptions,
-    WEEKDAYS,
-    AI_PROMPT_MAX_LENGTH,
-} from '../utils'
 
 interface EditSubscriptionProps {
     id: number | 'new'
@@ -272,7 +272,7 @@ function EditSubscriptionForm({
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const emailDisabled = !preflight?.email_service_available
-    const isAiPrompt = subscription?.resource_type === 'ai_prompt'
+    const isAiPrompt = subscription?.resource_type === SubscriptionResourceType.AiPrompt
     // Parent-less = reached from the top-level /subscriptions page, not the kebab
     // modal on an insight/dashboard. There's nothing to snapshot here, so AI report
     // is the only valid content type — hide the snapshot/AI toggle entirely.
@@ -403,11 +403,11 @@ function EditSubscriptionForm({
                                         fullWidth
                                         options={[
                                             {
-                                                value: 'insight',
+                                                value: SubscriptionResourceType.Insight,
                                                 label: 'Insight or dashboard snapshot',
                                             },
                                             {
-                                                value: 'ai_prompt',
+                                                value: SubscriptionResourceType.AiPrompt,
                                                 label: 'AI report (beta)',
                                                 disabledReason: !aiGate.aiOptionEnabled
                                                     ? AI_NOT_ALLOWED_REASON

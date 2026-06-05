@@ -224,4 +224,30 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.dashboard).toBeUndefined()
         expect(capturedBody?.insight).toBeUndefined()
     })
+
+    it('drops a stale prompt when saving a non-AI subscription', async () => {
+        // Toggling resource_type back to insight after typing a prompt leaves it in form state;
+        // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': (req, res, ctx) => {
+                    capturedBody = req.body as Partial<SubscriptionType>
+                    return res(ctx.json({ id: 43, ...capturedBody } as SubscriptionType))
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'insight',
+            prompt: 'stale prompt left over from the AI toggle',
+            title: 'Insight test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.prompt).toBeUndefined()
+    })
 })

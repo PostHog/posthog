@@ -7,7 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { SubscriptionType } from '~/types'
+import { SubscriptionResourceType, SubscriptionType } from '~/types'
 
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import type { subscriptionsLogicType } from './subscriptionsLogicType'
@@ -60,7 +60,7 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
                     return []
                 }
                 breakpoint?.()
-                const response = await api.subscriptions.list({ resourceType: 'ai_prompt' })
+                const response = await api.subscriptions.list({ resourceType: SubscriptionResourceType.AiPrompt })
                 breakpoint?.()
                 return response.results
             },

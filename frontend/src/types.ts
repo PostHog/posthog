@@ -5112,7 +5112,12 @@ export enum ValueOptionType {
 
 export type WeekdayType = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'
 
-export type SubscriptionResourceType = 'insight' | 'dashboard' | 'ai_prompt'
+export const SubscriptionResourceType = {
+    Insight: 'insight',
+    Dashboard: 'dashboard',
+    AiPrompt: 'ai_prompt',
+} as const
+export type SubscriptionResourceType = (typeof SubscriptionResourceType)[keyof typeof SubscriptionResourceType]
 
 // TODO: migrate to SubscriptionApi from @posthog/products-subscriptions/frontend/generated/api.schemas.
 // This hand-written interface predates the generated type and now requires
