@@ -125,10 +125,10 @@ jobs:
 
     release:
         name: Prepare CLI release
-        needs: [check-changesets, notify-approval-needed]
+        needs: [check-changesets, cli-release-preview, notify-approval-needed]
         runs-on: ubuntu-latest
         timeout-minutes: 30
-        if: always() && needs.check-changesets.outputs.has-changesets == 'true'
+        if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
         environment: Release SDK
         permissions:
             contents: write
