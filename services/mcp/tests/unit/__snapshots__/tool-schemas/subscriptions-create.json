@@ -114,17 +114,6 @@
             ],
             "description": "Optional message included in the invitation email when adding new recipients."
         },
-        "prompt": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
-        },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",
             "format": "date-time",

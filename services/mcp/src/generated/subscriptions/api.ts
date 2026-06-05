@@ -105,12 +105,6 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
             ),
-        prompt: zod
-            .string()
-            .nullish()
-            .describe(
-                "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
-            ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])
             .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
@@ -234,12 +228,6 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        prompt: zod
-            .string()
-            .nullish()
-            .describe(
-                "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
             ),
         target_type: zod
             .enum(['email', 'slack', 'webhook'])

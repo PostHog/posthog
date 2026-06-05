@@ -33,9 +33,6 @@ const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schem
         if (params.dashboard_export_insights !== undefined) {
             body['dashboard_export_insights'] = params.dashboard_export_insights
         }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
-        }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
         }
@@ -189,9 +186,6 @@ const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdat
         }
         if (params.dashboard_export_insights !== undefined) {
             body['dashboard_export_insights'] = params.dashboard_export_insights
-        }
-        if (params.prompt !== undefined) {
-            body['prompt'] = params.prompt
         }
         if (params.target_type !== undefined) {
             body['target_type'] = params.target_type
