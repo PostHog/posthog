@@ -883,6 +883,10 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
+        # Capture the create_hogql_database span now; inside a timings.measure(emit_span=True) block
+        # get_current_span() returns that child span instead, so attributes would land on the wrong span.
+        db_span = trace.get_current_span()
+
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
@@ -903,9 +907,7 @@ class Database(BaseModel):
             # Team is definitely not None at this point, make mypy believe that
             team = cast("Team", team)
 
-            # Set team_id for the create_hogql_database tracing span
-            span = trace.get_current_span()
-            span.set_attribute("team_id", team.pk)
+            db_span.set_attribute("team_id", team.pk)
 
         with timings.measure("feature_flags", emit_span=True):
             is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -1161,7 +1163,7 @@ class Database(BaseModel):
                 def to_printed_clickhouse(self, context):
                     return self.parent_table.to_printed_clickhouse(context)
 
-            with timings.measure("select"):
+            with timings.measure("select", emit_span=True):
                 tables_query = (
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
                     .exclude(deleted=True)
@@ -1185,66 +1187,72 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
-            sync_warnings_now = datetime.now(UTC)
-            for table in tables:
-                if (
-                    not database._is_direct_query()
-                    and table.external_data_source
-                    and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                ):
-                    continue
+            # The per-table loop builds a hogql definition (one field per column) for every warehouse
+            # table; for warehouse-heavy teams this Python work dwarfs the SQL above, so trace it.
+            with timings.measure("build_tables", emit_span=True):
+                sync_warnings_now = datetime.now(UTC)
+                for table in tables:
+                    if (
+                        not database._is_direct_query()
+                        and table.external_data_source
+                        and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    ):
+                        continue
 
-                with timings.measure(f"table_{table.name}"):
-                    s3_table = table.hogql_definition(modifiers)
+                    with timings.measure(f"table_{table.name}"):
+                        s3_table = table.hogql_definition(modifiers)
 
-                    sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
-                    if sync_warnings:
-                        database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
-                    primary_table = s3_table
+                        sync_warnings = get_warehouse_sync_warnings(table, now=sync_warnings_now)
+                        if sync_warnings:
+                            database._data_warehouse_sync_warnings[str(table.id)] = sync_warnings
+                        primary_table = s3_table
 
-                    # If the warehouse table has no _properties_ field, then set it as a virtual table
-                    if s3_table.fields.get("properties") is None:
-                        s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
-                            fields=s3_table.fields, parent_table=s3_table, hidden=True
-                        )
-
-                    if table.external_data_source:
-                        if not database._is_direct_query():
-                            warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-                    else:
-                        self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
-
-                    if table.external_data_source:
-                        for index, table_key in enumerate(
-                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
-                        ):
-                            table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
-                            table_chain = table_key.split(".")
-                            table_conflict_mode: Literal["override", "ignore"] = (
-                                "override"
-                                if database._is_direct_query()
-                                and table.external_data_source
-                                and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
-                                else "ignore"
+                        # If the warehouse table has no _properties_ field, then set it as a virtual table
+                        if s3_table.fields.get("properties") is None:
+                            s3_table.fields["properties"] = WarehousePropertiesVirtualTable(
+                                fields=s3_table.fields, parent_table=s3_table, hidden=True
                             )
 
-                            # For a chain of type a.b.c, we want to create a nested table node
-                            # where a is the parent, b is the child of a, and c is the child of b
-                            # where a.b.c will contain the table
-                            warehouse_tables.add_child(
-                                TableNode.create_nested_for_chain(table_chain, table_for_key),
-                                table_conflict_mode=table_conflict_mode,
-                            )
+                        if table.external_data_source:
+                            if not database._is_direct_query():
+                                warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                        else:
+                            self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
-                            joined_table_chain = ".".join(table_chain)
-                            table_for_key.name = joined_table_chain
-                            warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
-                            if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                                database._direct_access_warehouse_table_names.add(joined_table_chain)
-                            if index == 0:
-                                primary_table = table_for_key
+                        if table.external_data_source:
+                            for index, table_key in enumerate(
+                                _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                            ):
+                                table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                                table_chain = table_key.split(".")
+                                table_conflict_mode: Literal["override", "ignore"] = (
+                                    "override"
+                                    if database._is_direct_query()
+                                    and table.external_data_source
+                                    and table.external_data_source.access_method
+                                    == ExternalDataSource.AccessMethod.DIRECT
+                                    else "ignore"
+                                )
 
-                    warehouse_tables_to_process.append((primary_table, table))
+                                # For a chain of type a.b.c, we want to create a nested table node
+                                # where a is the parent, b is the child of a, and c is the child of b
+                                # where a.b.c will contain the table
+                                warehouse_tables.add_child(
+                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    table_conflict_mode=table_conflict_mode,
+                                )
+
+                                joined_table_chain = ".".join(table_chain)
+                                table_for_key.name = joined_table_chain
+                                warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                                if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                    database._direct_access_warehouse_table_names.add(joined_table_chain)
+                                if index == 0:
+                                    primary_table = table_for_key
+
+                        warehouse_tables_to_process.append((primary_table, table))
+
+        db_span.set_attribute("warehouse_table_count", len(tables))
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
