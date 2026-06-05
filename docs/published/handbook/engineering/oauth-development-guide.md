@@ -29,6 +29,11 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -outform PEM | \
 # Add to .env as OIDC_RSA_PRIVATE_KEY="<generated_key>"
 ```
 
+For key rotation, you can also configure inactive keys that are published in the JWKS but not used for signing. See [Key rotation](#key-rotation) for details.
+
+- `OIDC_RSA_PRIVATE_KEY_INACTIVE_1` - First inactive key slot
+- `OIDC_RSA_PRIVATE_KEY_INACTIVE_2` - Second inactive key slot
+
 ### 2. Set Up Your Environment
 
 First, generate demo data which includes a test OAuth application:
@@ -439,6 +444,33 @@ response = requests.post(
 data = response.json()
 print(f"Token active: {data.get('active')}")
 ```
+
+## Key rotation
+
+PostHog supports zero-disruption OIDC key rotation using inactive keys. Inactive keys are published in the JWKS endpoint (`/.well-known/jwks.json`) but are not used for signing new tokens. This allows tokens signed with the old key to continue verifying while you transition to a new key.
+
+Both OIDC ID tokens and ID-JAG access tokens are verified against all published keys (active + inactive). ID-JAG tokens also include a `kid` header matching the JWKS thumbprint so resource servers can select the correct key.
+
+### Environment variables
+
+| Variable                          | Description                                                        |
+| :-------------------------------- | :----------------------------------------------------------------- |
+| `OIDC_RSA_PRIVATE_KEY`            | The active signing key used for new tokens                         |
+| `OIDC_RSA_PRIVATE_KEY_INACTIVE_1` | First inactive key slot (published in JWKS, not used for signing)  |
+| `OIDC_RSA_PRIVATE_KEY_INACTIVE_2` | Second inactive key slot (published in JWKS, not used for signing) |
+
+Empty values are automatically filtered out, so you don't need to set the inactive key variables unless a rotation is in progress.
+
+### Rotation procedure
+
+1. Generate a new RSA key pair
+2. Set the new key as `OIDC_RSA_PRIVATE_KEY_INACTIVE_1` and redeploy — this publishes the new key in the JWKS without using it for signing
+3. Wait for JWKS caches to refresh so clients pick up the new key
+4. Promote the new key: move it to `OIDC_RSA_PRIVATE_KEY` and move the old key to `OIDC_RSA_PRIVATE_KEY_INACTIVE_1`, then redeploy
+5. Wait for all tokens signed with the old key to expire (ID-JAG access tokens have a default 2h TTL)
+6. Remove the old key from `OIDC_RSA_PRIVATE_KEY_INACTIVE_1` and redeploy
+
+Two inactive key slots are provided, but typically only one is needed during a rotation.
 
 ## Troubleshooting
 
