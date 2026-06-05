@@ -108,7 +108,7 @@ export const TileFiltersReadOnly: Story = {
         tileFiltersReadOnly: true,
         loading: false,
         result: {
-            results: sampleIssues,
+            results: errorTrackingSampleIssues,
             hasMore: true,
             limit: 10,
         },
