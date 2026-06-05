@@ -698,7 +698,7 @@ class SurfacedGeneratedAppUrl(Scorer):
                 metadata={"reason": f"'{self.TOOL}' was never called successfully or returned no url"},
             )
 
-        last_message = output.get("last_message") or ""
+        last_message = (output or {}).get("last_message") or ""
         if not isinstance(last_message, str):
             last_message = str(last_message)
 
