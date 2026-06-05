@@ -883,8 +883,6 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
-        # Capture the create_hogql_database span now; inside a timings.measure(emit_span=True) block
-        # get_current_span() returns that child span instead, so attributes would land on the wrong span.
         db_span = trace.get_current_span()
 
         from posthog.hogql.query import create_default_modifiers_for_team
@@ -1187,8 +1185,6 @@ class Database(BaseModel):
                             connection_id=cast(str, database._connection_id),
                         )
                     ]
-            # The per-table loop builds a hogql definition (one field per column) for every warehouse
-            # table; for warehouse-heavy teams this Python work dwarfs the SQL above, so trace it.
             with timings.measure("build_tables", emit_span=True):
                 sync_warnings_now = datetime.now(UTC)
                 for table in tables:
