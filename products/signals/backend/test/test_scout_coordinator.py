@@ -140,7 +140,8 @@ async def _run_activity() -> list[PlannedRun]:
         ({"guaranteed_team_ids": [5, 6]}, {5, 6}),
         ({"guaranteed_team_ids": [5, 6], "skip_team_ids": [6]}, {5}),
         ('{"guaranteed_team_ids": [7]}', {7}),  # JSON string payload
-        ({}, set(DEFAULT_ENROLLED_TEAM_IDS)),  # empty → defaults
+        ({"guaranteed_team_ids": []}, set()),  # explicit empty list → intentional drain-all
+        ({}, set(DEFAULT_ENROLLED_TEAM_IDS)),  # absent key → defaults
         (None, set(DEFAULT_ENROLLED_TEAM_IDS)),  # no payload → defaults
         ({"guaranteed_team_ids": "nope"}, set(DEFAULT_ENROLLED_TEAM_IDS)),  # wrong type → defaults
         ({"guaranteed_team_ids": [5, 6], "skip_team_ids": "nope"}, {5, 6}),  # bad skip ignored

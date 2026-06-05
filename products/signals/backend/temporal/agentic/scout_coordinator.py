@@ -231,6 +231,8 @@ def _enrolled_team_ids() -> set[int]:
         if not isinstance(payload, dict):
             return set(DEFAULT_ENROLLED_TEAM_IDS)
 
+        # Absent key or malformed value → defaults (the fail-safe). An explicit empty list is
+        # honored as an intentional "drain all teams" — not coerced to defaults.
         guaranteed = payload.get("guaranteed_team_ids", DEFAULT_ENROLLED_TEAM_IDS)
         if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
             guaranteed = DEFAULT_ENROLLED_TEAM_IDS
