@@ -34,7 +34,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceType, SubscriptionType } from '~/types'
+import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
@@ -272,7 +272,7 @@ function EditSubscriptionForm({
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
 
     const emailDisabled = !preflight?.email_service_available
-    const isAiPrompt = subscription?.resource_type === SubscriptionResourceType.AiPrompt
+    const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
     // Parent-less = reached from the top-level /subscriptions page, not the kebab
     // modal on an insight/dashboard. There's nothing to snapshot here, so AI report
     // is the only valid content type — hide the snapshot/AI toggle entirely.
@@ -403,11 +403,11 @@ function EditSubscriptionForm({
                                         fullWidth
                                         options={[
                                             {
-                                                value: SubscriptionResourceType.Insight,
+                                                value: SubscriptionResourceTypes.Insight,
                                                 label: 'Insight or dashboard snapshot',
                                             },
                                             {
-                                                value: SubscriptionResourceType.AiPrompt,
+                                                value: SubscriptionResourceTypes.AiPrompt,
                                                 label: 'AI report (beta)',
                                                 disabledReason: !aiGate.aiOptionEnabled
                                                     ? AI_NOT_ALLOWED_REASON

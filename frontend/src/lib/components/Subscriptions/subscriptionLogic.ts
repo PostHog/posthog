@@ -11,7 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { ExportedAssetType, ExporterFormat, SubscriptionResourceType, SubscriptionType } from '~/types'
+import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
@@ -21,7 +21,7 @@ function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
     prompt: string | null | undefined
 ): string | undefined {
-    if (resource_type !== SubscriptionResourceType.AiPrompt) {
+    if (resource_type !== SubscriptionResourceTypes.AiPrompt) {
         return undefined
     }
     const trimmedPrompt = prompt?.trim()
@@ -46,7 +46,7 @@ function subscriptionSaveErrorMessage(error: unknown): string {
 }
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
-    resource_type: SubscriptionResourceType.Insight,
+    resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
@@ -162,14 +162,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                               : undefined
                           : undefined,
                 dashboard_export_insights:
-                    resource_type !== SubscriptionResourceType.AiPrompt &&
+                    resource_type !== SubscriptionResourceTypes.AiPrompt &&
                     props.dashboardId &&
                     (!dashboard_export_insights || dashboard_export_insights.length === 0)
                         ? ('Select at least one insight' as any)
                         : undefined,
             }),
             submit: async (subscription, breakpoint) => {
-                const isAi = subscription.resource_type === SubscriptionResourceType.AiPrompt
+                const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
                 const payload = {
@@ -357,7 +357,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             actions.loadSubscription()
         },
         '/subscriptions/new': (_, searchParams) => {
-            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceType.AiPrompt })
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceTypes.AiPrompt })
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)
             }

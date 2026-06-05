@@ -8,7 +8,7 @@ import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from 'scenes/urls'
 
 import type { InsightShortId } from '~/types'
-import { SubscriptionResourceType } from '~/types'
+import { SubscriptionResourceTypes } from '~/types'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
@@ -33,7 +33,7 @@ export function subscriptionEditHref(sub: SubscriptionApi): string | null {
     if (sub.dashboard) {
         return urls.dashboardSubscription(sub.dashboard, String(sub.id))
     }
-    if (sub.resource_type === SubscriptionResourceType.AiPrompt) {
+    if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
         return urls.subscriptionEdit(sub.id)
     }
     return null
@@ -119,7 +119,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             width: '7rem',
             render: (_value: unknown, sub: SubscriptionApi) => {
                 let typeTag: { icon: JSX.Element; label: string } | null = null
-                if (sub.resource_type === SubscriptionResourceType.AiPrompt) {
+                if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
                     typeTag = { icon: <IconAI />, label: 'AI report' }
                 } else if (sub.insight) {
                     typeTag = { icon: <IconGraph />, label: 'Insight' }
@@ -146,7 +146,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             render: (_value: unknown, sub: SubscriptionApi) => {
                 // AI subs have no insight/dashboard FK — surface the prompt instead so the row
                 // reads as intentional ("this is what the AI was asked to do") rather than empty.
-                if (sub.resource_type === SubscriptionResourceType.AiPrompt) {
+                if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
                     const prompt = sub.prompt?.trim()
                     if (!prompt) {
                         return <span className="text-secondary">—</span>
