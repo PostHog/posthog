@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE posthog_persondistinctid\n                SET person_id = $1, version = $2\n                WHERE team_id = $3 AND distinct_id = $4\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "35b5f4d201bae56ad2037e6ed32c010ff31bc50c37eb56447c32a057b916c027"
+}

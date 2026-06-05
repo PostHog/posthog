@@ -10,7 +10,11 @@ use personhog_common::grpc::{current_client_name, current_method_name};
 use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
-use crate::storage::types::Person;
+use crate::storage::types::{Person, SplitResult};
+
+const PERSON_UUIDV5_NAMESPACE: Uuid = Uuid::from_bytes([
+    0x93, 0x29, 0x79, 0xb4, 0x65, 0xc3, 0x44, 0x24, 0x84, 0x67, 0x0b, 0x66, 0xec, 0x27, 0xbc, 0x22,
+]);
 
 const POOL_LABEL: &str = "replica";
 const BULK_POOL_LABEL: &str = "bulk_replica";
@@ -620,6 +624,174 @@ impl PersonLookup for PostgresStorage {
                 (key.clone(), found.remove(&key))
             })
             .collect())
+    }
+
+    async fn split_person(
+        &self,
+        team_id: i64,
+        person_id: i64,
+        distinct_ids_to_split: &[String],
+    ) -> StorageResult<Vec<SplitResult>> {
+        if distinct_ids_to_split.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let client = current_client_name();
+        let method = current_method_name();
+        let labels = [
+            ("operation".to_string(), "split_person".to_string()),
+            ("pool".to_string(), "primary".to_string()),
+            ("client".to_string(), client.to_string()),
+            ("method".to_string(), method.to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        // Step 1: Fetch original person version from primary (write path needs latest)
+        let person_version: i64 = sqlx::query_scalar!(
+            r#"
+            SELECT COALESCE(version, 0)::bigint as "version!"
+            FROM posthog_person
+            WHERE team_id = $1 AND id = $2
+            "#,
+            team_id as i32,
+            person_id
+        )
+        .fetch_optional(&self.primary_pool)
+        .await?
+        .ok_or_else(|| {
+            StorageError::Query(format!(
+                "person not found: team_id={team_id}, person_id={person_id}"
+            ))
+        })?;
+
+        // Step 2: Validate distinct_ids belong to this person (pre-transaction check)
+        let owned_dids: Vec<String> = sqlx::query_scalar!(
+            r#"
+            SELECT distinct_id as "distinct_id!"
+            FROM posthog_persondistinctid
+            WHERE team_id = $1 AND person_id = $2
+            "#,
+            team_id as i32,
+            person_id
+        )
+        .fetch_all(&self.primary_pool)
+        .await?;
+
+        let owned_set: std::collections::HashSet<&str> =
+            owned_dids.iter().map(|s| s.as_str()).collect();
+        let unknown: Vec<&str> = distinct_ids_to_split
+            .iter()
+            .filter(|did| !owned_set.contains(did.as_str()))
+            .map(|s| s.as_str())
+            .collect();
+        if !unknown.is_empty() {
+            return Err(StorageError::Query(format!(
+                "NOT_FOUND: distinct_ids {:?} do not belong to person_id={person_id} (team_id={team_id})",
+                unknown
+            )));
+        }
+
+        // Step 3: Transactional split on primary pool
+        let mut tx = self.primary_pool.begin().await?;
+
+        // 3a: Lock PDI rows with SELECT FOR UPDATE
+        let locked_pdis = sqlx::query!(
+            r#"
+            SELECT distinct_id as "distinct_id!", COALESCE(version, 0)::bigint as "version!"
+            FROM posthog_persondistinctid
+            WHERE team_id = $1 AND person_id = $2 AND distinct_id = ANY($3)
+            FOR UPDATE
+            "#,
+            team_id as i32,
+            person_id,
+            distinct_ids_to_split
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        if locked_pdis.len() != distinct_ids_to_split.len() {
+            return Err(StorageError::Query(format!(
+                "FAILED_PRECONDITION: expected {} PDIs but locked {} (team_id={team_id}, person_id={person_id})",
+                distinct_ids_to_split.len(),
+                locked_pdis.len()
+            )));
+        }
+
+        let mut results = Vec::with_capacity(distinct_ids_to_split.len());
+
+        for pdi in &locked_pdis {
+            let new_uuid = Uuid::new_v5(
+                &PERSON_UUIDV5_NAMESPACE,
+                format!("{team_id}:{}", pdi.distinct_id).as_bytes(),
+            );
+            let new_person_version = person_version + 101;
+
+            // 3b: Upsert new person (deterministic UUID, idempotent)
+            sqlx::query!(
+                r#"
+                INSERT INTO posthog_person (uuid, team_id, properties, created_at, version, is_identified)
+                VALUES ($1, $2, '{}'::jsonb, NOW(), $3, false)
+                ON CONFLICT (team_id, uuid) DO UPDATE SET version = $3
+                "#,
+                new_uuid,
+                team_id as i32,
+                new_person_version
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            // Fetch the person ID after upsert
+            let new_person_id: i64 = sqlx::query_scalar!(
+                r#"
+                SELECT id::bigint as "id!"
+                FROM posthog_person
+                WHERE team_id = $1 AND uuid = $2
+                "#,
+                team_id as i32,
+                new_uuid
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+
+            let pdi_version = pdi.version + 101;
+
+            // 3c: Reassign PDI to new person
+            sqlx::query!(
+                r#"
+                UPDATE posthog_persondistinctid
+                SET person_id = $1, version = $2
+                WHERE team_id = $3 AND distinct_id = $4
+                "#,
+                new_person_id,
+                pdi_version,
+                team_id as i32,
+                pdi.distinct_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            results.push(SplitResult {
+                distinct_id: pdi.distinct_id.clone(),
+                new_person_uuid: new_uuid,
+                new_person_version,
+                pdi_version,
+            });
+        }
+
+        tx.commit().await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[
+                ("operation".to_string(), "split_person".to_string()),
+                ("pool".to_string(), "primary".to_string()),
+                ("client".to_string(), client.to_string()),
+                ("method".to_string(), method.to_string()),
+            ],
+            results.len() as f64,
+        );
+
+        Ok(results)
     }
 }
 

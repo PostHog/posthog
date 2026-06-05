@@ -182,3 +182,26 @@ message DeletePersonsBatchForTeamResponse {
   // Number of persons deleted. 0 means no more persons to delete.
   int64 deleted_count = 1;
 }
+
+// SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
+// Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
+// The operation is atomic: all splits succeed or none do.
+// Python resolves which distinct IDs to split before calling this RPC.
+message SplitPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // Distinct IDs to split off. Must all belong to the specified person.
+  repeated string distinct_ids_to_split = 3;
+}
+
+// SplitResult describes a single distinct_id that was split onto a new person.
+message SplitResult {
+  string distinct_id = 1;
+  string new_person_uuid = 2;
+  int64 new_person_version = 3;
+  int64 pdi_version = 4;
+}
+
+message SplitPersonResponse {
+  repeated SplitResult splits = 1;
+}

@@ -37,9 +37,9 @@ use personhog_proto::personhog::types::v1::{
     InsertCohortMembersResponse, ListCohortMemberIdsRequest, ListCohortMemberIdsResponse,
     ListGroupsRequest, ListGroupsResponse, PersonDistinctIds, PersonWithDistinctIds,
     PersonWithTeamDistinctId, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse,
-    PersonsResponse, TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse,
-    UpdateGroupTypeMappingRequest, UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest,
-    UpsertHashKeyOverridesResponse,
+    PersonsResponse, SplitPersonRequest, SplitPersonResponse, SplitResult as ProtoSplitResult,
+    TeamDistinctId, UpdateGroupRequest, UpdateGroupResponse, UpdateGroupTypeMappingRequest,
+    UpdateGroupTypeMappingResponse, UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
@@ -1210,6 +1210,47 @@ impl PersonHogReplica for PersonHogReplicaService {
 
         Ok(Response::new(DeleteGroupTypeMappingsBatchForTeamResponse {
             deleted_count,
+        }))
+    }
+
+    // ============================================================
+    // Person split
+    // ============================================================
+
+    async fn split_person(
+        &self,
+        request: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.distinct_ids_to_split.is_empty() {
+            return Ok(Response::new(SplitPersonResponse { splits: vec![] }));
+        }
+
+        let results = self
+            .storage
+            .split_person(req.team_id, req.person_id, &req.distinct_ids_to_split)
+            .await
+            .map_err(|e| match &e {
+                storage::StorageError::Query(msg) if msg.starts_with("NOT_FOUND:") => {
+                    Status::not_found(msg.clone())
+                }
+                storage::StorageError::Query(msg) if msg.starts_with("FAILED_PRECONDITION:") => {
+                    Status::failed_precondition(msg.clone())
+                }
+                _ => log_and_convert_error(e, "split_person"),
+            })?;
+
+        Ok(Response::new(SplitPersonResponse {
+            splits: results
+                .into_iter()
+                .map(|r| ProtoSplitResult {
+                    distinct_id: r.distinct_id,
+                    new_person_uuid: r.new_person_uuid.to_string(),
+                    new_person_version: r.new_person_version,
+                    pdi_version: r.pdi_version,
+                })
+                .collect(),
         }))
     }
 }
