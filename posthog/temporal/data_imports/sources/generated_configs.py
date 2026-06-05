@@ -759,7 +759,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SalesLoftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
