@@ -21,6 +21,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.transforms.clickhouse_physical_passes import clickhouse_physical_passes
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
@@ -196,6 +197,17 @@ def prepare_ast_for_printing(
                 context=context,
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
+
+        # Logical lowering + ClickHouse physical optimization (strangler gate, off by default — §12.8). Runs AFTER both
+        # PropertySwapper passes: any scalar cast already wraps the property, so lowering just replaces the inner
+        # PropertyType Field with JSONFieldAccess, then the physical passes substitute materialized-column / skip-index
+        # forms. Off => the printer still resolves properties to physical columns (exact master behavior). On => the
+        # output is RESULT-equivalent (text churns for materialized/optimized cases — §8.7), gated for shadow rollout.
+        if context.lower_property_access:
+            with context.timings.measure("lower_property_access"):
+                node = lower_property_access(node, context)
+            with context.timings.measure("clickhouse_physical_passes"):
+                node = clickhouse_physical_passes(node, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.

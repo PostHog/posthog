@@ -155,12 +155,18 @@ def resolve_materialized_property_source(
     return None
 
 
-# --- helpers to read a JSONFieldAccess's resolved property metadata ---------------------------------------------------
+# --- helpers to read a JSONFieldAccess's source column + key path -----------------------------------------------------
+#
+# §4.4: a `JSONFieldAccess` carries its *value* type (a nullable String), NOT the original `PropertyType`. Everything the
+# physical pass needs is in the node's own structure: `node.expr` is the blob `Field` (its `.type` is the source
+# `FieldType` → table_type → property registry) and `node.keys` is the key path (keys[0] is the top-level property name,
+# deeper keys index into the extracted value). We read from there, never from `node.type`.
 
 
-def _property_type_of(node: ast.JSONFieldAccess) -> ast.PropertyType | None:
-    """The resolved `PropertyType` a `JSONFieldAccess` carries (logical lowering copies it from the original Field)."""
-    return node.type if isinstance(node.type, ast.PropertyType) else None
+def _blob_field_type_of(node: ast.JSONFieldAccess) -> ast.FieldType | None:
+    """The source blob column's `FieldType` (`node.expr.type`), the input to `resolve_materialized_property_source`."""
+    expr_type = node.expr.type
+    return expr_type if isinstance(expr_type, ast.FieldType) else None
 
 
 def _is_json_blob_access(node: ast.JSONFieldAccess, context: HogQLContext) -> bool:
@@ -169,10 +175,10 @@ def _is_json_blob_access(node: ast.JSONFieldAccess, context: HogQLContext) -> bo
     Lowering only produces `JSONFieldAccess` over a `StringJSONDatabaseField`, but guard defensively so the physical pass
     never mistakes some other lowered access for a materializable property.
     """
-    property_type = _property_type_of(node)
-    if property_type is None:
+    field_type = _blob_field_type_of(node)
+    if field_type is None:
         return False
-    return isinstance(property_type.field_type.resolve_database_field(context), StringJSONDatabaseField)
+    return isinstance(field_type.resolve_database_field(context), StringJSONDatabaseField)
 
 
 # --- value substitution: rebuild the printer's materialized-column read as AST ----------------------------------------
@@ -295,13 +301,12 @@ def _substitute_value_read(node: ast.JSONFieldAccess, context: HogQLContext) -> 
     Mirrors `BasePrinter.visit_property_type` column selection (NOT the scalar cast — that already wraps this node, since
     the swapper ran before lowering). Returns None when there is no physical backing or the property is restricted.
     """
-    property_type = _property_type_of(node)
-    if property_type is None or not node.keys:
+    field_type = _blob_field_type_of(node)
+    if field_type is None or not node.keys:
         return None
     if not _is_json_blob_access(node, context):
         return None
 
-    field_type = property_type.field_type
     first_key = str(node.keys[0])
     deeper_keys: list[str | int] = list(node.keys[1:])
 
@@ -366,15 +371,33 @@ def _resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     return expr_type
 
 
-def _resolve_property_type(expr: ast.Expr) -> ast.PropertyType | None:
-    """The PropertyType an operand resolves to.
+def _lowered_property_operand(expr: ast.Expr) -> ast.JSONFieldAccess | None:
+    """A lowered `properties.$x` comparison operand, unwrapping an `Alias`, or None.
 
-    After logical lowering a `properties.$x` operand is a `JSONFieldAccess` (often wrapped in an `Alias`). Its resolved
-    type is still the `PropertyType` (lowering copies it), so `resolve_field_type`-style unwrapping recovers it exactly as
-    the printer does for the pre-lowering Field.
+    §4.4: after logical lowering a `properties.$x` operand is a `JSONFieldAccess` (often `Alias`-wrapped). It no longer
+    carries a `PropertyType` — its `.type` is a plain String — so we detect the node *directly* by class rather than by
+    recovering a `PropertyType` from `resolve_field_type`. The source column + key path come from `node.expr` / `node.keys`
+    (`_blob_field_type_of`, `node.keys[0]`), not from `node.type`.
     """
-    expr_type = _resolve_field_type(expr)
-    return expr_type if isinstance(expr_type, ast.PropertyType) else None
+    if isinstance(expr, ast.Alias):
+        expr = expr.expr
+    return expr if isinstance(expr, ast.JSONFieldAccess) else None
+
+
+def _single_key_property(expr: ast.Expr) -> tuple[ast.FieldType, str] | None:
+    """The (blob `FieldType`, top-level key) of a single-key lowered property operand, or None.
+
+    Mirrors the printer's `len(chain) == 1` guard: only a single-key access (no deeper `.a.b`) is an individually-
+    materializable / property-group property. Multi-key accesses read the materialized value then JSON-extract deeper, so
+    they are not eligible for the bare-column comparison optimizers.
+    """
+    node = _lowered_property_operand(expr)
+    if node is None or len(node.keys) != 1:
+        return None
+    field_type = _blob_field_type_of(node)
+    if field_type is None:
+        return None
+    return field_type, str(node.keys[0])
 
 
 def _and_all(clauses: list[ast.Expr]) -> ast.Expr:
@@ -392,15 +415,14 @@ def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
 class _OptimizableProperty:
     """A single-key materializable property operand of a comparison, paired with its resolved physical source.
 
-    `property_type` is the resolved `PropertyType` of the operand; it is `None` only on the `JSONHas(blob, key)` path,
-    where the key comes from the literal argument and the group source is resolved off the blob field directly (no
-    PropertyType operand). The group/column builders only read `field_type` / `source` / `key`.
+    `field_type` is the source blob column's type (from the operand's `JSONFieldAccess.expr`, or the blob `Field` directly
+    on the `JSONHas(blob, key)` path); `key` is the top-level property name; `source` is its resolved physical column. The
+    group/column builders read only these three — the node no longer carries a `PropertyType` to recover (§4.4).
     """
 
     field_type: ast.FieldType
     key: str
     source: MaterializedPropertySource
-    property_type: ast.PropertyType | None = None
 
 
 def _group_map_field(prop: _OptimizableProperty) -> ast.Field:
@@ -531,62 +553,50 @@ class ClickHousePhysicalPasses(CloningVisitor):
         Mirrors ClickHousePrinter._get_materialized_string_property_source: unwraps a `toString(properties.x)` safety
         wrapper, requires a single-key chain, skips properties with a non-string resolved type, and requires the property
         to back a `materialized_column` (not a property group). After lowering the property operand is a `JSONFieldAccess`
-        (whose resolved type is the PropertyType), so the unwrap below recognizes that node rather than a raw Field.
+        (`Alias`-wrapped), detected directly by `_single_key_property`; the `toString(...)` form unwraps to the same node.
         """
-        property_type = _resolve_property_type(expr)
-        if property_type is None and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
-            inner = expr.args[0]
-            if isinstance(inner, ast.Alias):
-                inner = inner.expr
+        single = _single_key_property(expr)
+        if single is None and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
             # Only match a direct lowered property read, not toString(toFloat(...)) — same intent as the printer's
             # `isinstance(inner, ast.Field)` guard, adapted to the post-lowering JSONFieldAccess leaf.
-            if isinstance(inner, ast.JSONFieldAccess):
-                inner_type = _property_type_of(inner)
-                if inner_type is not None and len(inner_type.chain) == 1:
-                    property_type = inner_type
-        if property_type is None or len(property_type.chain) != 1:
+            single = _single_key_property(expr.args[0])
+        if single is None:
             return None
+        field_type, property_name = single
 
-        property_name = str(property_type.chain[0])
         if self.context.property_swapper is not None:
             prop_info = self.context.property_swapper.event_properties.get(property_name)
             if prop_info is not None and prop_info.get("type") not in (None, "String"):
                 return None
 
-        source = resolve_materialized_property_source(property_type.field_type, property_name, self.context)
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or source.kind not in ("materialized_column", "dmat"):
             return None
-        return _OptimizableProperty(
-            field_type=property_type.field_type, key=property_name, source=source, property_type=property_type
-        )
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
 
     def _materialized_property_for_op(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key materialized-column property (any resolved type), for IN comparisons that don't need a string."""
-        property_type = _resolve_property_type(expr)
-        if property_type is None or len(property_type.chain) != 1:
+        single = _single_key_property(expr)
+        if single is None:
             return None
-        property_name = str(property_type.chain[0])
-        source = resolve_materialized_property_source(property_type.field_type, property_name, self.context)
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or source.kind not in ("materialized_column", "dmat"):
             return None
-        return _OptimizableProperty(
-            field_type=property_type.field_type, key=property_name, source=source, property_type=property_type
-        )
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
 
     def _property_group_property(self, expr: ast.Expr) -> _OptimizableProperty | None:
         """A single-key property backed by a property group, only under OPTIMIZED mode."""
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
-        property_type = _resolve_property_type(expr)
-        if property_type is None or len(property_type.chain) > 1:
+        single = _single_key_property(expr)
+        if single is None:
             return None
-        property_name = str(property_type.chain[0])
-        source = resolve_materialized_property_source(property_type.field_type, property_name, self.context)
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or source.kind != "property_group":
             return None
-        return _OptimizableProperty(
-            field_type=property_type.field_type, key=property_name, source=source, property_type=property_type
-        )
+        return _OptimizableProperty(field_type=field_type, key=property_name, source=source)
 
     @staticmethod
     def _is_ai_column(source: MaterializedPropertySource) -> bool:
