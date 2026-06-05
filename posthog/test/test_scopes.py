@@ -18,8 +18,11 @@ from posthog.scopes import (
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
+    effective_ceiling,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    narrow_scopes_to_ceiling,
+    scopes_within_ceiling,
 )
 
 
@@ -227,3 +230,71 @@ class TestGetScopeDescriptions(SimpleTestCase):
                 continue
             for action in ("read", "write"):
                 assert f"{obj}:{action}" in descriptions
+
+
+class TestScopesWithinCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subset_of_explicit_ceiling", ["query:read"], ["query:read", "insight:read"], True),
+            ("outside_explicit_ceiling", ["insight:write"], ["query:read"], False),
+            ("empty_request_always_allowed", [], ["query:read"], True),
+            ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], False),
+            ("privileged_allowed_when_in_ceiling", ["llm_gateway:read"], ["llm_gateway:read"], True),
+            ("wildcard_rejected_under_explicit_ceiling", ["*"], ["query:read"], False),
+            # Provisioning never grandfathered `*`; an unseeded ceiling must not grant it.
+            ("wildcard_rejected_under_empty_ceiling", ["*"], [], False),
+            ("unprivileged_allowed_under_empty_ceiling", ["query:read", "insight:write"], [], True),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: bool) -> None:
+        assert scopes_within_ceiling(requested, app_scopes) is expected
+
+    @parameterized.expand(
+        [
+            ("openid_and_introspection", ["openid", "introspection"], ["query:read"]),
+            ("email_under_empty_ceiling", ["email"], []),
+        ]
+    )
+    def test_oidc_and_introspection_always_allowed(
+        self, _name: str, requested: list[str], app_scopes: list[str]
+    ) -> None:
+        assert scopes_within_ceiling(requested, app_scopes) is True
+
+    def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
+        # The one resolution difference between callers: /authorize grandfathers `*`
+        # under an empty ceiling, provisioning (default) does not.
+        assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) is True
+        assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=False) is False
+
+    def test_effective_ceiling(self) -> None:
+        assert effective_ceiling([]) == UNPRIVILEGED_SCOPES
+        assert effective_ceiling(["query:read", "insight:read"]) == frozenset({"query:read", "insight:read"})
+
+
+class TestNarrowScopesToCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
+            ("narrows_to_tightened_ceiling", ["query:read", "insight:write"], ["query:read"], ["query:read"]),
+            ("no_overlap_returns_none", ["insight:write"], ["query:read"], None),
+            ("wildcard_left_untouched", ["*"], ["query:read"], ["*"]),
+            (
+                "always_allowed_survive_narrowing",
+                ["openid", "query:read", "insight:write"],
+                ["query:read"],
+                ["openid", "query:read"],
+            ),
+            # OIDC alone keeps the token alive even when every resource scope falls
+            # outside the ceiling — mirrors OAuthValidator.get_original_scopes.
+            (
+                "only_always_allowed_survive_when_resource_scopes_drop",
+                ["openid", "insight:write"],
+                ["query:read"],
+                ["openid"],
+            ),
+        ]
+    )
+    def test_resolution(
+        self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str] | None
+    ) -> None:
+        assert narrow_scopes_to_ceiling(requested, app_scopes) == expected

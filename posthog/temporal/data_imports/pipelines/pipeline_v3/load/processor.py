@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import 
 from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     append_partition_key_to_table,
+    evolve_pyarrow_schema,
     pyarrow_schema_from_arrow_exportable,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import validate_schema_and_update_table
@@ -453,6 +454,9 @@ def process_message(message: Any, progress_callback: Callable[[], None] | None =
                             existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
 
                         pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+
+        if existing_delta_table is not None:
+            pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
 
         if cdc_write_mode == "scd2_append":
             logger.debug(

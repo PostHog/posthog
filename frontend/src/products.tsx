@@ -533,7 +533,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         activityScope: 'KnowledgeSource',
         description:
-            'Upload text, public URLs, or files your AI support agent can cite when answering customer tickets.',
+            'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     Transformations: {
         projectBased: true,
@@ -691,7 +691,7 @@ export const productConfiguration: Record<string, any> = {
         name: 'Replay vision',
         projectBased: true,
         description:
-            'Configure named scanners that PostHog applies to completed session recordings. Results land as queryable events.',
+            'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
         iconType: 'replay_vision',
         layout: 'app-container',
     },
@@ -1495,6 +1495,18 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'Business knowledge',
+        intents: [ProductKey.CONVERSATIONS],
+        category: ProductItemCategory.AI_ENGINEERING,
+        href: urls.businessKnowledge(),
+        tags: ['alpha'],
+        iconType: 'conversations',
+        iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+        flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
+        sceneKey: 'BusinessKnowledge',
+        sceneKeys: ['BusinessKnowledge'],
+    },
     {
         path: 'Clusters',
         intents: [ProductKey.LLM_CLUSTERS],

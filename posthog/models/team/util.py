@@ -287,7 +287,7 @@ def delete_batch_exports(team_ids: list[int]):
 
     Using normal CASCADE doesn't trigger a delete from Temporal.
     """
-    from posthog.batch_exports.models import BatchExport
+    from products.batch_exports.backend.models.batch_export import BatchExport
 
     temporal = sync_connect()
 

@@ -92,6 +92,8 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+            hide_behavioral_cohorts:
+                description: Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.
         ui_app: cohort-list
         response:
             include:
