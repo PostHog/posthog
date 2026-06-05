@@ -23,6 +23,7 @@ from posthog.temporal.usage_report.event_preaggregation import (
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
 )
+from posthog.utils import get_previous_day
 
 
 def test_preaggregated_tables_use_replacing_merge_tree() -> None:
@@ -39,6 +40,7 @@ def test_dedup_read_uses_latest_bucket_version() -> None:
     read_sql = USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL()
 
     assert "latest_bucket_versions" in read_sql
+    assert "GLOBAL INNER JOIN latest_bucket_versions" in read_sql
     assert "d.computed_at = latest_bucket_versions.computed_at" in read_sql
     assert "max(d.raw_count) AS count" in read_sql
     assert "GROUP BY d.date, d.bucket_start, d.team_id, d.usage_kind, d.event" in read_sql
@@ -129,9 +131,36 @@ def test_billable_event_count_uses_preaggregation_and_events_recent_tail_for_raw
     preaggregated_sql = sync_execute_mock.call_args_list[1].args[0]
     assert "usage_report_events_dedup_preaggregated" in preaggregated_sql
     assert "latest_bucket_versions" in preaggregated_sql
+    assert "GLOBAL INNER JOIN latest_bucket_versions" in preaggregated_sql
     assert "d.computed_at = latest_bucket_versions.computed_at" in preaggregated_sql
     assert "FROM events_recent" in sync_execute_mock.call_args_list[2].args[0]
     assert "inserted_at >= %(max_bucket_end)s" in sync_execute_mock.call_args_list[2].args[0]
+
+
+@override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
+def test_billable_event_count_accepts_temporal_usage_report_inclusive_day_end() -> None:
+    period_begin, period_end = get_previous_day(datetime.now(UTC))
+    exclusive_end = period_end + timedelta(microseconds=1)
+
+    with (
+        patch("posthog.temporal.usage_report.event_preaggregation.sync_execute") as sync_execute_mock,
+        patch(
+            "posthog.temporal.usage_report.event_preaggregation._legacy_get_billable_event_count",
+            return_value=[(999, 999)],
+        ),
+    ):
+        sync_execute_mock.side_effect = [
+            [(period_begin, exclusive_end)],
+            [(1, 10)],
+            [],
+        ]
+
+        result = get_teams_with_billable_event_count_in_period(period_begin, period_end, count_distinct=False)
+
+    assert result == [(1, 10)]
+    assert sync_execute_mock.call_args_list[0].args[1]["end"] == exclusive_end
+    assert sync_execute_mock.call_args_list[1].args[1]["end"] == exclusive_end
+    assert sync_execute_mock.call_args_list[2].args[1]["end"] == exclusive_end
 
 
 @override_settings(USE_USAGE_REPORT_EVENTS_PREAGGREGATION=True)
@@ -242,6 +271,7 @@ def test_event_metrics_preaggregation_collapses_full_replacing_key() -> None:
     assert result["node_events"] == [(2, 3)]
     preaggregated_sql = sync_execute_mock.call_args_list[1].args[0]
     assert "latest_bucket_versions" in preaggregated_sql
+    assert "GLOBAL INNER JOIN latest_bucket_versions" in preaggregated_sql
     assert "c.computed_at = latest_bucket_versions.computed_at" in preaggregated_sql
     assert "max(c.event_count) AS count" in preaggregated_sql
     assert "person_mode" in preaggregated_sql

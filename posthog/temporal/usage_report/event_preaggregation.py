@@ -117,20 +117,25 @@ def _is_usage_report_events_preaggregation_enabled() -> bool:
     return bool(getattr(settings, USAGE_REPORT_EVENTS_PREAGGREGATION_SETTING, False))
 
 
-def _is_whole_utc_day_range(begin: datetime, end: datetime) -> bool:
+def _normalize_usage_report_events_preaggregation_range(
+    begin: datetime, end: datetime
+) -> Optional[tuple[datetime, datetime]]:
     begin_utc = _to_utc(begin)
     end_utc = _to_utc(end)
-    return (
-        begin_utc < end_utc
-        and begin_utc.hour == 0
-        and begin_utc.minute == 0
-        and begin_utc.second == 0
-        and begin_utc.microsecond == 0
-        and end_utc.hour == 0
-        and end_utc.minute == 0
-        and end_utc.second == 0
-        and end_utc.microsecond == 0
-    )
+
+    if begin_utc >= end_utc:
+        return None
+
+    if begin_utc.hour != 0 or begin_utc.minute != 0 or begin_utc.second != 0 or begin_utc.microsecond != 0:
+        return None
+
+    if end_utc.hour == 0 and end_utc.minute == 0 and end_utc.second == 0 and end_utc.microsecond == 0:
+        return begin_utc, end_utc
+
+    if end_utc.hour == 23 and end_utc.minute == 59 and end_utc.second == 59 and end_utc.microsecond == 999999:
+        return begin_utc, end_utc + timedelta(microseconds=1)
+
+    return None
 
 
 def _get_usage_report_events_preaggregation_max_bucket_end(begin: datetime, end: datetime) -> Optional[datetime]:
@@ -195,15 +200,20 @@ def _get_teams_with_billable_event_count_from_preaggregation(
     if count_distinct:
         return None
 
-    if not _is_whole_utc_day_range(begin, end):
+    preaggregation_range = _normalize_usage_report_events_preaggregation_range(begin, end)
+    if preaggregation_range is None:
         return None
+
+    preaggregation_begin, preaggregation_end = preaggregation_range
 
     with tags_context(
         product=Product.PRODUCT_ANALYTICS,
         feature=Feature.USAGE_REPORT,
         usage_report="events_preaggregation_read",
     ):
-        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
+        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(
+            preaggregation_begin, preaggregation_end
+        )
         if max_bucket_end is None:
             return None
 
@@ -216,8 +226,8 @@ def _get_teams_with_billable_event_count_from_preaggregation(
                 sync_execute(
                     USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL(),
                     {
-                        "begin": begin,
-                        "end": end,
+                        "begin": preaggregation_begin,
+                        "end": preaggregation_end,
                         "max_bucket_end": max_bucket_end,
                         "usage_kind": usage_kind,
                         "excluded_events": excluded_events,
@@ -240,8 +250,8 @@ def _get_teams_with_billable_event_count_from_preaggregation(
                     GROUP BY team_id
                     """,
                     {
-                        "begin": begin,
-                        "end": end,
+                        "begin": preaggregation_begin,
+                        "end": preaggregation_end,
                         "max_bucket_end": max_bucket_end,
                         "excluded_events": excluded_events,
                     },
@@ -298,15 +308,20 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 def _get_teams_with_event_count_with_groups_from_preaggregation(
     begin: datetime, end: datetime
 ) -> Optional[TeamCountRows]:
-    if not _is_whole_utc_day_range(begin, end):
+    preaggregation_range = _normalize_usage_report_events_preaggregation_range(begin, end)
+    if preaggregation_range is None:
         return None
+
+    preaggregation_begin, preaggregation_end = preaggregation_range
 
     with tags_context(
         product=Product.GROUP_ANALYTICS,
         feature=Feature.USAGE_REPORT,
         usage_report="events_preaggregation_read",
     ):
-        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
+        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(
+            preaggregation_begin, preaggregation_end
+        )
         if max_bucket_end is None:
             return None
 
@@ -329,7 +344,7 @@ def _get_teams_with_event_count_with_groups_from_preaggregation(
                             c.has_group,
                             max(c.event_count) AS count
                         FROM {USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_TABLE} c
-                        INNER JOIN latest_bucket_versions
+                        GLOBAL INNER JOIN latest_bucket_versions
                             ON c.bucket_start = latest_bucket_versions.bucket_start
                            AND c.computed_at = latest_bucket_versions.computed_at
                         WHERE c.date >= toDate(%(begin)s)
@@ -340,7 +355,7 @@ def _get_teams_with_event_count_with_groups_from_preaggregation(
                     )
                     GROUP BY team_id
                     """,
-                    {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                    {"begin": preaggregation_begin, "end": preaggregation_end, "max_bucket_end": max_bucket_end},
                     workload=Workload.OFFLINE,
                     settings=CH_BILLING_SETTINGS,
                     ch_user=ClickHouseUser.BILLING,
@@ -357,7 +372,7 @@ def _get_teams_with_event_count_with_groups_from_preaggregation(
                         AND ({USAGE_REPORT_EVENTS_HAS_GROUP_EXPRESSION})
                     GROUP BY team_id
                     """,
-                    {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                    {"begin": preaggregation_begin, "end": preaggregation_end, "max_bucket_end": max_bucket_end},
                     workload=Workload.OFFLINE,
                     settings=CH_BILLING_SETTINGS,
                     ch_user=ClickHouseUser.BILLING,
@@ -379,15 +394,20 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> EventMetr
 
 
 def _get_all_event_metrics_from_preaggregation(begin: datetime, end: datetime) -> Optional[EventMetricsResult]:
-    if not _is_whole_utc_day_range(begin, end):
+    preaggregation_range = _normalize_usage_report_events_preaggregation_range(begin, end)
+    if preaggregation_range is None:
         return None
+
+    preaggregation_begin, preaggregation_end = preaggregation_range
 
     with tags_context(
         product=Product.PRODUCT_ANALYTICS,
         feature=Feature.USAGE_REPORT,
         usage_report="events_preaggregation_read",
     ):
-        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
+        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(
+            preaggregation_begin, preaggregation_end
+        )
         if max_bucket_end is None:
             return None
 
@@ -413,7 +433,7 @@ def _get_all_event_metrics_from_preaggregation(begin: datetime, end: datetime) -
                             c.has_group,
                             max(c.event_count) AS count
                         FROM {USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_TABLE} c
-                        INNER JOIN latest_bucket_versions
+                        GLOBAL INNER JOIN latest_bucket_versions
                             ON c.bucket_start = latest_bucket_versions.bucket_start
                            AND c.computed_at = latest_bucket_versions.computed_at
                         WHERE c.date >= toDate(%(begin)s)
@@ -424,7 +444,7 @@ def _get_all_event_metrics_from_preaggregation(begin: datetime, end: datetime) -
                     GROUP BY team_id, metric
                     HAVING metric != 'other'
                     """,
-                    {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                    {"begin": preaggregation_begin, "end": preaggregation_end, "max_bucket_end": max_bucket_end},
                     workload=Workload.OFFLINE,
                     settings=CH_BILLING_SETTINGS,
                     ch_user=ClickHouseUser.BILLING,
@@ -444,7 +464,7 @@ def _get_all_event_metrics_from_preaggregation(begin: datetime, end: datetime) -
                     GROUP BY team_id, metric
                     HAVING metric != 'other'
                     """,
-                    {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                    {"begin": preaggregation_begin, "end": preaggregation_end, "max_bucket_end": max_bucket_end},
                     workload=Workload.OFFLINE,
                     settings=CH_BILLING_SETTINGS,
                     ch_user=ClickHouseUser.BILLING,

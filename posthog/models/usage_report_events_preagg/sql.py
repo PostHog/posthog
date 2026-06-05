@@ -344,7 +344,7 @@ FROM
         d.event,
         max(d.raw_count) AS count
     FROM {USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_TABLE} d
-    INNER JOIN latest_bucket_versions
+    GLOBAL INNER JOIN latest_bucket_versions
         ON d.bucket_start = latest_bucket_versions.bucket_start
        AND d.computed_at = latest_bucket_versions.computed_at
     WHERE d.date >= toDate(%(begin)s)
