@@ -690,9 +690,10 @@ export class MCP extends McpAgent<Env> {
         }
 
         // In single-exec mode, when the client honors the MCP `instructions` field we
-        // lift the exec-tool blurb, tool-domain list, query-tool catalog, defined-group
-        // types and the active-environment `{metadata}` (user name, project, timezone)
-        // out of the `command` description and into `instructions`. Clients that ignore
+        // lift the exec-tool blurb, tool-domain list (including the `query` domain),
+        // defined-group types and the active-environment `{metadata}` (user name,
+        // project, timezone) out of the `command` description and into `instructions`.
+        // The query-tool catalog stays on the `command` description. Clients that ignore
         // `instructions` (Codex — see `client-detection.ts`) keep today's behavior:
         // empty `instructions`, everything inlined in the `command` description.
         let instructions = ''

@@ -333,7 +333,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
                 if (alert.id === undefined) {
-                    tryShowMCPHint('alerts.create')
+                    tryShowMCPHint('alerts.create', {
+                        derivedPrompt: alert.name ? `Create an alert called ${alert.name}` : undefined,
+                    })
                 }
 
                 return alertToFormType(updatedAlert, props.insightId)
