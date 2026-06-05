@@ -31,7 +31,7 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
     const used = quota?.usage_this_month ?? 0
     const cap = quota?.monthly_quota ?? 0
 
-    const projection = projectQuota(quota, { scannerProjectedMonthly: projected })
+    const projection = projectQuota(quota, projected)
     const {
         status,
         capReachDate,
