@@ -5464,6 +5464,21 @@
             "readOnlyHint": false
         }
     },
+    "tasks-file-create": {
+        "description": "Add a task to the desktop project tree so it can be organized into folders. Optionally pass a destination `folder` path (defaults to `Tasks`). Idempotent — re-filing updates the existing entry.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "File a task into the project tree",
+        "title": "File a task into the project tree",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "tasks"
+    },
     "tasks-list": {
         "description": "List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`, `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's organization to have Tasks access enabled.",
         "category": "Tasks",
@@ -5536,6 +5551,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "tasks"
+    },
+    "tasks-unfile-create": {
+        "description": "Remove a task's entry from the desktop project tree. The task itself is not deleted.",
+        "category": "Tasks",
+        "feature": "tasks",
+        "summary": "Remove a task from the project tree",
+        "title": "Remove a task from the project tree",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "tasks"
     },
