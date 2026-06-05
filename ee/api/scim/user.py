@@ -20,7 +20,9 @@ class SCIMUserConflict(Exception):
 
 def _validate_email_domain_is_verified(email: str, organization: Organization) -> None:
     """Ensure email domain matches any verified domain for the organization. Prevents cross-tenant user adoption."""
-    email_domain = email.split("@")[1].lower()
+    # The delivery domain is the segment after the LAST "@" — splitting on the first "@"
+    # would let a multi-"@" address smuggle a verified-looking domain past this guard.
+    email_domain = email.rsplit("@", 1)[-1].lower()
     verified_domains = set(
         OrganizationDomain.objects.filter(
             organization=organization,

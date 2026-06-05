@@ -996,3 +996,39 @@ class TestSCIMUsersAPI(APILicensedTest):
 
         assert len(all_ids) == total
         assert len(set(all_ids)) == total
+
+    def test_patch_replace_email_with_multi_at_domain_is_rejected(self):
+        # A multi-"@" address whose second segment is a verified domain must not pass the
+        # domain-ownership guard: the real delivery domain is the final segment.
+        user = User.objects.create_user(
+            email="multiat@example.com", password=None, first_name="Multi", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="multiat@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "attacker@example.com@evil.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "multiat@example.com"
