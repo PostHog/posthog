@@ -103,14 +103,14 @@ jobs:
                     echo "### CLI diff"
                     echo
                     echo "\`\`\`text"
-                    git diff --shortstat "$base_tag..origin/master" -- cli cli/.sampo || true
+                    git diff --shortstat "$base_tag..origin/master" -- cli cli/.sampo
                     echo "\`\`\`"
                     echo
                     echo "<details>"
                     echo "<summary>Changed CLI files</summary>"
                     echo
                     echo "\`\`\`text"
-                    git diff --stat "$base_tag..origin/master" -- cli cli/.sampo || true
+                    git diff --stat "$base_tag..origin/master" -- cli cli/.sampo
                     echo "\`\`\`"
                     echo "</details>"
                     echo
@@ -118,7 +118,7 @@ jobs:
                     echo "<summary>Pending CLI changesets</summary>"
                     echo
                     echo "\`\`\`text"
-                    git diff --name-only "$base_tag..origin/master" -- ':(glob)cli/.sampo/changesets/*.md' || true
+                    git diff --name-only "$base_tag..origin/master" -- ':(glob)cli/.sampo/changesets/*.md'
                     echo "\`\`\`"
                     echo "</details>"
                   } >> "$GITHUB_STEP_SUMMARY"
