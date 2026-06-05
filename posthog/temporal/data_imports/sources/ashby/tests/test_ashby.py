@@ -39,9 +39,7 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            from requests import HTTPError
-
-            raise HTTPError(f"{self.status_code} Error")
+            raise Exception(f"{self.status_code} Client Error")
 
 
 class FakeSession:
@@ -180,7 +178,7 @@ class TestCheckAccess:
             (FakeResponse(json_data={"success": False, "errors": ["Missing permission"]}), 403),
             (FakeResponse(json_data={"success": False, "errors": ["bad request"]}), 400),
             (FakeResponse(status_code=500), 500),
-            (FakeResponse(raise_json=True), 200),
+            (FakeResponse(raise_json=True), 0),
         ],
     )
     def test_status_mapping(self, response: FakeResponse, expected_status: int) -> None:

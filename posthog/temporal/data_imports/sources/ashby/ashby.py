@@ -66,6 +66,12 @@ def _errors_from_payload(data: dict[str, Any]) -> list[Any]:
     return []
 
 
+@retry(
+    retry=retry_if_exception_type((AshbyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
 def _fetch_page(
     session: requests.Session,
     api_key: str,
@@ -73,39 +79,28 @@ def _fetch_page(
     body: dict[str, Any],
     logger: FilteringBoundLogger,
 ) -> dict[str, Any]:
-    url = f"{ASHBY_BASE_URL}/{path}"
-
-    @retry(
-        retry=retry_if_exception_type((AshbyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(5),
-        wait=wait_exponential_jitter(initial=1, max=30),
-        reraise=True,
+    response = session.post(
+        f"{ASHBY_BASE_URL}/{path}", json=body, auth=_auth(api_key), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS
     )
-    def _do() -> dict[str, Any]:
-        response = session.post(
-            url, json=body, auth=_auth(api_key), headers=_headers(), timeout=REQUEST_TIMEOUT_SECONDS
-        )
 
-        if response.status_code == 429 or response.status_code >= 500:
-            raise AshbyRetryableError(f"Ashby API error (retryable): status={response.status_code}, path={path}")
+    if response.status_code == 429 or response.status_code >= 500:
+        raise AshbyRetryableError(f"Ashby API error (retryable): status={response.status_code}, path={path}")
 
-        if response.status_code in (401, 403):
-            raise AshbyAPIError(f"{response.status_code} Client Error: {AUTH_ERROR_HINT} for path {path}")
+    if response.status_code in (401, 403):
+        raise AshbyAPIError(f"{response.status_code} Client Error: {AUTH_ERROR_HINT} for path {path}")
 
-        if not response.ok:
-            logger.error(f"Ashby API error: status={response.status_code}, body={response.text}, path={path}")
-            response.raise_for_status()
+    if not response.ok:
+        logger.error(f"Ashby API error: status={response.status_code}, body={response.text}, path={path}")
+        response.raise_for_status()
 
-        data = response.json()
-        if not data.get("success", False):
-            is_auth, message = _classify_failure_message(_errors_from_payload(data))
-            if is_auth:
-                raise AshbyAPIError(f"{AUTH_ERROR_HINT} for path {path}: {message}")
-            raise AshbyAPIError(f"Ashby API error for path {path}: {message}")
+    data = response.json()
+    if not data.get("success", False):
+        is_auth, message = _classify_failure_message(_errors_from_payload(data))
+        if is_auth:
+            raise AshbyAPIError(f"{AUTH_ERROR_HINT} for path {path}: {message}")
+        raise AshbyAPIError(f"Ashby API error for path {path}: {message}")
 
-        return data
-
-    return _do()
+    return data
 
 
 def get_rows(
@@ -192,7 +187,9 @@ def check_access(api_key: str, path: str) -> tuple[int, Optional[str]]:
     try:
         data = response.json()
     except ValueError:
-        return response.status_code, "Ashby returned a non-JSON response"
+        # A 200 that isn't JSON (e.g. a proxy/maintenance HTML page) is not a valid Ashby
+        # response — fail validation rather than reporting the credentials as good.
+        return 0, "Ashby returned a non-JSON response"
 
     if data.get("success", False):
         return 200, None
