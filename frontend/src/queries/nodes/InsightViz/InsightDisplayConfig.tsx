@@ -21,6 +21,7 @@ import { alignResolvedDateRangeToInterval, formatResolvedDateRange } from 'lib/u
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { axisLabel } from 'scenes/insights/aggregationAxisFormat'
 import { AxisLabelsFilter } from 'scenes/insights/EditorFilters/AxisLabelsFilter'
+import { HideIncompleteConversionWindowPeriodsFilter } from 'scenes/insights/EditorFilters/HideIncompleteConversionWindowPeriodsFilter'
 import { HideWeekendsFilter } from 'scenes/insights/EditorFilters/HideWeekendsFilter'
 import { LifecycleStackingFilter } from 'scenes/insights/EditorFilters/LifecycleStackingFilter'
 import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentStackViewFilter'
@@ -225,6 +226,9 @@ export function InsightDisplayConfig(): JSX.Element {
                                 ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                                 ...((isTrends || isRetention || isTrendsFunnel) && !isNonTimeSeriesDisplay
                                     ? [{ label: () => <ShowTrendLinesFilter /> }]
+                                    : []),
+                                ...(isTrendsFunnel && !isNonTimeSeriesDisplay
+                                    ? [{ label: () => <HideIncompleteConversionWindowPeriodsFilter /> }]
                                     : []),
                                 ...(isTrends && !isNonTimeSeriesDisplay && hideWeekendsEnabled
                                     ? [{ label: () => <HideWeekendsFilter /> }]

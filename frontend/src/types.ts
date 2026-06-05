@@ -798,7 +798,12 @@ export interface TeamType extends TeamBasicType {
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
+    workflows_config: WorkflowsConfig
     business_model?: 'b2b' | 'b2c' | 'other' | null
+}
+
+export interface WorkflowsConfig {
+    capture_workflows_engagement_events: boolean
 }
 
 export interface ProductIntentType {
@@ -2795,6 +2800,8 @@ export interface RawAnnotationType {
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
     creation_type?: 'USR' | 'GIT'
+    /** Optional emoji shown in place of the default badge when surfacing the annotation. */
+    emoji?: string | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
