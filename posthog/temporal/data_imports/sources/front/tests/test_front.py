@@ -1,8 +1,10 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import structlog
 from parameterized import parameterized
@@ -63,8 +65,10 @@ class _FakeSession:
         return self._responses.pop(0)
 
 
-def _patch_session(monkeypatch_target: _FakeSession) -> None:
-    front_module.make_tracked_session = MagicMock(return_value=monkeypatch_target)  # type: ignore[attr-defined]
+@contextmanager
+def _patched_session(session: Any) -> Iterator[None]:
+    with patch.object(front_module, "make_tracked_session", return_value=session):
+        yield
 
 
 class TestBuildUrl:
@@ -169,15 +173,15 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, require_scope: bool, expected_ok: bool) -> None:
-        _patch_session(_FakeSession([_FakeResponse(status_code=status)]))
-        ok, _msg = validate_credentials("tok", "/teammates", require_scope=require_scope)
+        with _patched_session(_FakeSession([_FakeResponse(status_code=status)])):
+            ok, _msg = validate_credentials("tok", "/teammates", require_scope=require_scope)
         assert ok is expected_ok
 
     def test_connection_error_fails(self) -> None:
         session = MagicMock()
         session.get.side_effect = Exception("boom")
-        front_module.make_tracked_session = MagicMock(return_value=session)  # type: ignore[attr-defined]
-        ok, msg = validate_credentials("tok", "/teammates", require_scope=False)
+        with _patched_session(session):
+            ok, msg = validate_credentials("tok", "/teammates", require_scope=False)
         assert ok is False
         assert msg is not None
 
@@ -201,10 +205,10 @@ class TestGetRows:
                 _FakeResponse(json_body={"_results": [{"id": "evt_2"}], "_pagination": {"next": None}}),
             ]
         )
-        _patch_session(session)
         manager = self._manager()
 
-        batches = list(get_rows("tok", "events", logger, manager))
+        with _patched_session(session):
+            batches = list(get_rows("tok", "events", logger, manager))
 
         assert batches == [[{"id": "evt_1"}], [{"id": "evt_2"}]]
         manager.save_state.assert_called_once_with(
@@ -217,10 +221,10 @@ class TestGetRows:
         session = _FakeSession(
             [_FakeResponse(json_body={"_results": [{"id": "evt_9"}], "_pagination": {"next": None}})]
         )
-        _patch_session(session)
         manager = self._manager(resume=FrontResumeConfig(next_url=resume_url))
 
-        batches = list(get_rows("tok", "events", logger, manager))
+        with _patched_session(session):
+            batches = list(get_rows("tok", "events", logger, manager))
 
         assert batches == [[{"id": "evt_9"}]]
         assert session.requested_urls[0] == resume_url
@@ -239,10 +243,10 @@ class TestGetRows:
                 _FakeResponse(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
             ]
         )
-        _patch_session(session)
         manager = self._manager()
 
-        batches = list(get_rows("tok", "tags", logger, manager))
+        with _patched_session(session):
+            batches = list(get_rows("tok", "tags", logger, manager))
 
         assert batches == [[{"id": "tag_1"}]]
         assert len(session.requested_urls) == 2
@@ -254,10 +258,10 @@ class TestGetRows:
                 _FakeResponse(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
             ]
         )
-        _patch_session(session)
         manager = self._manager()
 
-        batches = list(get_rows("tok", "tags", logger, manager))
+        with _patched_session(session):
+            batches = list(get_rows("tok", "tags", logger, manager))
 
         assert batches == [[{"id": "tag_1"}]]
         assert len(session.requested_urls) == 2
