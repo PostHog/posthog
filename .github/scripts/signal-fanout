@@ -27,8 +27,9 @@ if [[ "$1" == "--inner" ]]; then
     signal="$1"
     trap - "$KILL_SIGNAL"
     echo "$(date): signal-fanout received $signal, killing processes of the current session with $KILL_SIGNAL:"
-    ps -o pid,sess,pgid,command -p $(pgrep -s0)
-    pkill "-$KILL_SIGNAL" -s0
+    pids="$(pgrep -s 0 || true)"
+    if [[ -n "$pids" ]]; then ps -o pid,sess,pgid,command -p $pids || true; fi
+    pkill "-$KILL_SIGNAL" -s 0 || true
   }
   for signal in "${TRAP_SIGNALS[@]}"; do
     # shellcheck disable=SC2064
