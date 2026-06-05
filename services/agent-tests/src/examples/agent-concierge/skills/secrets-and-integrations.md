@@ -33,6 +33,63 @@ A Slack-posting agent needs a Slack **integration**, not a secret.
 A Stripe-querying agent needs a Stripe **secret**, not an
 integration. Don't mix them up.
 
+Secrets split further by **who declares the name**:
+
+- **Author-declared** (`spec.secrets[]`) — the agent's tools read
+  these (e.g. `STRIPE_API_KEY`, `OPENAI_API_KEY`). The author picks
+  the name. Validation surfaces "secret X is declared but not set"
+  at freeze time so you know to drive a punch-out before promote.
+- **Trigger-required** (`TRIGGER_REQUIRED_SECRETS` registry) — the
+  platform picks the name. The author never types it. Today this
+  is `SLACK_SIGNING_SECRET` for `slack` triggers (verifies inbound
+  Slack signature). See the next section.
+
+## Trigger-required secrets
+
+Some triggers require entries in `encrypted_env` that the spec
+doesn't list explicitly. The contract lives in the platform-wide
+`TRIGGER_REQUIRED_SECRETS` registry (`spec_schema.py` Django-side,
+`services/agent-shared/src/spec/trigger-secrets.ts` runner-side), so
+authors don't pick the names and the platform can't drift on what a
+trigger consumes.
+
+Current registry:
+
+| Trigger type | Required key           | What it is                                                                                                                                 |
+| ------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `slack`      | `SLACK_SIGNING_SECRET` | Slack app signing secret. Found at app dashboard → Settings → Basic Information → Signing Secret. Verifies inbound Slack event signatures. |
+| `chat`       | (none)                 |                                                                                                                                            |
+| `webhook`    | (none)                 |                                                                                                                                            |
+| `cron`       | (none)                 |                                                                                                                                            |
+| `mcp`        | (none)                 |                                                                                                                                            |
+
+**Enforcement** — the `promote` endpoint walks the spec's triggers
+and refuses with a clear error if any required key is missing:
+
+> Cannot promote: agent is missing required encrypted_env entries:
+> SLACK_SIGNING_SECRET (for slack trigger). Set the value(s) via
+> the env editor then retry.
+
+You can recover from this by setting the key and re-running
+promote — but a better user experience is to catch it during
+**Phase 4** of `skills/authoring-new-agents`: as soon as the spec
+declares a `slack` trigger, drive the punch-out for
+`SLACK_SIGNING_SECRET` before reaching freeze. The console env
+editor also surfaces "Required for this trigger" hints next to the
+relevant fields, so a user setting things up in the UI sees the
+requirement without you having to spell it out.
+
+The punch-out call shape is the same as any other secret — pass
+the key the registry names:
+
+```text
+set_secret { agent_slug: "<slug>", secret: "SLACK_SIGNING_SECRET",
+             purpose: "Verifies inbound Slack event signatures." }
+```
+
+After the user saves, an `env-keys-get` precheck confirms the
+write landed. Then proceed to freeze + promote.
+
 ## Setting a secret — the punch-out flow
 
 The punch-out flow is live in the agent console. You never see the

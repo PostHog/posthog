@@ -151,12 +151,23 @@ is a routine cause of confusion; keep the table in mind.
 | Native | `@posthog/agent-applications-list`, `@posthog/agent-applications-retrieve`, `@posthog/agent-applications-sessions-retrieve`, `@posthog/agent-applications-session-logs` (etc.) | The bulk of your work. Read agent state — applications, revisions, sessions, logs — as the connected user.       |
 | Client | `focus_tab`, `focus_file`, `focus_revision`, `focus_session`, `focus_spec_section`, `toast`, `get_context`                                                                     | Driving the host UI / reading the user's current view. Implementation lives in the connecting client (the dock). |
 
-### The agent-management native tools
+### The agent-management tools
 
 All listed below run on the runner, authenticated as the connected
-user (via the credential broker). Read-only for v0 — write operations
-(new draft, file update, freeze, promote) are not yet exposed; when
-they land they will require explicit user consent per hard rule #3.
+user (via the credential broker). The read tools come in as native
+`@posthog/agent-applications-*` (your built-in surface); the write
+tools come in over the PostHog MCP under the same names (sans
+`@posthog/` prefix). The destructive writes — `destroy`, `archive`,
+`bundle-update`, `file-destroy`, `promote`, `set-env`, plus the
+template `archive` / `files-destroy` calls — are wired through the
+approval gate per hard rule #5: the MCP returns a "queued for
+approval" tool_result and the runner waits for the user to decide
+via the console approval panel.
+
+Most tools accept either `slug` or `id` for the agent; pick whichever
+you already have. Slug lookup costs an extra `list` call internally.
+
+**Read (native — always available):**
 
 | Tool                                                      | Use when                                                                               |
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -171,8 +182,40 @@ they land they will require explicit user consent per hard rule #3.
 | `@posthog/agent-applications-sessions-retrieve`           | full conversation + usage_total for one session — primary debug entry point            |
 | `@posthog/agent-applications-session-logs`                | structured event log for a session — timing, errors, tool calls in order               |
 
-Most tools accept either `slug` or `id` for the agent; pick whichever
-you already have. Slug lookup costs an extra `list` call internally.
+**Write (via PostHog MCP — load `skills/authoring-new-agents` or `skills/editing-agents-safely` before reaching for these):**
+
+| Tool                                                          | Use when                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent-applications-create`                                   | mint a brand-new agent. Requires `name` + `slug`. No revisions until you create one.                                                                                                                                                                                   |
+| `agent-applications-partial-update`                           | edit `name` / `description` on an existing agent. Env block + live revision are managed elsewhere.                                                                                                                                                                     |
+| `agent-applications-revisions-create`                         | open a fresh draft revision under an application. Body shape mirrors `AgentRevision`.                                                                                                                                                                                  |
+| `agent-applications-revisions-new-draft-create`               | one-shot: create a draft + clone every file from a `source_revision_id` in one call.                                                                                                                                                                                   |
+| `agent-applications-revisions-clone-from-create`              | clone a bundle into an existing empty draft (when you didn't go through `new-draft`).                                                                                                                                                                                  |
+| `agent-applications-revisions-partial-update`                 | replace `spec` on a draft revision. Only `state=draft` accepts spec edits.                                                                                                                                                                                             |
+| `agent-applications-revisions-file-update`                    | write or overwrite one bundle file in a draft.                                                                                                                                                                                                                         |
+| `agent-applications-revisions-bundle-update`                  | bulk push files in `mode: replace` (wipes first) or `mode: merge`. Destructive — see rule #5.                                                                                                                                                                          |
+| `agent-applications-revisions-validate-create`                | pre-flight check on any revision state. Surfaces missing entrypoints, unknown tool ids, missing trigger-required secrets. Always run before freeze.                                                                                                                    |
+| `agent-applications-revisions-freeze-create`                  | flip `draft → ready` and stamp `bundle_sha256`. Idempotent.                                                                                                                                                                                                            |
+| `agent-applications-revisions-promote-create`                 | flip `ready → live` and update the parent's `live_revision`. Requires user consent (rule #3). Gated server-side on missing trigger-required secrets — promote will refuse with a clear error if `application.encrypted_env` is missing a key the spec's triggers need. |
+| `agent-applications-revisions-archive-create`                 | archive any revision. Clears `live_revision` if the archived one was live. Destructive — see rule #5.                                                                                                                                                                  |
+| `agent-applications-set-env-create`                           | replace the agent's encrypted env block. Use `set_secret` client tool instead when possible — this one is the raw API.                                                                                                                                                 |
+| `agent-applications-env-keys-list` / `-get` / `-clear`        | inventory / probe / delete one secret. `-clear` is destructive.                                                                                                                                                                                                        |
+| `agent-applications-revisions-cron-fire-create`               | fire a cron job manually for debugging — bypasses the scheduler.                                                                                                                                                                                                       |
+| `agent-applications-approvals-list` / `-retrieve` / `-decide` | inspect / approve pending tool-call approvals on a running session.                                                                                                                                                                                                    |
+
+**Registry writes (skill + custom-tool templates):**
+
+`agent-skill-templates-create` / `-name-publish-create` / `-name-files-create` / `-name-files-rename-create` / `-name-files-destroy` / `-name-archive-create` / `-name-duplicate-create`, and the matching `agent-custom-tool-templates-*` set. Load `skills/using-the-registry` before pinning, publishing, or archiving any template.
+
+### Trigger-required secrets
+
+Some trigger types require entries in `application.encrypted_env` that the spec doesn't name explicitly — the contract is a platform-wide registry (`TRIGGER_REQUIRED_SECRETS`), so authors don't pick names. Today:
+
+| Trigger type | Required `encrypted_env` keys | Where to find the value                                             |
+| ------------ | ----------------------------- | ------------------------------------------------------------------- |
+| `slack`      | `SLACK_SIGNING_SECRET`        | Slack app dashboard → Settings → Basic Information → Signing Secret |
+
+Anything else: empty for now. When you author or edit an agent that uses `slack` triggers, drive the punch-out for `SLACK_SIGNING_SECRET` **before** freeze + promote (see `skills/secrets-and-integrations`). The promote endpoint will refuse otherwise with a clear `Cannot promote: agent is missing required encrypted_env entries: SLACK_SIGNING_SECRET (for slack trigger). Set the value(s) via the env editor then retry.` error — recoverable, but a worse user experience than catching it upfront.
 
 ### The registry tools (shared, versioned skills + custom tools)
 
@@ -186,36 +229,38 @@ user consent.
 
 ### Tabular reference — deterministic structured state for agents
 
-When you help someone design an agent that needs to remember a *set* or keep a
-*log* — "skip messages I've already processed", "dedupe alerts", "append an
+When you help someone design an agent that needs to remember a _set_ or keep a
+_log_ — "skip messages I've already processed", "dedupe alerts", "append an
 audit row each run", "look up a value by key" — point them at the
 `@posthog/table-*` native tools instead of cramming it into markdown memory.
 They give an agent deterministic structured state in S3-backed JSONL tables,
 manipulated by tool (never by re-reading a list into the model's context):
 
-| Tool                                  | Use it for                                                                  |
-| ------------------------------------- | --------------------------------------------------------------------------- |
-| `@posthog/table-membership`           | partition ids into already-seen vs new — the seen-set / skip-set workhorse  |
-| `@posthog/table-append`               | append rows (optional `dedupe_on` a key column)                             |
-| `@posthog/table-query`                | filter (`eq` / `in` / range) + project + order + limit                      |
-| `@posthog/table-count`                | count rows matching a filter                                                |
-| `@posthog/table-delete` / `-truncate` | remove matching rows / reset a table                                        |
+| Tool                                  | Use it for                                                                 |
+| ------------------------------------- | -------------------------------------------------------------------------- |
+| `@posthog/table-membership`           | partition ids into already-seen vs new — the seen-set / skip-set workhorse |
+| `@posthog/table-append`               | append rows (optional `dedupe_on` a key column)                            |
+| `@posthog/table-query`                | filter (`eq` / `in` / range) + project + order + limit                     |
+| `@posthog/table-count`                | count rows matching a filter                                               |
+| `@posthog/table-delete` / `-truncate` | remove matching rows / reset a table                                       |
 
 The win over prose memory: membership + append are O(1) on the model's context
 regardless of table size, and the bytes never round-trip through inference (no
-lossy read-rewrite of a growing list). Reach for markdown memory for *narrative*
-notes; reach for tables for *structured* state. The console's memory tab
+lossy read-rewrite of a growing list). Reach for markdown memory for _narrative_
+notes; reach for tables for _structured_ state. The console's memory tab
 surfaces these tables read-only under a Tables view.
 
 **Wiring it into an agent you author.** Two steps when you create or edit an
 agent (via the agent-applications revision + bundle tools):
 
 1. Add the tools it needs to `spec.tools[]` as native refs:
+
    ```json
    { "kind": "native", "id": "@posthog/table-membership" },
    { "kind": "native", "id": "@posthog/table-append" },
    { "kind": "native", "id": "@posthog/table-query" }
    ```
+
 2. Teach the pattern in its `agent.md` / a skill. The three that recur:
    - **Skip-set (don't reprocess):** list candidates → `table-membership(table, key_column, ids)` → act only on `.new` → `table-append(table, rows, dedupe_on: key_column)` to record what was handled.
    - **Append-log + digest:** `table-append` one row per event (`{ id, reason, ts, date }`); later `table-query(table, where: { date })` to summarize. Add a `date`/`ts` column up front so the digest filter is cheap.

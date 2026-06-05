@@ -69,8 +69,11 @@ calling any create endpoint. Cover:
   reach for.
 - **`integrations[]`** — list any team-wide OAuth integrations
   (e.g. `"slack"`).
-- **`secrets[]`** — list any per-application keys (e.g.
-  `"STRIPE_API_KEY"`).
+- **`secrets[]`** — list any per-application keys the agent's tools
+  read (e.g. `"STRIPE_API_KEY"`). **Don't** list trigger-required
+  keys like `SLACK_SIGNING_SECRET` here — those come from the
+  platform-wide `TRIGGER_REQUIRED_SECRETS` registry, not the spec.
+  See `skills/secrets-and-integrations` → "Trigger-required secrets".
 - **`limits`** — usually defaults are fine. Tighten if the user
   needs a hard cost cap.
 - **`auth`** — for chat/mcp triggers, almost always `pat` or
@@ -105,6 +108,13 @@ agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
 For each item in `spec.secrets[]`, you cannot accept the value
 directly. Load `skills/secrets-and-integrations` and follow the
 punch-out flow.
+
+**Also check trigger-required secrets** — some trigger types demand
+entries in `encrypted_env` that the spec doesn't name explicitly
+(`SLACK_SIGNING_SECRET` for `slack` triggers, today). The promote
+endpoint refuses if any are missing; catch them here so the user
+isn't surprised at the end. See `skills/secrets-and-integrations`
+→ "Trigger-required secrets" for the registry + punch-out flow.
 
 For each item in `spec.integrations[]`, check whether the team
 already has that integration installed. If not, tell the user to
