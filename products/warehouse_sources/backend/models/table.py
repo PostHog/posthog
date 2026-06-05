@@ -94,7 +94,13 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
 
-class DataWarehouseTableManager(models.Manager):
+class DataWarehouseTableQuerySet(models.QuerySet):
+    def queryable(self):
+        # A table you can actually query: not soft-deleted, and not orphaned by a soft-deleted source.
+        return self.exclude(deleted=True).exclude(external_data_source__deleted=True)
+
+
+class DataWarehouseTableManager(models.Manager.from_queryset(DataWarehouseTableQuerySet)):
     def get_queryset(self):
         return (
             super()
@@ -111,7 +117,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     objects = DataWarehouseTableManager()
 
     # Use if it's certain externaldataschemas aren't needed
-    raw_objects = models.Manager()
+    raw_objects = DataWarehouseTableQuerySet.as_manager()
 
     class TableFormat(models.TextChoices):
         CSV = "CSV", "CSV"

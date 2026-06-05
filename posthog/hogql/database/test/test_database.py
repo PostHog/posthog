@@ -382,6 +382,78 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.type == "string"
         assert field.schema_valid is True
 
+    def _create_warehouse_table(self, *, name, url_pattern, source=None, credential=None):
+        return DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            credential=credential,
+            url_pattern=url_pattern,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+    def test_create_hogql_database_ignores_tables_of_deleted_sources(self):
+        # A table left behind by a soft-deleted source must not shadow the live table that a
+        # re-connected source created under the same name (the orphan-table resolution bug).
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+
+        deleted_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="old",
+            connection_id="old",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        # Created first, so without the fix it would win the first-come tree insertion. Mark the
+        # source — not the table — deleted to reproduce the orphan state (table.deleted stays False).
+        self._create_warehouse_table(
+            name="pull_requests", url_pattern="s3://orphan/*", source=deleted_source, credential=credential
+        )
+        deleted_source.deleted = True
+        deleted_source.save()
+
+        live_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="new",
+            connection_id="new",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self._create_warehouse_table(
+            name="pull_requests", url_pattern="s3://live/*", source=live_source, credential=credential
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("pull_requests")
+        assert database.get_table("pull_requests").url == "s3://live/*"
+
+    def test_create_hogql_database_keeps_self_managed_table_without_source(self):
+        # Guards the deleted-source exclusion against the Django exclude()-with-NULL gotcha:
+        # a self-managed table (no source) must still resolve.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        self._create_warehouse_table(name="self_managed", url_pattern="s3://self/*", credential=credential)
+
+        database = Database.create_for(team=self.team)
+
+        assert database.has_table("self_managed")
+        assert database.get_table("self_managed").url == "s3://self/*"
+
+    def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
+        # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        older = self._create_warehouse_table(name="pull_requests", url_pattern="s3://older/*", credential=credential)
+        newer = self._create_warehouse_table(name="pull_requests", url_pattern="s3://newer/*", credential=credential)
+
+        # Pin created_at explicitly (bypasses auto_now_add) so the tiebreak is deterministic.
+        DataWarehouseTable.objects.filter(pk=older.pk).update(created_at="2024-01-01T00:00:00+00:00")
+        DataWarehouseTable.objects.filter(pk=newer.pk).update(created_at="2024-06-01T00:00:00+00:00")
+
+        database = Database.create_for(team=self.team)
+
+        assert database.get_table("pull_requests").url == "s3://newer/*"
+
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(
             team=self.team,

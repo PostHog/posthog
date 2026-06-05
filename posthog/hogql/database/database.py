@@ -1163,9 +1163,14 @@ class Database(BaseModel):
 
             with timings.measure("select"):
                 tables_query = (
+                    # `queryable()` drops soft-deleted tables and orphans left by a soft-deleted
+                    # source, so an orphan can't shadow the live table sharing its name.
                     DataWarehouseTable.raw_objects.filter(team_id=team.pk)
-                    .exclude(deleted=True)
+                    .queryable()
                     .select_related("credential", "external_data_source")
+                    # Deterministic tiebreak when two live tables share a name: newest wins, since
+                    # name collisions resolve first-come-first-served when added to the table tree.
+                    .order_by("-created_at")
                 )
                 if database._is_direct_query():
                     tables_query = tables_query.filter(external_data_source_id=database._connection_id)
