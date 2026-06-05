@@ -8,6 +8,12 @@ import { GraphsHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
+import {
+    formatWidgetListCountFooter,
+    WIDGET_LIST_COUNT_ISSUES,
+    type WidgetListCountNoun,
+} from '../../widgets/constants'
+
 export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
     locked?: boolean
     lockedMessage?: string
@@ -32,7 +38,9 @@ function WidgetCardBodyContent({
         return (
             <WidgetCardBodySlot>
                 <WidgetCardContent>
-                    <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
+                    <WidgetCardContentScroll>
+                        <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
+                    </WidgetCardContentScroll>
                 </WidgetCardContent>
             </WidgetCardBodySlot>
         )
@@ -42,9 +50,11 @@ function WidgetCardBodyContent({
         return (
             <WidgetCardBodySlot>
                 <WidgetCardContent>
-                    <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
-                        {error}
-                    </WidgetCardBodyMessage>
+                    <WidgetCardContentScroll>
+                        <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
+                            {error}
+                        </WidgetCardBodyMessage>
+                    </WidgetCardContentScroll>
                 </WidgetCardContent>
             </WidgetCardBodySlot>
         )
@@ -85,7 +95,7 @@ export function WidgetCardBody({
     )
 }
 
-/** Passes flex height from the card shell into widget body content. Scroll lives in `WidgetCardContent`. */
+/** Passes flex height from the card shell into widget body content. Scroll lives in `WidgetCardContentScroll`. */
 function WidgetCardBodySlot({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
 }
@@ -183,11 +193,13 @@ export type WidgetLoadingStateProps = {
 export function WidgetLoadingState({ children, rowCount, className }: WidgetLoadingStateProps): JSX.Element {
     return (
         <WidgetCardContent>
-            <div data-slot="widget-loading-state" className="flex min-h-min w-full items-center justify-center">
-                {children ?? (
-                    <WidgetCardBodySkeleton rowCount={rowCount} className={clsx('w-full max-w-lg', className)} />
-                )}
-            </div>
+            <WidgetCardContentScroll>
+                <div data-slot="widget-loading-state" className="flex min-h-min w-full items-center justify-center">
+                    {children ?? (
+                        <WidgetCardBodySkeleton rowCount={rowCount} className={clsx('w-full max-w-lg', className)} />
+                    )}
+                </div>
+            </WidgetCardContentScroll>
         </WidgetCardContent>
     )
 }
@@ -197,22 +209,23 @@ type WidgetCardContentProps = {
     className?: string
 }
 
-function isWidgetContentFooter(child: React.ReactNode): boolean {
-    return React.isValidElement(child) && child.type === WidgetContentFooter
-}
-
-/** Scrollable widget body — use for all tile content (lists, setup prompts, empty states). */
+/** Widget body column — compose with `WidgetCardContentScroll` and optional `WidgetContentFooter`. */
 export function WidgetCardContent({ children, className }: WidgetCardContentProps): JSX.Element {
-    const childArray = React.Children.toArray(children)
-    const footer = childArray.filter(isWidgetContentFooter)
-    const body = childArray.filter((child) => !isWidgetContentFooter(child))
-
     return (
         <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{body}</div>
-            {footer}
+            {children}
         </div>
     )
+}
+
+type WidgetCardContentScrollProps = {
+    children: React.ReactNode
+    className?: string
+}
+
+/** Scrollable main area inside `WidgetCardContent`. */
+export function WidgetCardContentScroll({ children, className }: WidgetCardContentScrollProps): JSX.Element {
+    return <div className={cn('min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden', className)}>{children}</div>
 }
 
 type WidgetContentFooterProps = {
@@ -291,16 +304,18 @@ export function WidgetCardSharedPlaceholderBody({ copy }: { copy: WidgetCardShar
     return (
         <WidgetCardBody>
             <WidgetCardContent>
-                <WidgetCardBodyMessage>
-                    <div
-                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
-                        data-attr="shared-dashboard-widget-placeholder"
-                    >
-                        <GraphsHog className="size-20 shrink-0" />
-                        <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
-                        <p className="m-0 text-sm text-muted">{copy.message}</p>
-                    </div>
-                </WidgetCardBodyMessage>
+                <WidgetCardContentScroll>
+                    <WidgetCardBodyMessage>
+                        <div
+                            className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                            data-attr="shared-dashboard-widget-placeholder"
+                        >
+                            <GraphsHog className="size-20 shrink-0" />
+                            <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
+                            <p className="m-0 text-sm text-muted">{copy.message}</p>
+                        </div>
+                    </WidgetCardBodyMessage>
+                </WidgetCardContentScroll>
             </WidgetCardContent>
         </WidgetCardBody>
     )

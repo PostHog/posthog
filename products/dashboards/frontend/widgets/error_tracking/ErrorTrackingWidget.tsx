@@ -30,7 +30,6 @@ type ErrorTrackingWidgetResult = {
     hasMore?: boolean
     limit?: number
     totalCount?: number
-    /** Lower-bound total when the count query hit MAX_WIDGET_RESULT_LIMIT — footer shows "N+". */
     totalCountCapped?: boolean
 }
 
@@ -46,7 +45,9 @@ export function ErrorTrackingWidget({
     if (loading) {
         return (
             <WidgetCardContent>
-                <ErrorTrackingIssueListSkeleton rowCount={4} className="w-full" />
+                <WidgetCardContentScroll>
+                    <ErrorTrackingIssueListSkeleton rowCount={4} className="w-full" />
+                </WidgetCardContentScroll>
             </WidgetCardContent>
         )
     }
@@ -86,9 +87,11 @@ function ErrorTrackingWidgetSetupGate({ children }: { children: ReactNode }): JS
     if (hasSentExceptionEventLoading || !currentTeam) {
         return (
             <WidgetCardContent>
-                <div className="flex justify-center">
-                    <Spinner />
-                </div>
+                <WidgetCardContentScroll>
+                    <div className="flex justify-center">
+                        <Spinner />
+                    </div>
+                </WidgetCardContentScroll>
             </WidgetCardContent>
         )
     }
@@ -96,12 +99,14 @@ function ErrorTrackingWidgetSetupGate({ children }: { children: ReactNode }): JS
     if (!canConfigureErrorTrackingWidgetIssues(currentTeam, hasSentExceptionEvent)) {
         return (
             <WidgetCardContent>
-                <ErrorTrackingIngestionPrompt
-                    className="border-none mb-0 mt-0 p-4"
-                    introductionStacked
-                    IntroductionComponent={WidgetCardProductIntroduction}
-                    actionElementClassName="flex flex-col items-center gap-4"
-                />
+                <WidgetCardContentScroll>
+                    <ErrorTrackingIngestionPrompt
+                        className="border-none mb-0 mt-0 p-4"
+                        introductionStacked
+                        IntroductionComponent={WidgetCardProductIntroduction}
+                        actionElementClassName="flex flex-col items-center gap-4"
+                    />
+                </WidgetCardContentScroll>
             </WidgetCardContent>
         )
     }
@@ -125,18 +130,20 @@ function ErrorTrackingWidgetBody({
     if (rows.length === 0) {
         return (
             <WidgetCardContent>
-                <WidgetCardBodyMessage>
-                    <div
-                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
-                        data-attr="error-tracking-widget-empty-state"
-                    >
-                        <SupermanHog className="size-20 shrink-0" />
-                        <p className="m-0 text-base font-semibold text-primary">All clear!</p>
-                        <p className="m-0 text-sm text-muted">
-                            No issues matched your filters. That's a good thing. Enjoy the quiet.
-                        </p>
-                    </div>
-                </WidgetCardBodyMessage>
+                <WidgetCardContentScroll>
+                    <WidgetCardBodyMessage>
+                        <div
+                            className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                            data-attr="error-tracking-widget-empty-state"
+                        >
+                            <SupermanHog className="size-20 shrink-0" />
+                            <p className="m-0 text-base font-semibold text-primary">All clear!</p>
+                            <p className="m-0 text-sm text-muted">
+                                No issues matched your filters. That's a good thing. Enjoy the quiet.
+                            </p>
+                        </div>
+                    </WidgetCardBodyMessage>
+                </WidgetCardContentScroll>
             </WidgetCardContent>
         )
     }
