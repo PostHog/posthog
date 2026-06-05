@@ -1472,11 +1472,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertTrue(
             observed.get("link_committed"),
             "EndpointVersion must be linked to the saved query before materialization is scheduled",
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     def test_build_endpoint_hogql_performs_no_db_writes(self):
         _create_event(team=self.team, event="$pageview", distinct_id="u1")
