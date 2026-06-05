@@ -254,6 +254,12 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "Prompt is required.",
             ),
             (
+                "monitor_explicit_null_prompt",
+                ScannerType.MONITOR,
+                {"prompt": None},
+                "Prompt is required.",
+            ),
+            (
                 "scorer_inverted_scale",
                 ScannerType.SCORER,
                 {"prompt": "p", "scale": {"min": 10, "max": 0}},

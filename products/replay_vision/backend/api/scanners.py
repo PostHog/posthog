@@ -61,7 +61,8 @@ logger = structlog.get_logger(__name__)
 def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any) -> str | None:
     if not isinstance(scanner_config, dict):
         return "Scanner configuration must be a JSON object."
-    if not str(scanner_config.get("prompt", "")).strip():
+    prompt = scanner_config.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
         return "Prompt is required."
     if scanner_type == ScannerType.CLASSIFIER and not scanner_config.get("tags"):
         return "Tag vocabulary must have at least one tag."

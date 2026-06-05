@@ -39,7 +39,7 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
         projectedPeriodEndRatio,
         resetsOn,
         daysRemaining,
-        scannerDailyRate,
+        combinedDailyRate,
     } = projection
 
     // Without a candidate scanner we have nothing project; keep visuals neutral until the estimate lands.
@@ -47,11 +47,13 @@ export function ScannerQuotaForecast({ scannerId, tabId }: Props): JSX.Element |
     const styles = STATUS_STYLES[effectiveStatus]
     const percentLabel = hasCap ? Math.round(projectedPeriodEndRatio * 100) : 0
 
-    // Bar segments reflect the "by period end" story: current usage + scanner's remaining-period contribution.
+    // Bar segments must agree with the badge: badge reads `projectedPeriodEndRatio` (historical + scanner),
+    // so the additional fill uses combinedDailyRate, not just scannerDailyRate. Otherwise the badge says
+    // 80% while the bar visually fills to 40%.
     const usedPct = hasCap ? Math.min((used / cap) * 100, 100) : 0
     const additionalUsagePct =
-        hasCap && projected !== null ? Math.min((scannerDailyRate * daysRemaining * 100) / cap, 100 - usedPct) : 0
-    const projectedPeriodEndUsage = used + (projected !== null ? scannerDailyRate * daysRemaining : 0)
+        hasCap && projected !== null ? Math.min((combinedDailyRate * daysRemaining * 100) / cap, 100 - usedPct) : 0
+    const projectedPeriodEndUsage = used + (projected !== null ? combinedDailyRate * daysRemaining : 0)
     const overflowPct = hasCap && projectedPeriodEndUsage > cap ? ((projectedPeriodEndUsage - cap) / cap) * 100 : 0
 
     const renderBreakdown = (): JSX.Element => (
