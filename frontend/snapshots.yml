@@ -636,22 +636,22 @@ snapshots:
         hash: v1.k794b7964.4c03eb4162445e32a74dc1ff8083feed9788b930aea5a4ce49e15c5da22d1b0b.OgPSbq_YYg9wIYaUs5jvjS-8YAzzBf5RgZIjtgXuZp8
     components-hogcharts-linechart--with-zeros-and-negatives--light:
         hash: v1.k794b7964.5d0d5d5cf4963ac46b4ed2bfdcedf7b24a63a47b7d84e259882e0606cbf43ce1.UtJNbmKgq3ZFS9AdrrOLJzsEejeh19IDdI9aOwxy9Ps
-    components-hogcharts-metric--default--dark:
-        hash: v1.k794b7964.121acde0d2ffcbb2ea6657bdb2cd2666ba6d34528f3a0b6d61c517f3bfc0e690.G2RsZqN9I8j6BI-t453mJIL7Lld_JAhtO3FM5WSaV7A
-    components-hogcharts-metric--default--light:
-        hash: v1.k794b7964.8bd27e40dcb1bbbe2f2b4cb0f01fe04af3cf7b9816c7d735811db71e50c50824.xtUPK0ER9_UfV9lWaT3Y9hTzc97yLgrepJBIFffRQps
-    components-hogcharts-metric--falling--dark:
-        hash: v1.k794b7964.7a249706a02d3ecafb06f582dd4495c9c3f1a615debf421914f4cd6fd51b60ef.ZNY3dId9hCU0KmcNRCjEbey6sKytBJsRfv2u_30hJOU
-    components-hogcharts-metric--falling--light:
-        hash: v1.k794b7964.7223f07b305e81987250456c70b176fb0450056f87aa4b2e68aa2712ffbf3795.3aiuOFUzkCEZlYloBWWvbqGWLXasynQyeZ8M8ue-cVI
-    components-hogcharts-metric--no-change--dark:
-        hash: v1.k794b7964.7f692798e9fdec4e34d22d6237b910cf9d6d2c79bc8bfdd5f430ef4d6d159da9.92INHOJUd37OK1Mhaj-ZXrywofAqC27zHFETF_ZidJ8
-    components-hogcharts-metric--no-change--light:
-        hash: v1.k794b7964.a1029cc8a495d830890ee00d7ae7b9602e7c486695b5fe9dc49f1778cd3dcf37.wtoEorXIEYDVW-6Urx7d5IynJpP1mYb9ZDinvQr084M
-    components-hogcharts-metric--number-only--dark:
-        hash: v1.k794b7964.4360546d8053143c263d5315c0dd31ac95aa035467738b96fc24632e0b1fe1b2.p_5tW3kuA973BxYWWjwrQg2iwIyPbTYfbGaybWIwTZs
-    components-hogcharts-metric--number-only--light:
-        hash: v1.k794b7964.9e1fbd475ba802686d23440d747df99abc015757e7708d037f246464fd46a3f8.K1CGuG2R-VxLBu6HLU-jBXWJKH_49rGnbAUx1YnrTcQ
+    components-hogcharts-metriccard--default--dark:
+        hash: v1.k794b7964.fdae35f43c62ef56c1b5b6a1f20c8276484e1715434a643e69f84fdb0bc13050.palMcesa0sPp_jjblGpdBuLNhAv0-Ay_frIrM4PpDWw
+    components-hogcharts-metriccard--default--light:
+        hash: v1.k794b7964.258352110d21296ef4cd99b01e3c4a247137e0a489e3f28f7843e94e5ac5e001.ThpcqSIeItEkBI8KSjHIV6iKcyk3tiLQwGPeDtdFVN0
+    components-hogcharts-metriccard--falling--dark:
+        hash: v1.k794b7964.b583bc0c2260089501d342928145ebf29c2ecd19a877ef070754f92cf5704a6c.OBsoY8oour3ycVg-1e_MEbuIaoBXHE3T4SNoOkwppOk
+    components-hogcharts-metriccard--falling--light:
+        hash: v1.k794b7964.90a5d170cef7d14bde3db12bf121df5dc7f9199f94b07ece8893c86a2e85107d.sM10Ln2LBoEAXnbpcV-obeQ04UntfoJ5oD_zDieUo_c
+    components-hogcharts-metriccard--no-change--dark:
+        hash: v1.k794b7964.dee982acd6e60ffeb36299d80d748fed4ed8fc6fadf930d62741d70a58fbe7a5.xE0QTdSRilMkACw_Uypmi5JgF4OumpYgJnH83Sle8vE
+    components-hogcharts-metriccard--no-change--light:
+        hash: v1.k794b7964.bf3bd811a81a6d0a618b7b98478390a0510e96feef9b020d41379148c214f2ec.hi_YI79MhU2Z1ITkwnURxMH25lrPAdHv-v9g0WGieJw
+    components-hogcharts-metriccard--number-only--dark:
+        hash: v1.k794b7964.a09b8609071d1aaa038a5ed7981d94669e8640c2a877d11d9b70000482987c3e.JKqQfzNlh19Y1ZHWiGcl5jw6-g0pFjoFk7dClPCCa0w
+    components-hogcharts-metriccard--number-only--light:
+        hash: v1.k794b7964.a6d0fc80e033300bdfeeb68cd9b1c0268164dfe2434ced41f27312a3599984f0.kqH1RsyfSbLcK7vT-1FQW4dPfgo2FS1R7VKRb3fa35Y
     components-hogcharts-piechart--donut--dark:
         hash: v1.k794b7964.95f52c48e6476dd49327e572e78275692bf3085a46c78b57d7ccb0f2af33229d.UKy0xtoAM3JGpdygHr-mG_fCI8HoINH0cq0e-w5MuYY
     components-hogcharts-piechart--donut--light:
@@ -4719,13 +4719,13 @@ snapshots:
     scenes-app-data-warehouse-settings-schemas--default--light:
         hash: v1.k794b7964.18626812d4b56d76787437924e1bc585c0d290b2d3d5a82acef06ad862687d31.T90_pbE7tLkoXwZml5VYlGjFqOKnGtCJsNfB3J76Xio
     scenes-app-error-project-unavailable--access-revoked--dark:
-        hash: v1.k794b7964.551951688a4131cbd9c0d08e553c79238fb9831c6e227e3854eb3596a95d5725.lEJkOr35uSHLqc-IqIYv7Z2bc4-rjbJut0zmTNBae6Y
+        hash: v1.k794b7964.0574501d1036cac7563c61590dfb8b3d64192e239cbad126d754b9905b4f3ee1._MDyv82QyHN-dApRaQoppTvESKRRZP_p6MB5PKLrjeg
     scenes-app-error-project-unavailable--access-revoked--light:
-        hash: v1.k794b7964.9bf467c52f2cce1e67483f7cb56ea651d1e8b673cc4f0db80a9d9f71dae13da4.15Ara4t3237epYtxe7UqB1hsh-6cVexokOTbDZ2wgXI
+        hash: v1.k794b7964.049275e2a4082aeaf3adacbfb1cb8f336583c29824193e8711b51c54e22c3fb6.t0OnW8D_qZ6V3y1IEVbZptyaAWA-zPjbRRUGy7FYqXY
     scenes-app-error-project-unavailable--no-selectable-projects--dark:
-        hash: v1.k794b7964.59e0c88e3f489946f8beea3a64fe1c10366c0241cfb3247e91412933f560d7c8.PmFI9SQu-BmDZKyGJm75wOvMiQe5vIRc_hYbN49F0ps
+        hash: v1.k794b7964.4b86109312eacfb0a2935943b1eb44627db419347065f1b4991d16afa6c1dcd0.dL2KRYy7fg2Zu8j6KOaCeyRkNcFBiQFQ9DNYeC-gKQg
     scenes-app-error-project-unavailable--no-selectable-projects--light:
-        hash: v1.k794b7964.481d253ac770b475315f72305fa5b2a7b130e4af6e01f1004890f100ead896cc.Zjd5lM7ZRgfmBCNcsxfTbTyV54MFbOC2EAPAdj5r7aY
+        hash: v1.k794b7964.4074c66e2c5048cf0574b95b4b53a81601be50bc733531b969eae030c6ced45d.xc0jzMCgimBXCdpIGauT6qHYv4aZP669O9mBqXnH7TU
     scenes-app-errortracking--group-page--dark:
         hash: v1.k794b7964.c8e6860882c2adc15d79721f8790d613bded5df4d64424016547083a73b00b6a.2HqMTs3tTi5AWTdmpXCXHJF8_hZSC9pUVrodRXR1eZk
     scenes-app-errortracking--group-page--light:

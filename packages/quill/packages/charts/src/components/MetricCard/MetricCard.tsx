@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react'
 
-import { ChartErrorBoundary, type ChartTheme, percentage, Sparkline } from '@posthog/quill-charts'
-
+import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import type { ChartTheme } from '../../core/types'
+import { percentage } from '../../utils/format'
+import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { type MetricChange, resolveDelta } from './resolveDelta'
 import { useAnimatedNumber } from './useAnimatedNumber'
 
@@ -12,7 +14,7 @@ export interface ChangeColor {
     foreground: string
 }
 
-export interface MetricProps {
+export interface MetricCardProps {
     title: React.ReactNode
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
      *  required when `data` is empty or omitted. */
@@ -54,16 +56,16 @@ const DEFAULT_FORMAT_CHANGE = (p: number): string => {
     return p > 0 ? `+${formatted}` : formatted
 }
 
-export function Metric(props: MetricProps): React.ReactElement | null {
+export function MetricCard(props: MetricCardProps): React.ReactElement | null {
     const { onError, ...rest } = props
     return (
         <ChartErrorBoundary onError={onError}>
-            <MetricInner {...rest} />
+            <MetricCardInner {...rest} />
         </ChartErrorBoundary>
     )
 }
 
-function MetricInner({
+function MetricCardInner({
     title,
     value,
     data,
@@ -84,7 +86,7 @@ function MetricInner({
     animationMs = 350,
     className,
     dataAttr,
-}: Omit<MetricProps, 'onError'>): React.ReactElement | null {
+}: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
     const sparklineData = data != null && data.length > 0 && theme != null ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 

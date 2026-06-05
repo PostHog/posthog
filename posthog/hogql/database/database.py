@@ -100,6 +100,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
@@ -309,6 +310,10 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
                     "conversion_goal_attributed_preaggregated": TableNode(
                         name="conversion_goal_attributed_preaggregated",
                         table=ConversionGoalAttributedPreaggregatedTable(),
+                    ),
+                    "marketing_touchpoints_preaggregated": TableNode(
+                        name="marketing_touchpoints_preaggregated",
+                        table=MarketingTouchpointsPreaggregatedTable(),
                     ),
                     "web_stats_paths_preaggregated": TableNode(
                         name="web_stats_paths_preaggregated", table=WebStatsPathsPreaggregatedTable()
