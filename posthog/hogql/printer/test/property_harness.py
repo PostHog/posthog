@@ -29,11 +29,13 @@ def compile_case(
     dialect: HogQLDialect,
     team: Team,
     modifiers: HogQLQueryModifiers | None = None,
+    lower_property_access: bool = False,
 ) -> tuple[str, ast.Expr | None]:
     """Run the full prepare-and-print pipeline for one corpus case and dialect.
 
     Returns ``(printed_sql, prepared_ast)``. The prepared AST is the post-pipeline tree (what the printer saw), exposed
     so callers — the oracle in particular — can assert structural facts about it, not just the rendered string.
+    ``lower_property_access`` toggles the strangler gate for the logical-lowering pass (§12.8); off => master behavior.
     """
     node = parse_select(sql)
     context = HogQLContext(
@@ -41,6 +43,7 @@ def compile_case(
         team=team,
         enable_select_queries=True,
         modifiers=modifiers or create_default_modifiers_for_team(team),
+        lower_property_access=lower_property_access,
     )
     printed, prepared = prepare_and_print_ast(node, context, dialect=dialect)
     return printed, prepared
