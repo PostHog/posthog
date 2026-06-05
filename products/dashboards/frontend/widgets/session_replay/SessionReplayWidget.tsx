@@ -12,10 +12,14 @@ import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessi
 import type { RecordingsQuery } from '~/queries/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
 
-import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
-import { WIDGET_LIST_COUNT_RECORDINGS } from '../constants'
+import {
+    WidgetCardBodyMessage,
+    WidgetCardContent,
+    WidgetContentFooter,
+    WidgetListCount,
+    WIDGET_LIST_COUNT_RECORDINGS,
+} from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { WidgetListCountFooter } from '../WidgetListCountFooter'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
 
 type SessionReplayWidgetResult = {
@@ -23,6 +27,7 @@ type SessionReplayWidgetResult = {
     hasMore?: boolean
     limit?: number
     totalCount?: number
+    /** Lower-bound total when the count query hit MAX_WIDGET_RESULT_LIMIT — footer shows "N+". */
     totalCountCapped?: boolean
 }
 
@@ -86,23 +91,22 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     }
 
     return (
-        <WidgetCardContent
-            footer={
-                <WidgetListCountFooter
-                    shown={recordings.length}
-                    totalCount={payload?.totalCount}
-                    totalCountCapped={payload?.totalCountCapped}
-                    noun={WIDGET_LIST_COUNT_RECORDINGS}
-                    hasMore={payload?.hasMore}
-                    dataAttr="session-replay-widget-count"
-                />
-            }
-        >
+        <WidgetCardContent>
             <div className="flex flex-col">
                 {recordings.map((recording) => (
                     <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
                 ))}
             </div>
+            <WidgetContentFooter>
+                <WidgetListCount
+                    shown={recordings.length}
+                    totalCount={payload?.totalCount}
+                    totalCountIsLowerBound={payload?.totalCountCapped}
+                    noun={WIDGET_LIST_COUNT_RECORDINGS}
+                    hasMore={payload?.hasMore}
+                    dataAttr="session-replay-widget-count"
+                />
+            </WidgetContentFooter>
         </WidgetCardContent>
     )
 }

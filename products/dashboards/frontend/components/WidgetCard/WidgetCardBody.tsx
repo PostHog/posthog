@@ -194,20 +194,23 @@ export function WidgetLoadingState({ children, rowCount, className }: WidgetLoad
 
 type WidgetCardContentProps = {
     children: React.ReactNode
-    footer?: React.ReactNode
     className?: string
 }
 
+function isWidgetContentFooter(child: React.ReactNode): boolean {
+    return React.isValidElement(child) && child.type === WidgetContentFooter
+}
+
 /** Scrollable widget body — use for all tile content (lists, setup prompts, empty states). */
-export function WidgetCardContent({ children, footer, className }: WidgetCardContentProps): JSX.Element {
+export function WidgetCardContent({ children, className }: WidgetCardContentProps): JSX.Element {
+    const childArray = React.Children.toArray(children)
+    const footer = childArray.filter(isWidgetContentFooter)
+    const body = childArray.filter((child) => !isWidgetContentFooter(child))
+
     return (
         <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{children}</div>
-            {footer ? (
-                <div className="flex shrink-0 justify-center pt-0.5" data-slot="widget-card-content-footer">
-                    {footer}
-                </div>
-            ) : null}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden">{body}</div>
+            {footer}
         </div>
     )
 }
@@ -217,7 +220,7 @@ type WidgetContentFooterProps = {
     className?: string
 }
 
-/** Pinned footer slot for list widgets — sibling of `WidgetCardContent`. */
+/** Pinned footer slot for list widgets — compose as a child of `WidgetCardContent`, not a prop. */
 export function WidgetContentFooter({ children, className }: WidgetContentFooterProps): JSX.Element {
     return (
         <div data-slot="widget-card-content-footer" className={cn('flex shrink-0 justify-center pt-0.5', className)}>
