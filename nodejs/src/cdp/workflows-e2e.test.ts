@@ -1044,6 +1044,7 @@ describe('Workflows E2E (email queue)', () => {
     let mockProducerObserver: KafkaProducerObserver
     let team: Team
     let cyclotronPool: Pool
+    let deps: ReturnType<typeof createCdpConsumerDeps>
 
     beforeAll(() => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
@@ -1112,7 +1113,7 @@ describe('Workflows E2E (email queue)', () => {
             ],
         })
 
-        const deps = createCdpConsumerDeps(hub, kafkaProducer)
+        deps = createCdpConsumerDeps(hub, kafkaProducer)
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
         // Each consumer gets a dedicated CyclotronJobQueuePostgresV2 — sharing one
         // across two consumers collides on `this.worker` and the shared pg pool.
@@ -1355,5 +1356,126 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+    })
+
+    // Pacing tests — the email worker enforces CONSUMER_BATCH_SIZE / CDP_CYCLOTRON_BATCH_DELAY_MS
+    // sends/sec on a non-empty queue, regardless of how fast the underlying SES (or maildev
+    // here) responds. Cyclotron-v2's own pollDelayMs only backs off on empty polls, so without
+    // the worker's safety belt, a full queue would dispatch as fast as HTTP latency allowed.
+    describe('pacing', () => {
+        const PACING_INTERVAL_MS = 300
+        const EMAIL_COUNT = 3
+
+        beforeEach(async () => {
+            // Stop the worker started in the parent beforeEach and rebuild it with the
+            // pacing config we want to assert against. CONSUMER_BATCH_SIZE is captured at
+            // queue construction time, so we have to rebuild the queue too.
+            await emailWorker.stop()
+            hub.CONSUMER_BATCH_SIZE = 1
+            hub.CDP_CYCLOTRON_BATCH_DELAY_MS = PACING_INTERVAL_MS
+            const pacedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            emailWorker = new CdpCyclotronWorkerEmail(hub, deps, pacedQueue)
+            await emailWorker.start()
+        })
+
+        const emailWorkflow = () => {
+            const emailAction = {
+                type: 'function_email' as const,
+                config: {
+                    template_id: 'template-workflows-e2e-email',
+                    inputs: {
+                        email: {
+                            value: {
+                                to: { email: 'recipient@example.com', name: 'Recipient' },
+                                from: { integrationId: 1, email: 'sender@posthog.com' },
+                                subject: 'Paced email',
+                                text: 'Body',
+                                html: '<p>Body</p>',
+                            },
+                        },
+                    },
+                },
+            }
+            return new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        email_1: emailAction,
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email_1', type: 'continue' },
+                        { from: 'email_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+        }
+
+        const sumMetric = (metricName: string): number =>
+            mockProducerObserver
+                .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                .filter((m: any) => m.value.metric_name === metricName)
+                .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+        it('paces draining at CONSUMER_BATCH_SIZE per CDP_CYCLOTRON_BATCH_DELAY_MS', async () => {
+            const hogFlow = emailWorkflow()
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            // Fire all triggers in parallel so the hogflow worker hands them to the email
+            // queue in one or two batches. From the email worker's perspective the queue is
+            // saturated and the safety belt is what gates the dispatch rate.
+            const triggerStart = Date.now()
+            await Promise.all(
+                Array.from({ length: EMAIL_COUNT }, async (_, i) => {
+                    const globals = createGlobals()
+                    ;(globals.event as any).uuid = `pacing-event-${i}`
+                    const { backgroundTask } = await eventsConsumer.processBatch([globals])
+                    await backgroundTask
+                })
+            )
+
+            await waitForExpect(() => {
+                expect(sumMetric('email_sent')).toBe(EMAIL_COUNT)
+            }, 15000)
+
+            const elapsed = Date.now() - triggerStart
+
+            // Lower bound: draining N emails at 1-per-INTERVAL pacing takes at least
+            // (N-1) × INTERVAL in steady state. First dispatch can happen immediately;
+            // each subsequent one must wait the held-open tick.
+            // 80% slop accounts for the first tick landing partway through the interval.
+            const minExpected = (EMAIL_COUNT - 1) * PACING_INTERVAL_MS * 0.8
+            expect(elapsed).toBeGreaterThanOrEqual(minExpected)
+        })
+
+        it('does not pace when the queue is empty between batches', async () => {
+            const hogFlow = emailWorkflow()
+            await insertHogFlow(hub.postgres, hogFlow)
+
+            // Single email through the paced worker — the safety belt holds the one tick
+            // it processes, but that's a single interval of latency, not (N-1) of them.
+            // This is the negative case to the test above: the belt is per-batch, not
+            // per-invocation, so light traffic doesn't accumulate paced delay.
+            const triggerStart = Date.now()
+            const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+            await backgroundTask
+
+            await waitForExpect(() => {
+                expect(sumMetric('email_sent')).toBe(1)
+            }, 10000)
+
+            const elapsed = Date.now() - triggerStart
+
+            // Upper bound: well under 2 × INTERVAL. If the belt was being applied per
+            // invocation rather than per batch, we'd see closer to N × INTERVAL even
+            // for a single email. Generous bound to absorb hogflow worker round-trip.
+            expect(elapsed).toBeLessThan(PACING_INTERVAL_MS * 4)
+        })
     })
 })
