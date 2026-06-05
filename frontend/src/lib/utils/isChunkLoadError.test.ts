@@ -19,6 +19,11 @@ describe('isChunkLoadError', () => {
             { name: 'TypeError', message: 'error loading dynamically imported module: /static/chunk.js' },
             true,
         ],
+        [
+            'WebKit module-script load failure',
+            { name: 'TypeError', message: 'Importing a module script failed.' },
+            true,
+        ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
         ['unrelated Error', { name: 'Error', message: 'something else' }, false],
         ['error with no name or message', {}, false],
