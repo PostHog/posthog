@@ -119,6 +119,29 @@ class TestPostgresProducerClose:
         mock.close.assert_not_called()
 
 
+class TestPostgresProducerHasPendingBatches:
+    def test_delegates_to_conn(self) -> None:
+        producer = _make_producer()
+        mock = _mock_conn(producer)
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (True,)
+        mock.execute.return_value = mock_cursor
+
+        assert producer.has_pending_batches() is True
+        mock.execute.assert_called_once()
+        sql = mock.execute.call_args[0][0]
+        assert "SELECT EXISTS" in sql
+
+    def test_returns_false_when_no_rows(self) -> None:
+        producer = _make_producer()
+        mock = _mock_conn(producer)
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone.return_value = (False,)
+        mock.execute.return_value = mock_cursor
+
+        assert producer.has_pending_batches() is False
+
+
 class TestPostgresProducerProperties:
     def test_sync_type_property(self) -> None:
         producer = _make_producer(sync_type="incremental")

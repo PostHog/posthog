@@ -169,6 +169,10 @@ class PipelineV3(Generic[ResumableData]):
         self._batch_results = []
 
     async def run(self) -> PipelineResult:
+        if self._pg_producer.has_pending_batches():
+            await self._logger.ainfo("V3 Pipeline: Skipping run - prior batches still pending for schema")
+            return {"should_trigger_cdp_producer": False, "consumer_manages_job_status": False}
+
         pa_memory_pool = pa.default_memory_pool()
 
         should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
