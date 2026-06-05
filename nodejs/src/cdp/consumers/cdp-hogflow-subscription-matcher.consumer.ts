@@ -60,10 +60,10 @@ type WakeRequest = {
     id: string
     stepMatched: boolean
     conversionMatched: boolean
-    // Name and UUID of the event that matched, so the executor's resume log can surface the
-    // name and the logs view can link to the exact event.
+    // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
+    eventTimestamp?: string
 }
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
@@ -178,6 +178,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let stepMatched = false
             let stepMatchedEventName: string | undefined
             let stepMatchedEventUuid: string | undefined
+            let stepMatchedEventTimestamp: string | undefined
             let conversionMatched = false
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
@@ -186,6 +187,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatched = true
                         stepMatchedEventName = globals.event.event
                         stepMatchedEventUuid = globals.event.uuid
+                        stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
                 if (!conversionMatched) {
@@ -203,6 +205,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     conversionMatched,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
+                    eventTimestamp: stepMatchedEventTimestamp,
                 })
             }
         }
@@ -568,6 +571,7 @@ function applyWakeFlags(stateBuffer: Buffer, req: WakeRequest): Buffer | null {
                     eventMatched: true,
                     eventMatchedEvent: req.eventName,
                     eventMatchedEventUuid: req.eventUuid,
+                    eventMatchedEventTimestamp: req.eventTimestamp,
                 }
                 applied = true
             } else {
