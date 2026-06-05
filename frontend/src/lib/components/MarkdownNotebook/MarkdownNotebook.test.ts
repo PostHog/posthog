@@ -2155,8 +2155,8 @@ After component`,
 
         expect(shell).toBeInstanceOf(HTMLElement)
         expect(modeButtons).toHaveLength(2)
-        expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
-        expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-title')).toBe(true)
+        expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
+        expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__component-edit')).toBeNull()

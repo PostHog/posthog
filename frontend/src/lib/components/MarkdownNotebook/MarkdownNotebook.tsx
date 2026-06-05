@@ -3882,6 +3882,17 @@ function NotebookComponentShell({
         >
             <div className="MarkdownNotebook__component-toolbar">
                 <div className="MarkdownNotebook__component-toolbar-left">
+                    <div
+                        className={clsx(
+                            'MarkdownNotebook__component-title',
+                            `MarkdownNotebook__component-title--${titleDisplay.tone}`
+                        )}
+                    >
+                        {titleDisplay.icon ? (
+                            <span className="MarkdownNotebook__component-title-icon">{titleDisplay.icon}</span>
+                        ) : null}
+                        <span>{titleDisplay.label}</span>
+                    </div>
                     {mode === 'edit' ? (
                         <div className="MarkdownNotebook__component-mode-actions">
                             <LemonButton
@@ -3902,17 +3913,6 @@ function NotebookComponentShell({
                             />
                         </div>
                     ) : null}
-                    <div
-                        className={clsx(
-                            'MarkdownNotebook__component-title',
-                            `MarkdownNotebook__component-title--${titleDisplay.tone}`
-                        )}
-                    >
-                        {titleDisplay.icon ? (
-                            <span className="MarkdownNotebook__component-title-icon">{titleDisplay.icon}</span>
-                        ) : null}
-                        <span>{titleDisplay.label}</span>
-                    </div>
                 </div>
                 {mode === 'edit' ? (
                     <div className="MarkdownNotebook__component-actions">
