@@ -117,7 +117,9 @@ def _ttl_for_credential(credential: Credential) -> int | None:
     return None
 
 
-def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
+def _policy_for_credential(
+    credential: Credential, teams_by_id: dict[int, dict[str, Any]] | None = None
+) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
     Fails closed (returns HyperCacheStoreMissing) on anything that would make the
@@ -148,10 +150,17 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     if credential.scoped_teams and team_id not in credential.scoped_teams:
         return HyperCacheStoreMissing()
 
-    try:
-        team = Team.objects.values("api_token", "organization_id").get(id=team_id)
-    except Team.DoesNotExist:
-        return HyperCacheStoreMissing()
+    # teams_by_id is a prefetched batch (refresh path); a miss means the team is
+    # gone, same fail-closed outcome as DoesNotExist on the per-credential path.
+    if teams_by_id is not None:
+        team = teams_by_id.get(team_id)
+        if team is None:
+            return HyperCacheStoreMissing()
+    else:
+        try:
+            team = Team.objects.values("api_token", "organization_id").get(id=team_id)
+        except Team.DoesNotExist:
+            return HyperCacheStoreMissing()
 
     project_token = team["api_token"]
     if not project_token:
@@ -210,13 +219,17 @@ first_party_gateway_policy_hypercache = HyperCache(
 )
 
 
-def project_first_party_policy(credential: Credential) -> None:
-    """Write (or clear) the credential's policy blob from current DB state."""
+def project_first_party_policy(credential: Credential, teams_by_id: dict[int, dict[str, Any]] | None = None) -> None:
+    """Write (or clear) the credential's policy blob from current DB state.
+
+    teams_by_id lets the refresh path inject a prefetched team map to avoid an
+    N+1 Team lookup; single-credential callers leave it None.
+    """
     cache_hash = credential_hash(credential)
     if not cache_hash:
         return
 
-    policy = _policy_for_credential(credential)
+    policy = _policy_for_credential(credential, teams_by_id=teams_by_id)
     if isinstance(policy, HyperCacheStoreMissing):
         first_party_gateway_policy_hypercache.clear_cache(cache_hash, kinds=["redis"])
         return
@@ -244,31 +257,31 @@ def refresh_all_first_party_policies() -> int:
     Forward iteration because the cache key is a one-way hash — it can't be
     reversed through a team pool the way the team-centric refresh does. Keeps
     entries warm; signal handlers and the per-OAuth-token TTL handle removal.
+
+    llm_gateway:read is privileged (admin-granted), so the credential set is
+    bounded — materialise it to batch the team fetch into one query rather than
+    an N+1 Team.get per credential. scope is a space-separated TextField;
+    whitespace-bounded so the literal doesn't substring-match a longer scope.
     """
     now = timezone.now()
-    projected = 0
-
-    for pak in (
-        PersonalAPIKey.objects.select_related("user")
-        .filter(scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE], user__is_active=True)
-        .iterator()
-    ):
-        project_first_party_policy(pak)
-        projected += 1
-
-    # scope is a space-separated TextField; whitespace-bounded so the literal
-    # "llm_gateway:read" doesn't substring-match a longer scope. "*" is not a match.
-    for token in (
-        OAuthAccessToken.objects.select_related("user", "application")
-        .filter(
+    credentials: list[Credential] = [
+        *PersonalAPIKey.objects.select_related("user").filter(
+            scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE], user__is_active=True
+        ),
+        *OAuthAccessToken.objects.select_related("user", "application").filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
             user__is_active=True,
             application_id__isnull=False,
             expires__gt=now,
-        )
-        .iterator()
-    ):
-        project_first_party_policy(token)
-        projected += 1
+        ),
+    ]
 
-    return projected
+    team_ids = {c.user.current_team_id for c in credentials if c.user and c.user.current_team_id}
+    teams_by_id = {
+        team["id"]: team for team in Team.objects.filter(id__in=team_ids).values("id", "api_token", "organization_id")
+    }
+
+    for credential in credentials:
+        project_first_party_policy(credential, teams_by_id=teams_by_id)
+
+    return len(credentials)
