@@ -1,13 +1,24 @@
 import './storybook.css'
 
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import type { Preview } from '@storybook/react'
 import { themes } from '@storybook/theming'
 import { DocsContainer } from '@storybook/addon-docs'
 import { useDarkMode } from 'storybook-dark-mode'
 
+// The Docs container renders outside Storybook's preview-hooks context, so
+// `useDarkMode()` (a preview hook) can't be used here. Track the `<html>.dark`
+// class the story decorator sets via a MutationObserver instead.
 function ThemedDocsContainer(props: React.ComponentProps<typeof DocsContainer>): React.ReactElement {
-    const isDark = useDarkMode()
+    const [isDark, setIsDark] = useState<boolean>(() => document.documentElement.classList.contains('dark'))
+
+    useEffect(() => {
+        const root = document.documentElement
+        const observer = new MutationObserver(() => setIsDark(root.classList.contains('dark')))
+        observer.observe(root, { attributes: true, attributeFilter: ['class'] })
+        return () => observer.disconnect()
+    }, [])
+
     return <DocsContainer {...props} theme={isDark ? themes.dark : themes.light} />
 }
 
