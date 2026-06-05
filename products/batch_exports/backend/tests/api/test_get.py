@@ -160,3 +160,50 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
 
     response = get_batch_export(client, team.pk, batch_export["id"])
     assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+
+def test_serialization_of_destination_config(client: HttpClient, temporal, organization, team, user):
+    """Test that the destination config is serialized correctly.
+
+    Our destination config is encrypted using EncryptedJSONField, which decrypts most data types
+    (including booleans) into strings. Therefore, we want to ensure these are serialized to their
+    correct JSON types in the response.
+    """
+    destination_data = {
+        "type": "Postgres",
+        "config": {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "user": "test",
+            "password": "test",
+            "schema": "public",
+            "database": "test",
+            "table_name": "batch_export_events",
+            "has_self_signed_cert": False,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-export",
+        "destination": destination_data,
+        "interval": "day",
+        "timezone": "UTC",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export_ok(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    response = get_batch_export(client, team.pk, response["id"])
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    batch_export = response.json()
+
+    # Check that the destination config is returned, except for user and password, which are
+    # sensitive
+    non_sensitive_config = {k: v for k, v in destination_data["config"].items() if k not in {"user", "password"}}
+    assert batch_export["destination"]["config"] == non_sensitive_config
