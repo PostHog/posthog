@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { ErrorTrackingQuery } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
 /** Shared widget config fields inherited by all widget types. */
@@ -119,8 +120,17 @@ export function widgetListFormSchema<TOrderBy extends z.ZodType>(
     })
 }
 
+export type ErrorTrackingWidgetFormStatus = NonNullable<ErrorTrackingQuery['status']> | 'all'
+
 /** Form fields edited in the error tracking widget settings modal. */
-export const errorTrackingWidgetFormSchema = widgetListFormSchema(errorTrackingWidgetConfigSchema.shape.orderBy)
+export const errorTrackingWidgetFormSchema = z.object({
+    limit: widgetLimitFieldSchema,
+    orderBy: errorTrackingWidgetConfigSchema.shape.orderBy,
+    orderDirection: widgetOrderDirectionSchema,
+    dateFrom: widgetDateFromSchema,
+    filterTestAccounts: z.boolean(),
+    status: z.enum(['active', 'resolved', 'suppressed', 'all']),
+})
 
 export const sessionReplayWidgetConfigSchema = baseWidgetConfigSchema.extend({
     limit: widgetLimitFieldSchema.default(10),

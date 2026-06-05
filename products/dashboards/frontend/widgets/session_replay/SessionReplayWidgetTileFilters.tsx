@@ -1,9 +1,9 @@
-import equal from 'fast-deep-equal'
 import { useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import equal from 'lib/utils'
 
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/configSchemas'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
