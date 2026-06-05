@@ -4,13 +4,21 @@
 **Author context:** distilled from an investigation on `aspicer/feat/hogql/property-lowering` (see "What we learned", below).
 **Supersedes the framing in:** `posthog/hogql/transforms/PROPERTY_LOWERING_PLAN.md` (that plan assumed the printer's property code could be deleted outright; this doc explains why that's false as scoped, and what to do instead).
 
+> **⚠️ Verification approach changed — read §13 first.** The body of this doc (§0, §7, §8.3, §9.3, §12.5, §12.8) frames the
+> deletion gate as a **reachability oracle** that proves the old printer code unreachable. **That framing is superseded by
+> §13.** The verification mechanism is now a **differential shadow-compare**: compile each query both ways (old printer
+> path vs. new lowering path) and assert the _results_ match — in tests via an `if TEST` shadow-compare, in production via
+> an async Celery shadow run over real traffic. The question is _"does the new path produce master's results?"_
+> (equivalence), not _"is the old code still reached?"_ (reachability). Where the body says "oracle", read §13. The
+> committed reachability-oracle code (`reachability_oracle.py`, `run_reachability_oracle.py`) is scaffolding to be removed.
+
 ---
 
 ## 0. Mandate (what the agent should produce)
 
 A **Graphite stack** that migrates HogQL property handling to the architecture in §4, and shrinks the ClickHouse printer to mechanical leaf rendering, **with no behavioral regressions across any of the four SQL dialects** (`hogql`, `clickhouse`, `postgres`, `duckdb`).
 
-Each PR in the stack must be independently shippable and gated by an explicit regression net (§9). Deletions of printer code must be gated by the **reachability oracle** (§9.3) — we delete only code we have _proven_ unreachable, not code we _believe_ is unreachable.
+Each PR in the stack must be independently shippable and gated by an explicit regression net (§9). Deletions of printer code are gated by the **differential shadow-compare** (§13) — we delete the old property-decision code once the new lowering path is proven to produce master's results everywhere (in CI _and_ in a production shadow run) and the new path is built to **fail loud** rather than silently fall back to the old code. (Earlier drafts gated deletion on a reachability oracle; see §13 for why that was replaced.)
 
 Do **not** attempt the deletion as a single change. The investigation that produced this doc tried that and it is not safe; the whole point of the stack is to make the deletion safe one provable step at a time.
 
@@ -224,7 +232,18 @@ The WIP branch carries the investigation's code. Treat it as follows:
 
 ## 7. Migration plan — the Graphite stack
 
-Strangler-fig: introduce the new structure in parallel, prove equivalence against a golden corpus + reachability oracle, flip, then delete. Bottom of the stack merges first. Each PR states its **regression gate**.
+> **Superseded in two ways — read before following the PR list below.**
+>
+> 1. **Verification (§13):** every "oracle clean" / "oracle reports …" gate below is replaced by the differential
+>    shadow-compare. Read each as "the new path produces master's results for these positions" (checked by the differential
+>    harness in CI + the production shadow run), not "no `PropertyType` reaches the printer."
+> 2. **Actual stack:** the stack we built does not follow this PR0–PR10 numbering. The real branches are: regression net
+>    (corpus + execution net), the `JSONFieldAccess` node + printer leaf renderers, the clean logical-lowering pass, the
+>    ClickHouse physical passes, and the gated flip (`HogQLContext.lower_property_access`, default off). The conceptual
+>    content below is still accurate; the sequencing/numbering is historical. The memory note `property-lowering-refactor`
+>    tracks the live status.
+
+Strangler-fig: introduce the new structure in parallel, prove equivalence by **compiling each query both ways and comparing results** (§13), flip behind a gate, then delete. Bottom of the stack merges first. Each PR states its **regression gate**.
 
 > **PR 0 — Characterization harness + reachability oracle (no behavior change).**
 >
@@ -286,9 +305,9 @@ PRs 3–5 and 7–8 may each split further if a single PR gets too large. The or
 
 It stores `''` for both empty-string and missing. The materialized-column optimization must **decline** on is-set; the logical form must be a key-existence check on the blob. Getting this wrong returns `''` where `None` is correct (silent data error, only caught by execution tests, not snapshots).
 
-### 8.3 The reachability oracle must run across the _entire_ suite, not just the corpus
+### 8.3 Verification must run across the _entire_ suite, not just the corpus
 
-The CTE gap (§3.2) was only found because the oracle ran over `test_query.py`, not a hand-picked corpus. A position absent from the corpus can still ship a regression. Run the oracle over everything before any deletion.
+The CTE gap (§3.2) was only found by running over `test_query.py`, not a hand-picked corpus — a position absent from the corpus can still ship a regression. This is why the differential shadow-compare (§13) hooks the **compile boundary** (every query the suite compiles gets shadow-compared in `if TEST`) rather than iterating a fixed corpus, and why the production shadow run (over real traffic) is the ultimate coverage. (Originally this footgun motivated running the reachability oracle suite-wide; §13 keeps the suite-wide requirement and changes only the thing measured: result-equivalence, not reachability.)
 
 ### 8.4 `within_non_hogql_query` requires _unqualified_ columns
 
@@ -338,9 +357,9 @@ Representative queries × 4 dialects, covering at minimum: simple value read; de
 
 The payoff of the rearchitecture: assert on AST structure, not SQL strings. e.g. "`PropertyType(events.properties.X)` lowers to a JSON-access of type `String`"; "the mat-substitution pass rewrites a JSON-access of `events.properties.X` to `Field(mat_X)` with null-scrubbing"; "the mat pass leaves an is-set comparison untouched"; "no `PropertyType` survives logical lowering." These are fast, deterministic, and don't depend on a live ClickHouse.
 
-### 9.3 Reachability oracle
+### 9.3 Differential shadow-compare (supersedes the reachability oracle)
 
-A switchable instrumentation that makes the printer's property-decision entry points **raise** (or record) when reached. Run it across the **entire** test suite per dialect. It is the gate for every deletion: code is deleted only when the oracle proves it unreachable. Implementation reference: this session asserted in `ClickHousePrinter._get_materialized_property_source_for_property_type` and `_get_property_group_source_for_field`; note that `_get_materialized_string_property_source` (comparison optimizers) routes through `_get_materialized_property_source_for_property_type`, so that one chokepoint covers value reads + comparison optimizers; the property-group/JSONHas path needs its own.
+**Superseded by §13 — see there for the full design.** The deletion gate is not reachability instrumentation; it is a differential that compiles each query both ways (`lower_property_access` off = old printer path, on = new lowering path) and asserts the **results** match — fast-pathed by SQL-equality, falling back to execute-and-compare on a SQL diff. In tests it runs as an `if TEST` shadow-compare at the compile boundary (fail the test on result mismatch); in production the same boundary enqueues an async Celery shadow run that diffs the new path against the served old-path result over real traffic. The new path must **fail loud** (never silently fall back to the printer's property code), so any gap shows up as a divergence or error rather than a silent pass — which is what makes a reachability oracle unnecessary. The committed `reachability_oracle.py` / `run_reachability_oracle.py` are scaffolding to be removed.
 
 ### 9.4 Execution + index assertions
 
@@ -412,15 +431,11 @@ The fast-path-plus-backstop **duplication that exists today is collapsed**: exac
 
 Any `if dialect == ...` outside a pass list or a leaf renderer is a bug.
 
-### 12.5 The reachability oracle is the deletion gate (3 points, suite-wide)
+### 12.5 ~~The reachability oracle is the deletion gate~~ → SUPERSEDED by §13 (differential shadow-compare)
 
-Records `(property, dialect)` at three entry points — one more than §9.3's reference, for completeness:
+**This decision is reversed. The deletion gate is the differential shadow-compare (§13), not a reachability oracle.**
 
-1. `BasePrinter._get_materialized_property_source_for_property_type` — value reads **and** all 8 comparison optimizers route here (via `_get_materialized_string_property_source`).
-2. `ClickHousePrinter._get_property_group_source_for_field` — the `JSONHas` / key-existence property-group path.
-3. `visit_property_type` where `joined_subquery is None` — catches the JSON-blob fallback and restricted reads that return `None` from (1) but still reach the printer as a property.
-
-Runs across the **entire** suite per dialect (§8.3 — the CTE gap was only caught suite-wide). **No printer property code is deleted until the reached-set is empty for that dialect.**
+Why the reversal: the oracle answers _"is the old printer code still reached?"_ (reachability). That only matters if the old code is kept **embedded inside the new path as a silent fallback** — the fast-path-plus-backstop entanglement §12.3 already forbids. The right design makes the new path **fail loud** on anything it can't handle (never fall back to the printer's property code), so a gap surfaces as a result divergence or an error — caught by the differential — with no instrumentation needed. The differential also runs over the **real production workload** (the Celery shadow), which is far better coverage than an oracle limited to whatever the test suite happens to exercise. The three entry points listed here remain accurate as _the code we will delete_ (§13.4); they are no longer instrumented as a gate. The committed oracle is scaffolding to be removed.
 
 ### 12.6 Result-equivalence, never byte-identical (§8.7, restated)
 
@@ -439,12 +454,65 @@ This would conflict with the "zero behavioral regressions" mandate (§0), and it
 
 PR 0 locks **master's current (over-matching) behavior** (`test_property_characterization.py::TestPhysicalScenarios.mat_is_not_set` and `TestPersonPropertyIsNotSet`), so if the fix is taken later the flip is visible and deliberate — never silent. The corpus `mat_is_not_set` description documents the divergence.
 
+---
+
+## 13. Verification: differential shadow-compare (the canonical approach — supersedes the reachability-oracle framing)
+
+This section is the contract for **how we prove the migration is safe**. It replaces the reachability-oracle framing in §0, §7, §8.3, §9.3, and §12.5. The earlier sections are kept for context; where they conflict with §13, §13 wins.
+
+### 13.1 The gate is equivalence, not reachability
+
+The question that matters is **"does the new lowering path produce master's results?"** — not "is the old printer code still reached?". We answer it with a **differential**: compile each query **both ways** and compare.
+
+- **old path** = `HogQLContext.lower_property_access` **off** (today's default — the printer decides the property → physical column).
+- **new path** = `lower_property_access` **on** (logical lowering + ClickHouse physical passes decide; the printer renders `JSONFieldAccess` mechanically).
+- **Compare:** SQL-equal ⇒ pass (the overwhelming common case — for unmaterialized reads the two paths are byte-identical; cheap, no execution). SQL **differs** ⇒ execute both and compare **results**. Results equal ⇒ pass (result-equivalent — e.g. a materialized-column form). Results **differ** ⇒ **fail**.
+
+SQL-equality is the cheap proxy; **result-equality is the bar** (§12.6). This is identical in test and production — same comparison, different transport.
+
+### 13.2 The same mechanism in test and prod
+
+**Production (the real verification, over real traffic):** leave the request path exactly as today — compile HogQL → ClickHouse on the **old** path, execute, return to the user. _Also_ enqueue `(hogql, old_clickhouse_sql, result)` to a Celery queue. The worker recompiles on the **new** path and compares the SQL; if it differs, it runs the new query — **guarded by a cost ceiling so we never flood the cluster with expensive shadow queries** — and compares results. A mismatch is **flagged for a human to fix**. The user never sees new-path output during this window, so a new-path bug has zero user impact; it just produces a flag.
+
+**Test (the same harness, synchronous):** an `if TEST` shadow-compare at the **compile boundary** (`prepare_and_print_ast` in `posthog/hogql/printer/utils.py`). After the normal old-path compile, recompile the same input on the new path and compare; **fail the test on a result mismatch.** Because it hooks the compile boundary, it covers **every query the suite compiles** (§8.3), not a hand-picked corpus. Implementation notes: clone the input AST before the first compile (the pipeline mutates the node), and guard against recursion (the shadow recompile must not itself trigger another shadow).
+
+### 13.3 Why the reachability oracle was dropped
+
+The oracle instruments the printer's property entry points and proves they are unreached. That is only necessary if the old property code is kept **embedded inside the new path as a silent fallback** (lowering declines on a case → the printer's old code quietly handles it). That fallback is the fast-path-plus-backstop entanglement §12.3 forbids. Remove the fallback — make the new path **fail loud** (§13.5) — and there is nothing for an oracle to detect: a gap becomes a divergence or an error, caught by the differential. Moreover, "delete the old code and run the differential" catches the same stragglers the oracle would (as red diffs), over **far better coverage** (real production traffic vs. whatever the test suite touches), with no extra instrumentation. The oracle was solving a problem created by a worse interim design.
+
+### 13.4 What "delete the old path" means precisely
+
+Scope is the **blob-property → physical-column decision**, and only that:
+
+- `BasePrinter.visit_property_type`'s materialized-lookup + JSON-blob fallback, and its `_get_all_materialized_property_sources` / `_get_materialized_property_source_for_property_type` / `_get_materialized_column` / `_get_dmat_column` / `_yield_property_group_columns` helpers + the `Printable*` types.
+- `ClickHousePrinter`'s 8 `_get_optimized_*` skip-index optimizers + their `visit_compare_operation` dispatch, `_get_property_group_source_for_field`.
+- The `PropertySwapper` property-**cast** branch (the swapper keeps its real-column jobs: datetime timezones, S3).
+
+**Not** in scope — these are separate printer concerns that stay: struct/array warehouse-column access, person/group join-repointing (`joined_subquery` passthrough, §8.11), identifier quoting, the dialect leaf renderers. "Rip out the old path" is **not** a blanket strip of everything property-shaped in the printer.
+
+Deletion is safe once **all** hold: (1) the new path is the only path producing served output (gate default-on or the off-branch removed); (2) the new path is fail-loud (§13.5); (3) the differential harness is green suite-wide; (4) the production shadow run has confirmed parity over real traffic.
+
+### 13.5 Fail-loud requirement (replaces the oracle's job)
+
+During migration the new path must **never silently fall back** to the printer's property-decision code. If logical lowering or a physical pass encounters a property it cannot handle, it must **raise** (or emit a sentinel the differential is guaranteed to catch), so the gap is visible as a failure — not absorbed into an identical-looking output. This is the single property that makes the differential sufficient and the oracle unnecessary: there is no silent path for a straggler to hide in.
+
+### 13.6 Behavior preservation — no allowlist during the transition
+
+Per §12.8, the new path reproduces master's **results** everywhere. **Any divergence the differential finds is a bug to fix _toward master_, not an entry on an allowlist.** We do **not** build an expected-divergence allowlist during the transition. (The §12.7 is-set-over-materialized case is, under decision A, **not** a divergence — the physical pass reproduces master's over-matching read, so the differential sees them as equal.) An allowlist becomes a conversation only if we later decide a _specific_ divergence is worth keeping — which requires that it **substantially simplifies the code, is provably correct, and gets explicit sign-off** — and that is out of scope for the migration itself.
+
+### 13.7 Status / what to build
+
+- **Build:** the differential shadow-compare — test-mode (`if TEST` at the compile boundary) first; the Celery production shadow second.
+- **Remove:** the committed reachability-oracle scaffolding (`posthog/hogql/printer/test/reachability_oracle.py`, `run_reachability_oracle.py`, the baseline report) as part of the restructure.
+- **Keep:** the characterization corpus, the execution + skip-index net, the `JSONFieldAccess` node + leaf renderers, the logical-lowering pass, the ClickHouse physical passes, and the gated flip — these are the real work; only the oracle apparatus changes.
+
 ### 12.8 Behavior-preservation policy (applies to every PR)
 
 Preserve master's observable behavior **exactly**, including known quirks (e.g. §12.7) — leave a `# KNOWN:` code note + a doc note for each deferred fix. Change behavior **only** when doing so **simplifies the code substantially _and_ is provably correct**, and even then call it out explicitly for sign-off — never silently.
 
-Verification is **not test-only**. The new lowering path will be **deployed alongside the existing printer path in production**, gated, and run in parallel long enough to confirm the outputs match on real traffic before the old path is removed. Consequences for the stack:
+Verification is **not test-only**. The new lowering path is **deployed alongside the existing printer path in production**, gated, and run in parallel long enough to confirm the outputs match on real traffic before the old path is removed. This is the differential shadow-compare (§13). Consequences for the stack:
 
-- The flip (PR 4+) is a **gated, reversible switch with a shadow-compare option**, not a hard swap. The gate lives at the §4.7 capability seam (the per-backend pass list selected by a modifier/flag), so old and new can run side by side and be diffed.
-- This is exactly why the reachability oracle (§12.5) and the result-equivalence gate (§12.6) exist: they make "the new path produces the same result" a **checkable claim** — in CI *and* in the parallel production run. The golden corpus + execution net are the CI half; the shadow compare is the production half.
-- Don't delete the printer's property code (PR 9) until the parallel run has confirmed parity in production, not just until CI is green.
+- The flip is a **gated, reversible switch** (`HogQLContext.lower_property_access`, default off), not a hard swap. Old and new run side by side and are diffed — synchronously in `if TEST`, asynchronously via Celery in production.
+- The result-equivalence gate (§12.6) makes "the new path produces master's result" a **checkable claim** in both halves: the differential harness compiles both ways and compares (SQL-equal fast path, execute-and-compare on a diff) in CI, and the Celery shadow does the same over real traffic.
+- Don't delete the printer's property code until the production shadow run has confirmed parity, not just until CI is green.
+- The new path must **fail loud**, never silently fall back to the printer's property decision (§13.5) — that is what lets the differential, rather than reachability instrumentation, be the gate.
