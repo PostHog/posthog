@@ -1441,6 +1441,34 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(OrphanedEndpointSavedQueryError):
             prepare_executable_query(saved_query)
 
+    def test_enable_materialization_links_version_before_immediate_run(self):
+        endpoint = create_endpoint_with_version(
+            name="hundred",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        def simulate_immediate_temporal_run(self_saved_query):
+            # Mirrors the data-modeling worker, which runs on trigger_immediately=True
+            # and resolves the query via the saved_query -> EndpointVersion reverse link.
+            prepare_executable_query(self_saved_query)
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            autospec=True,
+            side_effect=simulate_immediate_temporal_run,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
     def test_build_endpoint_hogql_performs_no_db_writes(self):
         _create_event(team=self.team, event="$pageview", distinct_id="u1")
         flush_persons_and_events()
