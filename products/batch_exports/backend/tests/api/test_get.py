@@ -203,7 +203,13 @@ def test_serialization_of_destination_config(client: HttpClient, temporal, organ
 
     batch_export = response.json()
 
-    # Check that the destination config is returned, except for user and password, which are
-    # sensitive
-    non_sensitive_config = {k: v for k, v in destination_data["config"].items() if k not in {"user", "password"}}
-    assert batch_export["destination"]["config"] == non_sensitive_config
+    # Check that the destination config is returned with correct JSON types, except for user and
+    # password, which are sensitive
+    assert batch_export["destination"]["config"] == {
+        "host": "127.0.0.1",
+        "port": 5432,
+        "schema": "public",
+        "database": "test",
+        "table_name": "batch_export_events",
+        "has_self_signed_cert": False,
+    }
