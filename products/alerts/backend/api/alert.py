@@ -37,7 +37,11 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.detector import MAX_DETECTOR_BREAKDOWN_VALUES
 from posthog.tasks.alerts.schedule_restriction import validate_and_normalize_schedule_restriction
-from posthog.tasks.alerts.utils import next_check_at_after_schedule_restriction_change, validate_alert_config
+from posthog.tasks.alerts.utils import (
+    THRESHOLD_BOUNDS_REQUIRED_MESSAGE,
+    next_check_at_after_schedule_restriction_change,
+    validate_alert_config,
+)
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
@@ -87,7 +91,8 @@ class ScheduleRestrictionField(serializers.JSONField):
 
 class ThresholdSerializer(serializers.ModelSerializer):
     configuration = ThresholdConfigurationField(
-        help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).",
+        help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). "
+        "For threshold-based alerts (no detector_config), at least one of lower or upper must be set.",
     )
     name = serializers.CharField(
         required=False,
@@ -539,9 +544,30 @@ class AlertSerializer(serializers.ModelSerializer):
             self.instance.calculation_interval if self.instance else AlertCalculationInterval.DAILY,
         )
 
+        if "detector_config" in attrs:
+            detector_config = attrs["detector_config"]
+        elif self.instance is not None:
+            detector_config = self.instance.detector_config
+        else:
+            detector_config = None
+
+        require_threshold_bounds = detector_config is None and (
+            self.instance is None or "threshold" in attrs or "detector_config" in attrs
+        )
+
         try:
-            validate_alert_config(query, condition, config, threshold_config, calculation_interval)
+            validate_alert_config(
+                query,
+                condition,
+                config,
+                threshold_config,
+                calculation_interval,
+                detector_config=detector_config,
+                require_threshold_bounds=require_threshold_bounds,
+            )
         except ValueError as e:
+            if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:
+                raise ValidationError({"threshold": {"configuration": [THRESHOLD_BOUNDS_REQUIRED_MESSAGE]}})
             raise ValidationError(str(e))
 
         organization = self.context["get_organization"]()

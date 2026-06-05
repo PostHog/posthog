@@ -104,7 +104,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
+                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .describe('Threshold configuration with bounds and type for evaluating the alert.'),
@@ -1354,7 +1354,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         ),
                 })
                 .describe(
-                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).'
+                    'Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set.'
                 ),
         })
         .optional()
