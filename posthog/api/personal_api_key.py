@@ -23,7 +23,7 @@ from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
-from posthog.scopes import API_SCOPE_ACTIONS, API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS
+from posthog.scopes import PRIVILEGED_SCOPES, UNPRIVILEGED_SCOPES
 from posthog.user_permissions import UserPermissions
 
 MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
@@ -73,42 +73,37 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
         return bool(obj.secure_value and obj.secure_value.startswith(LEGACY_HASH_PREFIX))
 
-    def validate_scopes(self, scopes):
+    def validate_scopes(self, scopes: list[str]) -> list[str]:
         requesting_user = self.context["request"].user
 
         for scope in scopes:
-            if scope == "*":
+            if scope == "*" or scope in UNPRIVILEGED_SCOPES:
                 continue
 
-            scope_parts = scope.split(":")
-            if (
-                len(scope_parts) != 2
-                or scope_parts[0] not in API_SCOPE_OBJECTS
-                or scope_parts[0] in INTERNAL_API_SCOPE_OBJECTS
-                or scope_parts[1] not in API_SCOPE_ACTIONS
-            ):
+            # Cap at UNPRIVILEGED_SCOPES: hidden, internal, and malformed scopes are all
+            # rejected here, so the only thing left to consider is the privileged set.
+            if scope not in PRIVILEGED_SCOPES:
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
             # Check feature flag for llm_gateway scope - block if newly adding this scope
-            if scope_parts[0] == "llm_gateway":
-                existing_has_llm_gateway = self.instance is not None and any(
-                    s.startswith("llm_gateway:") for s in self.instance.scopes
-                )
-                if not existing_has_llm_gateway:
-                    organization_id = requesting_user.current_organization_id
-                    if organization_id is None:
-                        raise serializers.ValidationError("Unable to verify feature access.")
-                    if not posthoganalytics.feature_enabled(
-                        "gateway-personal-api-key",
-                        str(requesting_user.distinct_id),
-                        groups={"organization": str(organization_id)},
-                        group_properties={"organization": {"id": str(organization_id)}},
-                        only_evaluate_locally=False,
-                        send_feature_flag_events=False,
-                    ):
-                        raise serializers.ValidationError(
-                            "LLM gateway scope is not available. Contact support to enable this feature."
-                        )
+            existing_has_llm_gateway = self.instance is not None and any(
+                s.startswith("llm_gateway:") for s in self.instance.scopes
+            )
+            if not existing_has_llm_gateway:
+                organization_id = requesting_user.current_organization_id
+                if organization_id is None:
+                    raise serializers.ValidationError("Unable to verify feature access.")
+                if not posthoganalytics.feature_enabled(
+                    "gateway-personal-api-key",
+                    str(requesting_user.distinct_id),
+                    groups={"organization": str(organization_id)},
+                    group_properties={"organization": {"id": str(organization_id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                ):
+                    raise serializers.ValidationError(
+                        "LLM gateway scope is not available. Contact support to enable this feature."
+                    )
 
         return scopes
 

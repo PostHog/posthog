@@ -137,10 +137,10 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
-# Scope objects available via personal API keys but never advertised through
-# OAuth metadata. Used for alpha / not-yet-public products where a user can
-# manually paste the scope into a PAT but where we don't want OAuth-based
-# clients (the consent screen, MCP, third-party apps) to discover it.
+# Scope objects for alpha / not-yet-public products. Never advertised through
+# OAuth metadata and not grantable via the personal-API-key picker/API (capped
+# at UNPRIVILEGED_SCOPES); they reach a credential only through an admin-granted
+# `OAuthApplication.scopes` ceiling or programmatic minting.
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset({"metrics", "wizard_session"})
 
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]

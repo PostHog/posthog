@@ -5465,6 +5465,7 @@ export type APIScopeObject =
     | 'warehouse_view'
     | 'web_analytics'
     | 'webhook'
+    | 'wizard_session'
     | 'tracing'
 
 export type APIScopeAction = 'read' | 'write'

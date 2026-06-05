@@ -13,6 +13,11 @@ export type APIScope = {
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
 }
 
+// Mirrors `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py — keep in sync. Hidden (alpha)
+// scopes are capped out of the personal API key picker and rejected by its API, so they
+// must not appear in `API_SCOPES`.
+export const HIDDEN_API_SCOPE_OBJECTS: APIScopeObject[] = ['metrics', 'wizard_session']
+
 export const API_SCOPES: APIScope[] = [
     { key: 'action', objectName: 'Action', objectPlural: 'actions' },
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
@@ -69,7 +74,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
-    { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
+    // `metrics` and `wizard_session` are omitted — see `HIDDEN_API_SCOPE_OBJECTS` above.
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
     {

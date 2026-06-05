@@ -136,6 +136,31 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["detail"] == "Invalid scope: clickhouse_test_cluster_perf:read"
 
+    @parameterized.expand(["metrics:read", "metrics:write", "wizard_session:read", "wizard_session:write"])
+    def test_rejects_hidden_scopes(self, scope: str):
+        response = self.client.post(
+            "/api/personal_api_keys/",
+            {"label": "test", "scopes": [scope]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == f"Invalid scope: {scope}"
+
+    @parameterized.expand(["metrics:read", "wizard_session:write"])
+    def test_rejects_hidden_scopes_on_update(self, scope: str):
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["insight:read"],
+        )
+
+        response = self.client.patch(
+            f"/api/personal_api_keys/{key.id}",
+            {"scopes": ["insight:read", scope]},
+        )
+        assert response.status_code == 400
+        assert response.json()["detail"] == f"Invalid scope: {scope}"
+
     def test_delete_personal_api_key(self):
         key = PersonalAPIKey.objects.create(
             label="Test",

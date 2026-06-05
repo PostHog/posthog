@@ -83,6 +83,22 @@ describe('personalAPIKeysLogic', () => {
         expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read', 'llm_gateway:read'])
     })
 
+    it('strips hidden scopes from create payload', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValues({
+            label: 'Test key',
+            access_type: 'all',
+            scopes: ['feature_flag:read', 'metrics:read', 'wizard_session:write'],
+        })
+
+        await logic.asyncActions.submitEditingKey()
+
+        expect(capturedCreatePayload).not.toBeNull()
+        expect(capturedCreatePayload.scopes).toEqual(['feature_flag:read'])
+    })
+
     it('preserves the `*` (all access) scope regardless of flag state', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
 
