@@ -51,8 +51,10 @@ __all__ = [
 ]
 
 # URLs stop at whitespace and the delimiters that wrap them in Markdown/JSON/TOON, so the captured
-# string is the bare link — robust to `[text](url)`, `"url"`, trailing punctuation, etc.
-_URL_RE = re.compile(r"https?://[^\s\"'`)\]<>]+")
+# string is the bare link — robust to `[text](url)`, `"url"`, JSON-escaped `\"url\"`, trailing
+# punctuation, etc. The backslash exclusion matters: tool results arrive JSON-escaped, so without it
+# the capture keeps a trailing `\` and never substring-matches the (unescaped) final message.
+_URL_RE = re.compile(r"https?://[^\s\"'`)\]<>\\]+")
 
 
 def _read_tool(expected: dict | None, scorer_name: str) -> str | None:
