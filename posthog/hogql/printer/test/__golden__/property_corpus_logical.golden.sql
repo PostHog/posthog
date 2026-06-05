@@ -213,7 +213,7 @@ SELECT (events.properties) ->> 'foo' AS "properties.foo", count() AS c FROM even
 -- duckdb
 SELECT (events.properties) ->> 'foo' AS "properties.foo", count() AS c FROM events GROUP BY (events.properties) ->> 'foo' HAVING ((events.properties) ->> 'foo' != %(hogql_val_0)s) LIMIT 50000
 
-#### in_cte  —  property inside a CTE body — the visitor-coverage gap that the suite-wide oracle caught (doc §3.2)
+#### in_cte  —  property inside a CTE body — the visitor-coverage gap that the suite-wide sweep caught (doc §3.2)
 ## hogql-source: WITH recent AS (SELECT uuid FROM events WHERE properties.foo = 'x') SELECT uuid FROM recent
 -- hogql
 WITH recent AS (SELECT uuid FROM events WHERE equals(properties.foo, 'x')) SELECT uuid FROM recent LIMIT 50000
