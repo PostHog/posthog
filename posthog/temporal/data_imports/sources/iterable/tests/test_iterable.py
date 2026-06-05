@@ -68,6 +68,10 @@ class TestResolveNextUrl:
             (None, None),
             ("", None),
             (123, None),
+            # Off-host absolute URLs must not be followed — the session carries the Api-Key header.
+            ("https://evil.com/api/campaigns?page=2", None),
+            ("http://api.iterable.com/api/campaigns?page=2", None),
+            ("https://api.iterable.com.evil.com/api/campaigns", None),
         ],
     )
     def test_resolve_next_url(self, next_page: Any, expected: str | None) -> None:
@@ -152,6 +156,18 @@ class TestGetRows:
 
         first_url = mock_session.return_value.get.call_args_list[0].args[0]
         assert first_url == "https://api.iterable.com/api/campaigns?page=5"
+
+    @mock.patch(f"{MODULE}.make_tracked_session")
+    def test_off_host_resume_state_restarts_from_top(self, mock_session) -> None:
+        # A resume URL pointing at another host (corrupted/poisoned state) must not be requested
+        # with the Api-Key header — pagination restarts from the endpoint's base URL instead.
+        mock_session.return_value.get.return_value = _make_response(body={"campaigns": [{"id": 9}]})
+        manager = _make_manager(resume_state=IterableResumeConfig(next_url="https://evil.com/api/campaigns?page=5"))
+
+        list(get_rows("key", "us", "campaigns", mock.MagicMock(), manager))
+
+        first_url = mock_session.return_value.get.call_args_list[0].args[0]
+        assert first_url == "https://api.iterable.com/api/campaigns"
 
     @mock.patch(f"{MODULE}.make_tracked_session")
     def test_uses_endpoint_data_key(self, mock_session) -> None:

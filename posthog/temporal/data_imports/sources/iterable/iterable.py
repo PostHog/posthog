@@ -1,6 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -56,12 +57,24 @@ def validate_credentials(api_key: str, region: str | None) -> bool:
         return False
 
 
+def _is_same_origin(base_url: str, url: str) -> bool:
+    base = urlparse(base_url)
+    target = urlparse(url)
+    return (target.scheme, target.netloc) == (base.scheme, base.netloc)
+
+
 def _resolve_next_url(base_url: str, next_page: Any) -> str | None:
-    """Normalize the `nextPageUrl` value from a response body into an absolute URL."""
+    """Normalize the `nextPageUrl` value from a response body into an absolute URL.
+
+    Absolute URLs are only followed when they point at the selected Iterable base URL.
+    The session carries the `Api-Key` header, so a `nextPageUrl` aimed at another host
+    (e.g. an attacker-controlled value echoed back in a response) would leak the key —
+    such off-host pages stop pagination instead.
+    """
     if not next_page or not isinstance(next_page, str):
         return None
     if next_page.startswith("http://") or next_page.startswith("https://"):
-        return next_page
+        return next_page if _is_same_origin(base_url, next_page) else None
     return f"{base_url}{next_page}" if next_page.startswith("/") else f"{base_url}/{next_page}"
 
 
@@ -79,10 +92,12 @@ def get_rows(
     session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    if resume_config is not None:
+    if resume_config is not None and _is_same_origin(base_url, resume_config.next_url):
         url: str | None = resume_config.next_url
         logger.debug(f"Iterable: resuming {endpoint} from URL: {url}")
     else:
+        # Either no resume state, or it points off-host (corrupted/poisoned) — start from the top.
+        # The session carries the `Api-Key` header, so we never follow a resumed off-host URL.
         url = f"{base_url}{config.path}"
 
     @retry(
