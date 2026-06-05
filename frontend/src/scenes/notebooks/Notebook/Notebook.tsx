@@ -7,10 +7,12 @@ import { useEffect } from 'react'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -72,6 +74,7 @@ export function Notebook({
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
     const { isCommandOpen } = useValues(commandLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         if (initialContent && mode === 'canvas') {
@@ -110,6 +113,7 @@ export function Notebook({
     }, [size]) // oxlint-disable-line exhaustive-deps
 
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
+    const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
         setLocalContent(buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content)))
     }
@@ -163,10 +167,10 @@ export function Notebook({
                         </LemonBanner>
                     ) : null}
 
-                    {isEditable && !isMarkdownNotebook ? (
+                    {isEditable && !isMarkdownNotebook && canUpgradeToMarkdownNotebooks ? (
                         <div className="Notebook__top-actions">
                             <LemonButton type="secondary" onClick={upgradeToMarkdownNotebook}>
-                                Upgrade to v2
+                                Upgrade to Markdown Notebooks
                             </LemonButton>
                         </div>
                     ) : null}

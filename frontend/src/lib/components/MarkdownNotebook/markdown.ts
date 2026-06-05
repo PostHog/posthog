@@ -33,16 +33,34 @@ const LIST_ITEM_REGEX = /^(\s*)(\d+[.)]|[-*+•])(?:\s+(.*))?$/
 const HEADING_REGEX = /^(#{1,6})\s+(.*)$/
 const IMAGE_BLOCK_REGEX = /^!\[((?:\\.|[^\]\\])*)\]\(((?:\\.|[^)\\])*)\)$/
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
+const EMPTY_PARAGRAPH_MARKDOWN = ' '
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
     const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
     const nodes: NotebookBlockNode[] = []
     const errors: NotebookParseError[] = []
     const occurrences = new Map<string, number>()
+    const pushParsedNode = (node: NotebookBlockNode): void => {
+        const fingerprint = getNodeFingerprint(node)
+        const occurrence = occurrences.get(fingerprint) ?? 0
+        occurrences.set(fingerprint, occurrence + 1)
+        node.id = createStableNodeId(fingerprint, occurrence)
+        nodes.push(node)
+    }
 
     let lineIndex = 0
     while (lineIndex < lines.length) {
         const line = lines[lineIndex]
+
+        if (isEmptyParagraphPlaceholderLine(line)) {
+            pushParsedNode({
+                id: '',
+                type: 'paragraph',
+                children: [],
+            })
+            lineIndex += 1
+            continue
+        }
 
         if (!line.trim()) {
             lineIndex += 1
@@ -54,11 +72,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             errors.push(result.error)
         }
         if (result.node) {
-            const fingerprint = getNodeFingerprint(result.node)
-            const occurrence = occurrences.get(fingerprint) ?? 0
-            occurrences.set(fingerprint, occurrence + 1)
-            result.node.id = createStableNodeId(fingerprint, occurrence)
-            nodes.push(result.node)
+            pushParsedNode(result.node)
         }
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
@@ -67,7 +81,16 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
 }
 
 export function serializeMarkdownNotebook(document: NotebookDocument): string {
-    return document.nodes.map(serializeNode).join('\n\n').trimEnd()
+    const shouldPreserveEmptyParagraphs = document.nodes.length > 1
+    const serialized = document.nodes
+        .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
+        .join('\n\n')
+    const lastNode = document.nodes[document.nodes.length - 1]
+    const previousNode = document.nodes[document.nodes.length - 2]
+    const shouldPreserveTrailingEmptyParagraph =
+        shouldPreserveEmptyParagraphs && isEmptyParagraphNode(lastNode) && previousNode?.type !== 'component'
+
+    return shouldPreserveTrailingEmptyParagraph ? serialized : serialized.trimEnd()
 }
 
 export function serializeNode(node: NotebookBlockNode): string {
@@ -118,6 +141,21 @@ export function serializeNode(node: NotebookBlockNode): string {
         return `<${node.tagName}${serializeComponentProps(node.props)} />`
     }
     return ''
+}
+
+function serializeDocumentNode(node: NotebookBlockNode, preserveEmptyParagraph: boolean): string {
+    if (preserveEmptyParagraph && isEmptyParagraphNode(node)) {
+        return EMPTY_PARAGRAPH_MARKDOWN
+    }
+    return serializeNode(node)
+}
+
+function isEmptyParagraphPlaceholderLine(line: string): boolean {
+    return line === EMPTY_PARAGRAPH_MARKDOWN
+}
+
+function isEmptyParagraphNode(node: NotebookBlockNode | undefined): boolean {
+    return !!node && node.type === 'paragraph' && node.children.length === 0
 }
 
 export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[] = []): NotebookInlineNode[] {

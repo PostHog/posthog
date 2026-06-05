@@ -281,6 +281,7 @@ export function MarkdownNotebook({
     const pendingRemoteValueRef = useRef<string | null>(null)
     const initialInsertMenuAppliedRef = useRef(false)
     const emptyNodeRef = useRef<NotebookTextBlockNode>(makeEmptyParagraph('initial-empty'))
+    const initializedComponentPanelNodeIdsRef = useRef<Set<string> | null>(null)
 
     useEffect(() => {
         if (!showDebug) {
@@ -616,6 +617,11 @@ export function MarkdownNotebook({
                     children: normalizeInlineNodes([...previousNode.children, ...currentNode.children]),
                 }
 
+                restoreSelectionRef.current = {
+                    nodeId: previousNode.id,
+                    start: previousTextLength,
+                    end: previousTextLength,
+                }
                 commitDocument({
                     ...currentDocument,
                     nodes: nodes.flatMap((node, index) => {
@@ -628,19 +634,14 @@ export function MarkdownNotebook({
                         return [node]
                     }),
                 })
-                restoreSelectionRef.current = {
-                    nodeId: previousNode.id,
-                    start: previousTextLength,
-                    end: previousTextLength,
-                }
                 return true
             }
 
+            restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
             commitDocument({
                 ...currentDocument,
                 nodes: nodes.filter((_, index) => index !== nodeIndex - 1),
             })
-            restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
             return true
         },
         [commitDocument]
@@ -699,6 +700,31 @@ export function MarkdownNotebook({
         return [emptyNodeRef.current]
     }
 
+    useEffect(() => {
+        const componentNodeIds = new Set(document.nodes.flatMap((node) => (node.type === 'component' ? [node.id] : [])))
+        const initializedComponentPanelNodeIds = initializedComponentPanelNodeIdsRef.current
+        if (initializedComponentPanelNodeIds === null) {
+            initializedComponentPanelNodeIdsRef.current = componentNodeIds
+            return
+        }
+
+        const insertedComponentNodeIds = [...componentNodeIds].filter(
+            (nodeId) => !initializedComponentPanelNodeIds.has(nodeId)
+        )
+        initializedComponentPanelNodeIdsRef.current = componentNodeIds
+        if (mode !== 'edit' || !insertedComponentNodeIds.length) {
+            return
+        }
+
+        setComponentPanels((currentPanels) => {
+            const nextPanels = { ...currentPanels }
+            insertedComponentNodeIds.forEach((nodeId) => {
+                nextPanels[nodeId] = INSERTED_COMPONENT_PANEL_VISIBILITY
+            })
+            return nextPanels
+        })
+    }, [document.nodes, mode])
+
     const updateFloatingToolbarFromSelection = useCallback((): void => {
         if (mode !== 'edit') {
             setFloatingToolbar(null)
@@ -741,16 +767,9 @@ export function MarkdownNotebook({
             return
         }
 
-        let toolbarRange = range
-        let shouldOpenLinkEditor = false
         if (range.start === range.end) {
-            const linkRange = getLinkRangeAtOffset(selectedNode.children, nodeId, range.start)
-            if (!linkRange) {
-                setFloatingToolbar(null)
-                return
-            }
-            toolbarRange = linkRange
-            shouldOpenLinkEditor = true
+            setFloatingToolbar(null)
+            return
         }
 
         const selectionRect = getSelectionClientRect(domRange)
@@ -763,7 +782,7 @@ export function MarkdownNotebook({
         const shouldPlaceBelow = selectionRect.top < FLOATING_TOOLBAR_ESTIMATED_HEIGHT + lineHeight
 
         setFloatingToolbar({
-            range: toolbarRange,
+            range,
             node: selectedNode,
             placement: shouldPlaceBelow ? 'below' : 'above',
             top: Math.round(shouldPlaceBelow ? selectionRect.bottom + lineHeight : selectionRect.top),
@@ -771,7 +790,6 @@ export function MarkdownNotebook({
                 window.innerWidth - 16,
                 Math.max(16, Math.round(selectionRect.left + selectionRect.width / 2))
             ),
-            isLinkEditorOpen: shouldOpenLinkEditor,
         })
     }, [mode])
 
@@ -1183,6 +1201,34 @@ export function MarkdownNotebook({
         return false
     }, [])
 
+    const focusOrCreateTrailingBlankRow = useCallback((): boolean => {
+        const currentDocument = documentRef.current
+        const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
+        const lastNode = nodes[nodes.length - 1]
+        if (isTextBlockNode(lastNode) && !getInlineText(lastNode.children).trim()) {
+            const element = blockRefs.current[lastNode.id]
+            if (element) {
+                element.focus()
+                restoreSelection(element, 0, 0)
+                return true
+            }
+            restoreSelectionRef.current = { nodeId: lastNode.id, start: 0, end: 0 }
+            return true
+        }
+
+        if (!currentDocument.nodes.length) {
+            return focusLowestNotebookRow()
+        }
+
+        const insertedNode = makeEmptyParagraph(`after-${lastNode.id}`)
+        restoreSelectionRef.current = { nodeId: insertedNode.id, start: 0, end: 0 }
+        commitDocument({
+            ...currentDocument,
+            nodes: [...currentDocument.nodes, insertedNode],
+        })
+        return true
+    }, [commitDocument, focusLowestNotebookRow])
+
     const moveFocusToAdjacentNode = useCallback(
         (nodeId: string, direction: InsertMenuSelectionDirection, offset: number): boolean => {
             const nodes = documentRef.current.nodes.length ? documentRef.current.nodes : [emptyNodeRef.current]
@@ -1403,11 +1449,14 @@ export function MarkdownNotebook({
         const canvasElement = canvasRef.current
         const clickedInsideCanvas = canvasElement?.contains(event.target) ?? false
         const clickedBelowCanvas = canvasElement ? event.clientY >= canvasElement.getBoundingClientRect().bottom : true
+        const clickedCanvasBackground = event.target === canvasElement
         if (!clickedInsideCanvas && !clickedBelowCanvas) {
             return
         }
 
-        if (focusLowestNotebookRow()) {
+        if (
+            clickedBelowCanvas || clickedCanvasBackground ? focusOrCreateTrailingBlankRow() : focusLowestNotebookRow()
+        ) {
             event.preventDefault()
         }
     }
@@ -3382,12 +3431,23 @@ function EditableTextBlock({
 
             event.preventDefault()
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            const offset = selection?.start ?? getInlineText(node.children).length
-            const [before, after] = splitInlineNodesAt(node.children, offset)
+            const expandedSelection = getSelectionRange(event.currentTarget, node.id)
+            const textLength = getInlineText(node.children).length
+            const selectionStart = expandedSelection
+                ? Math.max(0, Math.min(Math.min(expandedSelection.start, expandedSelection.end), textLength))
+                : (selection?.start ?? textLength)
+            const selectionEnd = expandedSelection
+                ? Math.max(
+                      selectionStart,
+                      Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength)
+                  )
+                : selectionStart
+            const [before, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
+            const [, after] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
             if (node.type === 'heading') {
-                if (offset === 0) {
+                if (selectionStart === 0) {
                     const previousParagraph = makeEmptyParagraph(`before-${node.id}`)
-                    replaceNodeWithNodes(node.id, [previousParagraph, node])
+                    replaceNodeWithNodes(node.id, [previousParagraph, { ...node, children: after }])
                     restoreSelectionRef.current = { nodeId: previousParagraph.id, start: 0, end: 0 }
                     return
                 }
@@ -3413,21 +3473,46 @@ function EditableTextBlock({
             return
         }
 
-        if (event.key === 'Backspace') {
+        if (event.key === 'Backspace' || event.key === 'Delete') {
+            const expandedSelection = getSelectionRange(event.currentTarget, node.id)
+            if (expandedSelection && expandedSelection.start !== expandedSelection.end) {
+                const textLength = getInlineText(node.children).length
+                const selectionStart = Math.max(
+                    0,
+                    Math.min(Math.min(expandedSelection.start, expandedSelection.end), textLength)
+                )
+                const selectionEnd = Math.max(
+                    selectionStart,
+                    Math.min(Math.max(expandedSelection.start, expandedSelection.end), textLength)
+                )
+                const [beforeSelection, selectionAndAfter] = splitInlineNodesAt(node.children, selectionStart)
+                const [, afterSelection] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
+
+                event.preventDefault()
+                updateChildren(normalizeInlineNodes([...beforeSelection, ...afterSelection]))
+                restoreSelectionRef.current = { nodeId: node.id, start: selectionStart, end: selectionStart }
+                return
+            }
+
             const selection = getCollapsedSelectionRange(event.currentTarget, node.id)
-            if (isAIPromptOpen && selection?.start === 0 && selection.end === 0) {
+            if (event.key === 'Backspace' && isAIPromptOpen && selection?.start === 0 && selection.end === 0) {
                 event.preventDefault()
                 replaceWithParagraph(0)
                 return
             }
 
-            if (node.type === 'heading' && selection?.start === 0 && selection.end === 0) {
+            if (event.key === 'Backspace' && node.type === 'heading' && selection?.start === 0 && selection.end === 0) {
                 event.preventDefault()
                 replaceWithParagraph(0)
                 return
             }
 
-            if (selection?.start === 0 && selection.end === 0 && deleteNodeBefore(node.id)) {
+            if (
+                event.key === 'Backspace' &&
+                selection?.start === 0 &&
+                selection.end === 0 &&
+                deleteNodeBefore(node.id)
+            ) {
                 event.preventDefault()
                 return
             }
@@ -4994,44 +5079,6 @@ function getSelectedLinkHref(nodes: NotebookInlineNode[], range: NotebookTextSel
     }
 
     return linkedTextNode.marks?.find((mark) => mark.type === 'link')?.href ?? null
-}
-
-function getLinkRangeAtOffset(
-    nodes: NotebookInlineNode[],
-    nodeId: string,
-    offset: number
-): NotebookTextSelectionRange | null {
-    let currentOffset = 0
-    let linkStart: number | null = null
-    let linkEnd = 0
-    let linkHref: string | null = null
-
-    const flushLinkRange = (): NotebookTextSelectionRange | null => {
-        if (linkHref && linkStart !== null && offset >= linkStart && offset <= linkEnd) {
-            return { nodeId, start: linkStart, end: linkEnd }
-        }
-        return null
-    }
-
-    for (const node of nodes) {
-        const length = node.type === 'hardBreak' ? 1 : node.text.length
-        const href = node.type === 'hardBreak' ? null : (node.marks ?? []).find((mark) => mark.type === 'link')?.href
-        if (!href || href !== linkHref) {
-            const flushedRange = flushLinkRange()
-            if (flushedRange) {
-                return flushedRange
-            }
-            linkStart = href ? currentOffset : null
-            linkHref = href ?? null
-        }
-
-        currentOffset += length
-        if (href) {
-            linkEnd = currentOffset
-        }
-    }
-
-    return flushLinkRange()
 }
 
 function getInlineNodesInRange(nodes: NotebookInlineNode[], range: NotebookTextSelectionRange): NotebookInlineNode[] {
