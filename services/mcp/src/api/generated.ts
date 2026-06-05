@@ -395,6 +395,7 @@ export namespace Schemas {
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
+      pushDownPredicates?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
