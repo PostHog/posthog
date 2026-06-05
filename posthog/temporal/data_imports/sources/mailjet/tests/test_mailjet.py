@@ -98,9 +98,9 @@ class TestOffsetPagination:
     def test_single_short_page_stops(self, mock_session: MagicMock) -> None:
         mock_session.return_value.get.return_value = _mock_response(json_payload=_page(3))
 
-        tables = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
+        pages = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
 
-        assert sum(t.num_rows for t in tables) == 3
+        assert sum(len(t) for t in pages) == 3
         assert mock_session.return_value.get.call_count == 1
 
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")
@@ -111,9 +111,9 @@ class TestOffsetPagination:
             _mock_response(json_payload={"Data": [{"ID": i} for i in range(2)], "Total": limit + 2}),
         ]
 
-        tables = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
+        pages = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
 
-        assert sum(t.num_rows for t in tables) == limit + 2
+        assert sum(len(t) for t in pages) == limit + 2
         assert mock_session.return_value.get.call_count == 2
         first_params = mock_session.return_value.get.call_args_list[0].kwargs["params"]
         second_params = mock_session.return_value.get.call_args_list[1].kwargs["params"]
@@ -128,18 +128,18 @@ class TestOffsetPagination:
             json_payload={"Data": [{"ID": i} for i in range(limit)], "Total": limit}
         )
 
-        tables = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
+        pages = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
 
-        assert sum(t.num_rows for t in tables) == limit
+        assert sum(len(t) for t in pages) == limit
         assert mock_session.return_value.get.call_count == 1
 
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")
     def test_empty_first_page_yields_nothing(self, mock_session: MagicMock) -> None:
         mock_session.return_value.get.return_value = _mock_response(json_payload={"Data": [], "Total": 0})
 
-        tables = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
+        pages = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
 
-        assert tables == []
+        assert pages == []
         assert mock_session.return_value.get.call_count == 1
 
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")
@@ -183,21 +183,22 @@ class TestResume:
         assert saved.endpoint == "contact"
 
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")
-    def test_state_saved_only_after_yield(self, mock_session: MagicMock) -> None:
-        # Three full pages (each == page_size) with chunk threshold 2000: the batcher yields a
-        # 2000-row chunk after page 2 and flushes the remaining 1000 at the end. State must only
-        # advance to offsets that have actually been yielded — never to a page still buffered.
+    def test_state_saved_after_each_page_yield(self, mock_session: MagicMock) -> None:
+        # Each page is yielded straight to the pipeline and state is persisted only after the
+        # yield, so every saved offset equals the count of rows already emitted. A crash re-yields
+        # the last page, which merge dedupes on the primary key.
         limit = MAILJET_ENDPOINTS["contact"].page_size
-        pages = [{"Data": [{"ID": i} for i in range(p * limit, (p + 1) * limit)], "Total": 3 * limit} for p in range(3)]
-        mock_session.return_value.get.side_effect = [_mock_response(json_payload=p) for p in pages]
+        payloads = [
+            {"Data": [{"ID": i} for i in range(p * limit, (p + 1) * limit)], "Total": 3 * limit} for p in range(3)
+        ]
+        mock_session.return_value.get.side_effect = [_mock_response(json_payload=p) for p in payloads]
 
         manager = _mock_manager()
-        tables = list(get_rows("key", "secret", "contact", MagicMock(), manager))
+        pages = list(get_rows("key", "secret", "contact", MagicMock(), manager))
 
-        assert sum(t.num_rows for t in tables) == 3 * limit
+        assert sum(len(t) for t in pages) == 3 * limit
         saved_offsets = [call.args[0].offset for call in manager.save_state.call_args_list]
-        # Buffered-but-unyielded offset `limit` must never be persisted.
-        assert saved_offsets == [2 * limit, 3 * limit]
+        assert saved_offsets == [limit, 2 * limit, 3 * limit]
 
 
 class TestIncremental:
@@ -266,9 +267,9 @@ class TestRetryable:
             _mock_response(json_payload=_page(1)),
         ]
 
-        tables = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
+        pages = list(get_rows("key", "secret", "contact", MagicMock(), _mock_manager()))
 
-        assert sum(t.num_rows for t in tables) == 1
+        assert sum(len(t) for t in pages) == 1
         assert mock_session.return_value.get.call_count == 2
 
     @patch("posthog.temporal.data_imports.sources.mailjet.mailjet.make_tracked_session")

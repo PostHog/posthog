@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -28,6 +28,9 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.file_system.constants import DESKTOP_SURFACE
+from posthog.models.file_system.file_system import delete_file
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
@@ -169,6 +172,23 @@ class Task(DeletedMetaFields, models.Model):
 
         if is_new:
             self._track_task_created()
+
+    def get_file_system_representation(self, folder: str = "Tasks") -> FileSystemRepresentation:
+        # Tasks are filed into the tree only on explicit request; this describes where a filed task
+        # lives. Tasks live only on the desktop surface, never the web app tree.
+        return FileSystemRepresentation(
+            base_folder=folder,
+            type="task",
+            ref=str(self.id),
+            name=self.title or "Untitled",
+            href=f"/tasks/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": self.created_by_id,
+            },
+            should_delete=bool(self.deleted),
+            surface=DESKTOP_SURFACE,
+        )
 
     def capture_event(self, event: str, properties: dict | None = None) -> None:
         try:
@@ -1393,3 +1413,23 @@ def track_task_run_completion(sender, instance: TaskRun, created: bool, **kwargs
             task_run_id=str(instance.id),
             error=str(e),
         )
+
+
+# Tasks are filed into the project tree only on explicit request (see TaskViewSet.file). These
+# receivers never create an entry — they only remove a filed task's entry when the task is deleted,
+# so the tree can't surface a dead reference. delete_file is a no-op when no entry exists.
+@receiver(post_save, sender=Task)
+def _unfile_task_on_soft_delete(sender, instance: Task, **kwargs):
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "deleted" not in update_fields:
+        return
+    if instance.deleted:
+        delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
+
+
+@receiver(post_delete, sender=Task)
+def _unfile_task_on_hard_delete(sender, instance: Task, **kwargs):
+    try:
+        delete_file(team=instance.team, file_type="task", ref=str(instance.id), surface=DESKTOP_SURFACE)
+    except Team.DoesNotExist:
+        pass
