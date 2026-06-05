@@ -180,7 +180,7 @@ def _bulk_create_chunks(
     # model state with migrations disabled and so would never run a DB trigger.
     # Computed in Postgres via `to_tsvector('english', content)`.
     if created:
-        KnowledgeChunk.objects.filter(id__in=[c.id for c in created]).update(
+        KnowledgeChunk.objects.filter(team_id=team_id, id__in=[c.id for c in created]).update(
             content_search_vector=SearchVector("content", config="english")
         )
 
@@ -1512,8 +1512,11 @@ def search_knowledge(
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
     # `process_query` strips tsquery metacharacters and joins terms with a
-    # trailing prefix match; returns None when the query is empty / all
-    # stopwords-punctuation, in which case there is nothing to search for.
+    # trailing prefix match; returns None only when the result is an empty
+    # string (i.e. the query contained nothing but unsafe characters).
+    # Stopword-only inputs are not caught here — they pass through as a
+    # non-empty string and PostgreSQL discards the stopwords inside
+    # to_tsquery, yielding no matches.
     processed = process_query(query)
     if processed is None:
         return []
