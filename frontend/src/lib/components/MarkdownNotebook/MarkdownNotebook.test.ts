@@ -1767,7 +1767,7 @@ Second paragraph`,
         expect(window.getSelection()?.focusOffset).toEqual('Second paragraph'.length)
     })
 
-    it('deletes the block above when pressing backspace at the start of a text block', () => {
+    it('combines text blocks when pressing backspace at the start of a text block', () => {
         const onChange = jest.fn()
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -1778,21 +1778,35 @@ Second paragraph`,
             })
         )
         const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
-        const secondTextNode = textBlocks[1].firstChild
 
-        expect(secondTextNode).toBeInstanceOf(Text)
-
-        act(() => {
-            const range = document.createRange()
-            range.setStart(secondTextNode as Text, 0)
-            range.setEnd(secondTextNode as Text, 0)
-            const selection = window.getSelection()
-            selection?.removeAllRanges()
-            selection?.addRange(range)
-        })
+        selectTextInElement(textBlocks[1], 0, 0)
         fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
 
-        expect(onChange).toHaveBeenLastCalledWith('Second paragraph')
+        expect(onChange).toHaveBeenLastCalledWith('First paragraphSecond paragraph')
+        expect(container.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+        expect(document.activeElement?.textContent).toEqual('First paragraphSecond paragraph')
+        expect(window.getSelection()?.focusOffset).toEqual('First paragraph'.length)
+    })
+
+    it('deletes an empty text row and moves the cursor to the previous text block on backspace', () => {
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: 'First paragraph', onChange }))
+        const firstTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        selectTextInElement(firstTextBlock, 'First paragraph'.length, 'First paragraph'.length)
+        fireEvent.keyDown(firstTextBlock, { key: 'Enter' })
+
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+
+        expect(textBlocks).toHaveLength(2)
+        expect(document.activeElement).toEqual(textBlocks[1])
+
+        fireEvent.keyDown(textBlocks[1], { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith('First paragraph')
+        expect(container.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+        expect(document.activeElement?.textContent).toEqual('First paragraph')
+        expect(window.getSelection()?.focusOffset).toEqual('First paragraph'.length)
     })
 
     it('moves focus between notebook rows with arrow keys while retaining cursor offset', () => {

@@ -607,6 +607,35 @@ export function MarkdownNotebook({
                 return false
             }
 
+            const previousNode = nodes[nodeIndex - 1]
+            const currentNode = nodes[nodeIndex]
+            if (isTextBlockNode(previousNode) && isTextBlockNode(currentNode)) {
+                const previousTextLength = getInlineText(previousNode.children).length
+                const mergedNode: NotebookTextBlockNode = {
+                    ...previousNode,
+                    children: normalizeInlineNodes([...previousNode.children, ...currentNode.children]),
+                }
+
+                commitDocument({
+                    ...currentDocument,
+                    nodes: nodes.flatMap((node, index) => {
+                        if (index === nodeIndex - 1) {
+                            return [mergedNode]
+                        }
+                        if (index === nodeIndex) {
+                            return []
+                        }
+                        return [node]
+                    }),
+                })
+                restoreSelectionRef.current = {
+                    nodeId: previousNode.id,
+                    start: previousTextLength,
+                    end: previousTextLength,
+                }
+                return true
+            }
+
             commitDocument({
                 ...currentDocument,
                 nodes: nodes.filter((_, index) => index !== nodeIndex - 1),
