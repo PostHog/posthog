@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -13,7 +15,7 @@ class FrontEndpointConfig:
     # Stable creation-time field to partition by (never a mutable field like updated_at).
     # Front timestamps are Unix epoch seconds (e.g. 1453770984.123), partitioned as datetime.
     partition_key: Optional[str] = None
-    partition_format: str = "month"
+    partition_format: PartitionFormat = "month"
     supports_incremental: bool = False
     # Per-page size. ``None`` means don't send a ``limit`` param (endpoint takes no query params).
     limit: Optional[int] = None

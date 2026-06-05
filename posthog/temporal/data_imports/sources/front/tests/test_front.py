@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import structlog
 from parameterized import parameterized
+from requests import Response
 
 from posthog.temporal.data_imports.sources.front import front as front_module
 from posthog.temporal.data_imports.sources.front.front import (
@@ -28,39 +30,26 @@ from posthog.temporal.data_imports.sources.front.settings import FRONT_ENDPOINTS
 logger = structlog.get_logger()
 
 
-class _FakeResponse:
-    def __init__(
-        self,
-        status_code: int = 200,
-        json_body: Optional[dict[str, Any]] = None,
-        headers: Optional[dict[str, str]] = None,
-        text: str = "",
-    ):
-        self.status_code = status_code
-        self._json = json_body or {}
-        self.headers = headers or {}
-        self.text = text
-
-    @property
-    def ok(self) -> bool:
-        return self.status_code < 400
-
-    def json(self) -> dict[str, Any]:
-        return self._json
-
-    def raise_for_status(self) -> None:
-        if not self.ok:
-            from requests import HTTPError
-
-            raise HTTPError(f"{self.status_code} Client Error")
+def _response(
+    status_code: int = 200,
+    json_body: Optional[dict[str, Any]] = None,
+    headers: Optional[dict[str, str]] = None,
+) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp.headers["Content-Type"] = "application/json"
+    if headers:
+        resp.headers.update(headers)
+    resp._content = json.dumps(json_body or {}).encode()
+    return resp
 
 
 class _FakeSession:
-    def __init__(self, responses: list[_FakeResponse]):
+    def __init__(self, responses: list[Response]):
         self._responses = list(responses)
         self.requested_urls: list[str] = []
 
-    def get(self, url: str, **kwargs: Any) -> _FakeResponse:
+    def get(self, url: str, **kwargs: Any) -> Response:
         self.requested_urls.append(url)
         return self._responses.pop(0)
 
@@ -173,7 +162,7 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, require_scope: bool, expected_ok: bool) -> None:
-        with _patched_session(_FakeSession([_FakeResponse(status_code=status)])):
+        with _patched_session(_FakeSession([_response(status_code=status)])):
             ok, _msg = validate_credentials("tok", "/teammates", require_scope=require_scope)
         assert ok is expected_ok
 
@@ -196,13 +185,13 @@ class TestGetRows:
     def test_paginates_and_saves_state(self) -> None:
         session = _FakeSession(
             [
-                _FakeResponse(
+                _response(
                     json_body={
                         "_results": [{"id": "evt_1"}],
                         "_pagination": {"next": "https://api2.frontapp.com/events?page_token=p2"},
                     }
                 ),
-                _FakeResponse(json_body={"_results": [{"id": "evt_2"}], "_pagination": {"next": None}}),
+                _response(json_body={"_results": [{"id": "evt_2"}], "_pagination": {"next": None}}),
             ]
         )
         manager = self._manager()
@@ -218,9 +207,7 @@ class TestGetRows:
 
     def test_resumes_from_saved_state(self) -> None:
         resume_url = "https://api2.frontapp.com/events?page_token=resume"
-        session = _FakeSession(
-            [_FakeResponse(json_body={"_results": [{"id": "evt_9"}], "_pagination": {"next": None}})]
-        )
+        session = _FakeSession([_response(json_body={"_results": [{"id": "evt_9"}], "_pagination": {"next": None}})])
         manager = self._manager(resume=FrontResumeConfig(next_url=resume_url))
 
         with _patched_session(session):
@@ -234,13 +221,13 @@ class TestGetRows:
         # leave a page short without it being the last page).
         session = _FakeSession(
             [
-                _FakeResponse(
+                _response(
                     json_body={
                         "_results": [],
                         "_pagination": {"next": "https://api2.frontapp.com/tags?page_token=p2"},
                     }
                 ),
-                _FakeResponse(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
+                _response(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
             ]
         )
         manager = self._manager()
@@ -254,8 +241,8 @@ class TestGetRows:
     def test_retries_on_429(self) -> None:
         session = _FakeSession(
             [
-                _FakeResponse(status_code=429, headers={"retry-after": "0"}),
-                _FakeResponse(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
+                _response(status_code=429, headers={"retry-after": "0"}),
+                _response(json_body={"_results": [{"id": "tag_1"}], "_pagination": {"next": None}}),
             ]
         )
         manager = self._manager()

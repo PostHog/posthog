@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -53,8 +53,10 @@ class TestFrontSource:
         assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["api_token"]
-        assert config.fields[0].type == "password"
-        assert config.fields[0].required is True
+        api_token_field = config.fields[0]
+        assert isinstance(api_token_field, SourceFieldInputConfig)
+        assert api_token_field.type == "password"
+        assert api_token_field.required is True
 
     def test_get_schemas_lists_all_endpoints(self) -> None:
         schemas = FrontSource().get_schemas(_config(), team_id=1)
@@ -120,10 +122,11 @@ class TestFrontSource:
             db_incremental_field_last_value=1700000000,
             incremental_field="emitted_at",
         )
-        with patch.object(source_module, "front_source", return_value="response") as mock_source:
+        sentinel = MagicMock()
+        with patch.object(source_module, "front_source", return_value=sentinel) as mock_source:
             result = FrontSource().source_for_pipeline(_config(), manager, inputs)
 
-        assert result == "response"
+        assert result is sentinel
         _args, kwargs = mock_source.call_args
         assert kwargs["api_token"] == "tok"
         assert kwargs["endpoint"] == "events"
