@@ -208,3 +208,25 @@ class TestSharingConfigurationModel(BaseTest):
         assert new_passwords[0].check_password("password-one")
         assert new_passwords[1].note == "second"
         assert new_passwords[1].check_password("password-two")
+
+    def test_rotate_access_token_expires_duplicate_active_configs(self) -> None:
+        original_config = SharingConfiguration.objects.create(
+            team=self.team,
+            enabled=True,
+            access_token="rotate_duplicate_one",
+        )
+        duplicate_config = SharingConfiguration.objects.create(
+            team=self.team,
+            enabled=True,
+            access_token="rotate_duplicate_two",
+        )
+
+        new_config = original_config.rotate_access_token()
+
+        original_config.refresh_from_db()
+        duplicate_config.refresh_from_db()
+        assert SharingConfiguration.objects.filter(team=self.team, expires_at__isnull=True).count() == 1
+        assert new_config.expires_at is None
+        assert original_config.expires_at is not None
+        assert duplicate_config.expires_at is not None
+        assert new_config.access_token not in {original_config.access_token, duplicate_config.access_token}

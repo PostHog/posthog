@@ -361,17 +361,32 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
             "expires_at": None,
         }
 
-        try:
-            instance = SharingConfiguration.objects.get(**config_kwargs)
-        except SharingConfiguration.DoesNotExist:
+        instance = SharingConfiguration.get_active_for_resource(
+            dedupe=True,
+            team_id=self.team_id,
+            insight=insight,
+            dashboard=dashboard,
+            recording=recording,
+            notebook=notebook,
+        )
+        if instance is None:
             instance = SharingConfiguration(**config_kwargs)
 
         if dashboard:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
             if dashboard.share_token and dashboard.share_token != instance.access_token:
-                instance.enabled = dashboard.is_shared
-                instance.access_token = dashboard.share_token
-                instance.save()
+                if (
+                    SharingConfiguration.objects.filter(access_token=dashboard.share_token)
+                    .exclude(pk=instance.pk)
+                    .exists()
+                ):
+                    dashboard.share_token = None
+                    dashboard.is_shared = False
+                    dashboard.save(update_fields=["share_token", "is_shared"])
+                else:
+                    instance.enabled = dashboard.is_shared
+                    instance.access_token = dashboard.share_token
+                    instance.save()
 
         return instance
 

@@ -1,12 +1,12 @@
 import secrets
 from datetime import timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from posthog.models.share_password import SharePassword
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
@@ -69,41 +69,126 @@ class SharingConfiguration(models.Model):
 
     password_required = models.BooleanField(default=False)
 
-    def rotate_access_token(self) -> "SharingConfiguration":
-        """Create a new sharing configuration and expire the current one"""
+    @classmethod
+    def _resource_lookup(
+        cls,
+        *,
+        team_id: int,
+        dashboard: models.Model | None = None,
+        insight: models.Model | None = None,
+        recording: models.Model | None = None,
+        notebook: models.Model | None = None,
+        interviewee_context: models.Model | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "team_id": team_id,
+            "dashboard": dashboard,
+            "insight": insight,
+            "recording": recording,
+            "notebook": notebook,
+            "interviewee_context": interviewee_context,
+        }
 
-        new_config = SharingConfiguration.objects.create(
-            team=self.team,
+    @classmethod
+    def queryset_active_for_resource(cls, **resource_lookup: Any) -> models.QuerySet["SharingConfiguration"]:
+        return cls.objects.filter(**resource_lookup, expires_at__isnull=True).order_by("-created_at")
+
+    @classmethod
+    def expire_duplicate_active_configs(cls, *, keep: "SharingConfiguration", **resource_lookup: Any) -> int:
+        duplicate_ids = list(
+            cls.queryset_active_for_resource(**resource_lookup).exclude(pk=keep.pk).values_list("pk", flat=True)
+        )
+        if not duplicate_ids:
+            return 0
+
+        updated = cls.objects.filter(pk__in=duplicate_ids).update(expires_at=timezone.now())
+        logger.warning(
+            "sharing_configuration_duplicates_expired",
+            kept_config_id=keep.pk,
+            expired_config_ids=duplicate_ids,
+            team_id=resource_lookup.get("team_id"),
+        )
+        return updated
+
+    @classmethod
+    def get_active_for_resource(cls, *, dedupe: bool = False, **resource_lookup: Any) -> "SharingConfiguration | None":
+        active = cls.queryset_active_for_resource(**resource_lookup).first()
+        if active is None:
+            return None
+
+        if dedupe and cls.queryset_active_for_resource(**resource_lookup).exclude(pk=active.pk).exists():
+            cls.expire_duplicate_active_configs(keep=active, **resource_lookup)
+
+        return active
+
+    def _resource_lookup_for_instance(self) -> dict[str, Any]:
+        return self._resource_lookup(
+            team_id=self.team_id,
             dashboard=self.dashboard,
             insight=self.insight,
             recording=self.recording,
             notebook=self.notebook,
             interviewee_context=self.interviewee_context,
-            enabled=self.enabled,
-            settings=self.settings,
-            password_required=self.password_required,
         )
 
-        # Clone active passwords to the new config
-        if self.password_required:
-            from posthog.models.share_password import SharePassword
+    def rotate_access_token(self) -> "SharingConfiguration":
+        """Create a new sharing configuration and expire the current one"""
+        resource_lookup = self._resource_lookup_for_instance()
 
-            for pw in self.share_passwords.filter(is_active=True):
-                SharePassword.objects.create(
-                    sharing_configuration=new_config,
-                    password_hash=pw.password_hash,
-                    created_by=pw.created_by,
-                    note=pw.note,
-                    is_active=True,
+        with transaction.atomic():
+            active_configs = list(
+                SharingConfiguration.objects.select_for_update()
+                .filter(**resource_lookup, expires_at__isnull=True)
+                .order_by("-created_at")
+            )
+
+            if not active_configs:
+                latest_active = SharingConfiguration.queryset_active_for_resource(**resource_lookup).first()
+                if latest_active is not None:
+                    return latest_active
+                source = self
+            else:
+                source = active_configs[0]
+                expire_at = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
+                SharingConfiguration.objects.filter(pk__in=[config.pk for config in active_configs]).update(
+                    expires_at=expire_at
                 )
 
-        # Expire current configuration
-        self.expires_at = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
-        self.save()
+                if len(active_configs) > 1:
+                    logger.warning(
+                        "sharing_configuration_duplicates_expired_during_rotation",
+                        kept_config_id=source.pk,
+                        expired_config_ids=[config.pk for config in active_configs[1:]],
+                        team_id=self.team_id,
+                    )
+
+            new_config = SharingConfiguration.objects.create(
+                team=source.team,
+                dashboard=source.dashboard,
+                insight=source.insight,
+                recording=source.recording,
+                notebook=source.notebook,
+                interviewee_context=source.interviewee_context,
+                enabled=source.enabled,
+                settings=source.settings,
+                password_required=source.password_required,
+            )
+
+            if source.password_required:
+                from posthog.models.share_password import SharePassword
+
+                for pw in source.share_passwords.filter(is_active=True):
+                    SharePassword.objects.create(
+                        sharing_configuration=new_config,
+                        password_hash=pw.password_hash,
+                        created_by=pw.created_by,
+                        note=pw.note,
+                        is_active=True,
+                    )
 
         logger.info(
             "sharing_token_rotated",
-            old_config_id=self.pk,
+            old_config_id=source.pk,
             new_config_id=new_config.pk,
             team_id=self.team_id,
         )
