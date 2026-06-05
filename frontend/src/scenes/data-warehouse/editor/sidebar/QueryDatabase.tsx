@@ -669,7 +669,6 @@ export const QueryDatabase = ({
                     item.record?.type === 'managed-view'
                 ) {
                     const editLabel = item.record.type === 'endpoint' ? 'Edit endpoint' : 'Edit view'
-                    const copyNameLabel = item.record.type === 'endpoint' ? 'Copy endpoint name' : 'Copy view name'
                     const addJoinSourceTableName = getSidebarAddJoinSourceTableName(
                         item.record.type,
                         item.name,
@@ -786,15 +785,17 @@ export const QueryDatabase = ({
                                     </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    void copyToClipboard(item.name)
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>{copyNameLabel}</ButtonPrimitive>
-                            </DropdownMenuItem>
+                            {item.record.type !== 'endpoint' ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        void copyToClipboard(item.name)
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Copy view name</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }
