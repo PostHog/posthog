@@ -4138,6 +4138,20 @@
             "readOnlyHint": true
         }
     },
+    "pr-lifecycle": {
+        "description": "The timeline of a single pull request: a header (number, title, author, state, draft, timestamps) plus ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer \"where is this PR stuck and what happened to it\". metric_quality is \"partial\" — it covers CI events only; review and comment events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "PR lifecycle timeline",
+        "title": "PR lifecycle timeline",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "project-get": {
         "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
         "category": "Core",
@@ -4264,6 +4278,20 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "pull-requests": {
+        "description": "Open pull requests plus any merged or closed within the window, newest first, each with its head-SHA CI rollup (runs / passing / failing / pending). Use this for \"which PRs are stuck\", \"which open PRs have failing or pending CI\", and per-author or per-repo PR triage. open_to_merge_seconds is coarse — it is merged_at minus created_at and fuses draft and ready-for-review time, so report it as \"open to merge\", never \"cycle time\". CI counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput questions.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "List pull requests with CI status",
+        "title": "List pull requests with CI status",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "query-apm-spans": {
@@ -6175,6 +6203,20 @@
         "summary": "Summarize web analytics",
         "title": "Summarize web analytics",
         "required_scopes": ["web_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflow-health": {
+        "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Rates and percentiles are over completed runs only and are null for a window with no completed runs; to get a trend, call this over two adjacent windows and compare.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Per-workflow CI health",
+        "title": "Per-workflow CI health",
+        "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
