@@ -171,6 +171,10 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
+from products.error_tracking.backend.temporal import (
+    ACTIVITIES as ERROR_TRACKING_ACTIVITIES,
+    WORKFLOWS as ERROR_TRACKING_WORKFLOWS,
+)
 from products.exports.backend.temporal.subscriptions import (
     ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
     WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
@@ -354,6 +358,11 @@ _task_queue_specs = [
         settings.MCPA_TASK_QUEUE,
         MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
         MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
+    ),
+    (
+        settings.ERROR_TRACKING_TASK_QUEUE,
+        ERROR_TRACKING_WORKFLOWS,
+        ERROR_TRACKING_ACTIVITIES,
     ),
     (
         settings.EVENT_SCREENSHOTS_TASK_QUEUE,
