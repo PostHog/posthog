@@ -56,3 +56,19 @@ posthog-cli api agents-md install
 ```
 
 Destructive tools require `--confirm` when executed. Use `--dry-run` before mutations.
+
+### Agent steering instructions
+
+Install the PostHog CLI steering instructions into the agent instructions file for your project:
+
+```bash
+posthog-cli api agents-md install
+```
+
+By default this updates `AGENTS.md` in the current directory. If your agent reads a different instructions file, pass it explicitly:
+
+```bash
+posthog-cli api agents-md install --path path/to/AGENTS.md
+```
+
+The installed instructions come from the shared snippet at [`services/mcp/src/cli/agents-md-snippet.md`](../services/mcp/src/cli/agents-md-snippet.md), so the installer and this README point at the same source of truth.
