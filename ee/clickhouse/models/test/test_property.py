@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Union, cast
 from uuid import UUID
 
@@ -36,7 +36,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.property_optimizer import PropertyOptimizer
 from posthog.queries.util import PersonPropertiesMode
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.materialized_columns.columns import backfill_materialized_columns, materialize
 
 
 class TestPropFormat(ClickhouseTestMixin, BaseTest):
@@ -1770,7 +1770,8 @@ def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, pr
 def test_prop_filter_json_extract_materialized(
     test_events, clean_up_materialised_columns, property, expected_event_indexes, team
 ):
-    materialize("events", property.key)
+    column = materialize("events", property.key)
+    backfill_materialized_columns("events", [column], timedelta(days=50), test_settings={"mutations_sync": "2"})
 
     query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 

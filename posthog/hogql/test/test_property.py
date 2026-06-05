@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from datetime import timedelta
 from typing import Any, Literal, Optional, Union, cast
 
 from freezegun import freeze_time
@@ -43,7 +44,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
-from ee.clickhouse.materialized_columns.columns import materialize
+from ee.clickhouse.materialized_columns.columns import backfill_materialized_columns, materialize
 
 elements_chain_match = lambda x: parse_expr("elements_chain =~ {regex}", {"regex": ast.Constant(value=str(x))})
 elements_chain_imatch = lambda x: parse_expr("elements_chain =~* {regex}", {"regex": ast.Constant(value=str(x))})
@@ -1827,12 +1828,15 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     def _expected_is_not_set_values(self, is_materialized: bool) -> dict[str, int]:
         return {k: 1 - v for k, v in self._expected_is_set_values(is_materialized).items()}
 
+    def _materialize_test_case_properties(self) -> None:
+        columns = [materialize("events", prop_name) for prop_name, _, _, _ in self.test_cases]
+        backfill_materialized_columns("events", columns, timedelta(days=50), test_settings={"mutations_sync": "2"})
+
     @parameterized.expand([("not_materialized", False), ("materialized", True)])
     def test_is_set_operator(self, _name: str, is_materialized: bool):
         if is_materialized:
             self.addCleanup(cleanup_materialized_columns)
-            for prop_name, _, _, _ in self.test_cases:
-                materialize("events", prop_name)
+            self._materialize_test_case_properties()
 
         select_exprs: list[ast.Expr] = [
             ast.Alias(
@@ -1868,8 +1872,7 @@ class TestPropertyIsSetIsNotSetWithData(APIBaseTest):
     def test_is_not_set_operator(self, _name: str, is_materialized: bool):
         if is_materialized:
             self.addCleanup(cleanup_materialized_columns)
-            for prop_name, _, _, _ in self.test_cases:
-                materialize("events", prop_name)
+            self._materialize_test_case_properties()
 
         select_exprs: list[ast.Expr] = [
             ast.Alias(
