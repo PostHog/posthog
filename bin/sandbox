@@ -1656,7 +1656,7 @@ def _surface_stack_failure(branch: str, reason: str) -> None:
 
 def cmd_start(branch: str) -> None:
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     project = project_name(entry.slug)
     vite_port = entry.port + 1000
     profiles = resolve_docker_profiles(entry.intents)
@@ -1678,7 +1678,7 @@ def cmd_start(branch: str) -> None:
 
 def cmd_stop(branch: str) -> None:
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     project = project_name(entry.slug)
     profiles = resolve_docker_profiles(entry.intents)
 
@@ -1713,8 +1713,7 @@ def _project_containers(project: str, *, exclude_service: str | None = None) -> 
 def cmd_stack_up(branch: str) -> None:
     """Bring the stack (infra + DB + phrocs) up on a running no-stack sandbox."""
     registry = Registry()
-    branch = _resolve_branch(registry, branch)
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     # "Already up" only when the stack genuinely came up (not no_stack AND its DB
     # was initialized). A full create whose background bring-up failed leaves
     # no_stack=False, stack_initialized=False — this must allow retry, not block.
@@ -1733,8 +1732,7 @@ def cmd_stack_up(branch: str) -> None:
 def cmd_stack_down(branch: str) -> None:
     """Take the stack down: stop phrocs and every container except the app."""
     registry = Registry()
-    branch = _resolve_branch(registry, branch)
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     if entry.no_stack:
         fatal(f"Stack is already down for '{branch}'.")
     project = project_name(entry.slug)
@@ -1921,7 +1919,7 @@ def cmd_list() -> None:
 
 def cmd_code(branch: str) -> None:
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
     config_json = json.dumps({"containerName": f"/{container}"})
@@ -1941,7 +1939,7 @@ def cmd_code(branch: str) -> None:
 
 def cmd_idea(branch: str) -> None:
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     ssh_port = entry.port + 2000
 
     from urllib.parse import quote
@@ -2086,7 +2084,7 @@ def _attach_with_health_poll(
 
 def cmd_shell(branch: str) -> None:
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
     info(f"Attaching to sandbox in {container}... (detach with Ctrl-b d)")
@@ -2096,7 +2094,7 @@ def cmd_shell(branch: str) -> None:
 def cmd_ssh(branch: str) -> None:
     """Open a login shell in the sandbox (outside tmux, with SSH agent forwarded)."""
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
     info(f"Opening shell in {container}...")
@@ -2120,7 +2118,7 @@ def cmd_ssh(branch: str) -> None:
 def cmd_phrocs(branch: str) -> None:
     """Attach directly to the phrocs tmux window."""
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     container = f"sandbox-{entry.slug}-app-1"
 
     info(f"Attaching to phrocs in {container}... (detach with Ctrl-b d, Ctrl-b 1 for Claude)")
@@ -2129,7 +2127,7 @@ def cmd_phrocs(branch: str) -> None:
 
 def cmd_logs(branch: str) -> None:
     registry = Registry()
-    entry = _require_registered(registry, branch)
+    branch, entry = _require_registered(registry, branch)
     project = project_name(entry.slug)
 
     compose(project, entry.port, "logs", "-f", "app")
@@ -2440,11 +2438,17 @@ def cmd_nuke() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _require_registered(registry: Registry, branch: str) -> SandboxEntry:
+def _require_registered(registry: Registry, branch: str) -> tuple[str, SandboxEntry]:
+    """Resolve a branch (accepting a unique prefix) and require it be registered.
+
+    Returns the canonical branch name alongside its entry, so callers operate on
+    the real name — important for anything that writes it back (registry.save).
+    """
+    branch = _resolve_branch(registry, branch)
     entry = registry.get(branch)
     if not entry:
         fatal(f"No sandbox found for branch '{branch}'. Create one with: sandbox create {branch}")
-    return entry
+    return branch, entry
 
 
 def _seed_tool_auth(container: str, tools: list[Tool]) -> None:
