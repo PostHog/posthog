@@ -187,6 +187,31 @@ class TestFirstPartyPolicyFailClosed(FirstPartyPolicyTestMixin):
         project_first_party_policy(credential)
         self.assertIsNone(self._read_blob(cache_hash))
 
+    def test_scoped_team_outside_current_team_fails_closed(self):
+        other = Team.objects.create(organization=self.organization, name="other")
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        credential.scoped_teams = [other.id]
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    def test_scoped_team_including_current_team_writes(self):
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        credential.scoped_teams = [self.team.id]
+        project_first_party_policy(credential)
+        self.assertIsNotNone(self._read_blob(credential_hash(credential)))
+
+    def test_scoped_org_outside_current_team_org_fails_closed(self):
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        credential.scoped_organizations = ["00000000-0000-0000-0000-000000000000"]
+        project_first_party_policy(credential)
+        self.assertIsNone(self._read_blob(credential_hash(credential)))
+
+    def test_scoped_org_matching_current_team_org_writes(self):
+        credential, _ = self._make_pak([GATEWAY_SCOPE])
+        credential.scoped_organizations = [str(self.organization.id)]
+        project_first_party_policy(credential)
+        self.assertIsNotNone(self._read_blob(credential_hash(credential)))
+
 
 class TestFirstPartyPolicyRefresh(FirstPartyPolicyTestMixin):
     def test_refresh_projects_eligible_credentials(self):
@@ -300,3 +325,48 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
 
         pak.delete()
         self.assertIsNone(self._read_blob(cache_hash))
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_user_first_party_policies_task.delay")
+    def test_user_deactivation_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        user = User.objects.get(pk=self.user.pk)
+        user.is_active = False
+        user.save()
+
+        mock_delay.assert_called_with(user.pk)
+
+    def test_reproject_task_clears_inactive_user_blobs(self):
+        pak, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(pak)
+        cache_hash = credential_hash(pak)
+        assert self._read_blob(cache_hash) is not None
+
+        self.user.is_active = False
+        self.user.save()
+        reproject_user_first_party_policies_task(self.user.pk)
+        self.assertIsNone(self._read_blob(cache_hash))
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.update_first_party_policy_cache_task.delay")
+    def test_deferred_load_rotation_clears_old_hash(self, mock_delay, mock_settings, mock_transaction):
+        # PAK loaded with secure_value/scopes deferred: the post_init snapshot is
+        # skipped, so the pre_save fallback must re-read the old hash to clear it.
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        old_token = generate_random_token_personal()
+        pak, _ = self._make_pak([GATEWAY_SCOPE], token=old_token)
+        old_hash = hash_key_value(old_token)
+        project_first_party_policy(pak)
+        assert self._read_blob(old_hash) is not None
+
+        deferred = PersonalAPIKey.objects.only("id", "user").get(pk=pak.pk)
+        deferred.secure_value = hash_key_value(generate_random_token_personal())
+        deferred.save()
+
+        self.assertIsNone(self._read_blob(old_hash))

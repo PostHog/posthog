@@ -107,9 +107,13 @@ def _derive_allowed_products(credential: Credential) -> list[str]:
 
 def _ttl_for_credential(credential: Credential) -> int | None:
     """OAuth tokens expire (~1h); bound the Redis TTL so the blob can't outlive
-    the token. Personal keys have no expiry, so use the default cache TTL."""
-    if isinstance(credential, OAuthAccessToken) and credential.expires is not None:
-        return max(0, int((credential.expires - timezone.now()).total_seconds()))
+    the token. Personal keys have no expiry, so use the default cache TTL.
+
+    expires is non-nullable on OAuthAccessToken. max(1, …) floors the TTL at one
+    second so a token with sub-second remaining isn't written with timeout=0,
+    which Django treats as evict-immediately."""
+    if isinstance(credential, OAuthAccessToken):
+        return max(1, int((credential.expires - timezone.now()).total_seconds()))
     return None
 
 
@@ -130,19 +134,30 @@ def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCach
     if isinstance(credential, OAuthAccessToken):
         if credential.application_id is None:
             return HyperCacheStoreMissing()
-        if credential.expires is not None and credential.expires <= timezone.now():
+        if credential.expires <= timezone.now():
             return HyperCacheStoreMissing()
 
     team_id = user.current_team_id
     if not team_id or team_id <= 0:
         return HyperCacheStoreMissing()
 
+    # scoped_teams/scoped_organizations narrow a credential below the user's full
+    # membership. The gateway can't see them (not in the blob), so the projection
+    # is the only enforcement point — mirror permissions.py and fail closed when
+    # current_team is outside scope.
+    if credential.scoped_teams and team_id not in credential.scoped_teams:
+        return HyperCacheStoreMissing()
+
     try:
-        project_token = Team.objects.values_list("api_token", flat=True).get(id=team_id)
+        team = Team.objects.values("api_token", "organization_id").get(id=team_id)
     except Team.DoesNotExist:
         return HyperCacheStoreMissing()
 
+    project_token = team["api_token"]
     if not project_token:
+        return HyperCacheStoreMissing()
+
+    if credential.scoped_organizations and str(team["organization_id"]) not in credential.scoped_organizations:
         return HyperCacheStoreMissing()
 
     return {
