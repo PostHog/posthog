@@ -3,7 +3,7 @@ from typing import Optional
 import structlog
 from celery import shared_task
 
-from posthog.models.person.util import get_person_by_id
+from posthog.models import Person
 from posthog.scoping_audit import skip_team_scope_audit
 
 logger = structlog.get_logger(__name__)
@@ -35,10 +35,9 @@ def split_person(
     )
 
     try:
-        person = get_person_by_id(team_id, person_id)
-        if person is None:
-            raise ValueError(f"Person not found: person_id={person_id}, team_id={team_id}")
-
+        # split_person() fetches the person via get_person_by_id internally,
+        # so we only construct a stub here to avoid a redundant fetch.
+        person = Person(pk=person_id, team_id=team_id)
         person.split_person(main_distinct_id, max_splits, distinct_ids_to_split=distinct_ids_to_split)
 
         logger.info(

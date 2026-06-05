@@ -440,3 +440,24 @@ class TestSplitPersonPersonhogRouting(BaseTest):
 
         new_person = Person.objects.get(team_id=self.team.id, id=pdi_id2.person_id)
         assert new_person.version == 3 + 101
+
+    def test_split_from_stub_person_clears_properties(self, mock_create_pdi, mock_create_person):
+        """Verify split works when called on a stub Person(pk=..., team_id=...)
+        rather than a DB-fetched instance — this is how the Celery task invokes it."""
+        person = self._create_person_with_distinct_ids(
+            ["id1", "id2"],
+            mock_create_pdi,
+            mock_create_person,
+            properties={"email": "test@example.com"},
+        )
+
+        stub = Person(pk=person.id, team_id=self.team.id)
+        stub.split_person(main_distinct_id=None)
+
+        person.refresh_from_db()
+        assert person.properties == {}
+
+        pdi_id1 = PersonDistinctId.objects.get(team=self.team, distinct_id="id1")
+        pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
+        assert pdi_id1.person_id == person.id
+        assert pdi_id2.person_id != person.id
