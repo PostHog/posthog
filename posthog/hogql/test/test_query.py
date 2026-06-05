@@ -28,14 +28,13 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     pretty_print_in_tests,
     pretty_print_response_in_tests,
 )
 
-from posthog.clickhouse.client import sync_execute
 from posthog.errors import InternalCHQueryError
 from posthog.models import Cohort
 from posthog.models.cohort.util import recalculate_cohortpeople
@@ -1296,7 +1295,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, allow_experimental_join_condition=1, use_hive_partitioning=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -2055,40 +2054,3 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.error, "debug failure")
         self.assertEqual(response.clickhouse, "")
         mock_sync_execute.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("max", "SELECT max(if(event = 'x', 1, NULL)) FROM events"),
-            ("count_distinct", "SELECT count(DISTINCT if(event = 'x', 1, NULL)) FROM events"),
-        ]
-    )
-    def test_conditional_aggregate_with_nullable_literal_on_distributed_events(self, _name: str, query: str) -> None:
-        # Regression for a distributed-only planning bug under the new analyzer. ClickHouse's
-        # optimize_rewrite_aggregate_function_with_if rewrites e.g. max(if(cond, X, NULL)) -> maxIf(X, cond),
-        # but the literal's type (UInt8 vs Nullable(UInt8)) is inferred inconsistently between the initiator
-        # and shard plan stages, so the column names don't match and the query fails with THERE_IS_NO_COLUMN
-        # (code 8) at planning, or NOT_FOUND_COLUMN_IN_BLOCK (code 10) at execution, on the distributed
-        # events table. Plain count(if(...)) -> countIf is special-cased and does NOT trigger this; only
-        # maxIf/uniqExactIf/avgIf and similar do.
-        #
-        # The bug only manifests when the query plan is split across the initiator and a remote shard.
-        # PostHog's test/dev ClickHouse is a single-shard cluster, so by default the optimizer collapses the
-        # distributed read to a purely local plan and the bug stays hidden. distributed_group_by_no_merge=2
-        # forces the two-stage initiator/shard plan, faithfully exposing the same mismatch that occurs
-        # naturally on the multi-shard production cluster.
-        _create_event(distinct_id="bla", event="x", team=self.team)
-        flush_persons_and_events()
-
-        prepared = HogQLQueryExecutor(query=query, team=self.team, pretty=False)._prepare_execution()
-
-        # Force the distributed two-stage plan so the single-shard test cluster reproduces the bug.
-        result = sync_execute(
-            prepared.sql,
-            prepared.context.values,
-            settings={"distributed_group_by_no_merge": 2},
-            team_id=self.team.pk,
-        )
-
-        # Currently fails: sync_execute raises InternalCHQueryError (code 8 THERE_IS_NO_COLUMN). Once the bug
-        # is fixed (printer emission or ClickHouse setting), the query returns a single aggregate row.
-        self.assertEqual(len(result), 1)

@@ -153,6 +153,13 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # Disabling the rewrite avoids it with no perf cost (the rewrite benchmarks ~3-4% slower anyway).
     # https://github.com/ClickHouse/ClickHouse/issues/82941
     optimize_rewrite_aggregate_function_with_if: Optional[bool] = False
+    # The mirror image of the setting above, for `and(event != '1', event != '2', event != '3')` being optimized into
+    # `event NOT IN ('1', '2', '3')`. With transform_null_in=1 the new analyzer rewrites the synthesized notIn to
+    # notNullIn inconsistently between the shard (producing) and initiator (consuming) headers of a distributed query,
+    # so column matching fails with `Cannot find column minIf(..., notIn(...)) in source stream, there are only columns:
+    # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
+    # without touching NULL semantics (unlike transform_null_in).
+    optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
