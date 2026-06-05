@@ -122,3 +122,12 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
+
+# Signals inbox notification: how long to wait for an auto-started implementation PR before
+# notifying anyway, and how often to poll for it.
+SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS: int = get_from_env(
+    "SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS", 1800, type_cast=int
+)
+SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS: int = get_from_env(
+    "SIGNALS_INBOX_PR_NOTIFICATION_POLL_SECONDS", 30, type_cast=int
+)
