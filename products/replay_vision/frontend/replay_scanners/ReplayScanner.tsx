@@ -75,7 +75,7 @@ export function ReplayScannerSceneComponent({ tabId }: { tabId: string }): JSX.E
             key: 'configuration',
             label: 'Configuration',
             content: (
-                <div className="space-y-6 max-w-3xl">
+                <div className="space-y-6 max-w-3xl pb-8">
                     <div>
                         <h3 className="text-base font-semibold mb-1">Details</h3>
                         <p className="text-sm text-muted m-0">
@@ -233,16 +233,16 @@ function QuotaBanner(): JSX.Element | null {
     if (quota.exhausted) {
         return (
             <LemonBanner type="warning">
-                Monthly Vision quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
-                {quota.monthly_quota.toLocaleString()}). Scheduled scans are paused until {resetsOn}.
+                Monthly observation quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
+                {quota.monthly_quota.toLocaleString()}). New observations are paused until {resetsOn}.
             </LemonBanner>
         )
     }
     if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
         return (
             <LemonBanner type="warning">
-                Approaching monthly Vision quota: {quota.usage_this_month.toLocaleString()} of{' '}
-                {quota.monthly_quota.toLocaleString()} used. Schedules will pause once the cap is reached on {resetsOn}.
+                {quota.usage_this_month.toLocaleString()} of {quota.monthly_quota.toLocaleString()} monthly observations
+                used. New observations will pause once you hit the cap; the quota resets on {resetsOn}.
             </LemonBanner>
         )
     }

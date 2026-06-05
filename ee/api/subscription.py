@@ -31,16 +31,19 @@ from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.security.url_validation import is_url_allowed
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.subscriptions.types import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from posthog.utils import str_to_bool
 
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, unsubscribe_using_token
+from products.exports.backend.temporal.subscriptions.types import (
+    ProcessSubscriptionWorkflowInputs,
+    SubscriptionTriggerType,
+)
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
@@ -161,7 +164,12 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "frequency": {"help_text": "How often to deliver: daily, weekly, monthly, or yearly."},
             "interval": {
-                "help_text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1."
+                "required": True,
+                "min_value": 1,
+                "help_text": (
+                    "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). "
+                    "Required on create; must be 1 or greater."
+                ),
             },
             "byweekday": {
                 "help_text": "Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday."
@@ -202,9 +210,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 raise ValidationError({"subscription": [msg]})
 
         if self.instance is None:
-            # Create: a subscription must export an insight or a dashboard.
-            if not attrs.get("dashboard") and not attrs.get("insight"):
-                raise ValidationError("Either dashboard or insight is required for an export.")
+            # Create: a subscription must export an insight, a dashboard, or an AI prompt.
+            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+                raise ValidationError("A subscription must have an insight, a dashboard, or a prompt.")
 
         if attrs.get("dashboard") and attrs["dashboard"].team.id != self.context["team_id"]:
             raise ValidationError({"dashboard": ["This dashboard does not belong to your team."]})
@@ -518,6 +526,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         previous_value="",
                         invite_message=invite_message,
                         trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                        resource_type=instance.resource_type,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -591,6 +600,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     previous_value=previous_value,
                     invite_message=invite_message,
                     trigger_type=SubscriptionTriggerType.TARGET_CHANGE,
+                    resource_type=instance.resource_type,
                 ),
                 id=workflow_id,
                 task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
@@ -793,6 +803,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                         previous_value=None,
                         invite_message=None,
                         trigger_type=SubscriptionTriggerType.MANUAL,
+                        resource_type=subscription.resource_type,
                     ),
                     id=workflow_id,
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,

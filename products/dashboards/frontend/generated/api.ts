@@ -9,7 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AddDashboardWidgetsBatchRequestApi,
+    AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
@@ -31,6 +31,7 @@ import type {
     DashboardsDeleteTileParams,
     DashboardsDestroyParams,
     DashboardsListParams,
+    DashboardsMoveTileCreateParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
     DashboardsReorderTilesCreateParams,
@@ -46,6 +47,7 @@ import type {
     DataColorThemeApi,
     DataColorThemesListParams,
     DeleteTileRequestApi,
+    MoveTileRequestApi,
     PaginatedDashboardBasicListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedDataColorThemeListApi,
@@ -609,6 +611,41 @@ export const dashboardsDeleteTile = async (
     })
 }
 
+export const getDashboardsMoveTileCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsMoveTileCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/move_tile/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/move_tile/`
+}
+
+export const dashboardsMoveTileCreate = async (
+    projectId: string,
+    id: number,
+    moveTileRequestApi: MoveTileRequestApi,
+    params?: DashboardsMoveTileCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsMoveTileCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(moveTileRequestApi),
+    })
+}
+
 export const getDashboardsMoveTilePartialUpdateUrl = (
     projectId: string,
     id: number,
@@ -884,7 +921,7 @@ export const getDashboardsWidgetsBatchCreateUrl = (
 export const dashboardsWidgetsBatchCreate = async (
     projectId: string,
     id: number,
-    addDashboardWidgetsBatchRequestApi: AddDashboardWidgetsBatchRequestApi,
+    addDashboardWidgetsBatchRequestOpenApiApi: AddDashboardWidgetsBatchRequestOpenApiApi,
     params?: DashboardsWidgetsBatchCreateParams,
     options?: RequestInit
 ): Promise<AddDashboardWidgetsBatchResponseApi> => {
@@ -892,7 +929,7 @@ export const dashboardsWidgetsBatchCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addDashboardWidgetsBatchRequestApi),
+        body: JSON.stringify(addDashboardWidgetsBatchRequestOpenApiApi),
     })
 }
 

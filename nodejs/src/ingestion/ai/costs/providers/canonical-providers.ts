@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-02 20:58:24 UTC
+// Generated at: 2026-06-05 11:04:37 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -17,6 +17,7 @@ export type CanonicalProvider =
     | 'amazon-bedrock-us-east-1'
     | 'amazon-bedrock-us-west-2'
     | 'ambient'
+    | 'ambient-fp4'
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-2'
@@ -25,6 +26,7 @@ export type CanonicalProvider =
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
     | 'azure'
+    | 'azure-eu'
     | 'azure-swedencentral'
     | 'azure-us-east-2'
     | 'baidu-fp4'
@@ -86,7 +88,6 @@ export type CanonicalProvider =
     | 'nebius-base'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp8'
     | 'nextbit-int4'
