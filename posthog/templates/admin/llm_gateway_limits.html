@@ -70,9 +70,6 @@
             <label><input type="checkbox" id="reset_cost" checked /> Cost counters (live per-user limit)</label>
         </div>
         <div class="checkbox-row">
-            <label><input type="checkbox" id="reset_request" /> Request-rate counters (currently dormant)</label>
-        </div>
-        <div class="checkbox-row">
             <label><input type="checkbox" id="reset_product_total" /> Product-wide cost pool (affects all users)</label>
         </div>
         <div class="checkbox-row">
@@ -174,7 +171,6 @@ document.getElementById('reset-form').addEventListener('submit', async (e) => {
             headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
             body: JSON.stringify({
                 reset_cost: document.getElementById('reset_cost').checked,
-                reset_request: document.getElementById('reset_request').checked,
                 reset_product_total: productTotal,
                 dry_run: dryRun,
             }),
@@ -184,7 +180,7 @@ document.getElementById('reset-form').addEventListener('submit', async (e) => {
         const verb = data.dry_run ? 'Would reset' : 'Reset';
         showMessage(
             verb + ' ' + data.total_keys + ' keys (cost: ' + data.cost_keys +
-            ', request: ' + data.request_keys + ', product pool: ' + data.product_total_keys + ').',
+            ', product pool: ' + data.product_total_keys + ').',
             false
         );
         // Refresh the usage table to reflect the reset.

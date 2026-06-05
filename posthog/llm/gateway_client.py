@@ -63,21 +63,18 @@ def reset_posthog_code_usage(
     user_id: int,
     *,
     reset_cost: bool = True,
-    reset_request: bool = False,
     reset_product_total: bool = False,
     dry_run: bool = False,
 ) -> dict:
-    """Reset a user's posthog_code limits via the gateway's staff admin endpoint.
+    """Reset a user's posthog_code cost limits via the gateway's staff admin endpoint.
 
-    `reset_cost` clears the live per-user cost counters. `reset_request` clears the
-    (currently dormant) per-user request-rate counters. `reset_product_total` clears
+    `reset_cost` clears the live per-user cost counters. `reset_product_total` clears
     the shared product-wide cost pool — affects every user, so it is opt-in. Raises
     GatewayAdminError when the gateway URL / admin secret is not configured.
     """
     url = f"{_admin_base_url()}/reset/{user_id}"
     payload = {
         "cost": reset_cost,
-        "request": reset_request,
         "product_total": reset_product_total,
         "dry_run": dry_run,
     }

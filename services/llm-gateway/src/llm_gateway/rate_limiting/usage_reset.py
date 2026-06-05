@@ -1,19 +1,10 @@
-"""Shared helpers for inspecting and resetting PostHog Code usage / rate-limit
-counters in the gateway Redis.
+"""Shared helpers for inspecting and resetting PostHog Code cost limits in the
+gateway Redis.
 
-Two kinds of limit live here:
-
-* cost     — the posthog_code per-user cost counters (burst + sustained), and
-             the product-wide aggregate cost pool. This is the live, per-user,
-             per-product limit the gateway actually enforces.
-* request  — the per-user request-rate counters (burst + sustained). These are
-             keyed by user id alone and are NOT product-scoped. They are
-             currently dormant (no live throttle writes them), kept here as a
-             safety net for if the request-rate limiter is re-enabled.
-
-The CLI (`cli/reset_posthog_code_usage.py`) and the staff admin endpoint
-(`api/admin.py`) both build on these helpers so the key shapes stay in one
-place.
+The gateway's live, per-user, per-product limit is the cost throttle: per-user
+cost counters (burst + sustained) plus the product-wide aggregate cost pool.
+These helpers build the matching Redis key shapes; the staff admin endpoint
+(`api/admin.py`) uses them so the key shapes stay in one place.
 """
 
 from __future__ import annotations
@@ -27,8 +18,6 @@ from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
 
 # The two per-user cost throttle scopes (_UserCostThrottleBase subclasses).
 COST_SCOPES = ("user_cost_burst", "user_cost_sustained")
-# The two per-user request-rate scopes (RateLimiter).
-REQUEST_SCOPES = ("burst", "sustained")
 
 SCAN_COUNT = 500
 UNLINK_BATCH = 500
@@ -58,15 +47,6 @@ def cost_patterns(user_id: str | None) -> tuple[str, ...]:
         patterns.append(base)
         patterns.append(f"{base}:*")
     return tuple(patterns)
-
-
-# Mirrors RateLimiter.check: "ratelimit:{scope}:{user_id}". Exact keys, no
-# suffixes — a single-user reset matches the escaped key exactly.
-def request_patterns(user_id: str | None) -> tuple[str, ...]:
-    if user_id is None:
-        return tuple(f"ratelimit:{scope}:*" for scope in REQUEST_SCOPES)
-    safe_id = _escape(user_id)
-    return tuple(f"ratelimit:{scope}:{safe_id}" for scope in REQUEST_SCOPES)
 
 
 def product_patterns() -> tuple[str, ...]:

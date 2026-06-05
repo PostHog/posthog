@@ -52,16 +52,14 @@ class TestLLMGatewayLimitsAdmin(APIBaseTest):
 
         request = self.factory.post(
             "/admin/api/llm-gateway-limits/100/reset/",
-            {"reset_cost": True, "reset_request": True, "reset_product_total": True, "dry_run": False},
+            {"reset_cost": True, "reset_product_total": True, "dry_run": False},
             format="json",
         )
         force_authenticate(request, user=self.user)
         response = RESET_VIEW(request, user_id="100")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_reset.assert_called_once_with(
-            100, reset_cost=True, reset_request=True, reset_product_total=True, dry_run=False
-        )
+        mock_reset.assert_called_once_with(100, reset_cost=True, reset_product_total=True, dry_run=False)
 
     @patch("posthog.admin.admins.llm_gateway_limits_admin.reset_posthog_code_usage")
     def test_reset_defaults_to_cost_only(self, mock_reset):
@@ -73,9 +71,7 @@ class TestLLMGatewayLimitsAdmin(APIBaseTest):
         response = RESET_VIEW(request, user_id="100")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_reset.assert_called_once_with(
-            100, reset_cost=True, reset_request=False, reset_product_total=False, dry_run=False
-        )
+        mock_reset.assert_called_once_with(100, reset_cost=True, reset_product_total=False, dry_run=False)
 
     @patch("posthog.admin.admins.llm_gateway_limits_admin.get_posthog_code_usage")
     def test_unconfigured_gateway_returns_503(self, mock_usage):

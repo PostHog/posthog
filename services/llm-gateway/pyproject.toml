@@ -43,9 +43,6 @@ dev = [
     "types-cachetools>=5.5.0",
 ]
 
-[project.scripts]
-reset-posthog-code-usage = "llm_gateway.cli.reset_posthog_code_usage:main"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

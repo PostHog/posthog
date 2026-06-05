@@ -15,9 +15,6 @@ logger = structlog.get_logger(__name__)
 
 class LLMGatewayResetSerializer(serializers.Serializer):
     reset_cost = serializers.BooleanField(default=True, help_text="Reset the live per-user cost counters")
-    reset_request = serializers.BooleanField(
-        default=False, help_text="Reset the (dormant) per-user request-rate counters"
-    )
     reset_product_total = serializers.BooleanField(
         default=False, help_text="Reset the shared product-wide cost pool (affects all users)"
     )
@@ -56,7 +53,6 @@ class LLMGatewayLimitsViewSet(viewsets.ViewSet):
             result = reset_posthog_code_usage(
                 int(user_id),
                 reset_cost=serializer.validated_data["reset_cost"],
-                reset_request=serializer.validated_data["reset_request"],
                 reset_product_total=serializer.validated_data["reset_product_total"],
                 dry_run=serializer.validated_data["dry_run"],
             )

@@ -70,12 +70,10 @@ class TestGatewayAdminClient:
             return httpx.Response(200, json={"user_id": "100", "total_keys": 2})
 
         with _mock_gateway(handler):
-            result = reset_posthog_code_usage(
-                100, reset_cost=True, reset_request=True, reset_product_total=False, dry_run=True
-            )
+            result = reset_posthog_code_usage(100, reset_cost=True, reset_product_total=True, dry_run=True)
 
         assert captured["url"] == "http://gateway:8080/v1/admin/reset/100"
-        assert captured["body"] == {"cost": True, "request": True, "product_total": False, "dry_run": True}
+        assert captured["body"] == {"cost": True, "product_total": True, "dry_run": True}
         assert result["total_keys"] == 2
 
     @patch("posthog.llm.gateway_client.settings")
@@ -93,7 +91,7 @@ class TestGatewayAdminClient:
         with _mock_gateway(handler):
             reset_posthog_code_usage(100)
 
-        assert captured["body"] == {"cost": True, "request": False, "product_total": False, "dry_run": False}
+        assert captured["body"] == {"cost": True, "product_total": False, "dry_run": False}
 
     @patch("posthog.llm.gateway_client.settings")
     def test_http_error_propagates(self, mock_settings):

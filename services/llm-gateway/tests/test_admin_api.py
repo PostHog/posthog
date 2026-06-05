@@ -98,34 +98,33 @@ class TestUsageEndpoint:
 
 class TestResetEndpoint:
     async def test_cost_only_by_default(self, client: AsyncClient, redis: fakeredis.FakeRedis) -> None:
-        await _seed(redis, **{f"{COST_BURST}:100": 1.0, f"{REQ_BURST}:100": 1.0})
+        await _seed(redis, **{f"{COST_BURST}:100": 1.0, PRODUCT: 1.0})
 
         resp = await client.post("/v1/admin/reset/100", headers=HEADERS, json={})
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["cost_keys"] == 1
-        assert body["request_keys"] == 0
+        assert body["product_total_keys"] == 0
         assert body["total_keys"] == 1
-        # request-rate key survives a default (cost-only) reset.
-        assert await redis.get(f"{REQ_BURST}:100") is not None
+        # the shared product pool survives a default (cost-only) reset.
+        assert await redis.get(PRODUCT) is not None
         assert await redis.get(f"{COST_BURST}:100") is None
 
-    async def test_request_and_product_total_opt_in(self, client: AsyncClient, redis: fakeredis.FakeRedis) -> None:
-        await _seed(redis, **{f"{COST_BURST}:100": 1.0, f"{REQ_BURST}:100": 1.0, PRODUCT: 1.0})
+    async def test_product_total_opt_in(self, client: AsyncClient, redis: fakeredis.FakeRedis) -> None:
+        await _seed(redis, **{f"{COST_BURST}:100": 1.0, PRODUCT: 1.0})
 
         body = (
             await client.post(
                 "/v1/admin/reset/100",
                 headers=HEADERS,
-                json={"cost": True, "request": True, "product_total": True},
+                json={"cost": True, "product_total": True},
             )
         ).json()
 
         assert body["cost_keys"] == 1
-        assert body["request_keys"] == 1
         assert body["product_total_keys"] == 1
-        assert body["total_keys"] == 3
+        assert body["total_keys"] == 2
 
     async def test_dry_run_counts_without_deleting(self, client: AsyncClient, redis: fakeredis.FakeRedis) -> None:
         await _seed(redis, **{f"{COST_BURST}:100": 1.0})

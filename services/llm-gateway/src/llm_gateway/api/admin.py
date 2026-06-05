@@ -25,7 +25,6 @@ from llm_gateway.config import get_settings
 from llm_gateway.rate_limiting.usage_reset import (
     cost_patterns,
     product_patterns,
-    request_patterns,
     reset_keys,
     scan_cost_usage,
 )
@@ -74,10 +73,9 @@ class UsageResponse(BaseModel):
 
 
 class ResetRequest(BaseModel):
-    # cost is the live, per-user, per-product limit; default on. request-rate is
-    # dormant and product_total touches the shared pool, so both are opt-in.
+    # cost is the live, per-user, per-product limit; default on. product_total
+    # touches the shared pool (affects all users), so it is opt-in.
     cost: bool = True
-    request: bool = False
     product_total: bool = False
     dry_run: bool = False
 
@@ -86,7 +84,6 @@ class ResetResponse(BaseModel):
     user_id: str
     dry_run: bool
     cost_keys: int
-    request_keys: int
     product_total_keys: int
     total_keys: int
 
@@ -105,28 +102,24 @@ async def get_user_usage(user_id: str, request: Request) -> UsageResponse:
 
 @admin_router.post("/reset/{user_id}", dependencies=[AdminAuth])
 async def reset_user_usage(user_id: str, request: Request, body: ResetRequest) -> ResetResponse:
-    """Reset a single user's posthog_code limits. cost is reset by default;
-    request-rate and the product-wide pool are opt-in via the body flags."""
+    """Reset a single user's posthog_code cost limits. The per-user cost counters
+    are reset by default; the product-wide pool is opt-in via the body flag."""
     redis = _get_redis(request)
 
     cost_keys = 0
-    request_keys = 0
     product_total_keys = 0
 
     if body.cost:
         cost_keys = await reset_keys(redis, cost_patterns(user_id), dry_run=body.dry_run)
-    if body.request:
-        request_keys = await reset_keys(redis, request_patterns(user_id), dry_run=body.dry_run)
     if body.product_total:
         product_total_keys = await reset_keys(redis, product_patterns(), dry_run=body.dry_run)
 
-    total = cost_keys + request_keys + product_total_keys
+    total = cost_keys + product_total_keys
     logger.info(
         "admin_reset_usage",
         user_id=user_id,
         dry_run=body.dry_run,
         cost=body.cost,
-        request=body.request,
         product_total=body.product_total,
         total_keys=total,
     )
@@ -134,7 +127,6 @@ async def reset_user_usage(user_id: str, request: Request, body: ResetRequest) -
         user_id=user_id,
         dry_run=body.dry_run,
         cost_keys=cost_keys,
-        request_keys=request_keys,
         product_total_keys=product_total_keys,
         total_keys=total,
     )
