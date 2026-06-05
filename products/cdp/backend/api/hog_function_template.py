@@ -84,10 +84,17 @@ class PublicHogFunctionTemplateViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "hog_function"
-    permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
     lookup_field = "template_id"
+
+    def get_permissions(self):
+        # The dedicated public catalog endpoint is intentionally anonymous. The project-nested
+        # mount is part of the authenticated app and must not expose templates (including hidden
+        # ones) to anonymous callers.
+        if self.request.path.startswith("/api/public_hog_function_templates"):
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated()]
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
@@ -102,11 +109,8 @@ class PublicHogFunctionTemplateViewSet(
             if self.request.GET.get("template_id"):
                 queryset = queryset.filter(template_id=self.request.GET["template_id"])
 
-            # Don't include deprecated templates when listing
-            queryset = queryset.exclude(status="deprecated")
-
-        if self.request.path.startswith("/api/public_hog_function_templates"):
-            queryset = queryset.exclude(status="hidden")
+            # Don't include deprecated or hidden templates when listing, regardless of mount
+            queryset = queryset.exclude(status="deprecated").exclude(status="hidden")
 
         return queryset
 

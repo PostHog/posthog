@@ -403,6 +403,22 @@ jobs:
                       echo "changed=false" >> $GITHUB_OUTPUT
                   fi
 
+            - name: Check for changes that affect error tracking temporal worker
+              id: check_changes_error_tracking_temporal_worker
+              uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              with:
+                  filters: |
+                      changed:
+                        - 'products/error_tracking/backend/temporal/**'
+                        - 'products/error_tracking/backend/models.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/temporal/schedule.py'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - 'posthog/clickhouse/migrations/**'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
               run: |
@@ -527,6 +543,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-replay-vision",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Error Tracking Temporal Worker Cloud deployment
+              if: steps.check_changes_error_tracking_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-error-tracking",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
