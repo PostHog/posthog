@@ -213,7 +213,3 @@ products/signals/backend/github_issues/
 # posthog/hogql/scripts/log_corpus_diagnostic.py — contains
 # redacted production queries; not for git).
 posthog/hogql/scripts/.local/
-
-# Regenerated per-sweep artifact from run_shadow_differential.py (team-id literals,
-# changes every run — not a committed golden).
-posthog/hogql/printer/test/__golden__/shadow_differential_report.txt
