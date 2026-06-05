@@ -45,6 +45,10 @@ class ExperimentQueryRunnerBaseTest(ClickhouseTestMixin, APIBaseTest):
         """Initialize test for precomputation path (cleanup existing data)"""
         if use_precomputation:
             self._clean_preaggregation_data()
+            # Disable TTL merges so ClickHouse 26.3 doesn't immediately drop
+            # rows whose expires_at is in the past (due to freeze_time).
+            sync_execute("SYSTEM STOP TTL MERGES")
+            self.addCleanup(lambda: sync_execute("SYSTEM START TTL MERGES"))
 
     def _enable_precomputation(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
