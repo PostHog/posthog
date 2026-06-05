@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -6,6 +7,8 @@ from django.conf import settings
 
 import jwt
 from cryptography.hazmat.primitives import serialization
+
+JWT_ALGORITHM = "HS256"
 
 
 class PosthogJwtAudience(Enum):
@@ -17,6 +20,18 @@ class PosthogJwtAudience(Enum):
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
 
 
+def signing_key_fingerprint(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _signing_key() -> str:
+    return settings.JWT_SIGNING_KEY
+
+
+def _verification_keys() -> list[str]:
+    return [_signing_key(), *settings.JWT_SIGNING_KEY_FALLBACKS]
+
+
 def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudience) -> str:
     """
     Create a JWT ensuring that the correct audience and signing token is used
@@ -24,23 +39,26 @@ def encode_jwt(payload: dict, expiry_delta: timedelta, audience: PosthogJwtAudie
     if not isinstance(audience, PosthogJwtAudience):
         raise Exception("Audience must be in the list of PostHog-supported audiences")
 
-    encoded_jwt = jwt.encode(
+    return jwt.encode(
         {
             **payload,
             "exp": datetime.now(tz=UTC) + expiry_delta,
             "aud": audience.value,
         },
-        settings.SECRET_KEY,
-        algorithm="HS256",
+        _signing_key(),
+        algorithm=JWT_ALGORITHM,
     )
-
-    return encoded_jwt
 
 
 def decode_jwt(token: str, audience: PosthogJwtAudience) -> dict[str, Any]:
-    info = jwt.decode(token, settings.SECRET_KEY, audience=audience.value, algorithms=["HS256"])
+    last_error: jwt.InvalidSignatureError | None = None
+    for key in _verification_keys():
+        try:
+            return jwt.decode(token, key, audience=audience.value, algorithms=[JWT_ALGORITHM])
+        except jwt.InvalidSignatureError as error:
+            last_error = error
 
-    return info
+    raise last_error or jwt.InvalidSignatureError("Signature verification failed")
 
 
 def get_oidc_public_key() -> Any:
