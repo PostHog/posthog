@@ -17,7 +17,6 @@ from posthog.hogql.observability import (
 )
 from posthog.hogql.printer.base import BasePrinter
 from posthog.hogql.printer.clickhouse import ClickHousePrinter
-from posthog.hogql.printer.differential import check_query
 from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
@@ -85,10 +84,6 @@ def prepare_and_print_ast(
             settings=settings,
             pretty=pretty,
         )
-        # Differential (§13): render the new path from the resolved+swapped tree the old path just produced, and
-        # compare. Runs after the served output, so a check failure can't affect it. Compile-only boundary:
-        # served_results is None, so a SQL diff executes the served SQL itself (skipped if it isn't runnable).
-        check_query(prepared_ast, context, printed, dialect, stack=stack, settings=settings, pretty=pretty)
         return printed, prepared_ast
     except Exception:
         if context.type_observability is not None:
@@ -108,12 +103,6 @@ def prepare_ast_for_printing(
     settings: HogQLGlobalSettings | None = None,
     resolver_factory: ResolverFactory | None = None,
 ) -> _T_AST | None:
-    # Org feature flag (printer rearchitecture): when `propertyLowering` is enabled for the org, serve the new lowering
-    # path. Unset/False leaves the legacy printer path. The modifier is set in `create_default_modifiers_for_team`; this
-    # is the one place that maps it onto the context gate, so it covers every compile boundary (the executor included).
-    if context.modifiers.propertyLowering:
-        context.lower_property_access = True
-
     if context.database is None:
         with context.timings.measure("create_hogql_database"):  # Legacy name to keep backwards compatibility
             # Passing both `team_id` and `team` because `team` is not always available in the context
@@ -207,15 +196,12 @@ def prepare_ast_for_printing(
                 setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
-        # Logical lowering + ClickHouse physical optimization (strangler gate, off by default — §12.8). Runs AFTER both
-        # PropertySwapper passes: any scalar cast already wraps the property, so lowering just replaces the inner
-        # PropertyType Field with JSONFieldAccess, then the physical passes substitute materialized-column / skip-index
-        # forms. Off => the printer still resolves properties to physical columns (exact master behavior). On => the
-        # output is RESULT-equivalent (text churns for materialized/optimized cases — §8.7), gated for shadow rollout.
-        # within_non_hogql_query stays entirely on the printer path — it needs unqualified column references the lowered
-        # synthetic fields can't produce (§8.4). lower_property_access already no-ops for it (so the physical passes
-        # would find no JSONFieldAccess and be inert), but skip the whole block explicitly.
-        if context.lower_property_access and not context.within_non_hogql_query:
+        # Logical lowering + ClickHouse physical optimization. Runs AFTER both PropertySwapper passes: any scalar cast
+        # already wraps the property, so lowering replaces the inner PropertyType Field with JSONFieldAccess, then the
+        # physical passes substitute the materialized-column / skip-index / property-group forms.
+        # within_non_hogql_query stays on the printer path — it needs unqualified column references the lowered synthetic
+        # fields can't produce (§8.4).
+        if not context.within_non_hogql_query:
             with context.timings.measure("lower_property_access"):
                 node = lower_property_access(node, context)
             with context.timings.measure("clickhouse_physical_passes"):

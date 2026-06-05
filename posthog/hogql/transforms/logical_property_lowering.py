@@ -101,6 +101,6 @@ def lower_property_access(node: _T_AST, context: HogQLContext) -> _T_AST:
     # references — the printer's within_non_hogql path drops the table prefix, but the synthetic fields a lowered read
     # would build are always table-qualified. So leave those queries entirely on the printer path (§8.4); the
     # differential keeps them byte-identical because nothing lowers.
-    if not context.lower_property_access or context.within_non_hogql_query:
+    if context.within_non_hogql_query:
         return node
     return cast(_T_AST, LogicalPropertyLowering(context).visit(node))
