@@ -948,21 +948,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         if result.status == "accepted":
             notebook_before = Notebook.objects.get(pk=notebook.pk)
-            update_values: dict[str, Any] = {
-                "content": annotate_python_nodes(content) if isinstance(content, dict) else content,
-                "text_content": data.get("text_content", ""),
-                "title": data.get("title", notebook.title),
-                "version": result.version,
-                "last_modified_at": now(),
-                "last_modified_by": request.user,
-            }
+            content_update = annotate_python_nodes(content) if isinstance(content, dict) else content
+            text_content_update = data.get("text_content", "")
+            title_update = data.get("title", notebook.title)
+            modified_at = now()
             if notebook.content_storage == Notebook.ContentStorage.MARKDOWN and isinstance(content, dict):
                 markdown_content = data.get("markdown_content")
                 if markdown_content is None:
                     markdown_content = tiptap_doc_to_markdown(content)
-                update_values["markdown_content"] = markdown_content
-                update_values["text_content"] = markdown_to_text_content(markdown_content, title=update_values["title"])
-            Notebook.objects.filter(pk=notebook.pk).update(**update_values)
+                Notebook.objects.filter(pk=notebook.pk).update(
+                    content=content_update,
+                    markdown_content=markdown_content,
+                    text_content=markdown_to_text_content(markdown_content, title=title_update),
+                    title=title_update,
+                    version=result.version,
+                    last_modified_at=modified_at,
+                    last_modified_by=user,
+                )
+            else:
+                Notebook.objects.filter(pk=notebook.pk).update(
+                    content=content_update,
+                    text_content=text_content_update,
+                    title=title_update,
+                    version=result.version,
+                    last_modified_at=modified_at,
+                    last_modified_by=user,
+                )
             notebook.refresh_from_db()
 
             # Snapshot diffs into the activity logs for history

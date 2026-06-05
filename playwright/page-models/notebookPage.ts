@@ -19,6 +19,23 @@ export class NotebookPage {
         this.titleHeading = page.getByRole('heading', { level: 1 })
     }
 
+    private isNotebookSaveResponse(response: {
+        url(): string
+        request(): { method(): string }
+        status(): number
+    }): boolean {
+        const url = response.url()
+        const method = response.request().method()
+
+        return (
+            response.status() === 200 &&
+            url.includes('/api/projects/') &&
+            url.includes('/notebooks/') &&
+            (method === 'PATCH' ||
+                (method === 'POST' && (url.includes('/markdown/save/') || url.includes('/collab/save/'))))
+        )
+    }
+
     async goToList(): Promise<void> {
         await this.page.goto('/notebooks', { waitUntil: 'domcontentloaded' })
         await expect(this.notebooksTable).toBeVisible({ timeout: 15000 })
@@ -36,42 +53,23 @@ export class NotebookPage {
     }
 
     async editTitle(name: string): Promise<void> {
-        const savePromise = this.page.waitForResponse(
-            (response) =>
-                response.url().includes('/api/projects/') &&
-                response.url().includes('/notebooks/') &&
-                response.request().method() === 'PATCH' &&
-                response.status() === 200,
-            { timeout: 15000 }
-        )
+        const savePromise = this.waitForSave()
         await this.editor.fill(name)
         await expect(this.page).toHaveTitle(new RegExp(name), { timeout: 10000 })
         await savePromise
     }
 
     async waitForSave(): Promise<void> {
-        await this.page.waitForResponse(
-            (response) =>
-                response.url().includes('/api/projects/') &&
-                response.url().includes('/notebooks/') &&
-                response.request().method() === 'PATCH' &&
-                response.status() === 200,
-            { timeout: 15000 }
-        )
+        await this.page.waitForResponse((response) => this.isNotebookSaveResponse(response), { timeout: 15000 })
     }
 
     async addInsightViaSlashCommand(
         type: 'Trend' | 'Funnel' | 'Retention' | 'Paths' | 'Stickiness' | 'Lifecycle' | 'SQL'
     ): Promise<void> {
         const currentCount = await this.insightNodes.count()
-        const savePromise = this.page.waitForResponse(
-            (response) =>
-                response.url().includes('/api/projects/') &&
-                response.url().includes('/notebooks/') &&
-                response.request().method() === 'PATCH' &&
-                response.status() === 200,
-            { timeout: 30000 }
-        )
+        const savePromise = this.page.waitForResponse((response) => this.isNotebookSaveResponse(response), {
+            timeout: 30000,
+        })
         await this.editor.click()
         await this.page.keyboard.press('ControlOrMeta+End')
         await this.page.keyboard.press('Enter')
@@ -131,7 +129,10 @@ export class NotebookPage {
         // Wait briefly for ProseMirror to flush the DOM update before checking.
         // Without this, Locator.count() can see a stale snapshot and trigger
         // the fallback spuriously.
-        await this.insightNodes.first().waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+        await this.insightNodes
+            .first()
+            .waitFor({ state: 'detached', timeout: 2000 })
+            .catch(() => {})
 
         // If the node wasn't removed (click landed inside content), retry by
         // clicking the node and pressing Backspace again (avoids selectAll which
