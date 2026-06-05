@@ -43,9 +43,11 @@ class ThreadedWorker(Worker):
             # would otherwise consume the entire CI job timeout.
             deadline = time.monotonic() + startup_timeout
             while not self.is_running:
-                if startup_error:
-                    raise RuntimeError("Temporal test worker failed to start") from startup_error[0]
-                if not t.is_alive():
+                if not t.is_alive() or startup_error:
+                    # A crashing worker appends to startup_error before its thread exits, so
+                    # surface that cause rather than a bare "exited before it started" message.
+                    if startup_error:
+                        raise RuntimeError("Temporal test worker failed to start") from startup_error[0]
                     raise RuntimeError("Temporal test worker thread exited before it started running")
                 if time.monotonic() >= deadline:
                     raise TimeoutError(f"Temporal test worker did not start within {startup_timeout:g}s")
