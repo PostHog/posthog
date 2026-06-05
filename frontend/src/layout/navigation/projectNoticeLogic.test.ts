@@ -70,7 +70,7 @@ describe('projectNoticeLogic', () => {
         })
     })
 
-    describe('self-managed reverse proxy detection', () => {
+    describe('reverse proxy checker connection', () => {
         let getItemSpy: jest.SpyInstance
         let getDateSpy: jest.SpyInstance
 
@@ -88,9 +88,6 @@ describe('projectNoticeLogic', () => {
             })
             initKeaTests()
             getItemSpy = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => null)
-            // shouldFetchProxyRecords() gates on `new Date().getDate() <= 7`. Spy on getDate rather
-            // than faking all timers — fake timers would stall the async loads so their success
-            // actions never fire.
             getDateSpy = jest.spyOn(Date.prototype, 'getDate')
         })
 
@@ -99,33 +96,22 @@ describe('projectNoticeLogic', () => {
             getDateSpy.mockRestore()
         })
 
-        it('mounts the proxy checker inside the nudge window', async () => {
-            getDateSpy.mockReturnValue(3) // inside the first-7-days window
+        it.each([
+            { label: 'inside the nudge window', dayOfMonth: 3 },
+            { label: 'outside the nudge window', dayOfMonth: 15 },
+        ])('mounts the connected checker $label and tears it down on unmount', async ({ dayOfMonth }) => {
+            getDateSpy.mockReturnValue(dayOfMonth)
 
             const logic = projectNoticeLogic()
             logic.mount()
 
+            // Connected via connect(), so it mounts with projectNoticeLogic regardless of the date gate.
             expect(reverseProxyCheckerLogic.isMounted()).toBe(true)
             // Let the auto-triggered detection settle so no async work outlives the test.
             await expectLogic(reverseProxyCheckerLogic).toDispatchActions(['loadHasReverseProxySuccess'])
 
             logic.unmount()
             expect(reverseProxyCheckerLogic.isMounted()).toBe(false)
-        })
-
-        it.each([
-            { label: 'day of month is > 7', dayOfMonth: 15, dismissed: false },
-            { label: 'notice is dismissed', dayOfMonth: 3, dismissed: true },
-        ])('does not mount the proxy checker when $label', async ({ dayOfMonth, dismissed }) => {
-            getDateSpy.mockReturnValue(dayOfMonth)
-            getItemSpy.mockImplementation((key: string) => (dismissed && key === DISMISS_KEY ? 'true' : null))
-
-            const logic = projectNoticeLogic()
-            logic.mount()
-
-            expect(reverseProxyCheckerLogic.isMounted()).toBe(false)
-
-            logic.unmount()
         })
     })
 

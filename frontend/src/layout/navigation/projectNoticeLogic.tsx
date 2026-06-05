@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -117,7 +117,19 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
     path(['layout', 'navigation', 'projectNoticeLogic']),
     connect(() => ({
         logic: [verifyEmailLogic],
-        values: [membersLogic, ['memberCount'], organizationLogic, ['currentOrganizationId']],
+        values: [
+            membersLogic,
+            ['memberCount'],
+            organizationLogic,
+            ['currentOrganizationId'],
+            // Connecting reverseProxyCheckerLogic mounts it and exposes hasReverseProxy reactively.
+            // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does stamp
+            // $lib_custom_api_host on events, which the checker detects — this keeps the "set up a
+            // reverse proxy" nudge from contradicting the onboarding checklist, which marks the task
+            // complete on the same signal. The checker throttles its own detection query internally.
+            reverseProxyCheckerLogic,
+            ['hasReverseProxy'],
+        ],
         actions: [
             eventUsageLogic,
             ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
@@ -174,12 +186,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 s.noticeDismissedThisSession,
                 sceneLogic.selectors.activeSceneId,
                 (state) => liveEventsLogic.findMounted()?.selectors.eventCount(state) ?? 0,
-                // A self-managed (DIY) reverse proxy never appears in proxy_records, but it does
-                // stamp $lib_custom_api_host on events — reverseProxyCheckerLogic detects that.
-                // Reading it here keeps the "set up a reverse proxy" nudge from contradicting the
-                // onboarding checklist, which already marks the task complete on the same signal.
                 // null = not yet checked; we only nudge once detection confirms there's no proxy.
-                (state) => reverseProxyCheckerLogic.findMounted()?.selectors.hasReverseProxy(state) ?? null,
+                s.hasReverseProxy,
             ],
             (
                 organization,
@@ -461,15 +469,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
+    afterMount(({ actions }) => {
         if (shouldFetchProxyRecords()) {
             actions.loadRecords()
-            // Mount the DIY-proxy checker only inside the same nudge window so we don't run its
-            // HogQL query on every session. Its afterMount kicks off the detection query.
-            cache.unmountReverseProxyChecker = reverseProxyCheckerLogic.mount()
         }
-    }),
-    beforeUnmount(({ cache }) => {
-        cache.unmountReverseProxyChecker?.()
     }),
 ])
