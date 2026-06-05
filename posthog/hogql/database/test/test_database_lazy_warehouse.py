@@ -134,6 +134,21 @@ class TestLazyWarehouseEquivalence(BaseTest):
         self.assertEqual(sorted(eager.get_view_names()), sorted(lazy.get_view_names()))
         self.assertEqual(sorted(eager.get_all_table_names()), sorted(lazy.get_all_table_names()))
 
+    def test_serialized_schema_matches(self) -> None:
+        # serialize() backs the SQL editor schema sidebar / autocomplete and force-materializes stubs.
+        eager_db, lazy_db = self._build(lazy=False), self._build(lazy=True)
+        eager_context = HogQLContext(team_id=self.team.pk, database=eager_db)
+        lazy_context = HogQLContext(team_id=self.team.pk, database=lazy_db)
+        eager_schema = eager_db.serialize(eager_context)
+        lazy_schema = lazy_db.serialize(lazy_context)
+        self.assertEqual(sorted(eager_schema.keys()), sorted(lazy_schema.keys()))
+        for name in eager_schema:
+            self.assertEqual(
+                sorted(eager_schema[name].fields),
+                sorted(lazy_schema[name].fields),
+                f"serialized fields diverged for {name}",
+            )
+
     def test_select_star_matches(self) -> None:
         for table in ["postgres.users", "postgres.orders", "postgres.line_items", "local_table", "my_view"]:
             self._assert_same_sql(f"SELECT * FROM {table}")
