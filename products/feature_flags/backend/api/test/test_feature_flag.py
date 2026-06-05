@@ -13594,7 +13594,7 @@ class TestFeatureFlagVersions(APIBaseTest):
 
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @patch("products.feature_flags.backend.api.feature_flag._resolve_person_for_test_evaluation")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_happy_path(self, mock_get_person, mock_get_flags):
         """Test successful evaluation of a feature flag."""
@@ -13651,7 +13651,7 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(mock_get_flags.call_args.kwargs["distinct_id"], "test-user")
 
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
-    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @patch("products.feature_flags.backend.api.feature_flag._resolve_person_for_test_evaluation")
     @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
     def test_test_evaluation_with_person_id_uses_smallest_distinct_id(self, mock_get_person, mock_get_flags):
         """When the caller passes person_id (no distinct_id), bucketing must

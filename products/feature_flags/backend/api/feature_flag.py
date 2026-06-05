@@ -58,17 +58,15 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads_protected,
 )
-from posthog.models import Team
+from posthog.models import Person, Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.util import get_all_cohort_dependencies
-from posthog.models.person.point_in_time_properties import (
-    build_person_properties_at_time,
-    get_person_and_distinct_ids_for_identifier,
-)
+from posthog.models.person.point_in_time_properties import build_person_properties_at_time
+from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.permissions import ProjectSecretAPITokenPermission
@@ -472,6 +470,32 @@ def _filter_person_properties_for_flag(
             referenced_keys.add(override["key"])
 
     return {key: value for key, value in person_properties.items() if key in referenced_keys}
+
+
+def _resolve_person_for_test_evaluation(
+    team_id: int, distinct_id: str | None, person_id: str | None
+) -> tuple[Optional[Person], list[str]]:
+    """Resolve the person under test plus all their distinct_ids for the flag-testing endpoint.
+
+    Unlike the generic ``get_person_and_distinct_ids_for_identifier`` helper, the
+    distinct_id branch here goes through ``get_persons_by_distinct_ids``, which
+    constrains ``team_id`` on the ``posthog_persondistinctid`` join so Postgres can
+    seek the unique ``(team_id, distinct_id)`` index directly. The generic helper's
+    ``get_person_by_distinct_id`` leaves ``team_id`` unbound on that join (and adds
+    an ``ORDER BY id LIMIT 1``), which degrades to a table scan and times out for
+    large teams. The serializer guarantees exactly one of distinct_id / person_id.
+    """
+    if distinct_id:
+        persons = get_persons_by_distinct_ids(team_id, [distinct_id])
+        person = persons[0] if persons else None
+    else:
+        assert person_id is not None
+        person = get_person_by_uuid(team_id, person_id)
+
+    if person is None:
+        return None, []
+
+    return person, person.distinct_ids
 
 
 def check_flag_limits_for_team(
@@ -3848,7 +3872,7 @@ class FeatureFlagViewSet(
 
         # Resolve person and distinct_ids
         try:
-            person, distinct_ids = get_person_and_distinct_ids_for_identifier(
+            person, distinct_ids = _resolve_person_for_test_evaluation(
                 team_id=self.team_id, distinct_id=distinct_id, person_id=person_id
             )
         except ValueError as e:
