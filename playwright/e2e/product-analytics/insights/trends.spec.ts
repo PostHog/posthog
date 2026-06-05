@@ -340,6 +340,10 @@ test.describe('Trends insights', () => {
 
         await test.step('switch insight type to Funnels and back, then discard', async () => {
             await insight.edit()
+            // Wait for the insight to settle in edit mode before switching tabs.
+            // The active tab is derived from the query, so a late post-save reload
+            // can clobber the tab click and revert it to Trends if we click too soon.
+            await insight.trends.waitForChart()
             await page.locator('[data-attr="insight-funnels-tab"]').click()
             await expect(insight.activeTab).toContainText('Funnels')
             await page.locator('[data-attr="insight-trends-tab"]').click()
