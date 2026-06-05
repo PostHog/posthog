@@ -330,9 +330,9 @@ class Person(models.Model):
                     distinct_ids_to_process.append(did)
         else:
             if not main_distinct_id:
-                Person.objects.filter(team_id=self.team_id, pk=self.pk).update(
+                Person.objects.filter(team_id=self.team_id, pk=self.pk).update(  # nosemgrep: no-direct-persons-db-orm
                     properties={}
-                )  # nosemgrep: no-direct-persons-db-orm
+                )
                 main_distinct_id = distinct_ids[0]
 
             if max_splits is not None and len(distinct_ids) > max_splits:
