@@ -218,7 +218,10 @@ def prepare_ast_for_printing(
         # PropertyType Field with JSONFieldAccess, then the physical passes substitute materialized-column / skip-index
         # forms. Off => the printer still resolves properties to physical columns (exact master behavior). On => the
         # output is RESULT-equivalent (text churns for materialized/optimized cases — §8.7), gated for shadow rollout.
-        if context.lower_property_access:
+        # within_non_hogql_query stays entirely on the printer path — it needs unqualified column references the lowered
+        # synthetic fields can't produce (§8.4). lower_property_access already no-ops for it (so the physical passes
+        # would find no JSONFieldAccess and be inert), but skip the whole block explicitly.
+        if context.lower_property_access and not context.within_non_hogql_query:
             with context.timings.measure("lower_property_access"):
                 node = lower_property_access(node, context)
             with context.timings.measure("clickhouse_physical_passes"):
