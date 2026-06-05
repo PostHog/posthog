@@ -116,6 +116,13 @@ class TestAshbySource:
         self.source.validate_credentials(self.config, self.team_id)
         mock_check.assert_called_once_with("ashby-key", "department.list")
 
+    @mock.patch("posthog.temporal.data_imports.sources.ashby.source.check_access")
+    def test_validate_credentials_rejects_unknown_schema_without_probing(self, mock_check: mock.MagicMock) -> None:
+        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name="not_a_table")
+        assert is_valid is False
+        assert message == "Unknown Ashby schema 'not_a_table'"
+        mock_check.assert_not_called()
+
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(mock.MagicMock())
         assert isinstance(manager, ResumableSourceManager)

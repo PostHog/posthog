@@ -89,7 +89,10 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
     def validate_credentials(
         self, config: AshbySourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        path = ASHBY_ENDPOINTS[schema_name].path if schema_name in ASHBY_ENDPOINTS else DEFAULT_PROBE_PATH
+        if schema_name is not None and schema_name not in ASHBY_ENDPOINTS:
+            return False, f"Unknown Ashby schema '{schema_name}'"
+
+        path = ASHBY_ENDPOINTS[schema_name].path if schema_name is not None else DEFAULT_PROBE_PATH
         status, message = check_access(config.api_key, path)
 
         if status == 200:
