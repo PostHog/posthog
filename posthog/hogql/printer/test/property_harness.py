@@ -1,8 +1,9 @@
 """Shared compile/normalize helpers for the property characterization net.
 
-Both the golden harness (``test_property_golden.py``) and the reachability oracle compile corpus cases the same way:
-parse the HogQL, build a per-dialect context, run the full ``prepare_ast_for_printing`` pipeline, print. Factoring it
-here keeps the two consumers from drifting (and keeps a single place to evolve when the pipeline changes).
+The golden harness (``test_property_golden.py``), the logical-lowering tests, and the differential shadow-compare all
+compile corpus cases the same way: parse the HogQL, build a per-dialect context, run the full ``prepare_ast_for_printing``
+pipeline, print. Factoring it here keeps the consumers from drifting (and keeps a single place to evolve when the
+pipeline changes).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ def compile_case(
     """Run the full prepare-and-print pipeline for one corpus case and dialect.
 
     Returns ``(printed_sql, prepared_ast)``. The prepared AST is the post-pipeline tree (what the printer saw), exposed
-    so callers — the oracle in particular — can assert structural facts about it, not just the rendered string.
+    so callers — the lowering tests in particular — can assert structural facts about it, not just the rendered string.
     ``lower_property_access`` toggles the strangler gate for the logical-lowering pass (§12.8); off => master behavior.
     """
     node = parse_select(sql)
