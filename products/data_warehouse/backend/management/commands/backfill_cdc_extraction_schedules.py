@@ -68,12 +68,17 @@ class Command(BaseCommand):
         source_type_filter: str | None = options["source_type"]
         team_id_filter: int | None = options["team_id"]
 
+        # Excluding `source__deleted=True` guards against deleted sources whose schemas were
+        # left non-deleted: `ExternalDataSource.soft_delete()` tears down the CDC schedule but
+        # does not cascade to schemas, so a fleet-wide sweep keyed only on schema state could
+        # otherwise resurrect the schedule for a deleted source. Mirrors `sync_cdc_extraction_schedule`.
         schema_qs = (
             ExternalDataSchema.objects.filter(
                 sync_type=ExternalDataSchema.SyncType.CDC,
                 should_sync=True,
             )
             .exclude(deleted=True)
+            .exclude(source__deleted=True)
             .exclude(source__access_method=ExternalDataSource.AccessMethod.DIRECT)
             .select_related("source")
         )

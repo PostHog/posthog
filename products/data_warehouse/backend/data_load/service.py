@@ -470,12 +470,17 @@ def sync_cdc_extraction_schedule(source: ExternalDataSource, create: bool = Fals
     """
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
+    # `source__deleted=True` is excluded so a deleted source (whose schemas may have been
+    # left non-deleted by `soft_delete`) collapses to the "no active CDC schemas" branch below
+    # and deletes its schedule rather than re-creating it.
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
             source=source,
             sync_type=ExternalDataSchema.SyncType.CDC,
             should_sync=True,
-        ).exclude(deleted=True)
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
     )
 
     schedule_id = _get_cdc_extraction_schedule_id(str(source.id))

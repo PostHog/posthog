@@ -22,6 +22,7 @@ def _create_source(
     team,
     source_type: str = "Postgres",
     access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
+    deleted: bool = False,
 ) -> ExternalDataSource:
     return ExternalDataSource.objects.create(
         team=team,
@@ -32,6 +33,7 @@ def _create_source(
         status="Completed",
         access_method=access_method,
         job_inputs={},
+        deleted=deleted,
     )
 
 
@@ -111,6 +113,19 @@ class TestBackfillCdcExtractionSchedules:
         source = _create_source(team)
         _create_schema(source, should_sync=False)
         _create_schema(source, deleted=True)
+
+        with patch(BULK_HELPER_PATH, return_value=[]) as mock_bulk:
+            out = StringIO()
+            call_command("backfill_cdc_extraction_schedules", "--live-run", stdout=out)
+
+        assert mock_bulk.call_args.args[0] == []
+        assert "Found 0 CDC sources" in out.getvalue()
+
+    def test_skips_deleted_sources(self, team):
+        # A soft-deleted source whose CDC schema was left non-deleted must not have its
+        # schedule resurrected by the fleet-wide backfill.
+        source = _create_source(team, deleted=True)
+        _create_schema(source)
 
         with patch(BULK_HELPER_PATH, return_value=[]) as mock_bulk:
             out = StringIO()
