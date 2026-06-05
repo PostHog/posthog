@@ -444,7 +444,7 @@ class GranolaSourceConfig(config.Config):
 
 @config.config
 class GreenhouseSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
