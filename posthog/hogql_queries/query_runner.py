@@ -111,7 +111,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
-from posthog.rbac.user_access_control import UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -2200,13 +2200,53 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user)
+        # Build the UserAccessControl here and pass it to create_for so schema filtering and
+        # the cache fingerprint share one instance
+        user_access_control = UserAccessControl(user=user, team=self.team) if user is not None else None
+        self.database = Database.create_for(team=self.team, user=user, user_access_control=user_access_control)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:
         if self.hogql_context.user is self.user:
             return
         self._build_hogql_context_for_user(self.user)
+
+    def get_cache_payload(self) -> dict:
+        payload = super().get_cache_payload()
+
+        # Object and resource-level access control change which tables/rows are visible in the
+        # filtered HogQL schema, so they must partition the cache too. Both reuse the instance
+        # already preloaded on the database (shared with schema filtering)
+        restricted_objects = self._get_object_access_restrictions()
+        if restricted_objects:
+            payload["restricted_objects"] = restricted_objects
+
+        restricted_resources = self._get_resource_access_restrictions()
+        if restricted_resources:
+            payload["restricted_resources"] = restricted_resources
+
+        return payload
+
+    def _get_object_access_restrictions(self) -> dict[str, list[str]] | None:
+        """Per-resource object IDs the user is denied, as a deterministic JSON-serializable map.
+        None for admins / no restrictions."""
+        user_access_control = self.database.user_access_control
+        if user_access_control is None:
+            return None
+        blocked = user_access_control.blocked_resource_ids_by_scope
+        if not blocked:
+            return None
+        return {resource: sorted(ids) for resource, ids in sorted(blocked.items())}
+
+    def _get_resource_access_restrictions(self) -> list[str] | None:
+        """Sorted list of resources the user has no access to at the resource level. Reuses
+        UserAccessControl.blocked_resources, built on the same predicate that drives schema
+        filtering in Database._filter_system_tables_for_user, so the cache key matches the exposed
+        schema."""
+        user_access_control = self.database.user_access_control
+        if user_access_control is None:
+            return None
+        return user_access_control.blocked_resources or None
 
 
 ### START OF BACKWARDS COMPATIBILITY CODE

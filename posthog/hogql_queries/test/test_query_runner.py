@@ -40,16 +40,24 @@ from posthog.schema import (
 from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
     ExecutionMode,
     QueryRunner,
+    QueryRunnerWithHogQLContext,
     get_query_runner,
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.rbac.user_access_control import UserAccessControlError
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 from posthog.slo.types import SloOutcome
 
 from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
@@ -1213,3 +1221,95 @@ class TestSharedInsightsExecutionMode(BaseTest):
         last_refresh = None if last_refresh_offset is None else datetime.now(UTC) - last_refresh_offset
         result = shared_insights_execution_mode(execution_mode, last_refresh=last_refresh)
         self.assertEqual(result, expected_mode)
+
+
+@pytest.mark.ee
+class TestQueryRunnerAccessControlFingerprint(BaseTest):
+    """The HogQL cache key must partition on object- and resource-level access control, otherwise
+    two users with different visibility could share a cached (filtered) result."""
+
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        # Object/resource AC only applies to non-admins.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def _runner(self, user):
+        class _CtxRunner(QueryRunnerWithHogQLContext):
+            query: TheTestQuery
+            cached_response: TheTestCachedBasicQueryResponse
+
+            def _calculate(self):
+                return TheTestBasicQueryResponse(results=[])
+
+            def _refresh_frequency(self) -> timedelta:
+                return timedelta(minutes=4)
+
+            def _is_stale(self, last_refresh, lazy: bool = False, *args, **kwargs) -> bool:
+                return False
+
+        _CtxRunner.__abstractmethods__ = frozenset()
+        return _CtxRunner(query={"some_attr": "bla"}, team=self.team, user=user)
+
+    def _ac(self, resource, resource_id=None, access_level="none", organization_member=None):
+        ac, _ = AccessControl.objects.get_or_create(
+            team=self.team, resource=resource, resource_id=resource_id, organization_member=organization_member
+        )
+        ac.access_level = access_level
+        ac.save()
+        return ac
+
+    def test_resource_grant_changes_cache_key(self):
+        self._ac(resource="notebook", access_level="none")
+        key_denied = self._runner(self.user).get_cache_key()
+
+        self._ac(resource="notebook", access_level="editor")
+        key_granted = self._runner(self.user).get_cache_key()
+
+        assert key_denied != key_granted
+
+    def test_object_grant_changes_cache_key(self):
+        from products.notebooks.backend.models import Notebook
+
+        # Resource-level access granted so we isolate the object-level effect.
+        self._ac(resource="notebook", access_level="editor")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, title="N")
+
+        blocking_ac = self._ac(
+            resource="notebook",
+            resource_id=str(notebook.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        runner = self._runner(self.user)
+        assert "restricted_objects" in runner.get_cache_payload()
+        key_blocked = runner.get_cache_key()
+
+        blocking_ac.delete()
+        key_unblocked = self._runner(self.user).get_cache_key()
+
+        assert key_blocked != key_unblocked
+
+    def test_admin_and_no_user_produce_no_restriction_keys(self):
+        self._ac(resource="notebook", access_level="none")
+
+        # Org admin bypasses object/resource AC.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        admin_payload = self._runner(self.user).get_cache_payload()
+        assert "restricted_objects" not in admin_payload
+        assert "restricted_resources" not in admin_payload
+
+        # No user -> no UserAccessControl on the database.
+        no_user_payload = self._runner(None).get_cache_payload()
+        assert "restricted_objects" not in no_user_payload
+        assert "restricted_resources" not in no_user_payload

@@ -594,13 +594,14 @@ class Database(BaseModel):
 
     def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
         """Remove system tables user doesn't have resource access to."""
-        from posthog.models import OrganizationMembership
-        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+        from posthog.rbac.user_access_control import UserAccessControl
 
-        self.user_access_control = UserAccessControl(user=user, team=team)
+        # Reuse the UserAccessControl instance (shared with the cache fingerprint)
+        # so the preload happens once; only build a fresh UserAccessControl if none was supplied.
+        if self.user_access_control is None:
+            self.user_access_control = UserAccessControl(user=user, team=team)
 
-        org_membership = self.user_access_control._organization_membership
-        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+        if self.user_access_control.is_organization_admin:
             return
 
         system_node = self.tables.children.get("system")
@@ -613,8 +614,7 @@ class Database(BaseModel):
             if not isinstance(table, PostgresTable) or table.access_scope is None:
                 continue  # Not access-controlled, keep it
 
-            access_level = self.user_access_control.access_level_for_resource(table.access_scope)
-            if access_level and access_level != NO_ACCESS_LEVEL:
+            if self.user_access_control.has_resource_access(table.access_scope):
                 continue  # User has access, keep it
 
             # No access - remove from schema
@@ -879,6 +879,7 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
+        user_access_control: Optional["UserAccessControl"] = None,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -946,6 +947,11 @@ class Database(BaseModel):
                 )
                 if direct_source is not None:
                     database._direct_connection_metadata = direct_source.connection_metadata
+
+        # Share the UserAccessControl so schema filtering and query cache fingerprint
+        # resolve access against one preloaded instance
+        if user_access_control is not None:
+            database.user_access_control = user_access_control
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             if team is not None:

@@ -1860,3 +1860,102 @@ class TestAccessControlMissingEE(BaseTest):
         qs = FileSystem.objects.filter(team=self.team)
         result = self.uac.filter_and_annotate_file_system_queryset(qs)
         assert list(result) == list(qs)
+
+
+@pytest.mark.ee
+class TestUnifiedAccessControlPreload(BaseUserAccessControlTest):
+    """The single bulk preload (_cached_access_controls) backing every team-scoped resolver."""
+
+    def setUp(self):
+        super().setUp()
+        from products.notebooks.backend.models import Notebook
+
+        self.notebook_1 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 1")
+        self.notebook_2 = Notebook.objects.create(team=self.team, created_by=self.other_user, title="Notebook 2")
+        self.dashboard = Dashboard.objects.create(team=self.team, created_by=self.other_user)
+
+        # A spread of row shapes: resource-level default, object default, object member, object role, project.
+        self._create_access_control(resource="notebook", access_level="none")
+        self._create_access_control(resource="notebook", resource_id=str(self.notebook_1.id), access_level="none")
+        self._create_access_control(
+            resource="notebook",
+            resource_id=str(self.notebook_2.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        self._create_access_control(
+            resource="dashboard", resource_id=str(self.dashboard.id), access_level="viewer", role=self.role_a
+        )
+        self._create_access_control(resource="project", resource_id=str(self.team.id), access_level="admin")
+        self._clear_uac_caches()
+
+    def _fresh_uac(self) -> UserAccessControl:
+        return UserAccessControl(self.user, self.team)
+
+    def test_preload_is_superset_and_matches_targeted_queries(self):
+        uac = self._fresh_uac()
+        bulk_ids = {ac.id for ac in uac._cached_access_controls}
+
+        filter_groups = [
+            {"team_id": self.team.id, "resource": "notebook", "resource_id": None},
+            {"team_id": self.team.id, "resource": "notebook", "resource_id": str(self.notebook_1.id)},
+            {"team_id": self.team.id, "resource": "notebook", "resource_id": str(self.notebook_2.id)},
+            {"team_id": self.team.id, "resource": "dashboard", "resource_id": str(self.dashboard.id)},
+            {"team_id": self.team.id, "resource": "project", "resource_id": str(self.team.id)},
+            {"team_id": self.team.id, "resource": "notebook", "resource_id__isnull": True},
+            {"team_id": self.team.id, "resource": "notebook", "resource_id__isnull": False},
+        ]
+        for filters in filter_groups:
+            targeted_db = {ac.id for ac in AccessControl.objects.filter(uac._filter_options(filters))}
+            served = {ac.id for ac in uac._get_access_controls(filters)}
+            # Preload covers every targeted query, and serving from it equals the DB result.
+            assert targeted_db <= bulk_ids, filters
+            assert served == targeted_db, filters
+
+    def test_team_scoped_resolvers_share_single_query(self):
+        from products.notebooks.backend.models import Notebook
+
+        uac = self._fresh_uac()
+        # Warm the membership / role caches so we isolate the access-control fetch.
+        assert uac.is_organization_admin is False
+        assert uac.rbac_supported is True
+        _ = uac._user_role_ids
+
+        # A single bulk access-control fetch backs every team-scoped resolver. The queryset is
+        # left lazy on purpose so its own SELECT doesn't count against the AC query budget.
+        with self.assertNumQueries(1):
+            uac.access_level_for_resource("notebook")
+            uac.access_level_for_resource("dashboard")
+            uac.access_level_for_object(self.notebook_1)
+            uac.filter_queryset_by_access_level(Notebook.objects.all())
+
+    def test_can_serve_from_preload_guard(self):
+        uac = self._fresh_uac()
+        assert uac._can_serve_from_preload({"team_id": self.team.id, "resource": "notebook"}) is True
+        assert (
+            uac._can_serve_from_preload({"team__organization_id": str(self.organization.id), "resource": "plugin"})
+            is False
+        )
+        # Project queryset filter is org-scoped (no team_id) -> falls through to a targeted query.
+        assert uac._can_serve_from_preload({"resource": "project", "resource_id__isnull": False}) is False
+
+    def test_blocked_resource_ids_by_scope_parity_with_filter_queryset(self):
+        from products.notebooks.backend.models import Notebook
+
+        uac = self._fresh_uac()
+        blocked = uac.blocked_resource_ids_by_scope
+
+        # notebook_1 (default none) and notebook_2 (explicit member none) are both denied.
+        assert blocked.get("notebook") == {str(self.notebook_1.id), str(self.notebook_2.id)}
+
+        # The same IDs the queryset filter removes for this (non-creator) user.
+        visible = set(uac.filter_queryset_by_access_level(Notebook.objects.all()).values_list("id", flat=True))
+        assert self.notebook_1.id not in visible
+        assert self.notebook_2.id not in visible
+
+    def test_blocked_resource_ids_by_scope_empty_for_org_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        uac = self._fresh_uac()
+        assert uac.blocked_resource_ids_by_scope == {}
+        assert uac.is_organization_admin is True
