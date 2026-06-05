@@ -26,9 +26,17 @@ from products.signals.backend.temporal.agentic.scout_scheduler import RunSignals
 
 logger = structlog.get_logger(__name__)
 
-# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag
-# picks which teams run scouts; per-scout SignalScoutConfig rows pick which scouts/schedules.
+# Team-level dogfood gate. The single team gate (no per-team model boolean): the flag's JSON
+# payload picks which teams run scouts; per-scout SignalScoutConfig rows pick which
+# scouts/schedules.
 SIGNALS_SCOUT_DOGFOOD_FLAG = "signals-scout"
+
+# Fixed distinct_id for the payload read — enrollment is team-list-in-payload, not per-user.
+SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID = "internal_signals_scout_team_discovery"
+
+# Fail-safe allowlist used when the flag payload is missing or invalid, so a botched payload
+# can never silently drop every team: 1 (local dev), 2 (internal), 148051 (dev project).
+DEFAULT_ENROLLED_TEAM_IDS: list[int] = [1, 2, 148051]
 
 # Hard cap on dispatches per tick. The cost bound: when more scouts are due than this,
 # we run the most-overdue first and the rest catch up next tick (a poor-man's queue).
@@ -181,55 +189,52 @@ def _collect_planned_runs() -> list[PlannedRun]:
 
 
 def _participating_teams() -> list[Team]:
-    """Canonical dogfood teams: those with a scout skill or config, gated by the flag.
+    """Teams to run scouts on — the `signals-scout` flag payload allowlist, canonicalized.
 
-    Bounded to teams that have opted into scouts (canonical fleet seeded or a user-authored
-    `signals-scout-*` skill) so the flag isn't evaluated against every team.
+    Enrollment is flag-driven: a team runs scouts iff its id is enrolled via the flag payload
+    (see `_enrolled_team_ids`). Adding an id in the flag UI enrolls the team on the next tick
+    with no manual seed — the tick body seeds canonical skills + registers configs for it;
+    removing it (or listing it in `skip_team_ids`) drains it the next tick. Child envs
+    canonicalize to their parent project so the per-project singleton config is found once.
     """
-    team_ids = set(
-        LLMSkill.objects.filter(
-            name__startswith=SIGNALS_SCOUT_SKILL_PREFIX,
-            is_latest=True,
-            deleted=False,
-        )
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
-    team_ids |= set(SignalScoutConfig.all_teams.values_list("team_id", flat=True).distinct())
-    candidates = Team.objects.filter(id__in=team_ids)
+    enrolled = _enrolled_team_ids()
+    if not enrolled:
+        return []
+    candidates = Team.objects.filter(id__in=enrolled)
     canonical_ids = {team.parent_team_id or team.id for team in candidates}
-    canonical_teams = Team.objects.filter(id__in=canonical_ids).order_by("id")
-    return [team for team in canonical_teams if _team_passes_rollout_flag(team)]
+    return list(Team.objects.filter(id__in=canonical_ids).order_by("id"))
 
 
-def _team_passes_rollout_flag(team: Team) -> bool:
-    """Whether the `signals-scout` dogfood flag is on for this team.
+def _enrolled_team_ids() -> set[int]:
+    """Project ids enrolled in scouts, read from the `signals-scout` flag's JSON payload.
 
-    Passes organization + project group context — mirroring the inbox gate in
-    `backend/access.py` and the house pattern in `posthog/permissions.py` — so the flag is
-    targetable per project/org from the PostHog UI. A group-aggregated release condition only
-    matches when its group is supplied here, so without this the flag could only ever be a
-    blanket rollout %. Remote eval; fails closed (eval error → team dropped).
+    Flag-driven enrollment, no deploy: edit `guaranteed_team_ids` in the flag UI to enroll (or
+    drain) a team on the next tick; `skip_team_ids` is an override kill-switch. `match_value=True`
+    asks for the flag's true-variant payload, so the team list lives in the payload rather than
+    the release conditions. Fail-safe: a missing/invalid payload or a read error falls back to
+    `DEFAULT_ENROLLED_TEAM_IDS`. Mirrors `posthog/temporal/ai_observability/team_discovery.py`.
     """
-    org_id = str(team.organization_id)
-    project_id = str(team.id)
     try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                SIGNALS_SCOUT_DOGFOOD_FLAG,
-                project_id,
-                groups={"organization": org_id, "project": project_id},
-                group_properties={
-                    "organization": {"id": org_id},
-                    "project": {"id": project_id},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
+        payload = posthoganalytics.get_feature_flag_payload(
+            SIGNALS_SCOUT_DOGFOOD_FLAG, SIGNALS_SCOUT_DISCOVERY_DISTINCT_ID, match_value=True
         )
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            return set(DEFAULT_ENROLLED_TEAM_IDS)
+
+        guaranteed = payload.get("guaranteed_team_ids", DEFAULT_ENROLLED_TEAM_IDS)
+        if not isinstance(guaranteed, list) or not all(isinstance(t, int) for t in guaranteed):
+            guaranteed = DEFAULT_ENROLLED_TEAM_IDS
+
+        skip = payload.get("skip_team_ids", [])
+        if not isinstance(skip, list) or not all(isinstance(t, int) for t in skip):
+            skip = []
+
+        return set(guaranteed) - set(skip)
     except Exception as error:
         capture_exception(error)
-        return False
+        return set(DEFAULT_ENROLLED_TEAM_IDS)
 
 
 def _register_missing_configs(team: Team) -> set[str]:
