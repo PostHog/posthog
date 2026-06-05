@@ -391,4 +391,65 @@ describe('LazyLoader', () => {
             // Just verify we have exactly 2 entries
         })
     })
+
+    describe('loaderRetry', () => {
+        const retriable = (message: string) => Object.assign(new Error(message), { isRetriable: true })
+
+        const makeRetryLoader = () => {
+            const retryLoader = jest.fn()
+            return {
+                retryLoader,
+                retryLazyLoader: new LazyLoader<string>({
+                    name: 'test-retry',
+                    loader: retryLoader,
+                    loaderRetry: { retryIntervalMs: 1, retryJitterMs: 0, maxElapsedMs: 1000 },
+                }),
+            }
+        }
+
+        it('retries a retriable loader failure and then succeeds', async () => {
+            const { retryLoader, retryLazyLoader } = makeRetryLoader()
+            retryLoader.mockRejectedValueOnce(retriable('blip'))
+            retryLoader.mockResolvedValueOnce({ key1: 'value1' })
+
+            const result = await retryLazyLoader.get('key1')
+
+            expect(result).toBe('value1')
+            expect(retryLoader).toHaveBeenCalledTimes(2)
+            // Re-invoked with the keys on every attempt (re-evaluated fresh at retry time)
+            expect(retryLoader).toHaveBeenNthCalledWith(1, ['key1'])
+            expect(retryLoader).toHaveBeenNthCalledWith(2, ['key1'])
+        })
+
+        it('does not retry a non-retriable loader failure', async () => {
+            const { retryLoader, retryLazyLoader } = makeRetryLoader()
+            retryLoader.mockRejectedValue(new Error('boom'))
+
+            await expect(retryLazyLoader.get('key1')).rejects.toThrow('boom')
+            expect(retryLoader).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up and rethrows once maxElapsedMs is exceeded', async () => {
+            let now = start
+            jest.spyOn(Date, 'now').mockImplementation(() => now)
+
+            const { retryLoader, retryLazyLoader } = makeRetryLoader()
+            // Each attempt advances the clock by 600ms; the 1000ms budget allows only one retry.
+            retryLoader.mockImplementation(() => {
+                now += 600
+                return Promise.reject(retriable('blip'))
+            })
+
+            await expect(retryLazyLoader.get('key1')).rejects.toThrow('blip')
+            expect(retryLoader).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not retry when no loaderRetry is configured', async () => {
+            const noRetryLoader = jest.fn().mockRejectedValue(retriable('blip'))
+            const noRetryLazyLoader = new LazyLoader<string>({ name: 'test-no-retry', loader: noRetryLoader })
+
+            await expect(noRetryLazyLoader.get('key1')).rejects.toThrow('blip')
+            expect(noRetryLoader).toHaveBeenCalledTimes(1)
+        })
+    })
 })
