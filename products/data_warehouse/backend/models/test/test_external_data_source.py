@@ -1,8 +1,12 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 CLEANUP_PATH = "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.cleanup_cdc_resources_on_deletion"
 
@@ -64,3 +68,54 @@ class TestExternalDataSourceSoftDelete(BaseTest):
         source.refresh_from_db()
         self.assertTrue(source.deleted)
         mock_cleanup.assert_called_once()
+
+    @patch(CLEANUP_PATH)
+    def test_soft_delete_cascades_to_tables_schemas_and_joins(self, _mock_cleanup):
+        source = self._create_source(source_type=ExternalDataSourceType.POSTGRES, job_inputs={"host": "localhost"})
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="k", access_secret="s")
+        table = DataWarehouseTable.objects.create(
+            name="pull_requests",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=source,
+            credential=credential,
+            url_pattern="s3://bucket/*",
+        )
+        schema = ExternalDataSchema.objects.create(name="pull_requests", team=self.team, source=source, table=table)
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="pull_requests",
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person",
+        )
+        # Control: an unrelated source's table/join must be untouched by the cascade.
+        other_source = self._create_source(source_type=ExternalDataSourceType.POSTGRES, job_inputs=None)
+        other_table = DataWarehouseTable.objects.create(
+            name="customers",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            external_data_source=other_source,
+            credential=credential,
+            url_pattern="s3://bucket/customers/*",
+        )
+        other_join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="customers",
+            source_table_key="id",
+            joining_table_name="persons",
+            joining_table_key="id",
+            field_name="person",
+        )
+
+        source.soft_delete()
+
+        for obj in (source, table, schema, join):
+            obj.refresh_from_db()
+            self.assertTrue(obj.deleted, f"{type(obj).__name__} should be soft-deleted")
+
+        other_table.refresh_from_db()
+        other_join.refresh_from_db()
+        self.assertFalse(other_table.deleted)
+        self.assertFalse(other_join.deleted)
