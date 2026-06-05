@@ -1,4 +1,4 @@
-import { afterAll, beforeAll } from 'vitest'
+import { afterAll, beforeAll, describe } from 'vitest'
 
 import { startCfHarness } from './harness/cf'
 import { loadIntegrationEnv, type IntegrationEnv, type IntegrationHarness } from './harness/types'
@@ -55,10 +55,20 @@ const harnessFor = (): ProtocolTestHarness => ({
     publicRoutes: false,
 })
 
-defineMcpProtocolTests('Cloudflare Workers (real stack)', harnessFor)
-defineResilienceTests('Cloudflare Workers (real stack)', harnessFor)
-defineUiAppProtocolTests('Cloudflare Workers (real stack)', harnessFor)
+// The worker now proxies all `/mcp` traffic to the Hono runtime instead of
+// serving it locally via the durable object, so these serving suites no longer
+// exercise the worker. The same protocol behavior is covered against the
+// runtime that actually serves it in `mcp-protocol.hono.integration.test.ts`.
+// Skipped (not removed) until the durable object itself is retired.
+describe.skip('Cloudflare Workers serving (now proxied to Hono)', () => {
+    defineMcpProtocolTests('Cloudflare Workers (real stack)', harnessFor)
+    defineResilienceTests('Cloudflare Workers (real stack)', harnessFor)
+    defineUiAppProtocolTests('Cloudflare Workers (real stack)', harnessFor)
+    defineResourceCatalogTests('Cloudflare Workers (real stack)', harnessFor)
+    defineToolBehaviorTests('Cloudflare Workers (real stack)', harnessFor)
+    defineCatalogFilterTests('Cloudflare Workers (real stack)', harnessFor)
+})
+
+// The worker still enforces the bearer-token boundary before any proxying, so
+// these 401 assertions remain valid against the real worker.
 defineAuthTests('Cloudflare Workers (real stack)', harnessFor)
-defineResourceCatalogTests('Cloudflare Workers (real stack)', harnessFor)
-defineToolBehaviorTests('Cloudflare Workers (real stack)', harnessFor)
-defineCatalogFilterTests('Cloudflare Workers (real stack)', harnessFor)
