@@ -687,6 +687,22 @@ class InsightSerializer(InsightBasicSerializer):
         # update corrects this for older records.
         validated_data.setdefault("saved", True)
 
+        # Preserve visualization settings on partial query updates. Callers that
+        # only intend to change the HogQL (notably the MCP `insight-update` tool
+        # before #54033 exposed display/chartSettings/tableSettings, and any
+        # caller still using the original shape) send `{kind, source}` and
+        # nothing else. DRF treats the whole `query` field as a single JSON
+        # value, so the missing visualization keys would silently wipe Big
+        # Number / chart / table configuration on every SQL edit. Fold the
+        # existing values back in whenever the incoming query omits them.
+        # @see https://github.com/PostHog/posthog/issues/54870
+        new_query = validated_data.get("query")
+        existing_query = instance.query
+        if isinstance(new_query, dict) and isinstance(existing_query, dict):
+            for visualization_key in ("display", "chartSettings", "tableSettings"):
+                if visualization_key not in new_query and visualization_key in existing_query:
+                    new_query[visualization_key] = existing_query[visualization_key]
+
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
