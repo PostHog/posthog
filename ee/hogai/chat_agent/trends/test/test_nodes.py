@@ -1,26 +1,13 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from parameterized import parameterized
-
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from posthog.schema import (
-    AggregationAxisFormat,
-    ArtifactContentType,
-    ArtifactSource,
-    AssistantTrendsFilter,
-    AssistantTrendsQuery,
-    HumanMessage,
-)
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTrendsQuery, HumanMessage
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.chat_agent.trends.nodes import (
-    TrendsGeneratorNode,
-    TrendsSchemaGeneratorOutput,
-    _strip_redundant_percentage_postfix,
-)
+from ee.hogai.chat_agent.trends.nodes import TrendsGeneratorNode, TrendsSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -65,50 +52,3 @@ class TestTrendsGeneratorNode(BaseTest):
             self.assertIsNone(new_state.intermediate_steps)
             self.assertIsNone(new_state.plan)
             self.assertIsNone(new_state.rag_context)
-
-
-class TestStripRedundantPercentagePostfix(BaseTest):
-    @parameterized.expand(
-        [
-            ("percentage", AggregationAxisFormat.PERCENTAGE, "%"),
-            ("percentage_scaled", AggregationAxisFormat.PERCENTAGE_SCALED, "%"),
-            ("percentage_with_whitespace", AggregationAxisFormat.PERCENTAGE, " % "),
-        ]
-    )
-    def test_strips_redundant_postfix(self, _name, axis_format, postfix):
-        query = AssistantTrendsQuery(
-            series=[],
-            trendsFilter=AssistantTrendsFilter(aggregationAxisFormat=axis_format, aggregationAxisPostfix=postfix),
-        )
-        _strip_redundant_percentage_postfix(query)
-        assert query.trendsFilter is not None
-        self.assertIsNone(query.trendsFilter.aggregationAxisPostfix)
-
-    @parameterized.expand(
-        [
-            ("numeric_keeps_percent_postfix", AggregationAxisFormat.NUMERIC, "%"),
-            ("percentage_keeps_unit_postfix", AggregationAxisFormat.PERCENTAGE, " clicks"),
-        ]
-    )
-    def test_keeps_legitimate_postfix(self, _name, axis_format, postfix):
-        query = AssistantTrendsQuery(
-            series=[],
-            trendsFilter=AssistantTrendsFilter(aggregationAxisFormat=axis_format, aggregationAxisPostfix=postfix),
-        )
-        _strip_redundant_percentage_postfix(query)
-        assert query.trendsFilter is not None
-        self.assertEqual(query.trendsFilter.aggregationAxisPostfix, postfix)
-
-    def test_handles_missing_trends_filter(self):
-        query = AssistantTrendsQuery(series=[])
-        _strip_redundant_percentage_postfix(query)  # should not raise
-        self.assertIsNone(query.trendsFilter)
-
-    def test_handles_missing_postfix(self):
-        query = AssistantTrendsQuery(
-            series=[],
-            trendsFilter=AssistantTrendsFilter(aggregationAxisFormat=AggregationAxisFormat.PERCENTAGE),
-        )
-        _strip_redundant_percentage_postfix(query)
-        assert query.trendsFilter is not None
-        self.assertIsNone(query.trendsFilter.aggregationAxisPostfix)
