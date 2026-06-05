@@ -499,9 +499,12 @@ describe('seriesBreakdownLogic', () => {
 
         const { seriesBreakdownData } = logic.values
         expect(seriesBreakdownData.seriesData).toHaveLength(50)
-        // Highest-total values are kept, lowest are dropped.
+        // Highest-total values are kept, lowest are dropped — including the exact
+        // cut-off (totals run 1..55, so the top 50 are Category 6..55).
         const keptNames = seriesBreakdownData.seriesData.map((series) => series.name)
         expect(keptNames).toContain('Category 55')
+        expect(keptNames).toContain('Category 6')
+        expect(keptNames).not.toContain('Category 5')
         expect(keptNames).not.toContain('Category 1')
         expect(seriesBreakdownData.warning).toContain('top 50')
         expect(seriesBreakdownData.warning).toContain('55')
