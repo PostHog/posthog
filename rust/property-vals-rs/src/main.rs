@@ -102,7 +102,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
-        true,
         config.intermediate_topic_encoding,
     )
     .await?;
@@ -116,7 +115,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
-        true,
         config.intermediate_topic_encoding,
     )
     .await?;
@@ -131,7 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         merger_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
-        config.emit_event_name,
         EnvelopeEncoding::None,
     )
     .await?;
@@ -153,14 +150,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let excluded_events = shared_config.excluded_property_keys.clone();
     let excluded_groups = shared_config.excluded_property_keys.clone();
     let length_caps = shared_config.length_caps;
-    let aggregate_by_event_name = shared_config.aggregate_by_event_name;
 
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
-        move |e: &Event| fan_out(e, &excluded_events, length_caps, aggregate_by_event_name),
+        move |e: &Event| fan_out(e, &excluded_events, length_caps),
         "events",
         ReductionConfig::default(),
     ));

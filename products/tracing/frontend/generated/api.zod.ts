@@ -102,6 +102,7 @@ export const TracingSpansAggregateCreateBody = /* @__PURE__ */ zod.object({
 export const tracingSpansQueryCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansQueryCreateBodyQueryOneLimitDefault = 100
 export const tracingSpansQueryCreateBodyQueryOneRootSpansDefault = true
+export const tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -186,6 +187,10 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
                 .default(tracingSpansQueryCreateBodyQueryOneRootSpansDefault)
                 .describe('Filter to root spans only. Defaults to true.'),
             prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
+            excludeAttributes: zod
+                .boolean()
+                .default(tracingSpansQueryCreateBodyQueryOneExcludeAttributesDefault)
+                .describe('Omit the per-span attributes map from results to keep payloads compact. Defaults to false.'),
         })
         .describe('The tracing spans query to execute.'),
 })
@@ -193,6 +198,7 @@ export const TracingSpansQueryCreateBody = /* @__PURE__ */ zod.object({
 export const tracingSpansSparklineCreateBodyQueryOneFilterGroupDefault = []
 export const tracingSpansSparklineCreateBodyQueryOneLimitDefault = 100
 export const tracingSpansSparklineCreateBodyQueryOneRootSpansDefault = true
+export const tracingSpansSparklineCreateBodyQueryOneExcludeAttributesDefault = false
 
 export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -277,9 +283,15 @@ export const TracingSpansSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .default(tracingSpansSparklineCreateBodyQueryOneRootSpansDefault)
                 .describe('Filter to root spans only. Defaults to true.'),
             prefetchSpans: zod.number().optional().describe('Number of child spans to prefetch per trace (1-100).'),
+            excludeAttributes: zod
+                .boolean()
+                .default(tracingSpansSparklineCreateBodyQueryOneExcludeAttributesDefault)
+                .describe('Omit the per-span attributes map from results to keep payloads compact. Defaults to false.'),
         })
         .describe('The tracing spans query to execute.'),
 })
+
+export const tracingSpansTraceCreateBodyExcludeAttributesDefault = false
 
 export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
     dateRange: zod
@@ -297,6 +309,10 @@ export const TracingSpansTraceCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Date range for the query. Defaults to last 24 hours.'),
+    excludeAttributes: zod
+        .boolean()
+        .default(tracingSpansTraceCreateBodyExcludeAttributesDefault)
+        .describe('Omit the per-span attributes map from results to keep payloads compact. Defaults to false.'),
 })
 
 export const tracingSpansTreeCreateBodyQueryOneCompareFilterOneCompareDefault = false

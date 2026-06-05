@@ -1566,8 +1566,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
         widgetTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.widget)],
         dashboardWidgetsEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS],
+            (s) => [s.featureFlags, s.tiles, s.placement],
+            (featureFlags, tiles, placement): boolean => {
+                // Shared dashboards don't receive team feature flags; render widget tiles when
+                // metadata is already present on the exported dashboard payload.
+                if (placement === DashboardPlacement.Public && tiles.some((tile) => !!tile.widget)) {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
+            },
         ],
         insightTiles: [
             (s) => [s.tiles],
@@ -2252,7 +2259,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
-            if (values.dashboardWidgetsEnabled) {
+            if (
+                values.dashboardWidgetsEnabled &&
+                values.placement !== DashboardPlacement.Export &&
+                values.placement !== DashboardPlacement.Public
+            ) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
                     actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
