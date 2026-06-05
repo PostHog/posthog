@@ -59,9 +59,13 @@ collect_ancestors "$mainrepo"
 ancestors+=("$HOME")
 
 # Effective profile = base + ancestor read-allows. Repo-keyed stable name so
-# repeated launches overwrite the same file (idempotent, no accumulation).
+# repeated launches reuse one file. Write a unique temp first and rename it in:
+# phrocs launches many services concurrently against this shared path, and a
+# half-written profile would make sandbox-exec fail open. mktemp needs the X's
+# trailing (BSD/macOS only substitutes a trailing run); the extension is moot.
 rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$(printf %s "$project" | /usr/bin/shasum -a256 | cut -c1-16).sb"
-{
+rendered_tmp="$(mktemp "${TMPDIR:-/tmp}/posthog-dev-sandbox.XXXXXX")" || run_unsandboxed
+if {
     cat "$base_profile"
     printf '(allow file-read*'
     printf ' (literal "%s")' "${ancestors[@]}"
@@ -71,7 +75,12 @@ rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$(printf %s "$project" | /usr/bin/
     if [[ "${SSH_AUTH_SOCK:-}" == /* ]]; then
         printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
     fi
-} >"$rendered" 2>/dev/null || run_unsandboxed
+} >"$rendered_tmp" 2>/dev/null && mv -f "$rendered_tmp" "$rendered"; then
+    : # rendered atomically; sandbox below uses "$rendered"
+else
+    rm -f "$rendered_tmp"
+    run_unsandboxed
+fi
 
 sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
 

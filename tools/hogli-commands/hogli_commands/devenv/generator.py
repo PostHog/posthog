@@ -401,6 +401,14 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         # Split into docker-gate segments (run unsandboxed) and the rest (sandboxed).
         # Collapse `\`-newline continuations first; splitting on && is safe here
         # because the generated commands keep branching inside if/;-blocks, not &&.
+        #
+        # Gates are matched anywhere in the chain and hoisted to the front, not kept
+        # in place: _add_startup_message and _add_uv_groups prepend echo/uv-sync
+        # preambles, so a gate is never the leading segment (a leading-run scan would
+        # wrongly sandbox it). Hoisting reorders segments, which is safe because the
+        # only gates (wait-for-docker, wait-for-postgres-tables) just block until
+        # infra is ready and are order-independent w.r.t. install/echo/server steps.
+        # A future order-sensitive gate would need interleaving instead of hoisting.
         normalized = re.sub(r"\\\n\s*", " ", shell)
         gates: list[str] = []
         rest: list[str] = []
