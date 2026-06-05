@@ -44,11 +44,14 @@ class TestLogicalPropertyLowering(BaseTest):
                 on, _ = compile_case(case.sql, dialect, self.team, case.modifiers, lower_property_access=True)
                 self.assertEqual(on, off, f"{case.name}/{dialect}: lowering changed output\n off: {off}\n on:  {on}")
 
-    def test_blob_properties_no_longer_reach_printer_for_warehouse_dialects(self) -> None:
+    def test_blob_properties_no_longer_reach_printer_when_lowering_enabled(self) -> None:
         # With lowering on, JSON-blob property reads are JSONFieldAccess before printing, so they never reach the
         # printer's property-decision code — the reachability oracle (the deletion gate) records nothing for them.
+        # ClickHouse is included now that its pipeline runs lowering + the physical passes (which handle the property
+        # via their own resolution, not the printer's instrumented entry points): the unmaterialized corpus declines
+        # to the blob JSONFieldAccess, so nothing reaches visit_property_type either.
         sql = "SELECT properties.foo, properties.a.b.c FROM events WHERE properties.bar = 'x'"
-        for dialect in ("postgres", "duckdb"):
+        for dialect in ("postgres", "duckdb", "clickhouse"):
             with printer_reachability_oracle() as collector:
                 compile_case(sql, dialect, self.team, lower_property_access=True)
             self.assertEqual(
