@@ -27,8 +27,6 @@ export const BUCKET_OPTIONS: BucketOption[] = [
     { label: '15 minutes', minutes: 15, bucketCount: 96 },
     { label: '30 minutes', minutes: 30, bucketCount: 96 },
     { label: '1 hour', minutes: 60, bucketCount: 168 },
-    { label: '1 day', minutes: 1440, bucketCount: 30 },
-    { label: '1 week', minutes: 10080, bucketCount: 12 },
 ]
 
 export const DEFAULT_BUCKET_OPTION: BucketOption = BUCKET_OPTIONS.find((o) => o.minutes === 60) ?? BUCKET_OPTIONS[0]
@@ -217,7 +215,9 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
 
     listeners(({ actions, values }) => ({
         loadConfigSuccess: ({ config }) => {
-            const bucket = config?.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+            const bucket = getBucketOption(
+                config?.project_rate_limit_bucket_size_minutes ?? DEFAULT_BUCKET_MINUTES
+            ).minutes
             if (config) {
                 actions.resetConfigForm({
                     project_rate_limit_value: config.project_rate_limit_value,

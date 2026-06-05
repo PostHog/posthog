@@ -179,7 +179,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             "MFA authentication is required": None,
             "invalid credentials": "Snowflake authentication failed. Please check your username, password, and account details.",
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
-            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. a narrower NUMBER widened
             # to a larger NUMBER/BIGINT) after the destination table was created with the
             # narrower type. Delta Lake can't widen an existing column in place, so retrying

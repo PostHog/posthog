@@ -48,7 +48,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     <IconSearch /> Session Attribution Explorer
                 </Link>
                 {showFocusMode && (
-                    <ButtonPrimitive menuItem onClick={openFocusModeModal}>
+                    <ButtonPrimitive menuItem onClick={() => openFocusModeModal()}>
                         <IconGear />
                         Focus mode settings...
                     </ButtonPrimitive>

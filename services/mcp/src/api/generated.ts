@@ -58,7 +58,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -87,6 +87,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -106,7 +110,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -391,6 +395,7 @@ export namespace Schemas {
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
+      pushDownPredicates?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
@@ -475,11 +480,15 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -504,8 +513,12 @@ export namespace Schemas {
       accountOwner?: string | number | null;
       allRolesUnassigned?: boolean | null;
       csm?: string | number | null;
+      /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
+      filterExpression?: string | null;
       kind?: 'AccountsQuery';
       limit?: number | null;
+      /** Aggregation expressions evaluated against the filtered account set; one value per metric is returned in `metricsResults`. When `metrics` is set without a `select`, the runner skips the regular row fetch and returns only the aggregated values. */
+      metrics?: string[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
@@ -1731,6 +1744,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
@@ -1772,6 +1787,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -1912,6 +1929,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TrendsQueryResponseResultsItem[];
@@ -2166,6 +2185,7 @@ export namespace Schemas {
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: TrendsFilterResultCustomizations;
       showAlertThresholdLines?: boolean | null;
+      showAnnotations?: boolean | null;
       showConfidenceIntervals?: boolean | null;
       showLabelsOnSeries?: boolean | null;
       showLegend?: boolean | null;
@@ -2360,9 +2380,13 @@ export namespace Schemas {
       /** Goal Lines */
       goalLines?: GoalLine[] | null;
       hiddenLegendBreakdowns?: string[] | null;
+      /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
+      hideIncompleteConversionWindowPeriods?: boolean | null;
       layout?: FunnelLayout | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;
+      /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
+      showAnnotations?: boolean | null;
       /** Display linear regression trend lines on the chart (only for historical trends viz) */
       showTrendLines?: boolean | null;
       showValuesOnSeries?: boolean | null;
@@ -2378,6 +2402,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -2470,6 +2496,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RetentionResult[];
@@ -2717,6 +2745,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PathsLink[];
@@ -2764,6 +2794,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: StickinessQueryResponseResultsItem[];
@@ -2874,6 +2906,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LifecycleQueryResponseResultsItem[];
@@ -3019,6 +3053,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -3105,6 +3141,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -3236,6 +3274,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: FunnelCorrelationResult;
@@ -3689,6 +3729,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -3759,6 +3801,31 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
+
+    export interface _WidgetTileLayoutBoxOpenApi {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface _WidgetTileLayoutsOpenApi {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: _WidgetTileLayoutBoxOpenApi;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: _WidgetTileLayoutBoxOpenApi;
+    }
+
+    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
 
     /**
      * * `last_seen` - last_seen
@@ -3880,32 +3947,7 @@ export namespace Schemas {
       filterTestAccounts?: boolean;
     }
 
-    export interface TileLayoutBox {
-      /** Column position in the dashboard grid (0-indexed). */
-      x?: number;
-      /** Row position in the dashboard grid (0-indexed). */
-      y?: number;
-      /** Width in grid columns. The desktop grid is 12 columns wide. */
-      w?: number;
-      /** Height in grid rows. */
-      h?: number;
-    }
-
-    export interface TileLayouts {
-      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-      sm?: TileLayoutBox;
-      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-      xs?: TileLayoutBox;
-    }
-
-    export interface AddDashboardWidgetRequest {
-      /**
-         * Widget type identifier. Supported values: error_tracking_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-         * @maxLength 64
-         */
-      widget_type: string;
-      /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for other types. For error_tracking_list, use the schema below (currently the only supported type: error_tracking_list). */
-      config: ErrorTrackingListWidgetConfig;
+    export interface ErrorTrackingListWidgetAddRequestOpenApi {
       /**
          * Optional custom display name for the widget tile.
          * @maxLength 400
@@ -3915,14 +3957,94 @@ export namespace Schemas {
       /** Optional markdown description shown when show_description is enabled. */
       description?: string;
       /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-      layouts?: TileLayouts;
+      layouts?: _WidgetTileLayoutsOpenApi;
       /** Whether to show the description on the dashboard tile. */
       show_description?: boolean;
+      widget_type: ErrorTrackingListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the error tracking list widget. */
+      config: ErrorTrackingListWidgetConfig;
     }
 
-    export interface AddDashboardWidgetsBatchRequest {
+    export type SessionReplayListWidgetAddRequestOpenApiWidgetType = typeof SessionReplayListWidgetAddRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetAddRequestOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    /**
+     * * `activity_score` - activity_score
+    * `click_count` - click_count
+    * `console_error_count` - console_error_count
+    * `duration` - duration
+    * `recording_duration` - recording_duration
+    * `start_time` - start_time
+     */
+    export type SessionReplayListWidgetConfigOrderByEnum = typeof SessionReplayListWidgetConfigOrderByEnum[keyof typeof SessionReplayListWidgetConfigOrderByEnum];
+
+
+    export const SessionReplayListWidgetConfigOrderByEnum = {
+      ActivityScore: 'activity_score',
+      ClickCount: 'click_count',
+      ConsoleErrorCount: 'console_error_count',
+      Duration: 'duration',
+      RecordingDuration: 'recording_duration',
+      StartTime: 'start_time',
+    } as const;
+
+    export interface SessionReplayListWidgetConfig {
       /**
-         * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+         * Maximum number of recordings to return.
+         * @minimum 1
+         * @maximum 25
+         */
+      limit?: number;
+      /** Recording ranking column.
+
+      * `activity_score` - activity_score
+      * `click_count` - click_count
+      * `console_error_count` - console_error_count
+      * `duration` - duration
+      * `recording_duration` - recording_duration
+      * `start_time` - start_time */
+      orderBy?: SessionReplayListWidgetConfigOrderByEnum;
+      /** Sort direction for orderBy.
+
+      * `ASC` - ASC
+      * `DESC` - DESC */
+      orderDirection?: OrderDirectionEnum;
+      /** Optional relative date range override. */
+      dateRange?: WidgetDateRange | null;
+      /** When omitted, follows the project default for filtering test accounts. */
+      filterTestAccounts?: boolean;
+    }
+
+    export interface SessionReplayListWidgetAddRequestOpenApi {
+      /**
+         * Optional custom display name for the widget tile.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** Optional markdown description shown when show_description is enabled. */
+      description?: string;
+      /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /** Whether to show the description on the dashboard tile. */
+      show_description?: boolean;
+      widget_type: SessionReplayListWidgetAddRequestOpenApiWidgetType;
+      /** Configuration for the session replay list widget. */
+      config: SessionReplayListWidgetConfig;
+    }
+
+    export type AddDashboardWidgetRequest = ErrorTrackingListWidgetAddRequestOpenApi | SessionReplayListWidgetAddRequestOpenApi;
+
+    /**
+     * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
+     */
+    export interface AddDashboardWidgetsBatchRequestOpenApi {
+      /**
+         * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).
          * @minItems 1
          * @maxItems 10
          */
@@ -4004,6 +4126,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4028,6 +4152,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4052,6 +4178,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4084,6 +4212,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4106,6 +4236,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -4131,6 +4263,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4157,6 +4291,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4181,6 +4317,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4216,6 +4354,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -4243,6 +4383,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4266,6 +4408,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4286,6 +4430,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4305,6 +4451,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4332,6 +4480,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -4364,6 +4514,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -4383,6 +4535,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4405,6 +4559,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -4438,6 +4594,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -4460,6 +4618,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: Response19Results;
@@ -4483,6 +4643,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -4530,13 +4692,13 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
-      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       LinkedinAds: 'linkedin-ads',
       Snapchat: 'snapchat',
@@ -4631,6 +4793,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -4676,6 +4840,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
@@ -4782,6 +4948,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -4804,6 +4972,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -4823,11 +4993,15 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -4954,6 +5128,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5041,6 +5217,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5081,6 +5259,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -5135,6 +5315,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -5238,6 +5420,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -5320,6 +5504,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5357,6 +5543,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -5428,6 +5616,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -5461,6 +5651,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5494,6 +5686,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -5526,6 +5720,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -5565,6 +5761,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5600,6 +5798,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5635,6 +5835,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -5793,6 +5995,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -5858,6 +6062,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsAggregatedQueryResponseResults;
@@ -5916,6 +6122,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -6013,6 +6221,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -6076,6 +6286,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
@@ -6183,6 +6395,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -6229,6 +6443,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -6302,6 +6518,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -6638,6 +6856,14 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export type SearchMatchTypeEnum = typeof SearchMatchTypeEnum[keyof typeof SearchMatchTypeEnum];
+
+
+    export const SearchMatchTypeEnum = {
+      Exact: 'exact',
+      Similar: 'similar',
+    } as const;
+
     /**
      * @nullable
      */
@@ -6745,6 +6971,8 @@ export namespace Schemas {
       readonly alerts: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface Text {
@@ -6800,6 +7028,8 @@ export namespace Schemas {
       team: number;
     }
 
+    export type DashboardWidgetConfig = ErrorTrackingListWidgetConfig | SessionReplayListWidgetConfig;
+
     export interface DashboardWidget {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -6818,7 +7048,7 @@ export namespace Schemas {
       /** Optional markdown description shown on the dashboard tile when enabled. */
       description?: string;
       /** Widget-specific configuration JSON for this widget type. */
-      config?: ErrorTrackingListWidgetConfig;
+      config?: DashboardWidgetConfig;
       readonly dashboard_tiles: readonly DashboardTileBasic[];
       readonly last_modified_at: string;
       team: number;
@@ -6975,7 +7205,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** Optional name for the threshold. */
       name?: string;
-      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
     }
 
@@ -7499,6 +7729,12 @@ export namespace Schemas {
       * `organization` - organization
       * `recording` - recording */
       scope?: AnnotationScopeEnum;
+      /**
+         * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
+         * @maxLength 16
+         * @nullable
+         */
+      emoji?: string | null;
     }
 
     export interface AppMetricSeries {
@@ -7616,6 +7852,40 @@ export namespace Schemas {
       delete_verified_at: string | null;
     }
 
+    export interface UnmatchedUtmSample {
+      /** A raw utm_source value that doesn't match the integration exactly */
+      raw_value: string;
+      /** Number of events with this raw value in the window */
+      event_count: number;
+      /**
+         * Integration suggested by token match, if any
+         * @nullable
+         */
+      suggested_integration: string | null;
+    }
+
+    export interface AttributionHealthEntry {
+      /** Integration key (e.g. 'google', 'meta') */
+      integration_key: string;
+      /** Human-readable integration name */
+      display_name: string;
+      /** Total events with any utm_source in the window */
+      events_with_utm_last_7d: number;
+      /** Events whose utm_source matched this integration */
+      events_matched_last_7d: number;
+      /** Events that look like this integration's but don't match exactly */
+      events_unmatched_likely_yours_last_7d: number;
+      /**
+         * Timestamp of the most recent matched event
+         * @nullable
+         */
+      last_event_with_matching_utm_at: string | null;
+      /** Percentage of UTM events matched to this integration */
+      matched_pct: number;
+      /** Sample of likely-yours unmatched utm_source values */
+      sample_unmatched_utm_sources: UnmatchedUtmSample[];
+    }
+
     /**
      * * `first_touch` - First Touch
     * `last_touch` - Last Touch
@@ -7633,6 +7903,17 @@ export namespace Schemas {
       TimeDecay: 'time_decay',
       PositionBased: 'position_based',
     } as const;
+
+    export interface Author {
+      /** Login handle of the pull request author. */
+      handle: string;
+      /** Human-readable name; equals the handle in v1. */
+      display_name: string;
+      /** URL of the author's avatar image. */
+      avatar_url: string;
+      /** True if the author is a bot (handle ends in [bot] or is a known bot). */
+      is_bot: boolean;
+    }
 
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
@@ -9872,6 +10153,47 @@ export namespace Schemas {
       notification_ids: string[];
     }
 
+    /**
+     * * `new` - New
+    * `open` - Open
+    * `pending` - Pending
+    * `on_hold` - On hold
+    * `resolved` - Resolved
+     */
+    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
+
+
+    export const TicketStatusEnum = {
+      New: 'new',
+      Open: 'open',
+      Pending: 'pending',
+      OnHold: 'on_hold',
+      Resolved: 'resolved',
+    } as const;
+
+    export interface BulkUpdateStatusRequest {
+      /**
+         * List of ticket UUIDs to update.
+         * @maxItems 500
+         */
+      ids: string[];
+      /** New status to apply to all selected tickets: new, open, pending, on_hold, or resolved.
+
+      * `new` - New
+      * `open` - Open
+      * `pending` - Pending
+      * `on_hold` - On hold
+      * `resolved` - Resolved */
+      status: TicketStatusEnum;
+    }
+
+    export interface BulkUpdateStatusResponse {
+      /** Number of tickets whose status actually changed. */
+      updated: number;
+      /** UUIDs of the tickets whose status changed. */
+      ids: string[];
+    }
+
     export interface BulkUpdateTagsError {
       id: number;
       reason: string;
@@ -9917,6 +10239,17 @@ export namespace Schemas {
       Other: 'other',
     } as const;
 
+    export interface CICardSummary {
+      /** Count of open pull requests. */
+      open_prs: number;
+      /** Distinct repositories with at least one open pull request. */
+      repos: number;
+      /** Open, non-draft, non-bot pull requests older than 7 days. */
+      stuck: number;
+      /** Open pull requests with at least one failing latest CI run. May lag until the workflow_run webhook settles late completions. */
+      failing_ci: number;
+    }
+
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -9947,6 +10280,17 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** Plaintext token, only returned on creation */
       readonly value: string;
+    }
+
+    export interface CIStatusRollup {
+      /** Distinct workflows run on the PR's head SHA. */
+      runs: number;
+      /** Latest runs that completed with conclusion 'success'. */
+      passing: number;
+      /** Latest runs that completed with conclusion 'failure' or 'timed_out'. */
+      failing: number;
+      /** Latest runs not yet completed (queued or in progress). */
+      pending: number;
     }
 
     export interface EventsHeatMapColumnAggregationResult {
@@ -9983,6 +10327,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventsHeatMapStructuredResult;
@@ -10068,6 +10414,44 @@ export namespace Schemas {
       issues: UtmIssue[];
     }
 
+    export interface CampaignMappingSuggestion {
+      /** Integration key the campaign values belong to */
+      integration: string;
+      /** Human-readable integration name */
+      integration_display_name: string;
+      /** Proposed canonical campaign name */
+      suggested_clean_name: string;
+      /** Raw campaign values clustered under this clean name */
+      raw_campaign_values: string[];
+      /** Confidence score for the clustering (0-1) */
+      confidence: number;
+      /** Mapping method */
+      method: string;
+      /** Why these campaign values were clustered together */
+      reason: string;
+    }
+
+    export interface CandidateEvent {
+      /** Name of the candidate event */
+      event_name: string;
+      /** Count of this event in the last 30 days */
+      last_30d_count: number;
+      /** Distinct users who triggered the event in 30 days */
+      distinct_users_30d: number;
+      /** Percentage of events that carry a utm_source */
+      pct_with_utm_source: number;
+      /** Percentage of events that carry a utm_campaign */
+      pct_with_utm_campaign: number;
+      /** List of [utm_source, count] pairs */
+      top_utm_sources: [string, number][];
+      /** Whether this event is already configured as a goal */
+      is_already_a_goal: boolean;
+      /** Ranking score (higher is a stronger candidate) */
+      suggestion_score: number;
+      /** Human-readable rationale for the suggestion */
+      suggestion_reason: string;
+    }
+
     /**
      * Supporting evidence
      */
@@ -10109,6 +10493,28 @@ export namespace Schemas {
       reason: string;
       /** Supporting evidence */
       evidence?: CapabilityStateEvidence;
+    }
+
+    export interface CatalogueEntry {
+      /** A raw utm_source value seen in the window */
+      raw_utm_source: string;
+      /** Number of events with this value */
+      event_count: number;
+      /**
+         * Integration this value exactly matches, if any
+         * @nullable
+         */
+      matched_integration: string | null;
+      /**
+         * Human-readable name of the matched integration, if any
+         * @nullable
+         */
+      matched_integration_display_name: string | null;
+      /**
+         * Integration suggested by token match, if any
+         * @nullable
+         */
+      suggested_integration: string | null;
     }
 
     export interface CategoricalScoreOption {
@@ -10305,6 +10711,34 @@ export namespace Schemas {
     export interface CheckDatabaseNameResponse {
       name: string;
       available: boolean;
+    }
+
+    /**
+     * * `abandoned` - Abandoned
+    * `off-topic` - Off-topic
+     */
+    export type ClassificationsEnum = typeof ClassificationsEnum[keyof typeof ClassificationsEnum];
+
+
+    export const ClassificationsEnum = {
+      Abandoned: 'abandoned',
+      OffTopic: 'off-topic',
+    } as const;
+
+    export interface TagCount {
+      /** The tag value. */
+      tag: string;
+      /** Number of succeeded observations carrying this tag. */
+      count: number;
+    }
+
+    export interface ClassifierStats {
+      /** Top fixed-vocabulary tags by emission count. */
+      fixed_ranked: TagCount[];
+      /** Top freeform tags by emission count. */
+      freeform_ranked: TagCount[];
+      /** Succeeded observations that emitted at least one tag. */
+      total_with_tags: number;
     }
 
     /**
@@ -11167,6 +11601,69 @@ export namespace Schemas {
       readonly slack_workspace_domain: string | null;
     }
 
+    export interface ConversionGoalSummary {
+      /** Unique id of the goal (event name, action id, or DW goal id) */
+      id: string;
+      /** Display name of the conversion goal */
+      name: string;
+      /** Goal type — one of: EventsNode (PostHog event), ActionsNode (PostHog action), DataWarehouseNode (external table) */
+      kind: string;
+      /** Human-readable target the goal matches (event/action name or table) */
+      target_label: string;
+      /** Count of matching conversion events in the last 30 days */
+      last_30d_count: number;
+      /**
+         * Conversions whose utm_source matches a known integration. Null for DataWarehouseNode goals.
+         * @nullable
+         */
+      integrated_count: number | null;
+      /**
+         * Conversions with no utm_source at all (fix by tagging UTMs). Null for DataWarehouseNode goals.
+         * @nullable
+         */
+      events_without_utm_source: number | null;
+      /**
+         * Conversions with a utm_source that matches no integration (fix with custom_source_mappings). Null for DataWarehouseNode goals.
+         * @nullable
+         */
+      events_with_unmatched_utm_source: number | null;
+      /**
+         * Total non-integrated conversions (without + unmatched utm_source). Null for DataWarehouseNode goals.
+         * @nullable
+         */
+      non_integrated_count: number | null;
+      /**
+         * Percentage of conversions that are integrated. Null for DataWarehouseNode goals.
+         * @nullable
+         */
+      integrated_pct: number | null;
+      /** Whether the goal could not be evaluated (e.g. deleted action) */
+      is_misconfigured: boolean;
+      /**
+         * Explanation when is_misconfigured is true
+         * @nullable
+         */
+      misconfig_reason: string | null;
+      /** True when this 30d count may differ from the dashboard's attribution-windowed number */
+      is_approximate: boolean;
+      /**
+         * Explanation when is_approximate is true
+         * @nullable
+         */
+      approximation_reason: string | null;
+    }
+
+    export interface ConversionGoalsListResponse {
+      /** One summary entry per configured conversion goal */
+      goals: ConversionGoalSummary[];
+      /** The team's configured attribution window in days */
+      attribution_window_days: number;
+      /** The team's attribution model (e.g. last_touch, first_touch, linear) */
+      attribution_mode: string;
+      /** True if any goal is misconfigured */
+      has_misconfigured: boolean;
+    }
+
     /**
      * * `0` - Disabled
     * `1` - Stateless
@@ -11293,6 +11790,15 @@ export namespace Schemas {
       filter: unknown;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    export interface CoverageStats {
+      /** Distinct sessions observed within the last `recent_days` days. */
+      recent_sessions: number;
+      /** Distinct sessions observed overall. */
+      total_sessions: number;
+      /** Window size in days used for `recent_sessions`. */
+      recent_days: number;
     }
 
     /**
@@ -11667,6 +12173,24 @@ export namespace Schemas {
       text: string;
     }
 
+    export interface TileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface TileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: TileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: TileLayoutBox;
+    }
+
     export interface CreateTextTileRequest {
       /**
          * Markdown body for the text tile. Supports headings, lists, and inline formatting. Useful as a dashboard section heading, divider, or annotation between insights. Max 4000 characters.
@@ -11722,6 +12246,17 @@ export namespace Schemas {
       access_key: string;
       /** @maxLength 500 */
       access_secret: string;
+    }
+
+    export interface CurrentMapping {
+      /** A utm_source value already mapped to an integration */
+      raw_utm_source: string;
+      /** Integration key it maps to */
+      target: string;
+      /** Human-readable name of the target integration */
+      target_display_name: string;
+      /** canonical or team_custom */
+      source: string;
     }
 
     export interface CustomerJourney {
@@ -12080,6 +12615,85 @@ export namespace Schemas {
          * @nullable
          */
       readonly rows_expected: number | null;
+    }
+
+    export interface RequiredTableStatus {
+      /** Name of the required source table (e.g. 'campaign', 'campaign_stats') */
+      table_name: string;
+      /** Whether the table exists as a schema on the connected source */
+      present: boolean;
+      /** Whether the table is enabled for sync */
+      should_sync: boolean;
+      /**
+         * ExternalDataSchema status: Completed/Running/Failed/Paused/Cancelled, or null
+         * @nullable
+         */
+      status: string | null;
+      /**
+         * When this table last completed a sync
+         * @nullable
+         */
+      last_synced_at: string | null;
+    }
+
+    export interface DataSourceHealthEntry {
+      /** External data source type key (e.g. 'GoogleAds', 'MetaAds') */
+      source_type: string;
+      /** Whether this is a native marketing integration */
+      is_native: boolean;
+      /** Human-readable integration name (e.g. 'Google Ads') */
+      display_name: string;
+      /** Whether a live source of this type is connected */
+      connected: boolean;
+      /**
+         * When the source last completed a sync
+         * @nullable
+         */
+      last_sync_at: string | null;
+      /** Sync status: ok/error/stale/tables_failed/not_connected/never */
+      last_sync_status: string;
+      /**
+         * Latest unresolved sync error message, if any
+         * @nullable
+         */
+      last_error: string | null;
+      /** Rows synced in the last 24 hours */
+      rows_last_24h: number;
+      /** Rows synced in the last 7 days */
+      rows_last_7d: number;
+      /** Whether a column mapping exists for this source */
+      sources_map_present: boolean;
+      /** Schema columns currently mapped for this source */
+      schema_columns_mapped: string[];
+      /** Required schema columns that are not yet mapped */
+      schema_columns_required_missing: string[];
+      /** Per-required-table sync status for this integration */
+      required_tables: RequiredTableStatus[];
+      /** URL to the Marketing analytics global settings page */
+      settings_url: string;
+      /**
+         * URL to the per-source Schemas tab, or null if not connected
+         * @nullable
+         */
+      schemas_url: string | null;
+      /** Human-readable diagnosis of this source's health */
+      diagnosis: string;
+      /**
+         * Suggested fix when the source is unhealthy
+         * @nullable
+         */
+      fix_suggestion: string | null;
+    }
+
+    export interface DataSourceHealthResponse {
+      /** One health entry per native integration */
+      integrations: DataSourceHealthEntry[];
+      /** True if any integration synced rows in the last 7 days */
+      has_any_data: boolean;
+      /** Overall: healthy/degraded/broken/no_sources */
+      overall_status: string;
+      /** Short human-readable summary of detected issues */
+      issues_summary: string[];
     }
 
     export interface DataWarehouseModelPath {
@@ -12598,6 +13212,7 @@ export namespace Schemas {
     * `Chargebee` - Chargebee
     * `Clerk` - Clerk
     * `GoogleAds` - GoogleAds
+    * `GoogleSearchConsole` - GoogleSearchConsole
     * `TemporalIO` - TemporalIO
     * `DoIt` - DoIt
     * `GoogleSheets` - GoogleSheets
@@ -12750,6 +13365,7 @@ export namespace Schemas {
       Chargebee: 'Chargebee',
       Clerk: 'Clerk',
       GoogleAds: 'GoogleAds',
+      GoogleSearchConsole: 'GoogleSearchConsole',
       TemporalIO: 'TemporalIO',
       DoIt: 'DoIt',
       GoogleSheets: 'GoogleSheets',
@@ -12909,6 +13525,7 @@ export namespace Schemas {
       * `Chargebee` - Chargebee
       * `Clerk` - Clerk
       * `GoogleAds` - GoogleAds
+      * `GoogleSearchConsole` - GoogleSearchConsole
       * `TemporalIO` - TemporalIO
       * `DoIt` - DoIt
       * `GoogleSheets` - GoogleSheets
@@ -13141,430 +13758,6 @@ export namespace Schemas {
       name: string;
     }
 
-    /**
-     * * `dispatch` - Dispatch
-    * `clone` - Clone
-    * `install` - Install
-    * `build` - Build
-    * `publish` - Publish
-     */
-    export type ErrorStepEnum = typeof ErrorStepEnum[keyof typeof ErrorStepEnum];
-
-
-    export const ErrorStepEnum = {
-      Dispatch: 'dispatch',
-      Clone: 'clone',
-      Install: 'install',
-      Build: 'build',
-      Publish: 'publish',
-    } as const;
-
-    export const DeploymentErrorStep = {...ErrorStepEnum,...BlankEnum,} as const
-    /**
-     * * `queued` - Queued
-    * `initializing` - Initializing
-    * `building` - Building
-    * `ready` - Ready
-    * `error` - Error
-    * `cancelled` - Cancelled
-     */
-    export type DeploymentStatusEnum = typeof DeploymentStatusEnum[keyof typeof DeploymentStatusEnum];
-
-
-    export const DeploymentStatusEnum = {
-      Queued: 'queued',
-      Initializing: 'initializing',
-      Building: 'building',
-      Ready: 'ready',
-      Error: 'error',
-      Cancelled: 'cancelled',
-    } as const;
-
-    /**
-     * * `manual` - Manual
-    * `git` - Git
-    * `redeploy` - Redeploy
-    * `rollback` - Rollback
-    * `seed` - Seed
-     */
-    export type TriggerKindEnum = typeof TriggerKindEnum[keyof typeof TriggerKindEnum];
-
-
-    export const TriggerKindEnum = {
-      Manual: 'manual',
-      Git: 'git',
-      Redeploy: 'redeploy',
-      Rollback: 'rollback',
-      Seed: 'seed',
-    } as const;
-
-    export interface Deployment {
-      /** Unique identifier for the deployment. */
-      readonly id: string;
-      /** The deployment project this deployment belongs to. */
-      readonly project: string;
-      /** Current pipeline stage. Valid values: queued, initializing, building, ready, error, cancelled.
-
-      * `queued` - Queued
-      * `initializing` - Initializing
-      * `building` - Building
-      * `ready` - Ready
-      * `error` - Error
-      * `cancelled` - Cancelled */
-      status: DeploymentStatusEnum;
-      /**
-         * When the pipeline started building. Null while still queued.
-         * @nullable
-         */
-      started_at?: string | null;
-      /**
-         * When the pipeline finished (regardless of outcome). Null while still running.
-         * @nullable
-         */
-      finished_at?: string | null;
-      /** When the deployment row was created (~ queued_at). */
-      readonly created_at: string;
-      /**
-         * Git commit SHA the deployment was built from.
-         * @maxLength 64
-         */
-      commit_sha?: string;
-      /** Commit message associated with the commit SHA. */
-      commit_message?: string;
-      /**
-         * Display name of the commit author.
-         * @maxLength 255
-         */
-      commit_author_name?: string;
-      /**
-         * Email address of the commit author. Used by the Author filter on the list page.
-         * @maxLength 255
-         */
-      commit_author_email?: string;
-      /**
-         * HTTPS URL of the source repository. Captured at deploy time.
-         * @maxLength 1024
-         */
-      repo_url?: string;
-      /**
-         * Source branch the deployment was built from.
-         * @maxLength 255
-         */
-      branch?: string;
-      /**
-         * Public URL serving the built site once ready.
-         * @maxLength 1024
-         */
-      deployment_url?: string;
-      /**
-         * URL of the captured site screenshot, used in the list/card view.
-         * @maxLength 1024
-         */
-      preview_image_url?: string;
-      /**
-         * The deployment this one was triggered from (for rollbacks and redeploys).
-         * @nullable
-         */
-      readonly triggered_by_deployment: string | null;
-      /**
-         * Posthog user id of the user who clicked Deploy/Redeploy/Rollback. Null for git-triggered or seed rows.
-         * @nullable
-         */
-      readonly triggered_by_user_id: number | null;
-      /** What caused this deployment to start: manual | git | redeploy | rollback | seed.
-
-      * `manual` - Manual
-      * `git` - Git
-      * `redeploy` - Redeploy
-      * `rollback` - Rollback
-      * `seed` - Seed */
-      trigger_kind: TriggerKindEnum;
-      /** Failure detail set when status=error. Empty for successful or in-flight deployments. */
-      readonly error_message: string;
-      /** Build step that failed: dispatch | clone | install | build | publish. Empty when status != error.
-
-      * `dispatch` - Dispatch
-      * `clone` - Clone
-      * `install` - Install
-      * `build` - Build
-      * `publish` - Publish */
-      error_step?: typeof DeploymentErrorStep[keyof typeof DeploymentErrorStep];
-      /** Cloudflare Pages deployment id, set once the publish step succeeds. */
-      readonly cloudflare_deployment_id: string;
-      /** Temporal workflow id for this build. Used for cancellation signalling. */
-      readonly temporal_workflow_id: string;
-      /** True if this deployment is currently serving production traffic for its project. */
-      readonly is_current: boolean;
-      /** Build duration in seconds (finished_at - started_at). 0 while still running. */
-      readonly duration_seconds: number;
-    }
-
-    /**
-     * Response shape for one-off action endpoints (cancel, refresh_preview).
-     */
-    export interface DeploymentActionResponse {
-      /** Short human-readable confirmation message. */
-      detail: string;
-    }
-
-    /**
-     * Response shape returned with HTTP 409 when an active deploy exists.
-     */
-    export interface DeploymentConflictResponse {
-      /** Reason for the conflict. */
-      detail: string;
-      /** The deployment currently in-flight for the project. Frontend can poll this id. */
-      active_deployment_id: string;
-    }
-
-    /**
-     * Body of POST /api/projects/{}/deployment_projects/{}/deployments/.
-     */
-    export interface DeploymentCreateInput {
-      /**
-         * Optional commit SHA. If omitted, the build worker resolves HEAD of `branch` (or the project's default_branch).
-         * @maxLength 64
-         */
-      commit_sha?: string;
-      /**
-         * Optional branch override. If omitted, uses the project's `default_branch`.
-         * @maxLength 255
-         */
-      branch?: string;
-    }
-
-    export interface DeploymentEvent {
-      /** Unique identifier for the event row. */
-      readonly id: string;
-      /** The deployment this event belongs to. */
-      readonly deployment: string;
-      /**
-         * Event category, e.g. `status_changed`, `preview_captured`, `dispatched`.
-         * @maxLength 50
-         */
-      event_type: string;
-      /** Arbitrary structured payload for the event. Shape varies by event_type. */
-      payload: unknown;
-      /** When the event occurred (server time). */
-      readonly occurred_at: string;
-    }
-
-    /**
-     * One line of build output emitted by the build worker as a `$log` event.
-     */
-    export interface DeploymentLogEntry {
-      /** When the line was emitted by the build worker. */
-      timestamp: string;
-      /**
-         * Log level: "info" | "warn" | "error". Null if the event did not carry one.
-         * @nullable
-         */
-      level: string | null;
-      /**
-         * Pipeline step: "clone" | "install" | "build" | "publish". Null if the event did not carry one.
-         * @nullable
-         */
-      step: string | null;
-      /**
-         * The log line itself (a single line of stdout or stderr).
-         * @nullable
-         */
-      line: string | null;
-      /**
-         * Set on the last line of a step; null on all other lines.
-         * @nullable
-         */
-      exit_code: number | null;
-    }
-
-    /**
-     * Response shape for GET /deployments/{id}/logs/.
-     */
-    export interface DeploymentLogsResponse {
-      /** Log lines for the deployment, oldest first. */
-      results: DeploymentLogEntry[];
-      /** True if the row limit was hit and older lines may exist beyond this page. */
-      has_more: boolean;
-      /** The hard cap applied by the server. */
-      row_limit: number;
-    }
-
-    export interface DeploymentProject {
-      /** Unique identifier for the deployment project. */
-      readonly id: string;
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug: string;
-      /**
-         * HTTPS URL of the connected GitHub repository, resolved from the selected repository id.
-         * @maxLength 1024
-         */
-      readonly repo_url: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /**
-         * Existing PostHog GitHub integration id used for repository access.
-         * @nullable
-         */
-      github_integration_id?: number | null;
-      /**
-         * Stable GitHub repository identifier selected from the existing integration's repository list.
-         * @nullable
-         */
-      github_repo_id?: number | null;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-      /** Cloudflare Pages project name, assigned during provisioning. */
-      readonly cloudflare_project_name: string;
-      /** Public subdomain at which deployments of this project serve. */
-      readonly subdomain: string;
-      /**
-         * Timestamp when the Cloudflare project was fully provisioned and ready to receive deploys.
-         * @nullable
-         */
-      readonly cloudflare_ready_at: string | null;
-      /**
-         * The deployment currently serving traffic for this project. Null if no deployment has ever succeeded.
-         * @nullable
-         */
-      readonly current_deployment: string | null;
-      /** True when the project has both a provisioned Cloudflare backend and a configured GitHub credential — meaning a deploy can be triggered right now. */
-      readonly is_ready_to_deploy: boolean;
-      /** Timestamp when the project was created. */
-      readonly created_at: string;
-      /** Timestamp when the project was last modified. */
-      readonly updated_at: string;
-    }
-
-    export interface DeploymentProjectCreate {
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * URL-safe handle. Becomes the subdomain `{slug}.posthog-app.com`. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /** Existing PostHog GitHub integration id used for repository access. */
-      github_integration_id: number;
-      /** Stable GitHub repository identifier selected from the existing integration's repository list. */
-      github_repo_id: number;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-    }
-
-    /**
-     * Response shape for refreshing a deployment project's GitHub branch.
-     */
-    export interface DeploymentProjectRefreshResponse {
-      /** Human-readable explanation of the refresh result. */
-      detail: string;
-      /** HTTPS URL of the connected GitHub repository. */
-      repo_url: string;
-      /** Branch checked by the refresh action. */
-      default_branch: string;
-      /** Current GitHub HEAD SHA for default_branch. */
-      commit_sha: string;
-    }
-
-    export interface DeploymentProjectWrite {
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name: string;
-      /**
-         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /**
-         * Existing PostHog GitHub integration id used for repository access.
-         * @nullable
-         */
-      github_integration_id?: number | null;
-      /**
-         * Stable GitHub repository identifier selected from the existing integration's repository list.
-         * @nullable
-         */
-      github_repo_id?: number | null;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-    }
-
     export interface DeprovisionWarehouseResponse {
       status: string;
       team: string;
@@ -13641,69 +13834,6 @@ export namespace Schemas {
       completed_at?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
-    }
-
-    /**
-     * Inputs the `/detect/` endpoint needs to suggest a project config.
-
-    Decouples detection from any one git provider — callers fetch
-    `package.json` and the list of lockfiles however they like (GitHub
-    raw content via the team's existing integration, a temporary clone,
-    user-pasted JSON during early development) and pass them here.
-     */
-    export interface DetectConfigRequest {
-      /** Parsed contents of the repo's `package.json`. Pass null or omit if the repo doesn't have one — the response is then the plain-HTML fallback. */
-      package_json?: unknown;
-      /** Filenames of package-manager lockfiles found in the repo root (e.g. ["pnpm-lock.yaml"]). Used to pick the package manager. */
-      lockfiles?: string[];
-    }
-
-    /**
-     * * `npm` - npm
-    * `pnpm` - pnpm
-    * `yarn` - yarn
-    * `bun` - bun
-     */
-    export type PackageManagerEnum = typeof PackageManagerEnum[keyof typeof PackageManagerEnum];
-
-
-    export const PackageManagerEnum = {
-      Npm: 'npm',
-      Pnpm: 'pnpm',
-      Yarn: 'yarn',
-      Bun: 'bun',
-    } as const;
-
-    /**
-     * Suggested project config. Every field is overridable in the connect-repo UI.
-
-    `build_command`, `output_dir`, and `framework` map directly to the
-    `DeploymentProject` model fields. `package_manager`, `install_command`,
-    and `node_version` are informational hints — the model doesn't store
-    them today, but the UI can display them so the user knows what the
-    build worker will end up running.
-     */
-    export interface DetectConfigResponse {
-      /** Detected package manager from lockfile presence.
-
-      * `npm` - npm
-      * `pnpm` - pnpm
-      * `yarn` - yarn
-      * `bun` - bun */
-      package_manager: PackageManagerEnum;
-      /** Suggested install command, or empty when no install is needed. */
-      install_command: string;
-      /** Suggested build command, or empty when no known framework matched. */
-      build_command: string;
-      /** Suggested output directory relative to repo root. */
-      output_dir: string;
-      /** Suggested Node major version, parsed from `engines.node` or defaulted to 20. */
-      node_version: string;
-      /**
-         * Detected framework hint (e.g. `nextjs`, `vite`, `astro`) to write into `DeploymentProject.framework`. Null when no framework matched — leaving the field null lets the build worker fall back to its own auto-detection.
-         * @nullable
-         */
-      framework: string | null;
     }
 
     /**
@@ -13924,6 +14054,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EmbeddingDistance[];
@@ -14439,7 +14571,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14570,7 +14702,7 @@ export namespace Schemas {
       is_active: boolean;
       /** How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800. */
       data_freshness_seconds: number;
-      /** Relative API path to execute this endpoint (e.g. /api/environments/{team_id}/endpoints/{name}/run). */
+      /** Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run). */
       endpoint_path: string;
       /**
          * Absolute URL to execute this endpoint.
@@ -14605,7 +14737,7 @@ export namespace Schemas {
          */
       derived_from_insight: string | null;
       /**
-         * When this endpoint was last executed via the API (ISO 8601), or null if never executed.
+         * When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.
          * @nullable
          */
       last_executed_at: string | null;
@@ -14667,6 +14799,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageOverviewItem[];
@@ -14715,6 +14849,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageTrendsQueryResponseResultsItem[];
@@ -14769,6 +14905,20 @@ export namespace Schemas {
     export const EngineEnum = {
       Duckdb: 'duckdb',
       Postgres: 'postgres',
+    } as const;
+
+    /**
+     * * `open` - OPEN
+    * `closed` - CLOSED
+    * `merged` - MERGED
+     */
+    export type EngineeringAnalyticsPRStateEnum = typeof EngineeringAnalyticsPRStateEnum[keyof typeof EngineeringAnalyticsPRStateEnum];
+
+
+    export const EngineeringAnalyticsPRStateEnum = {
+      Open: 'open',
+      Closed: 'closed',
+      Merged: 'merged',
     } as const;
 
     /**
@@ -14965,6 +15115,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingBreakdownsQueryResponseResults;
@@ -15543,6 +15695,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `error_tracking_list` - error_tracking_list
+     */
+    export type ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum];
+
+
+    export const ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnum = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
+    /**
      * Recommendation payload, shape depends on type.
      */
     export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
@@ -15648,6 +15810,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SimilarIssue[];
@@ -15944,6 +16108,27 @@ export namespace Schemas {
       Boolean: 'boolean',
     } as const;
 
+    export type EvaluationConditionPropertiesItem = { [key: string]: unknown };
+
+    /**
+     * A trigger condition set controlling which generations an evaluation runs on.
+     */
+    export interface EvaluationCondition {
+      /**
+         * Stable identifier for this condition set.
+         * @maxLength 100
+         */
+      id: string;
+      /**
+         * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+         * @minimum 0
+         * @maximum 100
+         */
+      rollout_percentage?: number;
+      /** Property filters (event or person) that scope which generations match this condition set. */
+      properties?: EvaluationConditionPropertiesItem[];
+    }
+
     /**
      * * `openai` - Openai
     * `anthropic` - Anthropic
@@ -16005,8 +16190,8 @@ export namespace Schemas {
       output_type: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: EvaluationOutputConfig;
-      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-      conditions?: unknown;
+      /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+      conditions?: EvaluationCondition[];
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -16371,6 +16556,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface EventSuggestionsResponse {
+      /** Ranked candidate events for conversion goals */
+      candidates: CandidateEvent[];
+      /** Lookback window in days used for the analysis */
+      lookback_days: number;
+      /** Number of system/autocaptured events excluded */
+      excluded_events_count: number;
+    }
+
     export interface EventTaxonomyItem {
       property: string;
       sample_count: number;
@@ -16389,6 +16583,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventTaxonomyItem[];
@@ -16960,6 +17156,18 @@ export namespace Schemas {
     };
 
     /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type ExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
+    /**
      * * `full_refresh` - full_refresh
     * `incremental` - incremental
     * `append` - append
@@ -17106,6 +17314,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source: ExternalDataSchemaSource;
     }
 
     export interface ExternalDataSourceBulkUpdateSchema {
@@ -17191,6 +17404,7 @@ export namespace Schemas {
       * `Chargebee` - Chargebee
       * `Clerk` - Clerk
       * `GoogleAds` - GoogleAds
+      * `GoogleSearchConsole` - GoogleSearchConsole
       * `TemporalIO` - TemporalIO
       * `DoIt` - DoIt
       * `GoogleSheets` - GoogleSheets
@@ -18180,17 +18394,26 @@ export namespace Schemas {
 
     export interface FileSystemShortcut {
       readonly id: string;
+      /** Display path of the shortcut in the sidebar. */
       path: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -18430,6 +18653,86 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    export interface GoalEventSample {
+      /** UUID of the sampled conversion event */
+      event_uuid: string;
+      /** When the event occurred */
+      timestamp: string;
+      /** Distinct id associated with the event */
+      distinct_id: string;
+      /**
+         * utm_source value on the event, if any
+         * @nullable
+         */
+      utm_source: string | null;
+      /**
+         * utm_campaign value on the event, if any
+         * @nullable
+         */
+      utm_campaign: string | null;
+      /**
+         * Integration the utm_source matched, if any
+         * @nullable
+         */
+      matched_integration: string | null;
+    }
+
+    export interface GoalExplanationPeriod {
+      /**
+         * Start of the analyzed period (ISO)
+         * @nullable
+         */
+      date_from: string | null;
+      /**
+         * End of the analyzed period (ISO)
+         * @nullable
+         */
+      date_to: string | null;
+    }
+
+    export interface GoalExplanation {
+      /** Id of the explained conversion goal */
+      goal_id: string;
+      /** Display name of the conversion goal */
+      goal_name: string;
+      /** EventsNode/ActionsNode/DataWarehouseNode */
+      kind: string;
+      /** The period the breakdown was computed over */
+      period: GoalExplanationPeriod;
+      /** Total matching conversion events in the period */
+      total_count: number;
+      /**
+         * Events whose utm_source matched a known integration. Null for DataWarehouseNode.
+         * @nullable
+         */
+      integrated_count: number | null;
+      /**
+         * Events with no utm_source at all. Null for DataWarehouseNode.
+         * @nullable
+         */
+      events_without_utm_source: number | null;
+      /**
+         * Events with a utm_source matching no integration. Null for DataWarehouseNode.
+         * @nullable
+         */
+      events_with_unmatched_utm_source: number | null;
+      /**
+         * Total non-integrated events (without + unmatched). Null for DataWarehouseNode.
+         * @nullable
+         */
+      non_integrated_count: number | null;
+      /** List of [event_name, count] pairs */
+      by_event: [string, number][];
+      /** List of [utm_source, count] pairs */
+      by_utm_source: [string, number][];
+      /** List of [integration, count] pairs */
+      by_matched_integration: [string, number][];
+      /** A small sample of matching events */
+      samples: GoalEventSample[];
+      /** Caveats about the breakdown (sampling, attribution, etc.) */
+      notes: string[];
+    }
+
     export interface Group {
       /**
          * @minimum -2147483648
@@ -18599,6 +18902,37 @@ export namespace Schemas {
       readonly resolved_at: string | null;
     }
 
+    export interface HeatmapEventItem {
+      /** @nullable */
+      session_id?: string | null;
+      distinct_id: string;
+      timestamp: string;
+      pointer_relative_x: number;
+      pointer_y: number;
+      current_url: string;
+      type: string;
+    }
+
+    export interface HeatmapEventsResponse {
+      results: HeatmapEventItem[];
+      total_count: number;
+      has_more: boolean;
+    }
+
+    export interface HeatmapFoldSummary {
+      /** Number of non-fixed interactions of this type on the page in the window (the population the above/below-the-fold split applies to; fixed-position elements are excluded since they're always on screen). */
+      total_count: number;
+      /** How many of those interactions happened below the user's initial viewport — i.e. they had to scroll to reach them. */
+      below_fold_count: number;
+      /** Percentage of non-fixed interactions that were below the initial viewport (0-100). A high value means engaged content sits off the first screen and is a candidate to move up. */
+      pct_below_fold: number;
+      /**
+         * Median viewport height in CSS pixels across the matched interactions — the typical fold line to recommend against. Null when there are no interactions.
+         * @nullable
+         */
+      median_viewport_height: number | null;
+    }
+
     export interface HeatmapResponseItem {
       count: number;
       pointer_y: number;
@@ -18606,17 +18940,15 @@ export namespace Schemas {
       pointer_target_fixed: boolean;
     }
 
-    export type HeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown };
-
     /**
      * * `screenshot` - Screenshot
     * `iframe` - Iframe
     * `recording` - Recording
      */
-    export type HeatmapScreenshotResponseTypeEnum = typeof HeatmapScreenshotResponseTypeEnum[keyof typeof HeatmapScreenshotResponseTypeEnum];
+    export type HeatmapType = typeof HeatmapType[keyof typeof HeatmapType];
 
 
-    export const HeatmapScreenshotResponseTypeEnum = {
+    export const HeatmapType = {
       Screenshot: 'screenshot',
       Iframe: 'iframe',
       Recording: 'recording',
@@ -18636,37 +18968,68 @@ export namespace Schemas {
       Failed: 'failed',
     } as const;
 
+    export interface HeatmapSnapshotMetadata {
+      /** Viewport width (CSS pixels) this screenshot was rendered at. */
+      width: number;
+      /** Whether the rendered image for this width is ready to fetch from the content endpoint. */
+      has_content: boolean;
+    }
+
     export interface HeatmapScreenshotResponse {
       readonly id: string;
+      /** Short, URL-safe identifier used as the lookup key for saved-heatmap routes. */
       readonly short_id: string;
       /**
+         * Human-readable label for the saved heatmap.
          * @maxLength 400
          * @nullable
          */
       name?: string | null;
-      /** @maxLength 2000 */
+      /**
+         * The page URL this saved heatmap renders and overlays data on.
+         * @maxLength 2000
+         */
       url: string;
       /**
-         * URL for fetching heatmap data
+         * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
          * @maxLength 2000
          * @nullable
          */
       data_url?: string | null;
+      /** Viewport widths (CSS pixels) the screenshot is rendered at. */
       target_widths?: unknown;
-      type?: HeatmapScreenshotResponseTypeEnum;
+      /** Render mode: 'screenshot', 'iframe', or 'recording'.
+
+      * `screenshot` - Screenshot
+      * `iframe` - Iframe
+      * `recording` - Recording */
+      type?: HeatmapType;
+      /** Screenshot generation status: 'processing', 'completed', or 'failed'.
+
+      * `processing` - Processing
+      * `completed` - Completed
+      * `failed` - Failed */
       readonly status: HeatmapScreenshotResponseStatusEnum;
+      /** Whether at least one rendered image is ready to fetch. */
       readonly has_content: boolean;
-      readonly snapshots: readonly HeatmapScreenshotResponseSnapshotsItem[];
+      /** Per-width render metadata. Fetch the actual image bytes for a width from the content endpoint. */
+      readonly snapshots: readonly HeatmapSnapshotMetadata[];
+      /** Soft-delete flag; deleted heatmaps are hidden from the list. */
       deleted?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * Error detail when screenshot generation failed, otherwise null.
+         * @nullable
+         */
       readonly exception: string | null;
     }
 
     export interface HeatmapsResponse {
       results: HeatmapResponseItem[];
+      /** Above/below-the-fold summary for the returned interactions. Present for click/rageclick/mousemove; omitted for scrolldepth. */
+      fold?: HeatmapFoldSummary | null;
     }
 
     export type HideViewedRecordings = typeof HideViewedRecordings[keyof typeof HideViewedRecordings];
@@ -18825,6 +19188,48 @@ export namespace Schemas {
       output_variable?: unknown;
     }
 
+    /**
+     * * `active` - Active
+    * `paused` - Paused
+    * `completed` - Completed
+     */
+    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
+
+
+    export const HogFlowScheduleStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Completed: 'completed',
+    } as const;
+
+    export interface HogFlowSchedule {
+      readonly id: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     export interface HogFlow {
       readonly id: string;
       /**
@@ -18866,6 +19271,50 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules: readonly HogFlowSchedule[];
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `queued` - Queued
+    * `active` - Active
+    * `completed` - Completed
+    * `cancelled` - Cancelled
+    * `failed` - Failed
+     */
+    export type HogFlowBatchJobStatusEnum = typeof HogFlowBatchJobStatusEnum[keyof typeof HogFlowBatchJobStatusEnum];
+
+
+    export const HogFlowBatchJobStatusEnum = {
+      Waiting: 'waiting',
+      Queued: 'queued',
+      Active: 'active',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    export interface HogFlowBatchJob {
+      readonly id: string;
+      /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+
+      * `waiting` - Waiting
+      * `queued` - Queued
+      * `active` - Active
+      * `completed` - Completed
+      * `cancelled` - Cancelled
+      * `failed` - Failed */
+      status?: HogFlowBatchJobStatusEnum;
+      /** ID of the workflow this batch run belongs to. */
+      hog_flow: string;
+      /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
+      filters?: unknown;
+      /** Variable value overrides applied to this run. */
+      variables?: unknown;
+      readonly created_at: string;
+      readonly created_by: UserBasic;
+      readonly updated_at: string;
     }
 
     /**
@@ -18904,34 +19353,6 @@ export namespace Schemas {
       readonly abort_action: string | null;
       readonly variables: unknown;
       readonly billable_action_types: unknown;
-    }
-
-    /**
-     * * `active` - Active
-    * `paused` - Paused
-    * `completed` - Completed
-     */
-    export type HogFlowScheduleStatusEnum = typeof HogFlowScheduleStatusEnum[keyof typeof HogFlowScheduleStatusEnum];
-
-
-    export const HogFlowScheduleStatusEnum = {
-      Active: 'active',
-      Paused: 'paused',
-      Completed: 'completed',
-    } as const;
-
-    export interface HogFlowSchedule {
-      readonly id: string;
-      rrule: string;
-      starts_at: string;
-      /** @maxLength 64 */
-      timezone?: string;
-      variables?: unknown;
-      readonly status: HogFlowScheduleStatusEnum;
-      /** @nullable */
-      readonly next_run_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     /**
@@ -19444,6 +19865,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TimelineEntry[];
@@ -19484,6 +19907,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PageURL[];
@@ -19518,98 +19943,6 @@ export namespace Schemas {
       samplingFactor?: number | null;
       searchTerm?: string | null;
       stripQueryParams?: boolean | null;
-      tags?: QueryLogTags | null;
-      useSessionsTable?: boolean | null;
-      /** version of the node, used for schema migrations */
-      version?: number | null;
-    }
-
-    export type WebTrendsMetric = typeof WebTrendsMetric[keyof typeof WebTrendsMetric];
-
-
-    export const WebTrendsMetric = {
-      UniqueUsers: 'UniqueUsers',
-      PageViews: 'PageViews',
-      Sessions: 'Sessions',
-      Bounces: 'Bounces',
-      SessionDuration: 'SessionDuration',
-      TotalSessions: 'TotalSessions',
-    } as const;
-
-    export interface Metrics {
-      Bounces?: number | null;
-      PageViews?: number | null;
-      SessionDuration?: number | null;
-      Sessions?: number | null;
-      TotalSessions?: number | null;
-      UniqueUsers?: number | null;
-    }
-
-    export interface WebTrendsItem {
-      bucket: string;
-      metrics: Metrics;
-    }
-
-    export interface WebTrendsQueryResponse {
-      /** Executed ClickHouse query */
-      clickhouse?: string | null;
-      /** Returned columns */
-      columns?: unknown[] | null;
-      /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
-      error?: string | null;
-      /** Query explanation output */
-      explain?: string[] | null;
-      hasMore?: boolean | null;
-      /** Generated HogQL query. */
-      hogql?: string | null;
-      limit?: number | null;
-      /** Query metadata output */
-      metadata?: HogQLMetadataResponse | null;
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      /** Input query string */
-      query?: string | null;
-      /** Query status indicates whether next to the provided data, a query is still running. */
-      query_status?: QueryStatus | null;
-      /** The date range used for the query */
-      resolved_date_range?: ResolvedDateRangeResponse | null;
-      results: WebTrendsItem[];
-      samplingRate?: SamplingRate | null;
-      /** Measured timings for different parts of the query generation process */
-      timings?: QueryTiming[] | null;
-      /** Types of returned columns */
-      types?: unknown[] | null;
-      usedPreAggregatedTables?: boolean | null;
-      /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
-      warnings?: DataWarehouseSyncWarning[] | null;
-    }
-
-    export interface WebTrendsQuery {
-      /** Groups aggregation - not used in Web Analytics but required for type compatibility */
-      aggregation_group_type_index?: number | null;
-      compareFilter?: CompareFilter | null;
-      conversionGoal?: ActionConversionGoal | CustomEventConversionGoal | null;
-      /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
-      dataColorTheme?: number | null;
-      dateRange?: DateRange | null;
-      doPathCleaning?: boolean | null;
-      filterTestAccounts?: boolean | null;
-      includeRevenue?: boolean | null;
-      /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
-      interval: IntervalType;
-      kind?: 'WebTrendsQuery';
-      limit?: number | null;
-      metrics: WebTrendsMetric[];
-      /** Modifiers used when performing the query */
-      modifiers?: HogQLQueryModifiers | null;
-      offset?: number | null;
-      orderBy?: (WebAnalyticsOrderByFields | WebAnalyticsOrderByDirection)[] | null;
-      properties: (EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter | CohortPropertyFilter)[];
-      response?: WebTrendsQueryResponse | null;
-      sampling?: WebAnalyticsSampling | null;
-      /** Sampling rate */
-      samplingFactor?: number | null;
       tags?: QueryLogTags | null;
       useSessionsTable?: boolean | null;
       /** version of the node, used for schema migrations */
@@ -19652,6 +19985,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebNotableChangeItem[];
@@ -19715,6 +20050,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -19748,6 +20085,8 @@ export namespace Schemas {
       /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
+      /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+      excludeAttributes?: boolean | null;
       filterGroup: PropertyGroupFilter;
       kind?: 'LogsQuery';
       limit?: number | null;
@@ -19796,6 +20135,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogAttributeResult[];
@@ -19839,6 +20180,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogValueResult[];
@@ -19881,6 +20224,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -19894,6 +20239,8 @@ export namespace Schemas {
       /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
+      /** Omit the per-span `attributes` map from results to keep payloads compact */
+      excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
@@ -19924,6 +20271,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: AggregatedSpanRow[];
@@ -19974,6 +20323,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SpanTreeNode[];
@@ -20140,6 +20491,8 @@ export namespace Schemas {
       next_cursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
@@ -20238,6 +20591,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: VectorSearchResponseItem[];
@@ -20299,6 +20654,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
@@ -20352,7 +20709,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLMetadataResponse | null;
       /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       tags?: QueryLogTags | null;
       /** Variables to be subsituted into the query */
       variables?: HogQLMetadataVariables;
@@ -20378,7 +20735,7 @@ export namespace Schemas {
       query: string;
       response?: HogQLAutocompleteResponse | null;
       /** Query in whose context to validate. */
-      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebTrendsQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
+      sourceQuery?: EventsNode | ActionsNode | PersonsNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | CalendarHeatmapQuery | RecordingsQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | null;
       /** Start position of the editor word */
       startPosition: number;
       tags?: QueryLogTags | null;
@@ -20554,6 +20911,7 @@ export namespace Schemas {
     * `google-cloud-service-account` - Google Cloud Service Account
     * `google-cloud-storage` - Google Cloud Storage
     * `google-pubsub` - Google Pubsub
+    * `google-search-console` - Google Search Console
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
     * `intercom` - Intercom
@@ -20594,6 +20952,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
       Intercom: 'intercom',
@@ -20625,6 +20984,39 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+    }
+
+    export interface RecommendedAction {
+      /** Short title of the recommended action */
+      title: string;
+      /** Detailed explanation of the action */
+      detail: string;
+      /** Action severity */
+      severity: string;
+      /**
+         * Follow-up tool to call next, if any
+         * @nullable
+         */
+      target_tool: string | null;
+    }
+
+    export interface IntegrationDiagnostic {
+      /** Integration key (e.g. 'google', 'meta') */
+      integration_key: string;
+      /** External data source type key (e.g. 'GoogleAds') */
+      source_type: string;
+      /** Human-readable integration name */
+      display_name: string;
+      /** Per-integration status */
+      overall_status: string;
+      /** Human-readable cross-domain diagnosis */
+      diagnosis: string;
+      /** Data-source (sync) side health, or null if not connected */
+      data_source?: DataSourceHealthEntry | null;
+      /** Attribution (UTM events) side health, or null if no data */
+      attribution?: AttributionHealthEntry | null;
+      /** Recommended next steps for this integration */
+      recommended_actions: RecommendedAction[];
     }
 
     /**
@@ -20753,6 +21145,24 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    /**
+     * * `manual` - Manual only
+    * `1h` - Every hour
+    * `6h` - Every 6 hours
+    * `24h` - Every day
+    * `7d` - Every week
+     */
+    export type RefreshIntervalEnum = typeof RefreshIntervalEnum[keyof typeof RefreshIntervalEnum];
+
+
+    export const RefreshIntervalEnum = {
+      Manual: 'manual',
+      '1h': '1h',
+      '6h': '6h',
+      '24h': '24h',
+      '7d': '7d',
+    } as const;
+
     export interface KnowledgeSource {
       readonly id: string;
       readonly team_id: number;
@@ -20772,6 +21182,14 @@ export namespace Schemas {
       readonly last_refresh_at: string | null;
       readonly last_refresh_status: LastRefreshStatusEnum;
       readonly last_refresh_error: string;
+      readonly refresh_interval: RefreshIntervalEnum;
+      /**
+         * When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.
+         * @nullable
+         */
+      readonly next_refresh_at: string | null;
+      /** True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search. */
+      readonly has_unsafe_documents: boolean;
       readonly crawl_mode: CrawlModeEnum;
       readonly crawl_config: unknown;
       readonly original_filename: string;
@@ -22141,6 +22559,19 @@ export namespace Schemas {
       snapshot_id: string;
     }
 
+    export interface MarketingDiagnosticResponse {
+      /** Per-integration cross-domain diagnostics */
+      integrations: IntegrationDiagnostic[];
+      /** healthy/degraded/broken/no_sources */
+      overall_status: string;
+      /** One-line plain-English summary of the diagnostic */
+      summary: string;
+      /** Conversion goal summary, when requested */
+      conversion_goals?: ConversionGoalsListResponse | null;
+      /** Top global recommended actions across all integrations */
+      recommended_actions: RecommendedAction[];
+    }
+
     /**
      * * `key` - key
     * `value` - value
@@ -22353,6 +22784,20 @@ export namespace Schemas {
       SetConfigOption: 'set_config_option',
     } as const;
 
+    /**
+     * * `precise` - PRECISE
+    * `coarse` - COARSE
+    * `partial` - PARTIAL
+     */
+    export type MetricQualityEnum = typeof MetricQualityEnum[keyof typeof MetricQualityEnum];
+
+
+    export const MetricQualityEnum = {
+      Precise: 'precise',
+      Coarse: 'coarse',
+      Partial: 'partial',
+    } as const;
+
     export interface MinimalPerson {
       /** Numeric person ID. */
       readonly id: number;
@@ -22382,9 +22827,25 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface MonitorStats {
+      /** Succeeded observations whose verdict was `yes`. */
+      yes_total: number;
+      /** Succeeded observations whose verdict was `no`. */
+      no_total: number;
+      /** Succeeded observations whose verdict was `inconclusive`. */
+      inconclusive_total: number;
+    }
+
     export interface MoveTileTile {
       /** Dashboard tile ID to move. */
       id: number;
+    }
+
+    export interface MoveTileRequest {
+      /** Destination dashboard ID. */
+      to_dashboard: number;
+      /** Tile to move, identified by its dashboard tile ID. */
+      tile: MoveTileTile;
     }
 
     export interface MyFlagsResponse {
@@ -22642,6 +23103,70 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface ObservationStatusCounts {
+      /** Total observations in the filtered set. */
+      total: number;
+      /** Observations with `status=succeeded`. */
+      succeeded: number;
+      /** Observations with `status=failed`. */
+      failed: number;
+      /** Observations with `status=ineligible`. */
+      ineligible: number;
+      /** Observations not yet in a terminal status. */
+      in_flight: number;
+      /**
+         * Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. Null when no observations have completed.
+         * @nullable
+         */
+      success_rate: number | null;
+    }
+
+    export interface ScorerSummary {
+      /** Minimum observed score. */
+      min: number;
+      /** 25th-percentile score. */
+      p25: number;
+      /** Median score. */
+      median: number;
+      /** Mean score. */
+      mean: number;
+      /** 75th-percentile score. */
+      p75: number;
+      /** Maximum observed score. */
+      max: number;
+      /** Number of scored observations summarized. */
+      count: number;
+    }
+
+    export interface ScorerHistogram {
+      /** Bucket labels (one per histogram bar) spanning the scanner's configured scale. */
+      labels: string[];
+      /** Observation count per bucket; same length as `labels`. */
+      counts: number[];
+    }
+
+    export interface ScorerStats {
+      /** Score quantile summary; null when no observations have been scored. */
+      summary: ScorerSummary | null;
+      /** Score histogram; null when no observations have been scored. */
+      histogram: ScorerHistogram | null;
+    }
+
+    export interface ObservationStats {
+      /** Counts of observations by terminal status. */
+      status_counts: ObservationStatusCounts;
+      /** Session-level scanner coverage. */
+      coverage: CoverageStats;
+      /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
+      available_tags: string[];
+      /** Monitor-type aggregates; null when the scanner is not a monitor. */
+      monitor: MonitorStats | null;
+      /** Classifier-type aggregates; null when the scanner is not a classifier. */
+      classifier: ClassifierStats | null;
+      /** Scorer-type aggregates; null when the scanner is not a scorer. */
+      scorer: ScorerStats | null;
+    }
+
     /**
      * * `pending` - Pending
     * `running` - Running
@@ -22816,6 +23341,11 @@ export namespace Schemas {
       enforce_2fa?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
+      /**
+         * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+         * @nullable
+         */
+      members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count: number;
@@ -23096,6 +23626,97 @@ export namespace Schemas {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
     } as const;
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface PullRequest {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** GitHub pull request id. */
+      id: number;
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+
+      * `open` - OPEN
+      * `closed` - CLOSED
+      * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * When the pull request was closed, or null.
+         * @nullable
+         */
+      closed_at: string | null;
+    }
+
+    /**
+     * * `opened` - OPENED
+    * `ci_started` - CI_STARTED
+    * `ci_finished` - CI_FINISHED
+    * `merged` - MERGED
+    * `closed` - CLOSED
+     */
+    export type PRLifecycleEventKindEnum = typeof PRLifecycleEventKindEnum[keyof typeof PRLifecycleEventKindEnum];
+
+
+    export const PRLifecycleEventKindEnum = {
+      Opened: 'opened',
+      CiStarted: 'ci_started',
+      CiFinished: 'ci_finished',
+      Merged: 'merged',
+      Closed: 'closed',
+    } as const;
+
+    export interface PRLifecycleEvent {
+      /** Event kind: opened, ci_started, ci_finished, merged, or closed.
+
+      * `opened` - OPENED
+      * `ci_started` - CI_STARTED
+      * `ci_finished` - CI_FINISHED
+      * `merged` - MERGED
+      * `closed` - CLOSED */
+      kind: PRLifecycleEventKindEnum;
+      /** When the event occurred. */
+      at: string;
+      /**
+         * Optional detail, e.g. workflow name and conclusion for CI events.
+         * @nullable
+         */
+      detail?: string | null;
+    }
+
+    export interface PRLifecycle {
+      /** The pull request header. */
+      pull_request: PullRequest;
+      /** Lifecycle events ordered by time. */
+      events: PRLifecycleEvent[];
+      /** Always 'partial' — CI events only; reviews and comments are not yet available.
+
+      * `precise` - PRECISE
+      * `coarse` - COARSE
+      * `partial` - PARTIAL */
+      metric_quality?: MetricQualityEnum;
+    }
 
     export interface PaginatedAccountList {
       count: number;
@@ -23385,33 +24006,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Dataset[];
-    }
-
-    export interface PaginatedDeploymentEventList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DeploymentEvent[];
-    }
-
-    export interface PaginatedDeploymentList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Deployment[];
-    }
-
-    export interface PaginatedDeploymentProjectList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DeploymentProject[];
     }
 
     export interface PaginatedDesktopRecordingList {
@@ -23720,24 +24314,6 @@ export namespace Schemas {
       results: HealthIssue[];
     }
 
-    export interface PaginatedHeatmapScreenshotResponseList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HeatmapScreenshotResponse[];
-    }
-
-    export interface PaginatedHeatmapsResponseList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HeatmapsResponse[];
-    }
-
     export interface PaginatedHogFlowMinimalList {
       count: number;
       /** @nullable */
@@ -23745,15 +24321,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: HogFlowMinimal[];
-    }
-
-    export interface PaginatedHogFlowScheduleList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: HogFlowSchedule[];
     }
 
     export interface PaginatedHogFlowTemplateList {
@@ -24110,6 +24677,31 @@ export namespace Schemas {
       results: OrganizationOAuthApplication[];
     }
 
+    export interface ParserRecipe {
+      readonly id: string;
+      /**
+         * Human-readable recipe name shown in the editor.
+         * @maxLength 255
+         */
+      name: string;
+      /** Raw YAML recipe source, compiled and validated client-side. */
+      source: string;
+      /** User who created the recipe. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedParserRecipeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ParserRecipe[];
+    }
+
     export interface PauseStateResponse {
       /**
          * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -24143,9 +24735,18 @@ export namespace Schemas {
 
     export interface PersistedFolder {
       readonly id: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at: string;
       readonly updated_at: string;
@@ -24558,7 +25159,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -25235,6 +25836,79 @@ export namespace Schemas {
       results: SignalSourceConfig[];
     }
 
+    /**
+     * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+     * @nullable
+     */
+    export type SingleSessionSummaryMinimalSessionOutcome = {
+      readonly success?: boolean;
+      readonly description?: string;
+    } | null;
+
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    export type SingleSessionSummaryMinimalExtraSummaryContext = {
+      readonly focus_area?: string;
+    } | null;
+
+    /**
+     * Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row).
+     */
+    export interface SingleSessionSummaryMinimal {
+      readonly id: string;
+      /** Session replay ID */
+      readonly session_id: string;
+      /**
+         * Distinct ID of the session's user
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Session start time
+         * @nullable
+         */
+      readonly session_start_time: string | null;
+      /**
+         * Session duration in seconds
+         * @nullable
+         */
+      readonly session_duration: number | null;
+      /**
+         * Headline outcome from the summary: `{success: bool, description: string}` or null if the summary did not record one. Useful for quickly classifying a session as success/failure.
+         * @nullable
+         */
+      readonly session_outcome: SingleSessionSummaryMinimalSessionOutcome;
+      /** Number of exception event IDs surfaced by this summary (capped at 100). */
+      readonly exception_count: number;
+      /** True if the summary surfaced any exception events. */
+      readonly has_exceptions: boolean;
+      /**
+         * LLM model identifier that generated this summary, if recorded in run metadata.
+         * @nullable
+         */
+      readonly model_used: string | null;
+      /** True if the summary was produced with video-based visual confirmation (the rasterized-recording path). */
+      readonly visual_confirmation: boolean;
+      /**
+         * Optional context passed to the summary at generation time (e.g. `focus_area`).
+         * @nullable
+         */
+      readonly extra_summary_context: SingleSessionSummaryMinimalExtraSummaryContext;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
+    }
+
+    export interface PaginatedSingleSessionSummaryMinimalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SingleSessionSummaryMinimal[];
+    }
+
     export interface SnapshotHistoryEntry {
       current_artifact?: Artifact | null;
       run_id: string;
@@ -25467,11 +26141,11 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
-      interval?: number;
+      interval: number;
       /**
          * Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.
          * @nullable
@@ -26290,7 +26964,7 @@ export namespace Schemas {
       readonly created_at: string;
       /** Optional name for the threshold. */
       name?: string;
-      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). */
+      /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
       configuration: InsightThreshold;
       readonly alerts: readonly Alert[];
     }
@@ -26303,24 +26977,6 @@ export namespace Schemas {
       previous?: string | null;
       results: ThresholdWithAlert[];
     }
-
-    /**
-     * * `new` - New
-    * `open` - Open
-    * `pending` - Pending
-    * `on_hold` - On hold
-    * `resolved` - Resolved
-     */
-    export type TicketStatusEnum = typeof TicketStatusEnum[keyof typeof TicketStatusEnum];
-
-
-    export const TicketStatusEnum = {
-      New: 'new',
-      Open: 'open',
-      Pending: 'pending',
-      OnHold: 'on_hold',
-      Resolved: 'resolved',
-    } as const;
 
     /**
      * * `low` - Low
@@ -26602,6 +27258,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
       readonly view_count: number;
       /** Up to 3 of the most recent users who viewed this insight in the time window. */
@@ -26676,6 +27334,8 @@ export namespace Schemas {
       readonly topic: string | null;
       readonly transcript: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio: string;
     }
 
@@ -26702,6 +27362,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PaginatedUserInterviewTopicList {
@@ -27086,7 +27756,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -27115,6 +27785,10 @@ export namespace Schemas {
       sfdc_id?: string | null;
       /** @nullable */
       zendesk_id?: string | null;
+      /** @nullable */
+      slack_channel_id?: string | null;
+      /** @nullable */
+      usage_dashboard_link?: string | null;
     } | null;
 
     /**
@@ -27134,7 +27808,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -27315,6 +27989,12 @@ export namespace Schemas {
       * `organization` - organization
       * `recording` - recording */
       scope?: AnnotationScopeEnum;
+      /**
+         * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
+         * @maxLength 16
+         * @nullable
+         */
+      emoji?: string | null;
     }
 
     export interface PatchedApprovalPolicy {
@@ -27948,53 +28628,6 @@ export namespace Schemas {
       readonly team?: number;
     }
 
-    export interface PatchedDeploymentProjectWrite {
-      /**
-         * Human-readable project name shown in the UI.
-         * @maxLength 200
-         */
-      name?: string;
-      /**
-         * URL-safe handle. Combined with the team id to form the Cloudflare project name; the actual subdomain comes from Cloudflare and is returned in the read-only `subdomain` field. Must be unique per team.
-         * @maxLength 80
-         * @pattern ^[-a-zA-Z0-9_]+$
-         */
-      slug?: string;
-      /**
-         * Branch PostHog tracks for deployment updates. Defaults to the repository default branch.
-         * @maxLength 255
-         */
-      default_branch?: string;
-      /**
-         * Existing PostHog GitHub integration id used for repository access.
-         * @nullable
-         */
-      github_integration_id?: number | null;
-      /**
-         * Stable GitHub repository identifier selected from the existing integration's repository list.
-         * @nullable
-         */
-      github_repo_id?: number | null;
-      /**
-         * Optional shell command run inside the build container. Null = the build worker infers it from `framework` (or auto-detection if framework is also null).
-         * @nullable
-         */
-      build_command?: string | null;
-      /**
-         * Directory containing the built static site, relative to the repository root.
-         * @maxLength 255
-         */
-      output_dir?: string;
-      /**
-         * Optional framework hint (e.g. `nextjs`, `vite`, `astro`). Null = auto-detect.
-         * @maxLength 50
-         * @nullable
-         */
-      framework?: string | null;
-      /** If true, the build injects a PostHog snippet into every HTML file that registers `release = deployment_id` as a super-property — runtime exceptions are then linked back to the deployment that introduced them. */
-      inject_posthog_snippet?: boolean;
-    }
-
     export interface PatchedDesktopRecording {
       readonly id?: string;
       readonly team?: number;
@@ -28499,8 +29132,8 @@ export namespace Schemas {
       output_type?: OutputTypeEnum;
       /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
       output_config?: PatchedEvaluationOutputConfig;
-      /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-      conditions?: unknown;
+      /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+      conditions?: EvaluationCondition[];
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -28729,6 +29362,18 @@ export namespace Schemas {
       is_nullable?: boolean;
     };
 
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    export type PatchedExternalDataSchemaSource = {
+      readonly id?: string;
+      readonly source_type?: string;
+      readonly supports_column_selection?: boolean;
+      /** @nullable */
+      readonly user_access_level?: string | null;
+    } | null;
+
     export interface PatchedExternalDataSchema {
       readonly id?: string;
       readonly name?: string;
@@ -28808,6 +29453,11 @@ export namespace Schemas {
       enabled_columns?: string[] | null;
       /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
+      /**
+         * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+         * @nullable
+         */
+      readonly source?: PatchedExternalDataSchemaSource;
     }
 
     export interface PatchedExternalDataSourceBulkUpdateSchemas {
@@ -28907,17 +29557,26 @@ export namespace Schemas {
 
     export interface PatchedFileSystemShortcut {
       readonly id?: string;
+      /** Display path of the shortcut in the sidebar. */
       path?: string;
-      /** @maxLength 100 */
+      /**
+         * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+         * @maxLength 100
+         */
       type?: string;
       /**
+         * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
          * @maxLength 100
          * @nullable
          */
       ref?: string | null;
-      /** @nullable */
+      /**
+         * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+         * @nullable
+         */
       href?: string | null;
       /**
+         * Display order within the user's shortcut list, ascending.
          * @minimum -2147483648
          * @maximum 2147483647
          */
@@ -29006,37 +29665,6 @@ export namespace Schemas {
       readonly resolved_at?: string | null;
     }
 
-    export type PatchedHeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown };
-
-    export interface PatchedHeatmapScreenshotResponse {
-      readonly id?: string;
-      readonly short_id?: string;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      name?: string | null;
-      /** @maxLength 2000 */
-      url?: string;
-      /**
-         * URL for fetching heatmap data
-         * @maxLength 2000
-         * @nullable
-         */
-      data_url?: string | null;
-      target_widths?: unknown;
-      type?: HeatmapScreenshotResponseTypeEnum;
-      readonly status?: HeatmapScreenshotResponseStatusEnum;
-      readonly has_content?: boolean;
-      readonly snapshots?: readonly PatchedHeatmapScreenshotResponseSnapshotsItem[];
-      deleted?: boolean;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      /** @nullable */
-      readonly exception?: string | null;
-    }
-
     /**
      * Variable: {key, type: string|number|boolean, default}.
      */
@@ -29083,6 +29711,36 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
+      /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
+      readonly schedules?: readonly HogFlowSchedule[];
+    }
+
+    export interface PatchedHogFlowSchedule {
+      readonly id?: string;
+      /** iCalendar RRULE string (e.g. 'FREQ=DAILY;INTERVAL=1'). Must produce occurrences at most once per hour. */
+      rrule?: string;
+      /** ISO 8601 datetime the schedule starts from. */
+      starts_at?: string;
+      /**
+         * IANA timezone for interpreting the RRULE (default 'UTC').
+         * @maxLength 64
+         */
+      timezone?: string;
+      /** Variable value overrides merged with the workflow defaults on each run. */
+      variables?: unknown;
+      /** active, paused, or completed (set once the RRULE's COUNT/UNTIL is exhausted).
+
+      * `active` - Active
+      * `paused` - Paused
+      * `completed` - Completed */
+      readonly status?: HogFlowScheduleStatusEnum;
+      /**
+         * Next scheduled fire time, computed by the scheduler.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -29321,6 +29979,8 @@ export namespace Schemas {
       readonly alerts?: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at?: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedInsightVariable {
@@ -29864,6 +30524,11 @@ export namespace Schemas {
       enforce_2fa?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
+      /**
+         * When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.
+         * @nullable
+         */
+      members_can_create_projects?: boolean | null;
       members_can_use_personal_api_keys?: boolean;
       allow_publicly_shared_resources?: boolean;
       readonly member_count?: number;
@@ -29975,11 +30640,36 @@ export namespace Schemas {
       readonly last_login?: string;
     }
 
+    export interface PatchedParserRecipe {
+      readonly id?: string;
+      /**
+         * Human-readable recipe name shown in the editor.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Raw YAML recipe source, compiled and validated client-side. */
+      source?: string;
+      /** User who created the recipe. */
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
+    }
+
     export interface PatchedPersistedFolder {
       readonly id?: string;
+      /** Which persisted folder this is for the user (home, pinned, custom_products).
+
+      * `home` - Home
+      * `pinned` - Pinned
+      * `custom_products` - Custom Products */
       type?: PersistedFolderTypeEnum;
-      /** @maxLength 64 */
+      /**
+         * Protocol prefix of the folder location, e.g. 'products://'.
+         * @maxLength 64
+         */
       protocol?: string;
+      /** Path within the protocol that the folder resolves to. */
       path?: string;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -30970,7 +31660,7 @@ export namespace Schemas {
       * `scorer` - Scorer
       * `summarizer` - Summarizer */
       scanner_type?: ScannerTypeEnum;
-      /** Type-specific configuration. All scanner types require `prompt`; classifiers add `tags`, scorers add `scale`, summarizers add optional `length` and `emits_embeddings` flag. */
+      /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
       scanner_config?: unknown;
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
@@ -31053,6 +31743,39 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
+    }
+
+    export interface PatchedSavedHeatmapRequest {
+      /**
+         * Human-readable label for the saved heatmap.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.
+         * @maxLength 2000
+         */
+      url?: string;
+      /**
+         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
+         * @maxLength 2000
+         * @nullable
+         */
+      data_url?: string | null;
+      /**
+         * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
+         * @maxItems 16
+         */
+      widths?: number[];
+      /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
+
+      * `screenshot` - Screenshot
+      * `iframe` - Iframe
+      * `recording` - Recording */
+      type?: HeatmapType;
+      /** Set true to soft-delete the saved heatmap. */
+      deleted?: boolean;
     }
 
     export interface PatchedScheduledChange {
@@ -31278,6 +32001,34 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface PatchedSignalScoutConfig {
+      readonly id?: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name?: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      readonly created_at?: string;
+    }
+
     export interface PatchedSignalSourceConfig {
       readonly id?: string;
       source_product?: SourceProductEnum;
@@ -31349,8 +32100,8 @@ export namespace Schemas {
       * `yearly` - Yearly */
       frequency?: SubscriptionFrequencyEnum;
       /**
-         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Default 1.
-         * @minimum -2147483648
+         * Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.
+         * @minimum 1
          * @maximum 2147483647
          */
       interval?: number;
@@ -32321,6 +33072,11 @@ export namespace Schemas {
       account_group_type_index?: number | null;
     }
 
+    export interface TeamWorkflowsConfig {
+      /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
+      capture_workflows_engagement_events?: boolean;
+    }
+
     export interface PatchedTeam {
       readonly id?: number;
       readonly uuid?: string;
@@ -32490,6 +33246,7 @@ export namespace Schemas {
       conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
+      workflows_config?: TeamWorkflowsConfig;
       readonly effective_membership_level?: EffectiveMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
@@ -32763,6 +33520,8 @@ export namespace Schemas {
       readonly topic?: string | null;
       readonly transcript?: string;
       summary?: string;
+      /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+      classifications?: ClassificationsEnum[];
       audio?: string;
     }
 
@@ -32780,6 +33539,16 @@ export namespace Schemas {
       agent_context?: string;
       /** Ordered list of questions the voice agent should work through during the interview. */
       questions?: string[];
+      /**
+         * Subject line for the invitation email. Plain text only — URLs, angle brackets, and control characters are rejected. Leave blank to use the default subject. Personalization is handled by the email template, so do not include placeholders.
+         * @maxLength 255
+         */
+      invite_subject?: string;
+      /**
+         * Intro message shown in the invitation email body, above the interview link. Plain prose only — URLs, angle brackets, and control characters are rejected (line breaks are allowed). Leave blank to use the default copy.
+         * @maxLength 1000
+         */
+      invite_message?: string;
     }
 
     export interface PatchedUserProductList {
@@ -34569,6 +35338,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
@@ -34659,6 +35430,50 @@ export namespace Schemas {
       results: ProxyRecord[];
       /** Maximum number of proxy records allowed for this organization's current plan. */
       max_proxy_records: number;
+    }
+
+    export interface PullRequestListItem {
+      /** The pull request author. */
+      author: Author;
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** CI status from the latest workflow runs on the head SHA. */
+      ci: CIStatusRollup;
+      /** Pull request number within the repository. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Derived state: 'open', 'closed', or 'merged'.
+
+      * `open` - OPEN
+      * `closed` - CLOSED
+      * `merged` - MERGED */
+      state: EngineeringAnalyticsPRStateEnum;
+      /** True if the pull request is a draft. */
+      is_draft: boolean;
+      /** When the pull request was opened. */
+      created_at: string;
+      /**
+         * When the pull request was merged, or null.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.
+         * @nullable
+         */
+      open_to_merge_seconds: number | null;
+      /** GitHub label names on the pull request. */
+      labels: string[];
+    }
+
+    export interface PullRequestList {
+      /** Pull requests, newest first, capped at `limit`. */
+      items: PullRequestListItem[];
+      /** True when more pull requests match than the cap; `items` is the newest `limit` rows and the aggregate counts in ci_cards can exceed it. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
     }
 
     /**
@@ -34810,6 +35625,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TeamTaxonomyItem[];
@@ -34893,6 +35710,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34916,6 +35735,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34940,6 +35761,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34964,6 +35787,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -34996,6 +35821,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TimelineEntry[];
@@ -35034,6 +35861,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35077,6 +35906,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35100,6 +35931,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -35121,6 +35954,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SimilarIssue[];
@@ -35141,6 +35976,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative16Results;
@@ -35163,6 +36000,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingCorrelatedIssue[];
@@ -35269,6 +36108,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EmbeddingDistance[];
@@ -35289,6 +36130,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -35314,6 +36157,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35340,6 +36185,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35364,6 +36211,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35388,6 +36237,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -35413,6 +36264,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PageURL[];
@@ -35439,6 +36292,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebNotableChangeItem[];
@@ -35460,6 +36315,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35479,6 +36336,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35498,6 +36357,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -35516,6 +36377,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -35535,6 +36398,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35557,6 +36422,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -35579,6 +36446,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative37Results;
@@ -35602,6 +36471,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -35628,6 +36499,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35652,6 +36525,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35676,6 +36551,8 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35708,6 +36585,8 @@ export namespace Schemas {
       query?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35730,6 +36609,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: WebOverviewItem[];
@@ -35755,6 +36636,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35781,6 +36664,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35805,6 +36690,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35829,6 +36716,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       /**
@@ -35856,6 +36745,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35879,6 +36770,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -35899,6 +36792,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -35918,6 +36813,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35937,6 +36834,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsMRRQueryResultItem[];
@@ -35955,6 +36854,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RevenueAnalyticsOverviewItem[];
@@ -35974,6 +36875,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -35996,6 +36899,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36019,6 +36924,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -36041,6 +36948,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative58Results;
@@ -36064,6 +36973,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsItem[][];
@@ -36088,6 +36999,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ErrorTrackingIssue[];
@@ -36153,6 +37066,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -36175,6 +37090,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -36194,11 +37111,15 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -36223,6 +37144,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative67ResultsItem[];
@@ -36241,6 +37164,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36259,6 +37184,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: RetentionResult[];
@@ -36277,6 +37204,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PathsLink[];
@@ -36297,6 +37226,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative71ResultsItem[];
@@ -36319,6 +37250,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: FunnelCorrelationResult;
@@ -36348,6 +37281,8 @@ export namespace Schemas {
       next_cursor?: string | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SessionRecordingType[];
@@ -36372,6 +37307,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36391,6 +37328,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogAttributeResult[];
@@ -36409,6 +37348,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LogValueResult[];
@@ -36432,6 +37373,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown;
@@ -36452,6 +37395,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: AggregatedSpanRow[];
@@ -36472,6 +37417,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: SpanTreeNode[];
@@ -36499,6 +37446,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: TeamTaxonomyItem[];
@@ -36520,6 +37469,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EventTaxonomyItem[];
@@ -36538,6 +37489,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[];
@@ -36560,6 +37513,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: LLMTrace[];
@@ -36593,6 +37548,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: VectorSearchResponseItem[];
@@ -36611,6 +37568,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: UsageMetric[];
@@ -36629,11 +37588,15 @@ export namespace Schemas {
       hogql: string;
       kind?: 'AccountsQuery';
       limit: number;
+      /** When `metrics` is set on the query, the aggregated values in the same order. */
+      metricsResults?: (number | null)[] | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[][];
@@ -36653,6 +37616,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: EndpointsUsageOverviewItem[];
@@ -36675,6 +37640,8 @@ export namespace Schemas {
       offset?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: unknown[];
@@ -36696,6 +37663,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: QueryResponseAlternative94ResultsItem[];
@@ -36714,6 +37683,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      /** The resolved previous/comparison period date range, when comparing against another period */
+      resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: PropertyValueItem[];
@@ -36750,6 +37721,18 @@ export namespace Schemas {
     export interface QuotaLimitsResponse {
       /** Per-resource limit state keyed by `QuotaResource` value. Currently only `ai_credits` is reported; additional resources may be added. */
       limited: QuotaLimitsResponseLimited;
+    }
+
+    export interface RawUnmatchedSample {
+      /** A raw utm_source value matching no integration */
+      raw_utm_source: string;
+      /** Number of events with this raw value in the window */
+      event_count: number;
+      /**
+         * Integration suggested by token match, if any
+         * @nullable
+         */
+      suggested_integration: string | null;
     }
 
     export interface RecomputeResult {
@@ -37015,6 +37998,85 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface SavedHeatmapListResponse {
+      results: HeatmapScreenshotResponse[];
+      /** Total number of saved heatmaps matching the filters. */
+      count: number;
+    }
+
+    export interface SavedHeatmapRequest {
+      /**
+         * Human-readable label for the saved heatmap.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /**
+         * Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.
+         * @maxLength 2000
+         */
+      url: string;
+      /**
+         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
+         * @maxLength 2000
+         * @nullable
+         */
+      data_url?: string | null;
+      /**
+         * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
+         * @maxItems 16
+         */
+      widths?: number[];
+      /** Render mode: 'screenshot' (renders the page headlessly, default), 'iframe', or 'recording'. Only 'screenshot' generates image bytes.
+
+      * `screenshot` - Screenshot
+      * `iframe` - Iframe
+      * `recording` - Recording */
+      type?: HeatmapType;
+      /** Set true to soft-delete the saved heatmap. */
+      deleted?: boolean;
+    }
+
+    /**
+     * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
+     */
+    export interface ScannerCreatorsResponse {
+      /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
+      creators: UserBasic[];
+    }
+
+    /**
+     * Per-scanner-type count of enabled vs total scanners.
+     */
+    export interface ScannerTypeStats {
+      /** Number of enabled scanners of this type. */
+      enabled: number;
+      /** Number of scanners of this type (enabled + disabled). */
+      total: number;
+    }
+
+    /**
+     * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+     */
+    export interface ScannerStatsByType {
+      monitor: ScannerTypeStats;
+      classifier: ScannerTypeStats;
+      scorer: ScannerTypeStats;
+      summarizer: ScannerTypeStats;
+    }
+
+    /**
+     * Team-wide scanner counts independent of any list-filter state.
+     */
+    export interface ScannerStatsResponse {
+      /** Total scanners on the team. */
+      total: number;
+      /** Number of enabled scanners on the team. */
+      enabled: number;
+      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+      by_type: ScannerStatsByType;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Human-readable scorer name.
@@ -37117,7 +38179,7 @@ export namespace Schemas {
       needs_updating: boolean;
       /** True when this version equals or exceeds the latest known published version. */
       is_current_or_newer: boolean;
-      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available. Click Releases above to check for any since.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
+      /** Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated versions, 'You have the latest available.' for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions. */
       status_reason: string;
       /** SQL SELECT statement for drilling into events for this SDK version over the last 7 days. Suitable to pass to the execute-sql tool or to display as a copy-paste snippet. */
       sql_query: string;
@@ -37176,7 +38238,7 @@ export namespace Schemas {
 
     export interface SendInvitesRequest {
       /**
-         * Override the default email subject line. Defaults to a friendly prompt referencing the topic.
+         * Override the email subject line for this send. Plain text only — URLs, angle brackets, and control characters are rejected. Falls back to the topic's saved subject, then a default.
          * @maxLength 200
          */
       subject?: string;
@@ -37273,6 +38335,16 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly team: number;
     }
+
+    /**
+     * * `session_replay_list` - session_replay_list
+     */
+    export type SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum];
+
+
+    export const SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnum = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
 
     export interface SessionSummaries {
       /**
@@ -37399,6 +38471,34 @@ export namespace Schemas {
     }
 
     /**
+     * Per-(team, skill) scout config: schedule, enablement, and emit posture.
+
+    One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
+    when it discovers a scout skill; this serializer lets agents tune the row.
+     */
+    export interface SignalScoutConfig {
+      readonly id: string;
+      /** The `signals-scout-*` skill this config controls. Set at creation, not editable. */
+      readonly skill_name: string;
+      /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+      enabled?: boolean;
+      /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
+      emit?: boolean;
+      /**
+         * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
+         * @minimum 10
+         * @maximum 43200
+         */
+      run_interval_minutes?: number;
+      /**
+         * When the coordinator last dispatched this scout. Null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      readonly created_at: string;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
     today; kept distinct so future detail-only extensions (linked Signal rows,
     LLMA token-cost join) can land here without bloating the list response.
@@ -37511,6 +38611,65 @@ export namespace Schemas {
       slack_notification_min_priority?: AutonomyPriorityEnum | BlankEnum | null;
       readonly created_at: string;
       readonly updated_at: string;
+    }
+
+    /**
+     * Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block.
+     */
+    export type SingleSessionSummarySummary = { [key: string]: unknown };
+
+    /**
+     * Optional context passed to the summary at generation time (e.g. `focus_area`).
+     * @nullable
+     */
+    export type SingleSessionSummaryExtraSummaryContext = {
+      readonly focus_area?: string;
+    } | null;
+
+    /**
+     * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+     * @nullable
+     */
+    export type SingleSessionSummaryRunMetadata = { [key: string]: unknown } | null;
+
+    /**
+     * Full session summary, including the generated `summary` JSON content.
+     */
+    export interface SingleSessionSummary {
+      readonly id: string;
+      /** Session replay ID */
+      readonly session_id: string;
+      /**
+         * Distinct ID of the session's user
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Session start time
+         * @nullable
+         */
+      readonly session_start_time: string | null;
+      /**
+         * Session duration in seconds
+         * @nullable
+         */
+      readonly session_duration: number | null;
+      /** Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), `key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. Video-based runs additionally include a `sentiment` block. */
+      readonly summary: SingleSessionSummarySummary;
+      /** Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability. */
+      readonly exception_event_ids: readonly string[];
+      /**
+         * Optional context passed to the summary at generation time (e.g. `focus_area`).
+         * @nullable
+         */
+      readonly extra_summary_context: SingleSessionSummaryExtraSummaryContext;
+      /**
+         * `SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.
+         * @nullable
+         */
+      readonly run_metadata: SingleSessionSummaryRunMetadata;
+      readonly created_at: string;
+      readonly created_by: UserBasic | null;
     }
 
     export interface SlackChannel {
@@ -37693,6 +38852,17 @@ export namespace Schemas {
       runs: SlackThreadContextRun[];
     }
 
+    export interface SourceMappingSuggestion {
+      /** The raw utm_source value seen on events */
+      raw_utm_source: string;
+      /** Integration key it maps to */
+      suggested_target: string;
+      /** Human-readable name of the suggested integration */
+      suggested_target_display_name: string;
+      /** Why this mapping is suggested */
+      reason: string;
+    }
+
     /**
      * * `none` - none
     * `auto` - auto
@@ -37834,6 +39004,91 @@ export namespace Schemas {
     export interface SurveyQuestionLabelsResponse {
       /** One entry per question that has an ID assigned, across all the team's surveys. */
       labels: SurveyQuestionLabel[];
+    }
+
+    export interface SurveyResponseAnswer {
+      /** UUID of the survey question this answer belongs to. */
+      question_id: string;
+      /** Zero-based index of the question within the survey. */
+      question_index: number;
+      /** Untranslated question text as configured by the survey author. */
+      question_text: string;
+      /** Question type: open, rating, single_choice, multiple_choice, or link. Determines the shape of the answer field. */
+      question_type: string;
+      /** Resolved answer. String for open/rating/single_choice/link questions, list of strings for multiple_choice questions. Already decoded from the raw $survey_response_<id> property so callers don't need to parse it. */
+      answer: unknown;
+    }
+
+    export interface SurveyResponseExtra {
+      /**
+         * $device_type at the time the response was sent.
+         * @nullable
+         */
+      device_type?: string | null;
+      /**
+         * $browser at the time the response was sent.
+         * @nullable
+         */
+      browser?: string | null;
+      /**
+         * $os (operating system) at the time the response was sent.
+         * @nullable
+         */
+      os?: string | null;
+      /**
+         * $geoip_country_code at submission time.
+         * @nullable
+         */
+      geoip_country_code?: string | null;
+      /**
+         * $geoip_country_name at submission time.
+         * @nullable
+         */
+      geoip_country_name?: string | null;
+      /**
+         * $geoip_city_name at submission time.
+         * @nullable
+         */
+      geoip_city_name?: string | null;
+      /**
+         * $current_url where the survey was submitted.
+         * @nullable
+         */
+      current_url?: string | null;
+      /**
+         * Survey iteration number when the response was sent. Only set for recurring surveys.
+         * @nullable
+         */
+      iteration?: string | null;
+    }
+
+    export interface SurveyResponseRow {
+      /** UUID of the underlying `survey sent` event. Use as the response identifier for archive operations. */
+      uuid: string;
+      /** distinct_id of the respondent. Cross-pivot to the persons API or session recordings. */
+      distinct_id: string;
+      /**
+         * $session_id of the respondent when available. Use to pull the session recording for this response.
+         * @nullable
+         */
+      session_id: string | null;
+      /** Event timestamp when the response was sent (ISO 8601, UTC). */
+      submitted_at: string;
+      /** One entry per survey question that received a non-empty answer. Question text is already resolved — callers do not need to look up `$survey_response_<id>` keys. */
+      answers: SurveyResponseAnswer[];
+      /** Convenience fields extracted from the event properties (device, browser, geoip, iteration). */
+      extra: SurveyResponseExtra;
+    }
+
+    export interface SurveyResponsesList {
+      /** Survey response rows for the requested page. */
+      results: SurveyResponseRow[];
+      /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
+      has_more: boolean;
+      /** The limit applied to this query (echoed back for pagination). */
+      limit: number;
+      /** The offset applied to this query (echoed back for pagination). */
+      offset: number;
     }
 
     export interface SurveySerializerCreateUpdateOnly {
@@ -38300,6 +39555,13 @@ export namespace Schemas {
       stats: SurveyStatsResponseStats;
       /** Calculated response and dismissal rates. */
       rates: SurveyStatsResponseRates;
+      /** Per-question response counts and distributions. Only present when include_per_question_stats=true was passed. For rating questions includes `average`; for choice/rating questions `distribution` maps answer value to count; for open questions `distribution` is empty (use surveys-responses-list to read free-text). */
+      per_question_stats?: unknown[];
+    }
+
+    export interface SurveySummarizeRequest {
+      /** When true, bypass cached summaries and regenerate. Defaults to false. */
+      force_refresh?: boolean;
     }
 
     export interface Synthesize {
@@ -38335,6 +39597,24 @@ export namespace Schemas {
       conditions?: TaggerCondition[];
       model_configuration?: TaggerModelConfigurationWrite | null;
       deleted?: boolean;
+    }
+
+    export interface TaskFileRequest {
+      /** Destination folder path in the project tree (e.g. 'Tasks/Bugs'). Defaults to 'Tasks'. */
+      folder?: string;
+    }
+
+    export interface TaskFileResponse {
+      /** Identifier of the project-tree entry for this task. */
+      id: string;
+      /** Full slash-separated path of the filed task in the project tree. */
+      path: string;
+      /** File system entry type. Always 'task'. */
+      type: string;
+      /** Identifier of the task this entry points to. */
+      ref: string;
+      /** In-app link to the task. */
+      href: string;
     }
 
     /**
@@ -39069,6 +40349,7 @@ export namespace Schemas {
       conversations_settings?: unknown;
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
+      workflows_config?: TeamWorkflowsConfig;
       readonly effective_membership_level: EffectiveMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];
@@ -39447,6 +40728,11 @@ export namespace Schemas {
          */
       topic_id?: string | null;
       /**
+         * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
+         * @minItems 1
+         */
+      classifications?: ClassificationsEnum[];
+      /**
          * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
          * @minimum 1
          * @maximum 50
@@ -39553,6 +40839,27 @@ export namespace Schemas {
       results: CampaignAuditResult[];
       /** All UTM events with match status */
       all_utm_events: UtmEvent[];
+    }
+
+    export interface UtmMappingSuggestionsResponse {
+      /** Suggested custom_source_mappings entries */
+      source_suggestions: SourceMappingSuggestion[];
+      /** Suggested campaign-name clusters (empty in v1) */
+      campaign_suggestions: CampaignMappingSuggestion[];
+      /** All unmatched raw utm_source values worth reviewing */
+      raw_unmatched_samples: RawUnmatchedSample[];
+      /** Every utm_source value seen in the window, matched or not */
+      full_utm_source_catalogue: CatalogueEntry[];
+      /** Mappings already in effect (canonical + team_custom) */
+      current_mappings: CurrentMapping[];
+      /** Total events with an unmatched utm_source */
+      total_unmatched_events_in_window: number;
+      /** Total events with any utm_source */
+      total_events_with_utm_in_window: number;
+      /** Lookback window in days used for the analysis */
+      lookback_days_used: number;
+      /** Caveats and guidance about the suggestions */
+      notes: string[];
     }
 
     export interface ViewLinkValidation {
@@ -39708,6 +41015,33 @@ export namespace Schemas {
       results: WidgetCatalogEntry[];
     }
 
+    export interface WorkflowHealthItem {
+      /** GitHub Actions workflow name. */
+      workflow_name: string;
+      /** Total runs started in the window. */
+      run_count: number;
+      /**
+         * Fraction of completed runs that succeeded (0-1). Null if no completed runs.
+         * @nullable
+         */
+      success_rate: number | null;
+      /**
+         * Median duration of completed runs, in seconds. Null if none completed.
+         * @nullable
+         */
+      p50_seconds: number | null;
+      /**
+         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * @nullable
+         */
+      p95_seconds: number | null;
+      /**
+         * When the most recent run with conclusion 'failure' started, or null.
+         * @nullable
+         */
+      last_failure_at: string | null;
+    }
+
     export interface _CompareFilter {
       /** When true, also fetch results for a comparison window and return them under `compare`. */
       compare?: boolean;
@@ -39737,6 +41071,11 @@ export namespace Schemas {
     export interface _ErrorResponse {
       /** Human-readable error description from DRF. */
       detail: string;
+    }
+
+    export interface _HasSpansResponse {
+      /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
+      hasSpans: boolean;
     }
 
     export interface _LogAttributeEntry {
@@ -39966,6 +41305,8 @@ export namespace Schemas {
       limit?: number;
       /** Pagination cursor from previous response. */
       after?: string;
+      /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _LogsQueryRequest {
@@ -40262,6 +41603,27 @@ export namespace Schemas {
       query: _TracingAggregationQueryBody;
     }
 
+    export interface _TracingCountBody {
+      /** Date range for the count. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by HTTP status codes. */
+      statusCodes?: number[];
+      /** Property filters for the count. */
+      filterGroup?: _SpanPropertyFilter[];
+    }
+
+    export interface _TracingCountRequest {
+      /** The span count query to execute. */
+      query: _TracingCountBody;
+    }
+
+    export interface _TracingCountResponse {
+      /** Number of spans matching the filters. */
+      count: number;
+    }
+
     export interface _TracingQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -40286,6 +41648,8 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
+      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _TracingQueryRequest {
@@ -40296,6 +41660,8 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
+      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _TracingTreeQueryBody {
@@ -40370,6 +41736,14 @@ export namespace Schemas {
 
     export type EnvironmentsAlertsListParams = {
     /**
+     * Optional. Restrict results to alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
+     * Optional. Restrict results to alerts on this insight ID.
+     */
+    insight_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -40377,6 +41751,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type EnvironmentsAlertsRetrieveParams = {
@@ -40716,6 +42094,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsDeleteTileFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsMoveTileCreateParams = {
+    format?: EnvironmentsDashboardsMoveTileCreateFormat;
+    };
+
+    export type EnvironmentsDashboardsMoveTileCreateFormat = typeof EnvironmentsDashboardsMoveTileCreateFormat[keyof typeof EnvironmentsDashboardsMoveTileCreateFormat];
+
+
+    export const EnvironmentsDashboardsMoveTileCreateFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -41255,6 +42645,11 @@ export namespace Schemas {
      */
     ref?: string;
     /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
+    /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
     * `all` - all
@@ -41639,16 +43034,160 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsHeatmapScreenshotsContentRetrieveParams = {
+    /**
+     * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.
+     */
+    width?: number;
+    };
+
     export type EnvironmentsHeatmapsListParams = {
     /**
-     * Number of results to return per page.
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: EnvironmentsHeatmapsListAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
+    };
+
+    export type EnvironmentsHeatmapsListAggregation = typeof EnvironmentsHeatmapsListAggregation[keyof typeof EnvironmentsHeatmapsListAggregation];
+
+
+    export const EnvironmentsHeatmapsListAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
+
+    export type EnvironmentsHeatmapsEventsRetrieveParams = {
+    /**
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: EnvironmentsHeatmapsEventsRetrieveAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * Maximum interactions to return (1-100).
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of interactions to skip, for pagination.
+     * @minimum 0
      */
     offset?: number;
+    /**
+     * JSON array of the heatmap coordinates to drill into, e.g. '[{"x": 0.5, "y": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.
+     * @minLength 1
+     */
+    points: string;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
     };
+
+    export type EnvironmentsHeatmapsEventsRetrieveAggregation = typeof EnvironmentsHeatmapsEventsRetrieveAggregation[keyof typeof EnvironmentsHeatmapsEventsRetrieveAggregation];
+
+
+    export const EnvironmentsHeatmapsEventsRetrieveAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
 
     export type EnvironmentsHogFlowTemplatesListParams = {
     /**
@@ -41877,66 +43416,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesListStatus = typeof EnvironmentsHogFlowsSchedulesListStatus[keyof typeof EnvironmentsHogFlowsSchedulesListStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type EnvironmentsHogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: EnvironmentsHogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type EnvironmentsHogFlowsSchedulesCreateStatus = typeof EnvironmentsHogFlowsSchedulesCreateStatus[keyof typeof EnvironmentsHogFlowsSchedulesCreateStatus];
-
-
-    export const EnvironmentsHogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type EnvironmentsHogFunctionsListParams = {
@@ -42193,7 +43672,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
@@ -42531,6 +44010,7 @@ export namespace Schemas {
     * `google-cloud-service-account` - Google Cloud Service Account
     * `google-cloud-storage` - Google Cloud Storage
     * `google-pubsub` - Google Pubsub
+    * `google-search-console` - Google Search Console
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
     * `intercom` - Intercom
@@ -42582,6 +44062,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
       Intercom: 'intercom',
@@ -43217,6 +44698,74 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsMarketingAnalyticsDataSourcesRetrieveParams = {
+    /**
+     * Optional. Restrict to one integration (e.g. 'GoogleAds').
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type EnvironmentsMarketingAnalyticsDiagnoseRetrieveParams = {
+    /**
+     * Lookback window for attribution health (1-365 days); defaults to 7
+     * @minimum 1
+     * @maximum 365
+     */
+    attribution_lookback_days?: number;
+    /**
+     * Whether to include the conversion-goal summary in the diagnostic
+     */
+    include_conversion_goals?: boolean;
+    /**
+     * Optional integration filter
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type EnvironmentsMarketingAnalyticsExplainConversionGoalRetrieveParams = {
+    /**
+     * ISO start; defaults to 30 days ago
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * ISO end; defaults to now
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Id of the conversion goal to explain (from list_conversion_goals).
+     * @minLength 1
+     */
+    goal_id: string;
+    };
+
+    export type EnvironmentsMarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
+    /**
+     * Minimum 30d event count to be a candidate
+     */
+    min_count?: number;
+    /**
+     * Max candidates to return
+     */
+    top_n?: number;
+    };
+
+    export type EnvironmentsMarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
+    /**
+     * Days of history to inspect (1-365); defaults to 90
+     * @minimum 1
+     * @maximum 365
+     */
+    lookback_days?: number;
+    /**
+     * Only suggest for raw values with >= this many events
+     */
+    min_event_count?: number;
+    };
+
     export type EnvironmentsMarketingAnalyticsUtmAuditRetrieveParams = {
     /**
      * Start date for the audit period
@@ -43627,30 +45176,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationRetrieveFormat = typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateParams = {
-    format?: EnvironmentsPersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type EnvironmentsPersonsFunnelCorrelationCreateFormat = typeof EnvironmentsPersonsFunnelCorrelationCreateFormat[keyof typeof EnvironmentsPersonsFunnelCorrelationCreateFormat];
-
-
-    export const EnvironmentsPersonsFunnelCorrelationCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type EnvironmentsPersonsLifecycleRetrieveParams = {
     format?: EnvironmentsPersonsLifecycleRetrieveFormat;
     };
@@ -43776,13 +45301,37 @@ export namespace Schemas {
 
     export type EnvironmentsSavedListParams = {
     /**
-     * Number of results to return per page.
+     * Filter by the creating user's ID.
+     */
+    created_by?: number;
+    /**
+     * Maximum saved heatmaps to return.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number to skip, for pagination.
      */
     offset?: number;
+    /**
+     * Field to order by, e.g. '-updated_at' (default) or 'created_at'.
+     * @minLength 1
+     */
+    order?: string;
+    /**
+     * Case-insensitive substring match on URL or name.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Filter by generation status: 'processing', 'completed', or 'failed'.
+     * @minLength 1
+     */
+    status?: string;
+    /**
+     * Filter by render mode: 'screenshot', 'iframe', or 'recording'.
+     * @minLength 1
+     */
+    type?: string;
     };
 
     export type EnvironmentsSessionRecordingExternalReferencesListParams = {
@@ -44035,6 +45584,10 @@ export namespace Schemas {
 
     export type EnvironmentsUserInterviewsListParams = {
     /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -44066,7 +45619,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -44077,13 +45630,17 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersListParams = {
     /**
+     * Filter to scanners created by the given user IDs (comma-separated).
+     */
+    created_by?: string;
+    /**
      * Filter to scanners that emit Signals.
      */
     emits_signals?: boolean;
     /**
-     * Filter to enabled vs disabled scanners.
+     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
      */
-    enabled?: boolean;
+    enabled?: string;
     /**
      * Number of results to return per page.
      */
@@ -44093,29 +45650,18 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer).
-
-    * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
+     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
      */
-    scanner_type?: EnvironmentsVisionScannersListScannerType;
+    scanner_type?: string;
+    /**
+     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
+     */
+    search?: string;
     };
-
-    export type EnvironmentsVisionScannersListScannerType = typeof EnvironmentsVisionScannersListScannerType[keyof typeof EnvironmentsVisionScannersListScannerType];
-
-
-    export const EnvironmentsVisionScannersListScannerType = {
-      Classifier: 'classifier',
-      Monitor: 'monitor',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
@@ -44127,7 +45673,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -44135,42 +45681,45 @@ export namespace Schemas {
      */
     session_id?: string;
     /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
+     * Filter by observation status. Accepts a comma-separated list.
      */
-    status?: EnvironmentsVisionScannersObservationsListStatus;
+    status?: string;
     /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
-    triggered_by?: EnvironmentsVisionScannersObservationsListTriggeredBy;
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
-    export type EnvironmentsVisionScannersObservationsListStatus = typeof EnvironmentsVisionScannersObservationsListStatus[keyof typeof EnvironmentsVisionScannersObservationsListStatus];
-
-
-    export const EnvironmentsVisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type EnvironmentsVisionScannersObservationsListTriggeredBy = typeof EnvironmentsVisionScannersObservationsListTriggeredBy[keyof typeof EnvironmentsVisionScannersObservationsListTriggeredBy];
-
-
-    export const EnvironmentsVisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
+    export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
 
     export type EnvironmentsWarehouseSavedQueriesListParams = {
     /**
@@ -44941,6 +46490,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -45019,6 +46569,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     /**
@@ -45083,6 +46634,7 @@ export namespace Schemas {
     * `ProductTour` - ProductTour
     * `Ticket` - Ticket
     * `InstanceSetting` - InstanceSetting
+    * `SignalScoutConfig` - SignalScoutConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -45149,6 +46701,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -45225,6 +46778,14 @@ export namespace Schemas {
 
     export type AlertsListParams = {
     /**
+     * Optional. Restrict results to alerts created by the user with this UUID.
+     */
+    created_by?: string;
+    /**
+     * Optional. Restrict results to alerts on this insight ID.
+     */
+    insight_id?: number;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -45232,6 +46793,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Optional. Fuzzy match against alert `name` using Postgres trigram word similarity (handles typos, transpositions, and prefix-as-you-type). Results are ordered by relevance, then creation time. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string;
     };
 
     export type AlertsRetrieveParams = {
@@ -45411,6 +46976,14 @@ export namespace Schemas {
     };
 
     export type CohortsListParams = {
+    /**
+     * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
+     */
+    basic?: boolean;
+    /**
+     * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
+     */
+    hide_behavioral_cohorts?: boolean;
     /**
      * Number of results to return per page.
      */
@@ -45824,6 +47397,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsMoveTileCreateParams = {
+    format?: DashboardsMoveTileCreateFormat;
+    };
+
+    export type DashboardsMoveTileCreateFormat = typeof DashboardsMoveTileCreateFormat[keyof typeof DashboardsMoveTileCreateFormat];
+
+
+    export const DashboardsMoveTileCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsMoveTilePartialUpdateParams = {
     format?: DashboardsMoveTilePartialUpdateFormat;
     };
@@ -46132,7 +47717,7 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type DeploymentProjectsListParams = {
+    export type DesktopFileSystemListParams = {
     /**
      * Number of results to return per page.
      */
@@ -46141,17 +47726,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
     /**
      * A search term.
      */
     search?: string;
     };
 
-    export type DeploymentProjectsDeploymentsListParams = {
+    export type DesktopFileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
      */
@@ -46160,17 +47741,9 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
-    export type DeploymentProjectsDeploymentsEventsListParams = {
+    export type DesktopPersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */
@@ -46179,14 +47752,6 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
-    /**
-     * Which field to use when ordering the results.
-     */
-    ordering?: string;
-    /**
-     * A search term.
-     */
-    search?: string;
     };
 
     export type DesktopRecordingsListParams = {
@@ -46253,6 +47818,35 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EngineeringAnalyticsPrLifecycleParams = {
+    /**
+     * Pull request number to inspect.
+     */
+    pr_number: number;
+    /**
+     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+     */
+    repo?: string;
+    };
+
+    export type EngineeringAnalyticsPullRequestsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    };
+
+    export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
     };
 
     export type EnvironmentsListParams = {
@@ -46437,6 +48031,11 @@ export namespace Schemas {
      * @minLength 1
      */
     ref?: string;
+    /**
+     * Case-insensitive substring search across reference, release version, release project, and release commit SHA.
+     * @minLength 1
+     */
+    search?: string;
     /**
      * Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.
 
@@ -47104,16 +48703,160 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type HeatmapScreenshotsContentRetrieveParams = {
+    /**
+     * Viewport width (CSS pixels) to fetch. Defaults to 1024. If no exact render exists for this width the closest available one is returned.
+     */
+    width?: number;
+    };
+
     export type HeatmapsListParams = {
     /**
-     * Number of results to return per page.
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: HeatmapsListAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
+    };
+
+    export type HeatmapsListAggregation = typeof HeatmapsListAggregation[keyof typeof HeatmapsListAggregation];
+
+
+    export const HeatmapsListAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
+
+    export type HeatmapsEventsRetrieveParams = {
+    /**
+     * How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).
+
+    * `unique_visitors` - unique_visitors
+    * `total_count` - total_count
+     * @minLength 1
+     */
+    aggregation?: HeatmapsEventsRetrieveAggregation;
+    /**
+     * JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.
+     * @nullable
+     */
+    cohort_ids?: string | null;
+    /**
+     * Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.
+     * @minLength 1
+     */
+    date_from?: string;
+    /**
+     * End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.
+     * @minLength 1
+     */
+    date_to?: string;
+    /**
+     * When true, exclude sessions from internal/test accounts using the project's test-account filters.
+     * @nullable
+     */
+    filter_test_accounts?: boolean | null;
+    /**
+     * When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.
+     */
+    hide_zero_coordinates?: boolean;
+    /**
+     * Maximum interactions to return (1-100).
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of interactions to skip, for pagination.
+     * @minimum 0
      */
     offset?: number;
+    /**
+     * JSON array of the heatmap coordinates to drill into, e.g. '[{"x": 0.5, "y": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.
+     * @minLength 1
+     */
+    points: string;
+    /**
+     * The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.
+     * @minLength 1
+     */
+    type?: string;
+    /**
+     * Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.
+     * @minLength 1
+     */
+    url_exact?: string;
+    /**
+     * Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.
+     * @minLength 1
+     */
+    url_pattern?: string;
+    /**
+     * Only include interactions captured at a viewport at most this wide, in CSS pixels.
+     */
+    viewport_width_max?: number;
+    /**
+     * Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).
+     */
+    viewport_width_min?: number;
     };
+
+    export type HeatmapsEventsRetrieveAggregation = typeof HeatmapsEventsRetrieveAggregation[keyof typeof HeatmapsEventsRetrieveAggregation];
+
+
+    export const HeatmapsEventsRetrieveAggregation = {
+      UniqueVisitors: 'unique_visitors',
+      TotalCount: 'total_count',
+    } as const;
 
     export type HogFlowTemplatesListParams = {
     /**
@@ -47342,66 +49085,6 @@ export namespace Schemas {
       Hour: 'hour',
       Day: 'day',
       Week: 'week',
-    } as const;
-
-    export type HogFlowsSchedulesListParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesListStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesListStatus = typeof HogFlowsSchedulesListStatus[keyof typeof HogFlowsSchedulesListStatus];
-
-
-    export const HogFlowsSchedulesListStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
-    } as const;
-
-    export type HogFlowsSchedulesCreateParams = {
-    created_at?: string;
-    created_by?: number;
-    id?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * * `draft` - Draft
-    * `active` - Active
-    * `archived` - Archived
-     */
-    status?: HogFlowsSchedulesCreateStatus;
-    updated_at?: string;
-    };
-
-    export type HogFlowsSchedulesCreateStatus = typeof HogFlowsSchedulesCreateStatus[keyof typeof HogFlowsSchedulesCreateStatus];
-
-
-    export const HogFlowsSchedulesCreateStatus = {
-      Active: 'active',
-      Archived: 'archived',
-      Draft: 'draft',
     } as const;
 
     export type HogFunctionTemplatesListParams = {
@@ -47681,7 +49364,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
@@ -48019,6 +49702,7 @@ export namespace Schemas {
     * `google-cloud-service-account` - Google Cloud Service Account
     * `google-cloud-storage` - Google Cloud Storage
     * `google-pubsub` - Google Pubsub
+    * `google-search-console` - Google Search Console
     * `google-sheets` - Google Sheets
     * `hubspot` - Hubspot
     * `intercom` - Intercom
@@ -48070,6 +49754,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GooglePubsub: 'google-pubsub',
+      GoogleSearchConsole: 'google-search-console',
       GoogleSheets: 'google-sheets',
       Hubspot: 'hubspot',
       Intercom: 'intercom',
@@ -48288,6 +49973,17 @@ export namespace Schemas {
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsParserRecipesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 
@@ -48790,6 +50486,74 @@ export namespace Schemas {
       Running: 'running',
     } as const;
 
+    export type MarketingAnalyticsDataSourcesRetrieveParams = {
+    /**
+     * Optional. Restrict to one integration (e.g. 'GoogleAds').
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type MarketingAnalyticsDiagnoseRetrieveParams = {
+    /**
+     * Lookback window for attribution health (1-365 days); defaults to 7
+     * @minimum 1
+     * @maximum 365
+     */
+    attribution_lookback_days?: number;
+    /**
+     * Whether to include the conversion-goal summary in the diagnostic
+     */
+    include_conversion_goals?: boolean;
+    /**
+     * Optional integration filter
+     * @nullable
+     */
+    source_type?: string | null;
+    };
+
+    export type MarketingAnalyticsExplainConversionGoalRetrieveParams = {
+    /**
+     * ISO start; defaults to 30 days ago
+     * @nullable
+     */
+    date_from?: string | null;
+    /**
+     * ISO end; defaults to now
+     * @nullable
+     */
+    date_to?: string | null;
+    /**
+     * Id of the conversion goal to explain (from list_conversion_goals).
+     * @minLength 1
+     */
+    goal_id: string;
+    };
+
+    export type MarketingAnalyticsSuggestConversionGoalsRetrieveParams = {
+    /**
+     * Minimum 30d event count to be a candidate
+     */
+    min_count?: number;
+    /**
+     * Max candidates to return
+     */
+    top_n?: number;
+    };
+
+    export type MarketingAnalyticsSuggestUtmMappingsRetrieveParams = {
+    /**
+     * Days of history to inspect (1-365); defaults to 90
+     * @minimum 1
+     * @maximum 365
+     */
+    lookback_days?: number;
+    /**
+     * Only suggest for raw values with >= this many events
+     */
+    min_event_count?: number;
+    };
+
     export type MarketingAnalyticsUtmAuditRetrieveParams = {
     /**
      * Start date for the audit period
@@ -49244,30 +51008,6 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
-    export type PersonsFunnelCorrelationRetrieveParams = {
-    format?: PersonsFunnelCorrelationRetrieveFormat;
-    };
-
-    export type PersonsFunnelCorrelationRetrieveFormat = typeof PersonsFunnelCorrelationRetrieveFormat[keyof typeof PersonsFunnelCorrelationRetrieveFormat];
-
-
-    export const PersonsFunnelCorrelationRetrieveFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
-    export type PersonsFunnelCorrelationCreateParams = {
-    format?: PersonsFunnelCorrelationCreateFormat;
-    };
-
-    export type PersonsFunnelCorrelationCreateFormat = typeof PersonsFunnelCorrelationCreateFormat[keyof typeof PersonsFunnelCorrelationCreateFormat];
-
-
-    export const PersonsFunnelCorrelationCreateFormat = {
-      Csv: 'csv',
-      Json: 'json',
-    } as const;
-
     export type PersonsLifecycleRetrieveParams = {
     format?: PersonsLifecycleRetrieveFormat;
     };
@@ -49413,7 +51153,7 @@ export namespace Schemas {
      */
     excluded_properties?: string;
     /**
-     * Whether to return only properties for events in `event_names`
+     * Whether to return only properties for events in `event_names`. Note: this event scoping does not apply to feature flag properties ($feature/*), which are global and not tracked per-event; to retrieve feature flags use is_feature_flag=true instead.
      * @nullable
      */
     filter_by_event_names?: boolean | null;
@@ -49422,7 +51162,7 @@ export namespace Schemas {
      */
     group_type_index?: number;
     /**
-     * Whether to return only (or excluding) feature flag properties
+     * Whether to return only (or excluding) feature flag properties ($feature/*). Flags are global, not per-event, so they can't be scoped by event_names/filter_by_event_names — pass is_feature_flag=true to list them all.
      * @nullable
      */
     is_feature_flag?: boolean | null;
@@ -49516,13 +51256,37 @@ export namespace Schemas {
 
     export type SavedListParams = {
     /**
-     * Number of results to return per page.
+     * Filter by the creating user's ID.
+     */
+    created_by?: number;
+    /**
+     * Maximum saved heatmaps to return.
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number to skip, for pagination.
      */
     offset?: number;
+    /**
+     * Field to order by, e.g. '-updated_at' (default) or 'created_at'.
+     * @minLength 1
+     */
+    order?: string;
+    /**
+     * Case-insensitive substring match on URL or name.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Filter by generation status: 'processing', 'completed', or 'failed'.
+     * @minLength 1
+     */
+    status?: string;
+    /**
+     * Filter by render mode: 'screenshot', 'iframe', or 'recording'.
+     * @minLength 1
+     */
+    type?: string;
     };
 
     export type ScheduledChangesListParams = {
@@ -49633,6 +51397,10 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
+     * Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.
+     */
+    priority?: string;
+    /**
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
@@ -49702,6 +51470,62 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SingleSessionSummariesListParams = {
+    /**
+     * Filter to summaries triggered by a specific user, identified by `User.uuid`.
+     */
+    created_by?: string;
+    /**
+     * Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.
+     */
+    date_from?: string;
+    /**
+     * Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.
+     */
+    date_to?: string;
+    /**
+     * Filter to summaries for a single user (the session's `distinct_id`).
+     */
+    distinct_id?: string;
+    /**
+     * When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.
+     */
+    has_exceptions?: boolean;
+    /**
+     * When true, only summaries produced via the video-based visual-confirmation workflow.
+     */
+    has_visual_confirmation?: boolean;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Ordering field, defaults to `-created_at` (most recent first). Allowed: `created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending).
+     */
+    order?: string;
+    /**
+     * Filter by the summary's recorded `session_outcome.success` field. `success` for true, `failure` for false, `unknown` for summaries without an outcome.
+     */
+    outcome?: SingleSessionSummariesListOutcome;
+    /**
+     * Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).
+     */
+    session_ids?: string;
+    };
+
+    export type SingleSessionSummariesListOutcome = typeof SingleSessionSummariesListOutcome[keyof typeof SingleSessionSummariesListOutcome];
+
+
+    export const SingleSessionSummariesListOutcome = {
+      Failure: 'failure',
+      Success: 'success',
+      Unknown: 'unknown',
+    } as const;
 
     export type SubscriptionsListParams = {
     /**
@@ -49780,6 +51604,62 @@ export namespace Schemas {
      * Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.
      */
     search?: string;
+    /**
+     * * `popover` - popover
+    * `widget` - widget
+    * `external_survey` - external survey
+    * `api` - api
+     */
+    type?: SurveysListType;
+    };
+
+    export type SurveysListType = typeof SurveysListType[keyof typeof SurveysListType];
+
+
+    export const SurveysListType = {
+      Api: 'api',
+      ExternalSurvey: 'external_survey',
+      Popover: 'popover',
+      Widget: 'widget',
+    } as const;
+
+    export type SurveysResponsesListParams = {
+    /**
+     * When true, exclude responses that have been archived via the archive_response endpoint.
+     */
+    exclude_archived?: boolean;
+    /**
+     * Maximum number of rows to return (1-500). Defaults to 100.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of rows to skip for pagination. Combine with `limit` and the `has_more` field to paginate.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.
+     * @minLength 1
+     */
+    question_id?: string;
+    /**
+     * Filter to rows where the rating answer for `question_id` is >= this value. Common use: NPS promoters with score_gte=9. Requires question_id.
+     */
+    score_gte?: number;
+    /**
+     * Filter to rows where the rating answer for `question_id` is <= this value. Common use: NPS detractors with score_lte=6. Requires question_id.
+     */
+    score_lte?: number;
+    /**
+     * Only return responses submitted on or after this ISO 8601 timestamp.
+     */
+    since?: string;
+    /**
+     * Only return responses submitted on or before this ISO 8601 timestamp.
+     */
+    until?: string;
     };
 
     export type SurveysStatsRetrieveParams = {
@@ -49791,6 +51671,21 @@ export namespace Schemas {
      * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
      */
     date_to?: string;
+    /**
+     * When true, also return per-question response counts and answer distributions. Adds one extra HogQL query per question, so leave off unless you need the breakdown.
+     */
+    include_per_question_stats?: boolean;
+    };
+
+    export type SurveysSummarizeResponsesCreateParams = {
+    /**
+     * Question UUID. Preferred over question_index — stable across question edits.
+     */
+    question_id?: string;
+    /**
+     * Zero-based question index. Omit to get the survey-wide headline instead.
+     */
+    question_index?: number;
     };
 
     export type SurveysGlobalStatsRetrieveParams = {
@@ -50143,6 +52038,10 @@ export namespace Schemas {
 
     export type UserInterviewsListParams = {
     /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -50174,7 +52073,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -50185,13 +52084,17 @@ export namespace Schemas {
 
     export type VisionScannersListParams = {
     /**
+     * Filter to scanners created by the given user IDs (comma-separated).
+     */
+    created_by?: string;
+    /**
      * Filter to scanners that emit Signals.
      */
     emits_signals?: boolean;
     /**
-     * Filter to enabled vs disabled scanners.
+     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
      */
-    enabled?: boolean;
+    enabled?: string;
     /**
      * Number of results to return per page.
      */
@@ -50201,29 +52104,18 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer).
-
-    * `monitor` - Monitor
-    * `classifier` - Classifier
-    * `scorer` - Scorer
-    * `summarizer` - Summarizer
+     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
      */
-    scanner_type?: VisionScannersListScannerType;
+    scanner_type?: string;
+    /**
+     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
+     */
+    search?: string;
     };
-
-    export type VisionScannersListScannerType = typeof VisionScannersListScannerType[keyof typeof VisionScannersListScannerType];
-
-
-    export const VisionScannersListScannerType = {
-      Classifier: 'classifier',
-      Monitor: 'monitor',
-      Scorer: 'scorer',
-      Summarizer: 'summarizer',
-    } as const;
 
     export type VisionScannersObservationsListParams = {
     /**
@@ -50235,7 +52127,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Sort observations by created_at, started_at, completed_at, or status. Prefix with `-` for descending.
+     * Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.
      */
     order_by?: string;
     /**
@@ -50243,42 +52135,45 @@ export namespace Schemas {
      */
     session_id?: string;
     /**
-     * Filter by observation status.
-
-    * `pending` - Pending
-    * `running` - Running
-    * `succeeded` - Succeeded
-    * `failed` - Failed
-    * `ineligible` - Ineligible
+     * Filter by observation status. Accepts a comma-separated list.
      */
-    status?: VisionScannersObservationsListStatus;
+    status?: string;
     /**
-     * Filter by trigger source (schedule or on_demand).
-
-    * `schedule` - Schedule
-    * `on_demand` - On demand
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
-    triggered_by?: VisionScannersObservationsListTriggeredBy;
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
     };
 
-    export type VisionScannersObservationsListStatus = typeof VisionScannersObservationsListStatus[keyof typeof VisionScannersObservationsListStatus];
-
-
-    export const VisionScannersObservationsListStatus = {
-      Failed: 'failed',
-      Ineligible: 'ineligible',
-      Pending: 'pending',
-      Running: 'running',
-      Succeeded: 'succeeded',
-    } as const;
-
-    export type VisionScannersObservationsListTriggeredBy = typeof VisionScannersObservationsListTriggeredBy[keyof typeof VisionScannersObservationsListTriggeredBy];
-
-
-    export const VisionScannersObservationsListTriggeredBy = {
-      OnDemand: 'on_demand',
-      Schedule: 'schedule',
-    } as const;
+    export type VisionScannersObservationsStatsRetrieveParams = {
+    /**
+     * Filter to observations of a specific session recording.
+     */
+    session_id?: string;
+    /**
+     * Filter by observation status. Accepts a comma-separated list.
+     */
+    status?: string;
+    /**
+     * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
+     */
+    tags?: string;
+    /**
+     * Filter by trigger source (schedule or on_demand). Accepts a comma-separated list.
+     */
+    triggered_by?: string;
+    /**
+     * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
+     */
+    verdict?: string;
+    };
 
     export type VisualReviewReposListParams = {
     /**

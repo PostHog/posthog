@@ -87,6 +87,7 @@ import { llmGenerationSentimentLazyLoaderLogic } from './llmGenerationSentimentL
 import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
+import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
@@ -113,7 +114,6 @@ import {
     getTraceTimestamp,
     hasCostBreakdown,
     isLLMEvent,
-    normalizeMessages,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
 } from './utils'
