@@ -6,6 +6,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
 
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions import HogFunction
 
@@ -87,6 +89,15 @@ class PublicHogFunctionTemplateViewSet(
     serializer_class = HogFunctionTemplateSerializer
     queryset = HogFunctionTemplate.objects.all()
     lookup_field = "template_id"
+    # Plain GenericViewSet doesn't inherit TeamAndOrgViewSetMixin's authenticators, so the global
+    # default (SessionAuthentication only) applies. Declare the API-token authenticators explicitly
+    # so personal API key / OAuth callers (the MCP server, public API) can reach the authenticated
+    # project-nested mount — without these, IsAuthenticated rejects every non-cookie request as 401.
+    authentication_classes = [
+        OAuthAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
+        SessionAuthentication,
+    ]
 
     def get_permissions(self):
         # The dedicated public catalog endpoint is intentionally anonymous. The project-nested

@@ -8,6 +8,8 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -321,3 +323,29 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "template-hidden" not in [template["id"] for template in response.json()["results"]]
+
+    @parameterized.expand(
+        [
+            ("list", "/hog_function_templates/"),
+            ("retrieve", "/hog_function_templates/template-slack"),
+        ]
+    )
+    def test_project_route_authenticates_personal_api_key(self, _name, suffix):
+        # The project-nested mount requires authentication but isn't a TeamAndOrgViewSetMixin, so it
+        # must declare the API-token authenticators itself. Guard against a regression to session-only
+        # auth that would 401 the MCP server and public API.
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["hog_function:read"],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}{suffix}",
+            headers={"authorization": f"Bearer {key_value}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
