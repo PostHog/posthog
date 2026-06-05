@@ -144,7 +144,7 @@ export function HogFlowFunctionConfiguration({
                         </Link>
                     </div>
                 ) : (
-                    <LemonBanner type="info" className="mt-2">
+                    <LemonBanner type="info" hideIcon className="mt-2">
                         <div className="flex flex-col gap-2">
                             <span className="text-xs">
                                 Email engagement (sends, opens, clicks, bounces) is recorded as workflow metrics. You
