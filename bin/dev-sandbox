@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# Run a dev-stack command inside a macOS Seatbelt sandbox (see bin/dev-sandbox.sb).
+#
+# Usage: bin/dev-sandbox '<shell command>'
+#
+# The whole original shell command (operators and all) is passed as a single
+# argument and run via `bash -c`. Opt in by setting POSTHOG_DEV_SANDBOX=1 in
+# .env.local; the generator (hogli dev:generate) then wraps Python/Node service
+# commands with this script.
+#
+# The base profile denies all reads under $HOME. Because the repo lives under
+# $HOME, the OS / node module resolver / getcwd must still lstat+readdir the
+# directory chain between $HOME and the repo to reach it. We compute that chain
+# at runtime (it depends where each dev cloned the repo) and append read-allows
+# for those specific dir nodes to a rendered copy of the profile — their non-repo
+# contents (~/.ssh, ~/.aws, ...) stay denied.
+#
+# Failure policy:
+#   - non-macOS / sandbox-exec missing / profile missing / render fails -> passthrough
+#   - sandbox-exec cannot initialize the profile -> fail OPEN, loud warning
+#     (a working sandbox that merely *denies* a path is left to surface normally)
+
+set -euo pipefail
+
+cmd="${1:?bin/dev-sandbox: expected a command string as the first argument}"
+project="$(cd "$(dirname "$0")/.." && pwd -P)" # canonical repo root (Seatbelt matches physical paths)
+base_profile="$project/bin/dev-sandbox.sb"
+
+run_unsandboxed() { exec /bin/bash -c "$cmd"; }
+
+if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1 || [[ ! -f "$base_profile" ]]; then
+    run_unsandboxed
+fi
+
+# When run from a git worktree, the main repo's .git lives outside $project; allow
+# reads there too so git-aware tooling keeps working. Defaults to $project.
+mainrepo="$project"
+gitfile="$project/.git"
+if [[ -f "$gitfile" ]]; then
+    gitdir="$(sed -n 's/^gitdir: //p' "$gitfile")"
+    [[ -n "$gitdir" && "$gitdir" != /* ]] && gitdir="$project/$gitdir"
+    case "$gitdir" in
+        */.git/worktrees/*) mainrepo="$(cd "${gitdir%/.git/worktrees/*}" 2>/dev/null && pwd -P || echo "$project")" ;;
+    esac
+fi
+
+# Ancestor dir chain ($HOME down to each repo root's parent) needed for traversal.
+declare -a ancestors=()
+collect_ancestors() {
+    local p
+    p="$(dirname "$1")"
+    while [[ "$p" != "$HOME" && "$p" != "/" && -n "$p" ]]; do
+        ancestors+=("$p")
+        p="$(dirname "$p")"
+    done
+}
+collect_ancestors "$project"
+collect_ancestors "$mainrepo"
+ancestors+=("$HOME")
+
+# Effective profile = base + ancestor read-allows. Repo-keyed stable name so
+# repeated launches overwrite the same file (idempotent, no accumulation).
+rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$(printf %s "$project" | /usr/bin/shasum -a256 | cut -c1-16).sb"
+{
+    cat "$base_profile"
+    printf '(allow file-read*'
+    printf ' (literal "%s")' "${ancestors[@]}"
+    printf ')\n'
+} >"$rendered" 2>/dev/null || run_unsandboxed
+
+sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
+
+# Fail OPEN if the sandbox can't initialize (e.g. profile won't compile on this OS).
+if ! "${sandbox[@]}" /usr/bin/true >/dev/null 2>&1; then
+    echo "⚠️  dev sandbox failed to initialize — running WITHOUT sandbox. Set POSTHOG_DEV_SANDBOX=0 to silence." >&2
+    run_unsandboxed
+fi
+
+# Strip ambient personal tokens the dev stack doesn't need. The application's own
+# config env (DB URLs, object-storage keys, 1Password-injected API keys) is left
+# intact — only credentials that happen to live in the shell are removed.
+exec env \
+    -u GITHUB_TOKEN \
+    -u GH_TOKEN \
+    -u NPM_TOKEN \
+    -u NPM_AUTH_TOKEN \
+    -u OP_SERVICE_ACCOUNT_TOKEN \
+    "${sandbox[@]}" /bin/bash -c "$cmd"

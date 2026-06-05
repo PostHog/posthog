@@ -7,6 +7,7 @@ The system is designed to be process-manager agnostic - mprocs is just one outpu
 from __future__ import annotations
 
 import os
+import shlex
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -188,6 +189,9 @@ class MprocsGenerator(ConfigGenerator):
             if name == "temporal-worker":
                 proc_config = self._add_uv_groups(proc_config, resolved)
 
+            # Wrap Python/Node service commands in the dev sandbox when opted in
+            proc_config = self._add_sandbox_wrapper(proc_config)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -361,6 +365,30 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             prefix += " && uv run --group sentiment bin/download-sentiment-model"
 
         proc_config["shell"] = f"{prefix} && {original_shell}"
+        return proc_config
+
+    def _add_sandbox_wrapper(self, proc_config: dict[str, Any]) -> dict[str, Any]:
+        """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
+
+        Opt in with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). Only Python and
+        Node/Frontend procs are wrapped — Rust/Docker/migrations are left alone.
+        The sandbox restricts filesystem reads to the repo + toolchain caches so a
+        malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) from the
+        developer's home directory. bin/dev-sandbox is a no-op passthrough on
+        non-macOS, so the generated config stays portable.
+        """
+        if os.getenv("POSTHOG_DEV_SANDBOX") != "1":
+            return proc_config
+
+        if proc_config.get("groups", {}).get("tech") not in {"Python", "Node", "Frontend"}:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if not original_shell:
+            return proc_config
+
+        # Pass the whole command as a single quoted arg so operators (&&, |) survive.
+        proc_config["shell"] = f"bin/dev-sandbox {shlex.quote(original_shell)}"
         return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:

@@ -1,0 +1,73 @@
+;; macOS Seatbelt profile for the dev stack (see bin/dev-sandbox).
+;;
+;; Goal: a malicious npm/pip dependency running inside a dev service must not be
+;; able to read credentials or other personal files from the developer's home
+;; directory. Strategy: deny-by-default for $HOME, then re-allow only the repo +
+;; the toolchain caches that legitimately live under $HOME. Everything outside
+;; $HOME (system libraries, the flox/nix store at /nix/store, /tmp) stays
+;; readable so the stack can actually run.
+;;
+;; Parameters are injected by bin/dev-sandbox via -D:
+;;   HOME      absolute path to the developer's home directory
+;;   PROJECT   canonical (physical) path to the repository root
+;;   MAINREPO  main repo root when PROJECT is a git worktree, else == PROJECT
+;;
+;; SBPL is last-match-wins, so the re-allows below override the broad denies.
+;;
+;; bin/dev-sandbox appends `(allow file-read* (literal ...))` for the directory
+;; chain between $HOME and the repo at runtime — the OS / node / getcwd must
+;; lstat+readdir those dir nodes to reach the repo. Only those specific nodes
+;; become readable; their non-repo contents stay denied by the rule below.
+
+(version 1)
+
+;; Broad base: process exec/fork, network, mach, sysctl, signals, etc.
+;; We only tighten filesystem reads/writes below.
+(allow default)
+
+;; ── Reads ─────────────────────────────────────────────────────────────
+;; Block every read under $HOME, then re-allow the repo and toolchain caches.
+;; ~/.ssh, ~/.aws, ~/.config/{gcloud,gh,op}, ~/.gnupg, ~/Library/Keychains,
+;; other repos, browser data — none are re-allowed, so all stay unreadable.
+(deny file-read* (subpath (param "HOME")))
+(allow file-read*
+    (subpath (param "PROJECT"))                                   ; repo (incl. .flox/cache/venv, node_modules)
+    (subpath (param "MAINREPO"))                                  ; main repo's .git when PROJECT is a worktree
+    (subpath (string-append (param "HOME") "/.cache"))            ; uv, node, flox caches
+    (subpath (string-append (param "HOME") "/.npm"))              ; npm cache
+    (subpath (string-append (param "HOME") "/Library/Caches/node-gyp")) ; node headers for native builds
+    (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
+    (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
+    (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
+    ;; git global config (read by version-detection / git-aware tooling). Config
+    ;; only, by exact path — credentials (~/.git-credentials, keychain) stay blocked.
+    (literal (string-append (param "HOME") "/.gitconfig"))
+    (literal (string-append (param "HOME") "/.config/git/config"))
+    ;; docker CLI config, contexts, and cli-plugins (compose/buildx live here) —
+    ;; required by bin/wait-for-docker. Runtime-agnostic: Docker Desktop, OrbStack,
+    ;; and Colima all keep CLI state here; the daemon socket connects via the
+    ;; network rule above. Trade-off: exposes docker registry creds in config.json,
+    ;; far lower-value than the ssh/cloud/keychain stores that stay blocked.
+    (subpath (string-append (param "HOME") "/.docker"))
+    ;; cargo registry/git cache — the cyclotron-node native module is built with
+    ;; cargo during the nodejs service prestart. (crates.io token re-denied below.)
+    (subpath (string-append (param "HOME") "/.cargo")))
+
+;; Keep the crates.io publish token blocked even though ~/.cargo is allowed above.
+(deny file-read*
+    (literal (string-append (param "HOME") "/.cargo/credentials"))
+    (literal (string-append (param "HOME") "/.cargo/credentials.toml")))
+
+;; ── Writes ────────────────────────────────────────────────────────────
+;; Writes stay broadly allowed (the stack writes caches, build output, /tmp),
+;; but block the obvious persistence vectors so a dependency can't plant a
+;; login hook or background agent.
+(deny file-write*
+    (subpath (string-append (param "HOME") "/.ssh"))
+    (subpath (string-append (param "HOME") "/Library/LaunchAgents"))
+    (literal (string-append (param "HOME") "/.zshrc"))
+    (literal (string-append (param "HOME") "/.zprofile"))
+    (literal (string-append (param "HOME") "/.zshenv"))
+    (literal (string-append (param "HOME") "/.bashrc"))
+    (literal (string-append (param "HOME") "/.bash_profile"))
+    (literal (string-append (param "HOME") "/.profile")))
