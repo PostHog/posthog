@@ -21132,6 +21132,11 @@
                     },
                     "type": "array"
                 },
+                "hideIncompleteConversionWindowPeriods": {
+                    "default": false,
+                    "description": "Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert.",
+                    "type": "boolean"
+                },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
@@ -22317,6 +22322,9 @@
                 "propertyGroupsMode": {
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
+                },
+                "pushDownPredicates": {
+                    "type": "boolean"
                 },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
@@ -40579,6 +40587,10 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "excludeAttributes": {
+                    "description": "Omit the per-span `attributes` map from results to keep payloads compact",
+                    "type": "boolean"
                 },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"

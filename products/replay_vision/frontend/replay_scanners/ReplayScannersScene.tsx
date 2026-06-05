@@ -57,6 +57,7 @@ export function ReplayScannersScene(): JSX.Element {
         createdByFilter,
         createdByOptions,
         hasActiveFilters,
+        scannerStats,
     } = useValues(replayScannersLogic)
     const { loadScanners, deleteScanner, duplicateScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
@@ -215,7 +216,7 @@ export function ReplayScannersScene(): JSX.Element {
                 action={() => push(urls.replayVisionTemplates())}
             />
 
-            {scanners.length > 0 && <VisionMetrics />}
+            {(scannerStats?.total ?? 0) > 0 && <VisionMetrics />}
 
             <SceneSection
                 title="Scanners"

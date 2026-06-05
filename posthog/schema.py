@@ -7644,6 +7644,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,
@@ -22783,6 +22784,14 @@ class FunnelsFilter(BaseModel):
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.DAY
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: list[str] | None = None
+    hideIncompleteConversionWindowPeriods: bool | None = Field(
+        default=False,
+        description=(
+            "Trends only: hide periods whose conversion window has not fully elapsed"
+            " yet, so the recent tail of the trend isn't dragged down by entrants who"
+            " still have time to convert."
+        ),
+    )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
@@ -23422,6 +23431,10 @@ class TraceSpansQuery(BaseModel):
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=("Omit the per-span `attributes` map from results to keep payloads compact"),
+    )
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None

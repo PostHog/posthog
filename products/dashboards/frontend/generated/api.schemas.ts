@@ -745,6 +745,7 @@ export interface HogQLQueryModifiersApi {
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
@@ -2187,6 +2188,8 @@ export interface FunnelsFilterApi {
     /** Goal Lines */
     goalLines?: GoalLineApi[] | null
     hiddenLegendBreakdowns?: string[] | null
+    /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
+    hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
@@ -7273,6 +7276,13 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
+} as const
+
 /**
  * @nullable
  */
@@ -7380,6 +7390,8 @@ export interface InsightApi {
     readonly alerts: readonly unknown[]
     /** @nullable */
     readonly last_viewed_at: string | null
+    /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
 export interface TextApi {

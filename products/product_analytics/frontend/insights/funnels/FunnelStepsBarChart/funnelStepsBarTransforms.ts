@@ -1,4 +1,4 @@
-import type { Series } from '@posthog/quill-charts'
+import type { PointClickData, Series } from '@posthog/quill-charts'
 
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
@@ -68,4 +68,27 @@ export function buildFunnelStepsBarData(
     }
 
     return { series, labels: steps.map((_, stepIndex) => `${stepIndex + 1}`) }
+}
+
+export interface FunnelStepClickTarget {
+    step: FunnelStepWithConversionMetrics
+    series: FunnelStepWithConversionMetrics
+    converted: boolean
+}
+
+/** Resolves a grouped-bar click back to the funnel step, breakdown variant, and whether the
+ *  converted or drop-off actors should open. The bar's filled extent is the converted portion;
+ *  the track above it (`inTrackArea`) is the drop-off — restoring the legacy StepBar behavior.
+ *  Returns `null` when the click does not map to a step. */
+export function resolveFunnelStepClick(
+    steps: FunnelStepWithConversionMetrics[],
+    clickData: Pick<PointClickData<FunnelStepsBarSeriesMeta>, 'dataIndex' | 'series' | 'inTrackArea'>
+): FunnelStepClickTarget | null {
+    const step = steps[clickData.dataIndex]
+    if (!step) {
+        return null
+    }
+    const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0
+    const variant = step.nested_breakdown?.[breakdownIndex] ?? step
+    return { step, series: variant, converted: !clickData.inTrackArea }
 }

@@ -395,6 +395,7 @@ export namespace Schemas {
       personsJoinMode?: PersonsJoinMode | null;
       personsOnEventsMode?: PersonsOnEventsMode | null;
       propertyGroupsMode?: PropertyGroupsMode | null;
+      pushDownPredicates?: boolean | null;
       s3TableUseInvalidColumns?: boolean | null;
       /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
       sessionIdPushdown?: boolean | null;
@@ -2371,6 +2372,8 @@ export namespace Schemas {
       /** Goal Lines */
       goalLines?: GoalLine[] | null;
       hiddenLegendBreakdowns?: string[] | null;
+      /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
+      hideIncompleteConversionWindowPeriods?: boolean | null;
       layout?: FunnelLayout | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;
@@ -6733,6 +6736,14 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    export type SearchMatchTypeEnum = typeof SearchMatchTypeEnum[keyof typeof SearchMatchTypeEnum];
+
+
+    export const SearchMatchTypeEnum = {
+      Exact: 'exact',
+      Similar: 'similar',
+    } as const;
+
     /**
      * @nullable
      */
@@ -6840,6 +6851,8 @@ export namespace Schemas {
       readonly alerts: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
     export interface Text {
@@ -19687,6 +19700,8 @@ export namespace Schemas {
       /** Cursor for fetching the next page of results */
       after?: string | null;
       dateRange: DateRange;
+      /** Omit the per-span `attributes` map from results to keep payloads compact */
+      excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
       kind?: 'TraceSpansQuery';
       limit?: number | null;
@@ -26445,6 +26460,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** @nullable */
       readonly last_viewed_at: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type: SearchMatchTypeEnum | null;
       /** Number of distinct viewers in the time window. Higher values indicate insights that more people in the project actively look at, which is a strong proxy for which insights matter. */
       readonly view_count: number;
       /** Up to 3 of the most recent users who viewed this insight in the time window. */
@@ -29158,6 +29175,8 @@ export namespace Schemas {
       readonly alerts?: readonly unknown[];
       /** @nullable */
       readonly last_viewed_at?: string | null;
+      /** How this row matched the `search` term: `exact` (the term is a case-insensitive substring of the name, derived_name, description, or a tag name) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+      readonly search_match_type?: SearchMatchTypeEnum | null;
     }
 
     export interface PatchedInsightVariable {
@@ -36990,6 +37009,38 @@ export namespace Schemas {
       creators: UserBasic[];
     }
 
+    /**
+     * Per-scanner-type count of enabled vs total scanners.
+     */
+    export interface ScannerTypeStats {
+      /** Number of enabled scanners of this type. */
+      enabled: number;
+      /** Number of scanners of this type (enabled + disabled). */
+      total: number;
+    }
+
+    /**
+     * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
+     */
+    export interface ScannerStatsByType {
+      monitor: ScannerTypeStats;
+      classifier: ScannerTypeStats;
+      scorer: ScannerTypeStats;
+      summarizer: ScannerTypeStats;
+    }
+
+    /**
+     * Team-wide scanner counts independent of any list-filter state.
+     */
+    export interface ScannerStatsResponse {
+      /** Total scanners on the team. */
+      total: number;
+      /** Number of enabled scanners on the team. */
+      enabled: number;
+      /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
+      by_type: ScannerStatsByType;
+    }
+
     export interface ScoreDefinitionCreate {
       /**
          * Human-readable scorer name.
@@ -40419,6 +40470,8 @@ export namespace Schemas {
       rootSpans?: boolean;
       /** Number of child spans to prefetch per trace (1-100). */
       prefetchSpans?: number;
+      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _TracingQueryRequest {
@@ -40429,6 +40482,8 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Defaults to last 24 hours. */
       dateRange?: _TracingDateRange;
+      /** Omit the per-span attributes map from results to keep payloads compact. Defaults to false. */
+      excludeAttributes?: boolean;
     }
 
     export interface _TracingTreeQueryBody {
@@ -42427,7 +42482,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
@@ -48010,7 +48065,7 @@ export namespace Schemas {
      */
     saved?: boolean;
     /**
-     * Case-insensitive substring match across name, derived_name, description, and tag names.
+     * Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.
      */
     search?: string;
     short_id?: string;
