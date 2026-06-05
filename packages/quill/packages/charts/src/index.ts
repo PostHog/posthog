@@ -16,6 +16,8 @@ export { TimeSeriesBarChart } from './charts/TimeSeriesBarChart/TimeSeriesBarCha
 export type { TimeSeriesBarChartConfig, TimeSeriesBarChartProps } from './charts/TimeSeriesBarChart/TimeSeriesBarChart'
 export { Sparkline } from './charts/Sparkline/Sparkline'
 export type { SparklineProps } from './charts/Sparkline/Sparkline'
+export { MetricCard } from './components/MetricCard/MetricCard'
+export type { MetricCardProps, ChangeColor, MetricChange } from './components/MetricCard/MetricCard'
 
 // Base chart (for building new chart types)
 export { Chart } from './core/Chart'
