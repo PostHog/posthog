@@ -828,3 +828,11 @@ ELEMENT_STATS_DEFAULT_LIMIT = get_from_env("ELEMENT_STATS_DEFAULT_LIMIT", 50_000
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes
+
+# Teams force-enrolled in web analytics lazy precompute. The runtime eligibility
+# gate bypasses the org rollout flag for these, and the eager warmer uses the
+# same list as its audience — one source of truth so warmer and reader cannot
+# drift. Comma-separated team IDs; defaults to the dogfooding team.
+WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
+    int(team_id) for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", "" if TEST else "2"))
+]

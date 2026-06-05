@@ -5,6 +5,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.test import override_settings
+
 import dagster
 from structlog.testing import capture_logs
 
@@ -29,12 +31,11 @@ _QUERIES_PER_TEAM = 3 + len(BASELINE_BREAKDOWNS)
 
 @contextmanager
 def _eager_audience(team_ids, *, cache_keys: int = 10):
-    """Set the warmer audience to `team_ids` and make every team pass the
-    lazy-eligibility pre-check, with a non-zero cache-key post-check so the
-    'no cache keys' alarm stays quiet. Patches the three seams the op reads."""
+    """Set the warmer audience (and, since the gate reads the same setting, the
+    lazy-eligibility list) to `team_ids`, with a non-zero cache-key post-check
+    so the 'no cache keys' alarm stays quiet."""
     with (
-        patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=list(team_ids)),
-        patch(f"{_EAGER_MODULE}.is_precompute_enabled_for_team", return_value=True),
+        override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=list(team_ids)),
         patch(f"{_EAGER_MODULE}._count_precompute_cache_keys", return_value=cache_keys),
     ):
         yield
@@ -42,8 +43,8 @@ def _eager_audience(team_ids, *, cache_keys: int = 10):
 
 @patch(f"{_EAGER_MODULE}.is_cloud", return_value=True)
 class TestResolveEagerAudience:
-    @patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=[2, 7])
-    def test_returns_team_ids_from_setting_on_cloud(self, _setting, _is_cloud):
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[2, 7])
+    def test_returns_team_ids_from_setting_on_cloud(self, _is_cloud):
         team_ids, reason, diag = _resolve_eager_audience()
         assert team_ids == [2, 7]
         assert reason == "ok"
@@ -55,8 +56,8 @@ class TestResolveEagerAudience:
         assert team_ids == []
         assert reason == "not_cloud"
 
-    @patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=[])
-    def test_returns_empty_when_no_teams_configured(self, _setting, _is_cloud):
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    def test_returns_empty_when_no_teams_configured(self, _is_cloud):
         team_ids, reason, _diag = _resolve_eager_audience()
         assert team_ids == []
         assert reason == "no_teams_configured"
@@ -105,16 +106,16 @@ class TestWarmEagerBaselineOp(APIBaseTest):
         # Tagging fires for every query so query_log attribution is intact.
         assert tag_queries_mock.call_count == _QUERIES_PER_TEAM * 2
 
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    @patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=[])
-    def test_returns_zeroed_metadata_when_no_teams_configured(self, _setting, get_runner, _is_cloud):
+    def test_returns_zeroed_metadata_when_no_teams_configured(self, get_runner, _is_cloud):
         result = warm_eager_baseline_op(dagster.build_op_context())
         assert result == {"teams": 0, "warmed": 0, "failed": 0, "skipped": 0}
         get_runner.assert_not_called()
 
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[99999999])
     @patch("products.web_analytics.dags.eager_web_analytics_precompute.get_query_runner")
-    @patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=[99999999])
-    def test_skips_team_ids_that_do_not_exist_in_db(self, _setting, get_runner, _is_cloud):
+    def test_skips_team_ids_that_do_not_exist_in_db(self, get_runner, _is_cloud):
         # A team ID in the setting might be removed from the DB before the
         # setting is updated; the run should not crash.
         result = warm_eager_baseline_op(dagster.build_op_context())
@@ -272,8 +273,10 @@ class TestEagerLazyEligibilityGuards(APIBaseTest):
     @patch(f"{_EAGER_MODULE}.tag_queries")
     @patch(f"{_EAGER_MODULE}.get_query_runner")
     def test_skips_team_that_is_not_lazy_eligible(self, get_runner, _tag, _is_cloud):
+        # The team is in the audience but the gate reports it ineligible — a
+        # drift the guard must catch rather than warm raw.
         with (
-            patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=[self.team.pk]),
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
             patch(f"{_EAGER_MODULE}.is_precompute_enabled_for_team", return_value=False),
             capture_logs() as cap_logs,
         ):
@@ -290,8 +293,7 @@ class TestEagerLazyEligibilityGuards(APIBaseTest):
     def test_alarms_when_warm_run_inserts_no_cache_keys(self, get_runner, _tag, _is_cloud):
         get_runner.return_value = Mock(run=Mock(return_value=None))
         with (
-            patch(f"{_EAGER_MODULE}.get_instance_setting", return_value=[self.team.pk]),
-            patch(f"{_EAGER_MODULE}.is_precompute_enabled_for_team", return_value=True),
+            override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]),
             patch(f"{_EAGER_MODULE}._count_precompute_cache_keys", return_value=0),
             capture_logs() as cap_logs,
         ):

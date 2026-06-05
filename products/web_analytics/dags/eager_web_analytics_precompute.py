@@ -37,6 +37,7 @@ the replay covers the long tail (custom hosts, custom filters, etc.).
 
 import time
 
+from django.conf import settings
 from django.utils import timezone as django_timezone
 
 import dagster
@@ -53,13 +54,9 @@ from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
-from posthog.models.instance_setting import get_instance_setting
 
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
-    PRECOMPUTE_TEAM_IDS_SETTING,
-    is_precompute_enabled_for_team,
-)
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import is_precompute_enabled_for_team
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
@@ -136,7 +133,7 @@ def _resolve_eager_audience() -> tuple[list[int], str, dict]:
     if not is_cloud():
         return [], "not_cloud", {}
 
-    team_ids = list(get_instance_setting(PRECOMPUTE_TEAM_IDS_SETTING))
+    team_ids = list(settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS)
     diag = {"teams_configured": len(team_ids)}
     if not team_ids:
         return [], "no_teams_configured", diag

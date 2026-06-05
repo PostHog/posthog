@@ -14,6 +14,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
@@ -24,14 +26,8 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog.models import Team
-from posthog.models.instance_setting import get_instance_setting
 
 logger = structlog.get_logger(__name__)
-
-# Runtime team-id list that force-enrolls a team in lazy precompute, bypassing
-# the org rollout flag. Shared source of truth with the eager warmer audience —
-# see `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` in dynamic_settings.
-PRECOMPUTE_TEAM_IDS_SETTING = "WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS"
 
 # Fields stripped from the query payload before hashing.
 # These don't influence which precompute job_id a query would map to —
@@ -168,14 +164,14 @@ def is_org_feature_flag_enabled(team: Team) -> bool:
 def is_precompute_enabled_for_team(team: Team) -> bool:
     """Whether a team should take the lazy precompute path.
 
-    Short-circuits on the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` runtime list
-    before evaluating the org rollout flag. The list is the shared source of
-    truth with the eager warmer, and — unlike the flag — does not rely on local
-    flag-definition evaluation, which isn't reliably available outside the
-    Django app (e.g. the Dagster warmer, where `only_evaluate_locally` returned
-    falsy and silently dropped the warmer onto the raw path).
+    Short-circuits on the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+    setting before evaluating the org rollout flag. The list is the shared
+    source of truth with the eager warmer, and — unlike the flag — does not rely
+    on local flag-definition evaluation, which isn't reliably available outside
+    the Django app (e.g. the Dagster warmer, where `only_evaluate_locally`
+    returned falsy and silently dropped the warmer onto the raw path).
     """
-    if team.id in get_instance_setting(PRECOMPUTE_TEAM_IDS_SETTING):
+    if team.id in settings.WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS:
         return True
     return is_org_feature_flag_enabled(team)
 
