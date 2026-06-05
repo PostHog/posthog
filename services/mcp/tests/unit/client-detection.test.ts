@@ -25,6 +25,7 @@ describe('isCodingAgentClient', () => {
             ['zed'],
             ['aider'],
             ['copilot'],
+            ['devin'],
             ['librechat'],
             ['notion'],
         ])('returns true for %s', (clientName) => {
@@ -49,6 +50,7 @@ describe('isCodingAgentClient', () => {
             ['LibreChat/1.2.3'],
             ['notion-mcp-client'],
             ['Notion'],
+            ['Devin'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
         })
