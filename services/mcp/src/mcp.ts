@@ -41,7 +41,7 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import { createExecInnerToolCallResolver, createExecTool, type ExecInnerCallTracker } from '@/tools/exec'
-import { getToolDefinition } from '@/tools/toolDefinitions'
+import { getScopeGatedTools, getToolDefinition } from '@/tools/toolDefinitions'
 import { type CloudRegion, type Context, type State, type Tool } from '@/tools/types'
 
 const instructionsFormatter = new InstructionsFormatter()
@@ -690,9 +690,10 @@ export class MCP extends McpAgent<Env> {
         }
 
         // In single-exec mode, when the client honors the MCP `instructions` field we
-        // lift the exec-tool blurb, tool-domain list, query-tool catalog, defined-group
-        // types and the active-environment `{metadata}` (user name, project, timezone)
-        // out of the `command` description and into `instructions`. Clients that ignore
+        // lift the exec-tool blurb, tool-domain list (including the `query` domain),
+        // defined-group types and the active-environment `{metadata}` (user name,
+        // project, timezone) out of the `command` description and into `instructions`.
+        // The query-tool catalog stays on the `command` description. Clients that ignore
         // `instructions` (Codex — see `client-detection.ts`) keep today's behavior:
         // empty `instructions`, everything inlined in the `command` description.
         let instructions = ''
@@ -744,13 +745,25 @@ export class MCP extends McpAgent<Env> {
                 )
             }
 
+            const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+            const scopeGatedTools = getScopeGatedTools(_apiKey?.scopes ?? [], {
+                features,
+                tools,
+                excludeTools,
+                readOnly,
+                featureFlags: toolFeatureFlags,
+                scopedTeams: _apiKey?.scoped_teams ?? [],
+                ...(aiConsentGiven !== undefined ? { aiConsentGiven } : {}),
+            })
+
             const execTool = createExecTool(
                 allTools,
                 context,
                 instructionsFormatter.buildExecToolDescription(),
                 commandReference,
                 this.requestProperties.mcpConsumer,
-                trackInnerCall
+                trackInnerCall,
+                scopeGatedTools
             )
             const typedExecTool = execTool as Tool<z.ZodObject>
             this.registerTool(typedExecTool, async (params) => typedExecTool.handler(context, params))

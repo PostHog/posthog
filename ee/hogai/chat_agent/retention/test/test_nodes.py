@@ -14,11 +14,11 @@ from posthog.schema import (
 )
 
 from products.actions.backend.models.action import Action
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.retention.nodes import RetentionGeneratorNode, RetentionSchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation
 
 
 class TestRetentionGeneratorNode(BaseTest):

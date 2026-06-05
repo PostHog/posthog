@@ -77,6 +77,7 @@ depends_on = [
     "products.desktop_recordings",
     "products.early_access_features",
     "products.endpoints",
+    "products.engineering_analytics",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -167,6 +168,7 @@ path = "products.conversations"
 depends_on = [
     "ee",
     "posthog",
+    "products.posthog_ai",
 ]
 layer = "modules"
 
@@ -271,6 +273,10 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
+    "products.ai_observability",
+    "products.analytics_platform",
+    "products.data_tools",
+    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
@@ -508,6 +514,7 @@ depends_on = [
     "posthog",
     "products.dashboards",
     "products.product_analytics",
+    "products.signals",
 ]
 layer = "modules"
 
@@ -574,6 +581,7 @@ path = "products.user_interviews"
 depends_on = [
     "ee",
     "posthog",
+    "products.ai_observability",
     "products.exports",
 ]
 layer = "modules"
@@ -619,6 +627,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products\\.(experiments|mcp_analytics|mcp_store|metrics|notifications|tracing|user_interviews|visual_review)",
@@ -656,6 +665,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.hogql_queries.*",
     "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
@@ -685,13 +695,14 @@ from = [
 ]
 
 # TODO: legacy leaks — posthog/temporal/mcp_analytics/* and the dashboard
-# integration import models / dashboard_templates directly. Move those into
-# the product (and through the facade) so this interface can shrink back to
-# the isolated default.
+# integration import models / dashboard_templates / intent_clustering directly.
+# Move those into the product (and through the facade) so this interface can
+# shrink back to the isolated default.
 
 [[interfaces]]
 expose = [
     "backend\\.dashboard_templates.*",
+    "backend\\.intent_clustering.*",
     "backend\\.models.*",
 ]
 from = [
@@ -718,6 +729,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.access_control",
@@ -745,6 +757,15 @@ expose = [
     "backend\\.logic.*",
     "backend\\.constants.*",
     "backend\\.models.*",
+    "backend\\.temporal.*",
+]
+from = [
+    "products.business_knowledge",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.routes.*",
 ]
 from = [
     "products.business_knowledge",
@@ -759,6 +780,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.wizard",
@@ -773,6 +795,7 @@ layer = "modules"
 expose = [
     "backend\\.facade.*",
     "backend\\.presentation\\.views.*",
+    "backend\\.routes.*",
 ]
 from = [
     "products.engineering_analytics",
@@ -780,7 +803,7 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.product_analytics"]
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics"]
 layer = "modules"
 
 [[modules]]

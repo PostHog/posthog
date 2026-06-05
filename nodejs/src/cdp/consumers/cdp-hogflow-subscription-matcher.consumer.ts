@@ -5,7 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
+import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '../../kafka/consumer'
 import { HogFlow, HogFlowAction } from '../../schema/hogflow'
 import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
@@ -79,10 +79,16 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
-        this.kafkaConsumer = createKafkaConsumer({
-            groupId: 'cdp-hogflow-subscription-matcher-consumer',
-            topic: KAFKA_EVENTS_JSON,
-        })
+        // A waker only needs events that arrive after a job parks, never history, so start at the
+        // head: auto.offset.reset=latest makes a fresh consumer group begin at the tip instead of
+        // replaying the clickhouse_events_json backlog (unconsumable at prod volume).
+        this.kafkaConsumer = createKafkaConsumer(
+            {
+                groupId: 'cdp-hogflow-subscription-matcher-consumer',
+                topic: KAFKA_EVENTS_JSON,
+            },
+            { ['auto.offset.reset' as keyof RdKafkaConsumerConfig]: 'latest' as never }
+        )
 
         // The matcher does nothing but read/write cyclotron_jobs, so a missing connection
         // string means it would silently consume the event stream and wake nothing. Fail

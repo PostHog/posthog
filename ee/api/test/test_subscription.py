@@ -141,7 +141,30 @@ class TestSubscriptionTemporal(APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        assert "Either dashboard or insight is required" in str(response.json())
+        assert "must have an insight, a dashboard, or a prompt" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("missing", None),
+            ("zero", 0),
+            ("negative", -1),
+        ]
+    )
+    def test_cannot_create_subscription_with_invalid_interval(self, _name: str, interval: Optional[int]):
+        payload = {
+            "insight": self.insight.id,
+            "target_type": "email",
+            "target_value": "test@posthog.com",
+            "frequency": "weekly",
+            "start_date": "2022-01-01T00:00:00",
+            "title": "Invalid interval",
+        }
+        if interval is not None:
+            payload["interval"] = interval
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        assert response.json().get("attr") == "interval"
 
     def test_can_update_subscription_without_resending_relation(self):
         sub_id = self._create_subscription().json()["id"]

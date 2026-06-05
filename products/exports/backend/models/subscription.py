@@ -15,6 +15,9 @@ from posthog.schema import SubscriptionFreeTierLimit
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.utils import UUIDModel
 from posthog.utils import absolute_uri
 
@@ -25,6 +28,9 @@ UNSUBSCRIBE_TOKEN_EXP_DAYS = 30
 
 # Single source of truth shared with the frontend create gate via generated schema (SubscriptionFreeTierLimit.COUNT).
 SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER: int = SubscriptionFreeTierLimit.model_fields["root"].default
+
+# Max length of the prompt snippet used as an AI subscription's display name when it has no title.
+AI_PROMPT_DISPLAY_MAX_LEN = 60
 
 RRULE_WEEKDAY_MAP = {
     "monday": MO,
@@ -46,7 +52,7 @@ class SubscriptionResourceInfo:
     url: str
 
 
-class Subscription(models.Model):
+class Subscription(ModelActivityMixin, models.Model):
     """
     Rather than re-invent the wheel, we are roughly following the iCalender format for recurring schedules
     https://dateutil.readthedocs.io/en/stable/rrule.html
@@ -74,6 +80,11 @@ class Subscription(models.Model):
         SATURDAY = "saturday"
         SUNDAY = "sunday"
 
+    class ResourceType(models.TextChoices):
+        INSIGHT = "insight"
+        DASHBOARD = "dashboard"
+        AI_PROMPT = "ai_prompt", "AI prompt"
+
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {
@@ -82,6 +93,16 @@ class Subscription(models.Model):
         SubscriptionFrequency.MONTHLY: MONTHLY,
         SubscriptionFrequency.YEARLY: YEARLY,
     }
+
+    # Look-back window (in days) an AI report should analyse for each cadence. Unknown
+    # frequencies fall back to the weekly window.
+    _AI_REPORT_WINDOW_DAYS: dict[str, int] = {
+        SubscriptionFrequency.DAILY: 1,
+        SubscriptionFrequency.WEEKLY: 7,
+        SubscriptionFrequency.MONTHLY: 30,
+        SubscriptionFrequency.YEARLY: 365,
+    }
+    DEFAULT_AI_REPORT_WINDOW_DAYS = 7
 
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -99,6 +120,8 @@ class Subscription(models.Model):
         blank=True,
         db_index=False,
     )
+
+    prompt = models.TextField(null=True, blank=True)
 
     # Subscription type (email, slack etc.)
     title = models.CharField(max_length=100, null=True, blank=True)
@@ -157,6 +180,27 @@ class Subscription(models.Model):
             if "update_fields" in kwargs:
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
+
+    @classmethod
+    def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
+        # Shared by the `resource_type` property and the scheduler's `.values()` fan-out
+        # (which has field dicts, not model instances) so the derivation stays single-source.
+        if insight_id:
+            return cls.ResourceType.INSIGHT
+        if dashboard_id:
+            return cls.ResourceType.DASHBOARD
+        if prompt:
+            return cls.ResourceType.AI_PROMPT
+        raise ValueError("Subscription has no insight, dashboard, or prompt to derive a resource type from")
+
+    @property
+    def resource_type(self) -> str:
+        return self.derive_resource_type(self.insight_id, self.dashboard_id, self.prompt)
+
+    @property
+    def _has_resource(self) -> bool:
+        # Guards url/resource_info from resource_type's raise on a relationless sub.
+        return bool(self.insight_id or self.dashboard_id or self.prompt)
 
     @staticmethod
     def _build_rrule(
@@ -228,25 +272,47 @@ class Subscription(models.Model):
         return None
 
     @property
-    def url(self):
-        if self.insight:
-            return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
-        elif self.dashboard:
-            return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
+    def ai_report_window_days(self) -> int:
+        """Days of history an AI report for this subscription should analyse, derived from its cadence."""
+        return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
+
+    @property
+    def url(self) -> str | None:
+        if not self._has_resource:
+            return None
+        match self.resource_type:
+            case self.ResourceType.INSIGHT if self.insight:
+                return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
+            case self.ResourceType.DASHBOARD if self.dashboard:
+                return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
+            case self.ResourceType.AI_PROMPT:
+                return absolute_uri(f"/project/{self.team_id}/subscriptions/{self.id}")
         return None
 
     @property
     def resource_info(self) -> Optional[SubscriptionResourceInfo]:
-        if self.insight:
-            return SubscriptionResourceInfo(
-                "Insight",
-                f"{self.insight.name or self.insight.derived_name}",
-                self.insight.url,
-            )
-        elif self.dashboard:
-            return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
-
+        if not self._has_resource:
+            return None
+        match self.resource_type:
+            case self.ResourceType.INSIGHT if self.insight:
+                return SubscriptionResourceInfo(
+                    "Insight",
+                    f"{self.insight.name or self.insight.derived_name}",
+                    self.insight.url,
+                )
+            case self.ResourceType.DASHBOARD if self.dashboard:
+                return SubscriptionResourceInfo("Dashboard", self.dashboard.name or "Dashboard", self.dashboard.url)
+            case self.ResourceType.AI_PROMPT:
+                ai_name = self.title or (self.prompt or "").strip()[:AI_PROMPT_DISPLAY_MAX_LEN] or "AI report"
+                return SubscriptionResourceInfo("AI", ai_name, self.url or "")
         return None
+
+    @property
+    def display_name(self) -> str:
+        info = self.resource_info
+        if info is not None:
+            return info.name
+        return self.title or "Subscription"
 
     @property
     def summary(self):
@@ -288,12 +354,14 @@ class Subscription(models.Model):
         """
         return {
             "id": self.id,
+            "resource_type": self.resource_type,
             "target_type": self.target_type,
             "num_emails_invited": len(self.target_value.split(",")) if self.target_type == "email" else None,
             "frequency": self.frequency,
             "interval": self.interval,
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
+            "prompt_length": len(self.prompt or ""),
         }
 
 
@@ -304,6 +372,33 @@ def subscription_saved(sender, instance, created, raw, using, **kwargs):
     if instance.created_by and instance.resource_info:
         event_name: str = f"{instance.resource_info.kind.lower()} subscription {'created' if created else 'updated'}"
         report_user_action(instance.created_by, event_name, instance.get_analytics_metadata())
+
+
+@mutable_receiver(model_activity_signal, sender=Subscription)
+def log_subscription_activity(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    instance = after_update or before_update
+    if instance is None:
+        return
+
+    changes = changes_between("Subscription", previous=before_update, current=after_update)
+    try:
+        log_activity(
+            organization_id=instance.team.organization_id,
+            team_id=instance.team_id,
+            user=user,
+            was_impersonated=was_impersonated,
+            item_id=instance.id,
+            scope="Subscription",
+            activity=activity,
+            detail=Detail(
+                name=instance.display_name,
+                changes=changes,
+            ),
+        )
+    except Exception as exc:  # never let activity logging break a save
+        capture_exception(exc)
 
 
 def to_rrule_weekdays(weekday: Subscription.SubscriptionByWeekDay):

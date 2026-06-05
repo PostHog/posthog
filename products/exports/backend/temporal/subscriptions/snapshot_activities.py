@@ -9,6 +9,7 @@ from structlog import get_logger
 
 from posthog.constants import SUBSCRIPTION_AI_SUMMARY_PROMPT_GUIDE_FEATURE_FLAG_KEY
 from posthog.ph_client import ph_scoped_capture
+from posthog.security.llm_prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 
@@ -16,13 +17,12 @@ from products.annotations.backend.api.annotation_context import build_annotation
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.llm_change_summary import generate_change_summary
-from products.exports.backend.temporal.subscriptions.prompt_sanitization import PROMPT_GUIDE_MAX_LEN, sanitize_user_text
 from products.exports.backend.temporal.subscriptions.results_summarizer import build_results_summary
 from products.exports.backend.temporal.subscriptions.types import SnapshotInsightsInputs, SnapshotInsightsResult
+from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
-from ee.models import CoreMemory
 
 LOGGER = get_logger(__name__)
 

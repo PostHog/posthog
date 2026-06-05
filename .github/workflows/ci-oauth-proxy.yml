@@ -57,6 +57,7 @@ jobs:
               with:
                   node-version-file: .nvmrc
                   cache: 'pnpm'
+                  token: ${{ github.token }}
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
