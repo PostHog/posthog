@@ -3079,6 +3079,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     /** Field to break down sparkline data by (used only by sparkline endpoint) */
     sparklineBreakdownBy?: LogsSparklineBreakdownBy
     resourceFingerprint?: string
+    /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
+    excludeAttributes?: boolean
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
