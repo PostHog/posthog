@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models import Q
 
 import structlog
 import temporalio
@@ -110,9 +111,38 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return config
 
     def soft_delete(self):
-        self.deleted = True
-        self.deleted_at = datetime.now()
-        self.save()
+        # Lazy imports avoid a circular dependency between the warehouse models.
+        from products.data_tools.backend.models.join import DataWarehouseJoin
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+
+        deleted_at = datetime.now(UTC)
+
+        # Cascade the soft-delete to this source's tables (and their joins) and schemas so a
+        # deleted source never leaves orphan tables behind, whichever code path deletes it. Done
+        # in bulk inside one transaction — per-row deletes don't scale to sources with thousands
+        # of schemas (e.g. a Slack workspace with thousands of channels).
+        with transaction.atomic():
+            tables = DataWarehouseTable.objects.filter(team_id=self.team_id, external_data_source_id=self.id).exclude(
+                deleted=True
+            )
+            table_names = list(tables.values_list("name", flat=True))
+
+            if table_names:
+                DataWarehouseJoin.objects.filter(
+                    Q(team_id=self.team_id)
+                    & (Q(source_table_name__in=table_names) | Q(joining_table_name__in=table_names))
+                ).exclude(deleted=True).update(deleted=True, deleted_at=deleted_at)
+
+            tables.update(deleted=True, deleted_at=deleted_at)
+
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=self.id).exclude(deleted=True).update(
+                deleted=True, deleted_at=deleted_at
+            )
+
+            self.deleted = True
+            self.deleted_at = deleted_at
+            self.save()
 
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from posthog.temporal.data_imports.sources.common.registry import SourceRegistry

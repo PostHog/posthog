@@ -1567,37 +1567,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
-        # Soft-delete source, schemas, tables, and companion _cdc tables atomically
-        # first so DB state is consistent even if the external cleanup below fails
-        with transaction.atomic():
-            for schema in schemas:
-                if schema.table:
-                    schema.table.soft_delete()
+        # Soft-delete source, schemas, tables, and companion _cdc tables. The cascade lives on
+        # `ExternalDataSource.soft_delete()` (atomic + bulk) so every deletion path stays
+        # consistent and no orphan tables are left behind.
+        instance.soft_delete()
 
-            # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
-            # runs a SELECT + UPDATE + activity-log write each, which does not scale to
-            # sources with thousands of schemas (e.g. a Slack workspace with thousands of
-            # channels).
-            deleted_at = datetime.now(UTC)
-            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
-                deleted=True, deleted_at=deleted_at
-            )
-            # Mirror the bulk update onto the in-memory objects so the post-atomic
-            # `schema.delete_table()` save() below doesn't overwrite deleted=True with the
-            # stale in-memory value.
-            for schema in schemas:
-                schema.deleted = True
-                schema.deleted_at = deleted_at
-
-            # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
-            # DataWarehouseTable records linked to the source but not to schema.table.
-            DataWarehouseTable.objects.filter(
-                external_data_source_id=instance.id,
-                team_id=self.team_id,
-                deleted=False,
-            ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
-
-            instance.soft_delete()
+        # Mirror the cascade onto the pre-fetched in-memory objects so the post-commit S3 cleanup
+        # (`schema.delete_table()`) skips the now-redundant per-row table soft_delete and its
+        # save() doesn't resurrect the schema rows the cascade just deleted.
+        deleted_at = datetime.now(UTC)
+        for schema in schemas:
+            schema.deleted = True
+            schema.deleted_at = deleted_at
+            if schema.table:
+                schema.table.deleted = True
 
         # Best-effort webhook cleanup — soft-deletes are already committed
         source_type = ExternalDataSourceType(instance.source_type)
