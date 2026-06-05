@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { decodeParams, router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
@@ -10,7 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { objectsEqual, toParams } from 'lib/utils'
+import { isAbortedRequest, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -19,7 +20,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, HogQLQuery, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import {
     ActivityScope,
     AnyPropertyFilter,
@@ -147,100 +148,114 @@ export const personsLogic = kea<personsLogicType>([
         setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
         resetEventsQuery: true,
     }),
-    loaders(({ values, actions, props }) => ({
-        persons: [
-            { next: null, previous: null, count: 0, results: [], offset: 0 } as CountedPaginatedResponse<PersonType> & {
-                offset: number
-            },
-            {
-                loadPersons: async ({ url }) => {
-                    let result: CountedPaginatedResponse<PersonType> & { offset: number }
-                    if (!url) {
-                        const newFilters: PersonListParams = { ...values.listFilters }
-                        newFilters.properties = [
-                            ...(values.listFilters.properties || []),
-                            ...values.hiddenListProperties,
-                        ]
-                        newFilters.include_total = true // The total count is slow, but needed for infinite loading
-                        if (props.cohort) {
-                            result = {
-                                ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
-                                offset: 0,
+    loaders(({ values, actions, props }) => {
+        const setupPersonQueries = (person: PersonType): void => {
+            actions.reportPersonDetailViewed(person)
+            if (person.id != null) {
+                actions.setEventsQuery(createInitialEventsPayload(person.id))
+                actions.setExceptionsQuery(createInitialExceptionsPayload(person.id))
+                actions.setSurveyResponsesQuery(createInitialSurveyResponsesPayload(person.id))
+            }
+        }
+        return {
+            persons: [
+                {
+                    next: null,
+                    previous: null,
+                    count: 0,
+                    results: [],
+                    offset: 0,
+                } as CountedPaginatedResponse<PersonType> & {
+                    offset: number
+                },
+                {
+                    loadPersons: async ({ url }) => {
+                        let result: CountedPaginatedResponse<PersonType> & { offset: number }
+                        if (!url) {
+                            const newFilters: PersonListParams = { ...values.listFilters }
+                            newFilters.properties = [
+                                ...(values.listFilters.properties || []),
+                                ...values.hiddenListProperties,
+                            ]
+                            newFilters.include_total = true // The total count is slow, but needed for infinite loading
+                            if (props.cohort) {
+                                result = {
+                                    ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
+                                    offset: 0,
+                                }
+                            } else {
+                                result = { ...(await api.persons.list(newFilters)), offset: 0 }
                             }
                         } else {
-                            result = { ...(await api.persons.list(newFilters)), offset: 0 }
+                            result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                         }
-                    } else {
-                        result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
-                    }
-                    return result
+                        return result
+                    },
                 },
-            },
-        ],
-        person: [
-            null as PersonType | null,
-            {
-                loadPerson: async ({ id }): Promise<PersonType | null> => {
-                    const response = await api.persons.list({ distinct_id: id })
-                    if (!response.results.length) {
-                        return null
-                    }
-                    const person = response.results[0]
-                    if (person) {
-                        actions.reportPersonDetailViewed(person)
-                        if (person.id != null) {
-                            const eventsQuery = createInitialEventsPayload(person.id)
-                            actions.setEventsQuery(eventsQuery)
-                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
-                            actions.setExceptionsQuery(exceptionsQuery)
-                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
-                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
+            ],
+            person: [
+                null as PersonType | null,
+                {
+                    loadPerson: async ({ id }): Promise<PersonType | null> => {
+                        const response = await api.persons.list({ distinct_id: id })
+                        if (!response.results.length) {
+                            return null
                         }
-                    }
+                        const person = response.results[0]
+                        if (person) {
+                            setupPersonQueries(person)
+                        }
 
-                    return person
-                },
-                loadPersonUUID: async ({ uuid }): Promise<PersonType | null> => {
-                    const response = await api.query<HogQLQuery>(
-                        {
-                            kind: NodeKind.HogQLQuery,
-                            query: getHogqlQueryStringForPersonId(),
-                            values: { id: uuid },
-                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        },
-                        { refresh: 'blocking' }
-                    )
-                    const row = response?.results?.[0]
-                    if (row) {
-                        const person = parsePersonFromHogQLRow(row)
-                        actions.reportPersonDetailViewed(person)
-                        if (person.id != null) {
-                            const eventsQuery = createInitialEventsPayload(person.id)
-                            actions.setEventsQuery(eventsQuery)
-                            const exceptionsQuery = createInitialExceptionsPayload(person.id)
-                            actions.setExceptionsQuery(exceptionsQuery)
-                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
-                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
-                        }
                         return person
-                    }
-                    return null
-                },
-            },
-        ],
-        cohorts: [
-            null as CohortType[] | null,
-            {
-                loadCohorts: async (): Promise<CohortType[] | null> => {
-                    if (!values.person?.id) {
+                    },
+                    loadPersonUUID: async ({ uuid }, breakpoint): Promise<PersonType | null> => {
+                        let response: HogQLQueryResponse
+                        try {
+                            response = await api.query<HogQLQuery>(
+                                {
+                                    kind: NodeKind.HogQLQuery,
+                                    query: getHogqlQueryStringForPersonId(),
+                                    values: { id: uuid },
+                                    tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
+                                },
+                                { refresh: 'blocking' }
+                            )
+                        } catch (error) {
+                            // The blocking query is aborted when navigation moves on before it resolves.
+                            // That's expected, not a load failure — drop the stale result instead of
+                            // surfacing an error or letting it be captured as an exception. Emit a
+                            // breadcrumb so the otherwise-silent swallow is still measurable.
+                            if (isAbortedRequest(error)) {
+                                posthog.capture('person_uuid_load_aborted')
+                                breakpoint()
+                                return values.person
+                            }
+                            throw error
+                        }
+                        const row = response?.results?.[0]
+                        if (row) {
+                            const person = parsePersonFromHogQLRow(row)
+                            setupPersonQueries(person)
+                            return person
+                        }
                         return null
-                    }
-                    const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
-                    return response.results
+                    },
                 },
-            },
-        ],
-    })),
+            ],
+            cohorts: [
+                null as CohortType[] | null,
+                {
+                    loadCohorts: async (): Promise<CohortType[] | null> => {
+                        if (!values.person?.id) {
+                            return null
+                        }
+                        const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
+                        return response.results
+                    },
+                },
+            ],
+        }
+    }),
     reducers(() => ({
         listFilters: [
             {} as PersonListParams,
@@ -307,6 +322,7 @@ export const personsLogic = kea<personsLogicType>([
                 setPerson: () => null,
                 loadPersonUUID: () => null,
                 loadPersonFailure: (_, { error }) => error,
+                loadPersonUUIDFailure: (_, { error }) => error,
             },
         ],
         distinctId: [

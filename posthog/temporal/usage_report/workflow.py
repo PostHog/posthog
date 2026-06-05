@@ -6,11 +6,8 @@ then a single aggregation activity reads them all back from S3, builds one
 `FullUsageReport` dict per organization, and writes those reports as gzipped
 JSONL chunks (≤10k orgs each) plus a manifest.
 
-The final step — an `enqueue_pointer_message` activity that sends a single
-SQS pointer to billing — is currently disabled until the `usage_reports_v2`
-queue is provisioned in deployment. For now the workflow stops after the
-chunks and manifest are in S3; billing isn't notified yet. See the
-commented-out call below for re-enabling.
+The final step is an `enqueue_pointer_message` activity that sends a single
+SQS pointer to billing so it can read the chunks and manifest from S3.
 
 This replaces the per-org SQS fan-out in
 `posthog/tasks/usage_report.py:send_all_org_usage_reports`. The Celery task
@@ -27,11 +24,16 @@ from temporalio import common, workflow
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports, run_query_to_s3
+from posthog.temporal.usage_report.activities import (
+    aggregate_and_chunk_org_reports,
+    enqueue_pointer_message,
+    run_query_to_s3,
+)
 from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
+    EnqueuePointerInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
     RunUsageReportsInputs,
@@ -108,22 +110,16 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 heartbeat_timeout=timedelta(minutes=5),
             )
 
-            # SQS pointer dispatch is disabled until the `usage_reports_v2`
-            # queue is provisioned in deployment and
-            # `SQS_USAGE_REPORT_V2_QUEUE_URL` is set on the temporal-worker
-            # pods. Re-enable by uncommenting the call below once billing has
-            # the queue ready to consume.
-            #
-            # await workflow.execute_activity(
-            #     enqueue_pointer_message,
-            #     EnqueuePointerInputs(ctx=ctx, aggregate=agg),
-            #     start_to_close_timeout=timedelta(minutes=2),
-            #     retry_policy=common.RetryPolicy(
-            #         maximum_attempts=5,
-            #         initial_interval=timedelta(seconds=10),
-            #     ),
-            #     heartbeat_timeout=timedelta(minutes=1),
-            # )
+            await workflow.execute_activity(
+                enqueue_pointer_message,
+                EnqueuePointerInputs(ctx=ctx, aggregate=agg),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=5,
+                    initial_interval=timedelta(seconds=10),
+                ),
+                heartbeat_timeout=timedelta(minutes=1),
+            )
 
             # Intentionally NOT cleaning up the per-query intermediates yet —
             # we want them around in S3 for debugging while we validate the

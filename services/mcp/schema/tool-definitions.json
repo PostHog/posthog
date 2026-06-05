@@ -1,6 +1,6 @@
 {
     "agent-feedback": {
-        "description": "Optional: submit structured feedback about your experience using this PostHog MCP server. Reach for this tool when something stood out — friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Feedback goes directly to the PostHog team and is the primary signal we use to improve tool descriptions, input schemas, response formats, and instructions for agents like you. Be specific and quote tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
+        "description": "Optional: submit structured feedback about this PostHog MCP server itself — its tools, input schemas, response formats, errors, and instructions. Keep feedback about the MCP, not the user's task, their data, or your findings. Reach for this tool when something stood out: friction, a surprise, a missing capability, an unhelpful error, or a tool that worked particularly well. Skip it for routine tasks where nothing is worth flagging. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting your experience to the PostHog team, not for ending the conversation.",
         "category": "Feedback",
         "feature": "feedback",
         "summary": "Optional: submit feedback about the PostHog MCP server.",
@@ -176,6 +176,7 @@
         "summary": "Edit part of a notebook's content.",
         "title": "Edit notebook",
         "required_scopes": ["notebook:write"],
+        "feature_flag": "notebooks-collaboration",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -479,20 +480,6 @@
             "readOnlyHint": false
         }
     },
-    "workflows-disable": {
-        "description": "Disable / deactivate a live workflow and stop processing events. Confirm with the user before invoking.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Disable workflow",
-        "title": "Disable workflow",
-        "required_scopes": ["hog_flow:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "workflows-archive": {
         "description": "Archive a draft or disabled workflow.",
         "category": "Workflows",
@@ -503,6 +490,48 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-blast-radius": {
+        "description": "Count how many users a batch workflow's audience matches (person/cohort, not event behavior). Always run this BEFORE run-batch / schedule-create. Then STOP and get the user's explicit confirmation: tell them the exact count and that running will send real messages to that many people. Do not proceed to run-batch / schedule-create until they say yes.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Size workflow audience",
+        "title": "Size workflow audience",
+        "required_scopes": ["hog_flow:read", "person:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "workflows-run-batch": {
+        "description": "Broadcast a batch workflow to its matching users NOW — sends real messages/webhooks, not a test. Workflow must be enabled. STOP before calling: show the user the audience size from workflows-blast-radius and get their explicit confirmation in a separate turn — never size and fire in one step. Requires acknowledged_affected_count from workflows-blast-radius; rejects on drift or over the cap.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Run batch workflow",
+        "title": "Run batch workflow",
+        "required_scopes": ["hog_flow:write", "person:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "workflows-schedule-create": {
+        "description": "Attach a recurring RRULE schedule to a batch workflow. The workflow must already be active (enable it first). Each run broadcasts real messages to the trigger audience — STOP and get the user's explicit confirmation first, then pass acknowledged_affected_count from workflows-blast-radius.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Schedule workflow runs",
+        "title": "Schedule workflow runs",
+        "required_scopes": ["hog_flow:write", "person:read"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }

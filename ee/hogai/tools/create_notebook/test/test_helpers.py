@@ -3,6 +3,8 @@ from posthog.test.base import BaseTest
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.schema import TrendsQuery, VisualizationMessage
+
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
@@ -49,7 +51,12 @@ class TestSaveNotebookToDb(BaseTest):
             data={"content_type": "notebook", "blocks": [], "title": "Notebook"},
         )
 
-    def _save_and_get_notebook(self, viz_short_id: str, parent_short_id: str) -> Notebook:
+    def _save_and_get_notebook(
+        self,
+        viz_short_id: str,
+        parent_short_id: str,
+        state_messages: list | None = None,
+    ) -> Notebook:
         parent = self._create_notebook_parent(parent_short_id)
         blocks: list[StoredBlock] = [VisualizationRefBlock(artifact_id=viz_short_id, title="Chart")]
         async_to_sync(save_notebook_to_db)(
@@ -58,6 +65,7 @@ class TestSaveNotebookToDb(BaseTest):
             artifact=parent,
             blocks=blocks,
             title="Test Notebook",
+            state_messages=state_messages or [],
         )
         return Notebook.objects.get(team=self.team, short_id=parent.short_id)
 
@@ -82,14 +90,6 @@ class TestSaveNotebookToDb(BaseTest):
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 "DataVisualizationNode",
                 "HogQLQuery",
-            ),
-            (
-                "assistant_hogql_query_wrapped_in_dvn",
-                "vahq",
-                "nahq",
-                {"kind": "AssistantHogQLQuery", "query": "SELECT 1"},
-                "DataVisualizationNode",
-                "AssistantHogQLQuery",
             ),
             (
                 "insight_query_wrapped_in_insight_viz_node",
@@ -122,3 +122,35 @@ class TestSaveNotebookToDb(BaseTest):
         self.assertEqual(notebook.content_storage, Notebook.ContentStorage.MARKDOWN)
         self.assertIn("<Query", notebook.markdown_content or "")
         self.assertIn(expected_source_kind, notebook.markdown_content or "")
+
+    def test_save_notebook_resolves_state_only_visualization(self):
+        # Reproduces the "[Visualization not found: <id>]" bug: viz exists only in
+        # conversation state (as a VisualizationMessage), not in AgentArtifact.
+        viz_short_id = "vstt"
+        viz_message = VisualizationMessage(
+            id=viz_short_id,
+            answer=TrendsQuery(series=[]),
+        )
+
+        notebook = self._save_and_get_notebook(
+            viz_short_id,
+            "nstt",
+            state_messages=[viz_message],
+        )
+
+        ph_queries = _find_ph_query_nodes(notebook.content)
+        self.assertEqual(len(ph_queries), 1, "state-only viz should resolve to a ph-query node")
+        stored_query = ph_queries[0]["attrs"]["query"]
+        self.assertEqual(stored_query["kind"], "InsightVizNode")
+        self.assertEqual(stored_query["source"]["kind"], "TrendsQuery")
+
+    def test_save_notebook_emits_placeholder_when_artifact_missing(self):
+        # Sanity: when the ref can't be resolved from any source, we still get the
+        # "[Visualization not found]" placeholder paragraph instead of a ph-query.
+        notebook = self._save_and_get_notebook(
+            viz_short_id="vmis",
+            parent_short_id="nmis",
+        )
+
+        ph_queries = _find_ph_query_nodes(notebook.content)
+        self.assertEqual(len(ph_queries), 0)
