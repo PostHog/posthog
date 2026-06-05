@@ -95,7 +95,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_no_crash_when_no_source_is_selected
@@ -202,7 +202,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_country_filter
@@ -363,7 +363,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data
@@ -470,7 +470,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_date_range_for_daily_interval
@@ -573,7 +573,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2025-02-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-01 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_double_grouping
@@ -744,7 +744,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_and_product_grouping
@@ -861,7 +861,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_data_with_managed_viewsets_ff
@@ -968,7 +968,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2026-05-01 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_empty_date_range
@@ -1075,7 +1075,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-12-01 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2024-12-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data
@@ -1182,7 +1182,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_currency_aware_divider
@@ -1289,7 +1289,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_and_grouping
@@ -1406,7 +1406,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_events_data_with_managed_viewsets_ff
@@ -1513,7 +1513,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter
@@ -1630,7 +1630,7 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
 # name: TestRevenueAnalyticsMRRQueryRunner.test_with_product_filter.1
@@ -1747,6 +1747,6 @@
   WHERE and(ifNull(greaterOrEquals(date, assumeNotNull(toDateTime('2024-11-30 00:00:00', 'UTC'))), 0), ifNull(lessOrEquals(date, assumeNotNull(toDateTime('2025-05-31 23:59:59', 'UTC'))), 0))
   GROUP BY breakdown_by, date
   ORDER BY date ASC, total DESC, breakdown_by ASC
-  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
+  LIMIT 10000 SETTINGS format_csv_allow_double_quotes=1, readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   '''
 # ---
