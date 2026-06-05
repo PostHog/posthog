@@ -2372,8 +2372,6 @@ export namespace Schemas {
       /** Goal Lines */
       goalLines?: GoalLine[] | null;
       hiddenLegendBreakdowns?: string[] | null;
-      /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
-      hideIncompleteConversionWindowPeriods?: boolean | null;
       layout?: FunnelLayout | null;
       /** Customizations for the appearance of result datasets. */
       resultCustomizations?: FunnelsFilterResultCustomizations;

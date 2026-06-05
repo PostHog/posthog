@@ -32,14 +32,6 @@ PHASE_ALL = "all"
 PHASE_EARLIEST = "earliest"
 PHASE_LATEST = "latest"
 
-# Raised when Shopify's OAuth token endpoint returns a 4xx — the app credentials are
-# invalid or the app was uninstalled, so re-auth is the only fix. `ShopifySource.
-# get_non_retryable_errors` matches on this exact text to fail the job fast.
-SHOPIFY_ACCESS_TOKEN_AUTH_ERROR = (
-    "Failed to retrieve Shopify access token: the app credentials are invalid or the "
-    "app was uninstalled. Please reconnect your Shopify integration."
-)
-
 
 @dataclasses.dataclass
 class ShopifyResumeConfig:
@@ -164,11 +156,6 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     }
     access_res = make_tracked_session().post(access_token_url, data=access_data)
     if not access_res.ok:
-        # A 4xx means the app credentials are invalid/revoked (e.g. the app was
-        # uninstalled) — re-auth is the only fix, so surface a non-retryable message.
-        # 429 (rate limit) and 5xx are transient and stay retryable via the generic message.
-        if 400 <= access_res.status_code < 500 and access_res.status_code != 429:
-            raise Exception(f"{SHOPIFY_ACCESS_TOKEN_AUTH_ERROR} (HTTP {access_res.status_code})")
         raise Exception(f"Failed to retrieve Shopify access token: {access_res}")
     return access_res.json()["access_token"]
 

@@ -264,13 +264,14 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
 
     return (
         <div className="relative">
+            <div className="absolute top-0 right-0 z-1">
+                <LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />
+            </div>
             <LemonTabs
                 activeKey={activeFilterTab}
                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                 size="small"
                 tabs={tabs}
-                barClassName="sticky top-0 z-10 bg-primary"
-                rightSlot={<LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />}
             />
         </div>
     )

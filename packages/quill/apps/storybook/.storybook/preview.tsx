@@ -1,24 +1,36 @@
 import './storybook.css'
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect } from 'react'
 import type { Preview } from '@storybook/react'
 import { themes } from '@storybook/theming'
 import { DocsContainer } from '@storybook/addon-docs'
 import { useDarkMode } from 'storybook-dark-mode'
 
-// The Docs container renders outside Storybook's preview-hooks context, so
-// `useDarkMode()` (a preview hook) can't be used here. Track the `<html>.dark`
-// class the story decorator sets via a MutationObserver instead.
-function ThemedDocsContainer(props: React.ComponentProps<typeof DocsContainer>): React.ReactElement {
-    const [isDark, setIsDark] = useState<boolean>(() => document.documentElement.classList.contains('dark'))
+/**
+ * Reads the addon's dark-mode signal and syncs it to:
+ *  - `<html>` class/attribute (so quill's `--background` etc. resolve to dark)
+ *  - the inline story canvas wrapper.
+ *
+ * Works for both Story and Docs views — DocsContainer below covers the
+ * surrounding `.sbdocs-wrapper` chrome via Storybook's official theming.
+ */
+function ThemeSync({ children }: { children: React.ReactNode }): React.ReactElement {
+    const isDark = useDarkMode()
 
     useEffect(() => {
-        const root = document.documentElement
-        const observer = new MutationObserver(() => setIsDark(root.classList.contains('dark')))
-        observer.observe(root, { attributes: true, attributeFilter: ['class'] })
-        return () => observer.disconnect()
-    }, [])
+        document.documentElement.classList.toggle('dark', isDark)
+        if (isDark) {
+            document.documentElement.setAttribute('theme', 'dark')
+        } else {
+            document.documentElement.removeAttribute('theme')
+        }
+    }, [isDark])
 
+    return <>{children}</>
+}
+
+function ThemedDocsContainer(props: React.ComponentProps<typeof DocsContainer>): React.ReactElement {
+    const isDark = useDarkMode()
     return <DocsContainer {...props} theme={isDark ? themes.dark : themes.light} />
 }
 
@@ -50,28 +62,13 @@ const preview: Preview = {
         },
     },
     decorators: [
-        // Hooks must run at the decorator's top level — Storybook's preview
-        // hooks context (which `useDarkMode` relies on) is only active here,
-        // not inside nested components a decorator renders. Syncs the signal to
-        // `<html>` class/attribute so quill's `--background` etc. resolve to dark.
-        (Story) => {
-            const isDark = useDarkMode()
-
-            useEffect(() => {
-                document.documentElement.classList.toggle('dark', isDark)
-                if (isDark) {
-                    document.documentElement.setAttribute('theme', 'dark')
-                } else {
-                    document.documentElement.removeAttribute('theme')
-                }
-            }, [isDark])
-
-            return (
+        (Story) => (
+            <ThemeSync>
                 <div className="bg-background text-foreground" style={{ padding: '1rem' }}>
                     <Story />
                 </div>
-            )
-        },
+            </ThemeSync>
+        ),
     ],
 }
 

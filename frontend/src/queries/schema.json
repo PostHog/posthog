@@ -21132,11 +21132,6 @@
                     },
                     "type": "array"
                 },
-                "hideIncompleteConversionWindowPeriods": {
-                    "default": false,
-                    "description": "Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert.",
-                    "type": "boolean"
-                },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
