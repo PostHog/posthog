@@ -920,10 +920,10 @@ snapshots:
         hash: v1.k794b7964.8b37ccbeb85b12cfa67ef291ac4f12ba43d3747165830b3233a553d0870a92a0.5yP0xhlATu5GwaVkyJIaPb12z3sVmlOY1qouwzlWlZM
     components-mcp-hint-toast--feature-flags-create--light:
         hash: v1.k794b7964.1bdef4d6355dd47d53ffba9b290b9e8b8f2113f7009f6f405a94cfe78552db09.wM6amMYVPD_2Y7HYP5U5ZLiFqzYKZqjj0uVNMzk0CI0
-    components-mcp-hint-toast--feature-flags-update-with-name--dark:
-        hash: v1.k794b7964.629d7c5a0f26509fa1ab9d86c3eb2fe156a2f1a4cc13b943f1eb90cc8d8743ea.xKMX1j50i6T5B7JPA91AzMLz2J8BB8X8lImO38ZAXgg
-    components-mcp-hint-toast--feature-flags-update-with-name--light:
-        hash: v1.k794b7964.c89945024132bfc29737a2472813aed61aabdf0d6deda6d08ece434b994061c6.UHRdedgGeswIxNH1A8Mkt9lzH-5nlrDbIjsktZfI1-g
+    components-mcp-hint-toast--feature-flags-update-with-derived-prompt--dark:
+        hash: v1.k794b7964.afa10000da33ecba2eb81ecfd5457f982dd9208a1fc7ca584c3df54b04ae7840.pErutyojno5jAV375aa_tzS17NjikicipUwViNh4zCY
+    components-mcp-hint-toast--feature-flags-update-with-derived-prompt--light:
+        hash: v1.k794b7964.818874da3f17f0acc398e7283597be0240aeb92a0ba55069640c1256c1b7bc22.cwNbr1sj1OYMiduM501aiz7xRW3RGe8J6mimkwJ5dUc
     components-mcp-hint-toast--sql-execute--dark:
         hash: v1.k794b7964.d91a099335481ad3bac73d2a4d7ad6ea8eeecb9d75c1f7ff2f84294754c01c0a.imR4sDFg8sH31qkL8fc3qsYQVjWn98kIQ7H2-61-JOc
     components-mcp-hint-toast--sql-execute--light:
@@ -5870,6 +5870,10 @@ snapshots:
         hash: v1.k794b7964.f1ad5aaa8dabaefd9ac8900920c56eb029656d9bd570bf4edd25fb6c135d9e44.pfgonEC2aj4XbTFzo4VbAFE68EwPYux9GdsZ_fk_y78
     scenes-app-saved-insights--list-view--light:
         hash: v1.k794b7964.84949542f060e8a4bb51b32c447be267827eefe820cb4fb64043bf816c8c5ffa.2A1ZaEwm2EE1w8Vq_2S87UR7FQ5Cv5UqYLE9xPF7CO4
+    scenes-app-saved-insights--search-results--dark:
+        hash: v1.k794b7964.497c4c623ad39c00e7222da92d036c2d3244dcc2a646b544e901f0cb76fc6769.R5MvpFQDADYd-3yCZYToSZIkYXvTD2M88dv__O_rLKY
+    scenes-app-saved-insights--search-results--light:
+        hash: v1.k794b7964.2987eff3c77b7e9c3cd868a266843d2bdf810831df871c8633dbea916bf20ee0.8ckgttcb_kZYo5kDcebDA61TOfupN5W1Mqx6oTuKfmA
     scenes-app-sessionattributionexplorer--session-attribution-explorer--dark:
         hash: v1.k794b7964.de73dd95fc63c967333c2d0caae609d6fb4d5c1dcd976397ca9541194ae9dfb1.Q4eLDuHYUsFUb8pTFD4Z10fXX_a0s_tSqKejQyNPTMM
     scenes-app-sessionattributionexplorer--session-attribution-explorer--light:

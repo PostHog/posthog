@@ -56,6 +56,7 @@ the row lists both.
 | calendly         | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor | HTTP                        | requests                                                        | ✅                          |
 | chargebee        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| confluence       | HTTP                        | requests                                                        | ✅                          |
 | chartmogul       | HTTP                        | requests                                                        | ✅                          |
 | clerk            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clickhouse       | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
@@ -76,6 +77,7 @@ the row lists both.
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
+| greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
@@ -87,11 +89,13 @@ the row lists both.
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
+| mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
 | okta             | HTTP                        | requests                                                        | ✅                          |
 | notion           | HTTP                        | requests                                                        | ✅                          |
+| omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
@@ -100,6 +104,7 @@ the row lists both.
 | polar            | HTTP                        | requests                                                        | ✅                          |
 | postgres         | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark         | HTTP                        | requests                                                        | ✅                          |
+| productboard     | HTTP                        | requests                                                        | ✅                          |
 | recurly          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge         | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -113,6 +118,7 @@ the row lists both.
 | shopify          | HTTP                        | requests                                                        | ✅                          |
 | shortcut         | HTTP                        | requests                                                        | ✅                          |
 | slack            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smartsheet       | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake        | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | square           | HTTP                        | requests                                                        | ✅                          |
@@ -121,12 +127,15 @@ the row lists both.
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| twilio           | HTTP                        | requests                                                        | ✅                          |
 | typeform         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow          | HTTP                        | requests                                                        | ✅                          |
 | woocommerce      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | workos           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| wrike            | HTTP                        | requests                                                        | ✅                          |
 | zendesk          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| zoom             | HTTP                        | requests                                                        | ✅                          |
 
 ### Notes on partially-tracked sources
 
@@ -174,7 +183,6 @@ doesn't conflict with concurrent PRs.
 - braintree
 - circleci
 - cockroachdb
-- confluence
 - copper
 - dynamodb
 - elasticsearch
@@ -186,7 +194,6 @@ doesn't conflict with concurrent PRs.
 - gong
 - google_analytics
 - google_drive
-- greenhouse
 - helpscout
 - instagram
 - iterable
@@ -195,10 +202,8 @@ doesn't conflict with concurrent PRs.
 - lever
 - marketo
 - microsoft_teams
-- mixpanel
 - monday
 - netsuite
-- omnisend
 - onedrive
 - oracle
 - outreach
@@ -207,23 +212,18 @@ doesn't conflict with concurrent PRs.
 - paypal
 - pendo
 - plaid
-- productboard
 - quickbooks
 - ringcentral
 - salesloft
 - sftp
 - sharepoint
-- smartsheet
 - surveymonkey
 - trello
-- twilio
 - twitter_ads
 - workday
-- wrike
 - xero
 - youtube_analytics
 - zoho_crm
-- zoom
 - zuora
 
 ---

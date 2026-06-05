@@ -178,7 +178,12 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_id: dashboardId,
                     })
                     actions.appendAnnotations([createdAnnotation])
-                    tryShowMCPHint('annotations.create')
+                    const trimmedContent = content?.trim() ?? ''
+                    const snippet = trimmedContent.length > 60 ? trimmedContent.slice(0, 57) + '…' : trimmedContent
+                    const date = dateMarker.format('YYYY-MM-DD')
+                    tryShowMCPHint('annotations.create', {
+                        derivedPrompt: snippet ? `Annotate ${date}: ${snippet}` : undefined,
+                    })
                 }
                 actions.closeModal()
             },
