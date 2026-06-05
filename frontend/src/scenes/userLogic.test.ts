@@ -195,7 +195,7 @@ describe('userLogic', () => {
         it('dispatches updateUserFailure (not success) when the backend rejects the update', async () => {
             jest.spyOn(api, 'update').mockRejectedValue({
                 status: 400,
-                detail: "You can't change your email because SSO is enforced on your current email's domain.",
+                detail: 'Update rejected by server.',
             })
 
             await expectLogic(userLogic, () => {
