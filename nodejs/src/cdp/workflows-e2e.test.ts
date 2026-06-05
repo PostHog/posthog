@@ -203,7 +203,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
      * Build the row-scoped globals the DWH consumer produces for a synced warehouse row: a synthetic
      * event with no real person, plus `dataWarehouseTable` so the executor matches the trigger's table.
      */
-    function createDwhGlobals(tableName: string, rowProperties: Record<string, any> = {}): HogFunctionInvocationGlobals {
+    function createDwhGlobals(
+        tableName: string,
+        rowProperties: Record<string, any> = {}
+    ): HogFunctionInvocationGlobals {
         return createHogExecutionGlobals({
             project: { id: team.id } as any,
             event: {

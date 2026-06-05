@@ -603,8 +603,7 @@ export const workflowLogic = kea<workflowLogicType>([
         // for the authoritative enforcement).
         isRowScopedTrigger: [
             (s) => [s.triggerAction],
-            (triggerAction: TriggerAction | null): boolean =>
-                triggerAction?.config?.type === 'data-warehouse-table',
+            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
         ],
 
         workflowSanitized: [
