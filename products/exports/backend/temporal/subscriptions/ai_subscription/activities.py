@@ -94,7 +94,11 @@ def _ai_credit_reset_date(subscription: Subscription) -> datetime:
     period = usage.get("period") if usage else None
     if period and len(period) == 2 and period[1]:
         try:
-            return dateutil.parser.isoparse(period[1])
+            reset_date = dateutil.parser.isoparse(period[1])
+            # A rolled-over-but-not-yet-synced period leaves period[1] in the past, which would
+            # resume "on a past date" and re-fire every tick — fall through to the fallback instead.
+            if reset_date > tz.now():
+                return reset_date
         except (ValueError, TypeError):
             pass
     return tz.now() + dt.timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)

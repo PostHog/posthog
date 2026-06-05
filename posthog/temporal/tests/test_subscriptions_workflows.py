@@ -2188,8 +2188,9 @@ async def test_generate_ai_report_skips_regeneration_when_already_persisted(team
 
 async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
     # Over budget on a cache miss → skip generation (no LLM spend), reschedule, notify once.
+    # Far-future period end so the synced-period reschedule is exercised regardless of when this runs.
     await _set_ai_consent(team, True)
-    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z"]})
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
     sub = await _create_ai_subscription(team, user)
     delivery = await _create_ai_delivery(sub)
 
@@ -2208,7 +2209,7 @@ async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
     mock_email.return_value.send.assert_called_once()  # owner notified once
     await sync_to_async(sub.refresh_from_db)()
     assert sub.enabled is True, "an over-budget sub stays enabled — it resumes when credits reset"
-    assert sub.next_delivery_date == datetime(2025, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
 
 
 async def test_generate_ai_report_credit_check_fails_open(team, user):
@@ -2284,26 +2285,40 @@ async def test_ai_credit_reset_date_uses_synced_period_end_not_fallback(team, us
     assert reset_date < timezone.now() + timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
 
 
+async def test_ai_credit_reset_date_falls_back_when_period_already_elapsed(team, user):
+    # A rolled-over-but-not-yet-synced period leaves period[1] in the past; promising a reset "on a
+    # past date" would re-fire every tick and email stale dates, so we fall back to ~one cycle out.
+    await _set_org_usage(team, {"period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+
+    reset_date = await sync_to_async(_ai_credit_reset_date)(sub)
+
+    expected = timezone.now() + timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
+    assert reset_date > timezone.now()
+    assert abs((reset_date - expected).total_seconds()) < 60
+
+
 async def test_skip_helper_reschedules_past_credit_reset_and_emails_owner(team, user):
-    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z"]})
+    # Far-future period end so the synced-period path is exercised regardless of when this runs.
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
     sub = await _create_ai_subscription(team, user)
 
     with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
         reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
 
-    assert reset_date == datetime(2025, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == datetime(2025, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     assert sub.enabled, "an over-limit sub stays enabled — it resumes when credits reset"
     mock_email.return_value.send.assert_called_once()
     # campaign_key carries sub id + billing-period date so MessagingRecord dedups to one notice per cycle.
     campaign_key = mock_email.call_args.kwargs["campaign_key"]
     assert str(sub.id) in campaign_key
-    assert "2025-02-01" in campaign_key
+    assert "2099-02-01" in campaign_key
 
 
 async def test_skip_helper_no_owner_reschedules_without_emailing(team, user):
-    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z"]})
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
     sub = await _create_ai_subscription(team, user)
     sub.created_by = None
     await sync_to_async(sub.save)(update_fields=["created_by"])
@@ -2311,9 +2326,9 @@ async def test_skip_helper_no_owner_reschedules_without_emailing(team, user):
     with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
         reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
 
-    assert reset_date == datetime(2025, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     await sync_to_async(sub.refresh_from_db)()
-    assert sub.next_delivery_date == datetime(2025, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
     mock_email.assert_not_called()
 
 
