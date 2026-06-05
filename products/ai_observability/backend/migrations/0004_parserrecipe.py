@@ -42,9 +42,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "team",
-                    models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.team"
-                    ),
+                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
                 ),
             ],
             options={
