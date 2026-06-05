@@ -1068,6 +1068,19 @@ class OAuthTokenView(TokenView):
             except (json.JSONDecodeError, OAuthAccessToken.DoesNotExist) as e:
                 logger.warning(f"Error adding scoped fields to token response: {e}")
 
+        # An OAuth2Error raised from save_bearer_token (e.g. the mint-time app-revoke check)
+        # escapes oauthlib's validate_token_request try/except and is serialized by DOT's
+        # backend handler instead, which ships oauthlib's empty header dict — so the JSON
+        # error body lands with Django's default text/html. Restore the RFC 6749 §5.2
+        # application/json header so clients (and DRF's test client) can parse the error.
+        if response.status_code != 200 and response.get("Content-Type", "").startswith("text/html"):
+            try:
+                json.loads(response.content)
+            except (json.JSONDecodeError, ValueError):
+                pass
+            else:
+                response["Content-Type"] = "application/json"
+
         return response
 
 
