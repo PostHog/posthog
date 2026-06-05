@@ -3751,10 +3751,6 @@
       property_count,
       coalesce(_timestamp, now()) as last_seen
   FROM posthog_test.kafka_property_values
-  WHERE lengthUTF8(property_key) > 0
-    AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
-    AND lengthUTF8(property_value) > 0
-    AND lengthUTF8(property_value) < 256
   
   '''
 # ---

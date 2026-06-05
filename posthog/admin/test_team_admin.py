@@ -117,9 +117,23 @@ class TestTeamAdminLLMGateway(BaseTest):
         self.user.save()
         self.factory = RequestFactory()
         self.admin = TeamAdmin(Team, AdminSite())
+        self.team_change_url = f"/admin/posthog/team/{self.team.pk}/change/"
 
-    def _request(self):
+        reverse_patcher = patch(
+            "posthog.admin.admins.team_admin.reverse",
+            side_effect=lambda name, args=None, kwargs=None: self.team_change_url,
+        )
+        reverse_patcher.start()
+        self.addCleanup(reverse_patcher.stop)
+
+    def _post(self):
         request = self.factory.post("/")
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
+    def _get(self):
+        request = self.factory.get("/")
         request.user = self.user
         _attach_messages(request)
         return request
@@ -142,52 +156,90 @@ class TestTeamAdminLLMGateway(BaseTest):
         rendered = str(self.admin.admit_state(self.team))
         assert expected in rendered
 
-    def test_enable_action_sets_timestamp_and_saves(self) -> None:
+    def test_enable_view_sets_timestamp_and_saves(self) -> None:
         assert self.team.llm_gateway_enabled_at is None
-        self.admin.enable_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        response = self.admin.enable_ai_gateway_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_enabled_at is not None
 
-    def test_enable_action_is_idempotent(self) -> None:
+    def test_enable_view_is_idempotent(self) -> None:
         from django.utils import timezone
 
         original = timezone.now() - timedelta(days=1)
         self.team.llm_gateway_enabled_at = original
         self.team.save()
-        self.admin.enable_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        response = self.admin.enable_ai_gateway_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_enabled_at == original
 
-    def test_revoke_action_sets_timestamp(self) -> None:
+    def test_revoke_view_sets_timestamp(self) -> None:
         assert self.team.llm_gateway_revoked_at is None
-        self.admin.revoke_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        response = self.admin.revoke_ai_gateway_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is not None
 
-    def test_revoke_action_is_idempotent(self) -> None:
+    def test_revoke_view_is_idempotent(self) -> None:
         from django.utils import timezone
 
         original = timezone.now() - timedelta(days=1)
         self.team.llm_gateway_revoked_at = original
         self.team.save()
-        self.admin.revoke_llm_gateway(self._request(), Team.objects.filter(pk=self.team.pk))
+        response = self.admin.revoke_ai_gateway_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at == original
 
-    def test_clear_revoke_action_clears_timestamp(self) -> None:
+    def test_clear_revoke_view_clears_timestamp(self) -> None:
         from django.utils import timezone
 
         self.team.llm_gateway_revoked_at = timezone.now()
         self.team.save()
-        self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
+        response = self.admin.clear_ai_gateway_revoke_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is None
 
-    def test_clear_revoke_action_no_op_when_already_null(self) -> None:
+    def test_clear_revoke_view_no_op_when_already_null(self) -> None:
         assert self.team.llm_gateway_revoked_at is None
-        self.admin.clear_llm_gateway_revoke(self._request(), Team.objects.filter(pk=self.team.pk))
+        response = self.admin.clear_ai_gateway_revoke_view(self._post(), str(self.team.pk))
+        assert response.status_code == 302
+        assert response["Location"] == self.team_change_url
         self.team.refresh_from_db()
         assert self.team.llm_gateway_revoked_at is None
+
+    @parameterized.expand(
+        [
+            ("enable", "enable_ai_gateway_view"),
+            ("revoke", "revoke_ai_gateway_view"),
+            ("clear_revoke", "clear_ai_gateway_revoke_view"),
+        ]
+    )
+    def test_views_reject_non_post(self, _name: str, view_name: str) -> None:
+        response = getattr(self.admin, view_name)(self._get(), str(self.team.pk))
+        assert response.status_code == 405
+        self.team.refresh_from_db()
+        assert self.team.llm_gateway_enabled_at is None
+        assert self.team.llm_gateway_revoked_at is None
+
+    @parameterized.expand(
+        [
+            ("enable", "enable_ai_gateway_view"),
+            ("revoke", "revoke_ai_gateway_view"),
+            ("clear_revoke", "clear_ai_gateway_revoke_view"),
+        ]
+    )
+    def test_views_require_change_permission(self, _name: str, view_name: str) -> None:
+        with patch.object(self.admin, "has_change_permission", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                getattr(self.admin, view_name)(self._post(), str(self.team.pk))
 
     def test_policy_cache_blob_absent(self) -> None:
         with patch(

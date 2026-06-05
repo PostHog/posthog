@@ -117,6 +117,7 @@ const meta: Meta<typeof ErrorTrackingWidgetTileStory> = {
     component: ErrorTrackingWidgetTileStory,
     parameters: {
         layout: 'padded',
+        mockDate: '2026-05-26T10:00:00',
     },
     decorators: [...widgetTileFrameDecorator],
     args: {

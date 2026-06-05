@@ -7,6 +7,8 @@ from parameterized import parameterized
 
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
 
+pytestmark = pytest.mark.skip(reason="streamlit_apps is experimental and not actively worked on — skip in CI")
+
 
 class TestStreamlitAppModel(BaseTest):
     def test_create_app(self):

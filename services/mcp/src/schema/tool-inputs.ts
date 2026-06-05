@@ -157,12 +157,12 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .min(1)
         .describe(
-            'A one-sentence headline summarising your feedback (e.g. "query-trends descriptions made it hard to choose between trends and funnels").'
+            'A one-sentence headline naming the problem (e.g. "query-trends descriptions made it hard to choose between trends and funnels"). Only submit when something went wrong or was missing — never for positive or "everything worked" feedback.'
         ),
     sentiment: z
-        .enum(['positive', 'negative', 'mixed'])
+        .enum(['negative', 'mixed'])
         .describe(
-            'Your overall impression of the MCP server for this task. Use "positive" if it helped you, "negative" if it blocked you, "mixed" for a bit of both.'
+            'How much the MCP server got in your way for this task. Use "negative" if it blocked you, "mixed" if it mostly worked but had a concrete problem worth fixing. Do not submit purely positive feedback — only report problems.'
         ),
     category: z
         .enum([
@@ -200,7 +200,7 @@ export const FeedbackSubmitSchema = z.object({
         .string()
         .optional()
         .describe(
-            'The single most impactful change you would make to the MCP server right now. Be specific (e.g. "add a `filters` example to query-funnel\'s description").'
+            'The single most impactful, concrete change that would fix the problem you hit. Be specific (e.g. "add a `filters` example to query-funnel\'s description"). If you cannot name a specific change, do not submit feedback.'
         ),
     user_request: z
         .string()

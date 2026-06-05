@@ -489,7 +489,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     })
                     actions.checkIfFinishedCalculating(cohort)
                     if (existingCohort.id === 'new') {
-                        tryShowMCPHint('cohorts.create')
+                        tryShowMCPHint('cohorts.create', {
+                            derivedPrompt: cohort.name ? `Build a cohort called ${cohort.name}` : undefined,
+                        })
                     }
                     if (cohort.id !== 'new') {
                         actions.refreshPersonsData()

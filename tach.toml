@@ -273,6 +273,9 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.ai_observability",
+    "products.analytics_platform",
+    "products.data_tools",
+    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
@@ -660,6 +663,7 @@ expose = [
     "backend\\.analysis_health.*",
     "backend\\.experiment_saved_metric_service.*",
     "backend\\.experiment_service.*",
+    "backend\\.hogql_queries.*",
     "backend\\.llm_metric_templates.*",
     "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
@@ -689,13 +693,14 @@ from = [
 ]
 
 # TODO: legacy leaks — posthog/temporal/mcp_analytics/* and the dashboard
-# integration import models / dashboard_templates directly. Move those into
-# the product (and through the facade) so this interface can shrink back to
-# the isolated default.
+# integration import models / dashboard_templates / intent_clustering directly.
+# Move those into the product (and through the facade) so this interface can
+# shrink back to the isolated default.
 
 [[interfaces]]
 expose = [
     "backend\\.dashboard_templates.*",
+    "backend\\.intent_clustering.*",
     "backend\\.models.*",
 ]
 from = [

@@ -86,10 +86,9 @@ export type ExcludedOperators = { [key in TaxonomicFilterGroupType]?: PropertyOp
 /**
  * Tells `TaxonomicPropertyFilter` to render a row as key-only — the picked
  * value IS the answer, no operator+value pair alongside it. Used when a
- * specific filter type's operator is implicit (e.g. feature flag release
- * conditions accept any operator on event properties but treat cohort rows
- * as key-only because the cohort *is* the value and the operator is
- * implicitly `in`).
+ * specific filter type's operator is implicit (e.g. workflow event triggers
+ * accept any operator on event properties but treat cohort rows as key-only
+ * because the cohort *is* the value and the operator is implicitly `in`).
  *
  * - `true` — every row in this `PropertyFilters` is key-only.
  * - `Partial<Record<TaxonomicFilterGroupType, boolean>>` — per-group switch.
