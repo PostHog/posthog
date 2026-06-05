@@ -516,6 +516,17 @@ The first suite-wide sweep (`run_shadow_differential.py` over `test_printer.py`)
 
 Consequence: the test-mode sweep is a strong gate for **unmaterialized parity** (byte-identity over everything the suite compiles) and for **fail-loud gaps** (errors), but it is **noisy for materialized cases** (buckets 1–2). Materialized result+index parity is gated by the execution net (§9.4, real data, no mocks) and ultimately the prod shadow (§13.2, real traffic, no mocks). Do not chase bucket-1/2 divergences as regressions; do triage every error and every *unmaterialized* divergence.
 
+### 13.9 Where the hook actually lives (the coverage that matters)
+
+§13.2 named `prepare_and_print_ast` as the compile boundary, but the **main query-execution path bypasses it**: `execute_hogql_query` → `HogQLQueryExecutor._generate_clickhouse_sql` calls `prepare_ast_for_printing` + `print_prepared_ast` **directly**, and `translate_hogql` (legacy filters, the deletion predicate, metadata, AI) does the same (printing only `select[0]`). A sweep that hooks _only_ `prepare_and_print_ast` shows **0 compiles** for `test_query.py` — it was silently verifying nothing of the execution path.
+
+So the hook is wired at **both** real boundaries:
+
+- `prepare_and_print_ast` — query-runner _display_ SQL, cohort, metadata, AI, ducklake.
+- the executor's `_generate_clickhouse_sql` — **the ClickHouse execution path** (`execute_hogql_query`), where the differential earns its coverage. A sweep over `test_query.py` compiles **406 real end-to-end queries, all byte-identical, 0 errors**.
+
+This also reframes the §13.8 test-poking caveat: many printer-internal tests call a _stage_ directly rather than the end-to-end flow, so their divergences are not the signal (some are not even good tests for the new flow). The **executor sweep is the end-to-end signal** — clean precisely because it runs the real path without the internal mocks. Remaining blind spot: `translate_hogql`, but its `within_non_hogql_query` callers skip lowering entirely (§8.4) so nothing diverges there; the rest is covered by targeted tests. Caveat: the executor mutates `settings` after prepare for LOGS-workload queries, so a LOGS query can show a SETTINGS-clause-only divergence — a known false positive, not a property-handling difference.
+
 ### 12.8 Behavior-preservation policy (applies to every PR)
 
 Preserve master's observable behavior **exactly**, including known quirks (e.g. §12.7) — leave a `# KNOWN:` code note + a doc note for each deferred fix. Change behavior **only** when doing so **simplifies the code substantially _and_ is provably correct**, and even then call it out explicitly for sign-off — never silently.

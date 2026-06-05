@@ -44,6 +44,12 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
+from posthog.hogql.printer.differential import (
+    ShadowInput,
+    maybe_record_shadow_divergence,
+    should_shadow,
+    snapshot_shadow_input,
+)
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
@@ -672,6 +678,7 @@ class HogQLQueryExecutor:
         if self.query_modifiers.forceClickhouseDataSkippingIndexes:
             settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
 
+        shadow_input: ShadowInput | None = None
         try:
             self.clickhouse_context = dataclasses.replace(
                 self.context,
@@ -684,6 +691,11 @@ class HogQLQueryExecutor:
                 limit_context=self.limit_context,
                 database=self.hogql_context.database if self.hogql_context else None,
             )
+            # Differential shadow-compare (§13): snapshot the input before prepare_ast_for_printing mutates it. This is
+            # the real query-execution boundary (execute_hogql_query bypasses prepare_and_print_ast), so it is where the
+            # differential earns its coverage. Off by default — a single env check unless a sweep is active.
+            if should_shadow(self.clickhouse_context, "clickhouse"):
+                shadow_input = snapshot_shadow_input(self.select_query, settings)
             with self.timings.measure("prepare_ast_for_printing"):
                 self.clickhouse_prepared_ast = prepare_ast_for_printing(
                     node=self.select_query,
@@ -718,6 +730,17 @@ class HogQLQueryExecutor:
                     self.error = "Unknown error"
             else:
                 raise
+
+        # Recompile on the new path and compare against the served SQL — after it is produced, so a shadow failure can
+        # never affect what the query returns (§13.2). Gated to a no-op unless a sweep is active.
+        if shadow_input is not None and self.clickhouse_sql and self.clickhouse_context is not None:
+            maybe_record_shadow_divergence(
+                shadow_input,
+                self.clickhouse_context,
+                "clickhouse",
+                old_sql=self.clickhouse_sql,
+                pretty=self.pretty if self.pretty is not None else True,
+            )
 
     def _prepare_execution(self) -> _PreparedExecution:
         self._parse_query()
