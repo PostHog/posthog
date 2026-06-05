@@ -64,9 +64,8 @@ class SdkReleaseAssessmentSerializer(serializers.Serializer):
         help_text=(
             "Per-version badge tooltip text matching the SDK Doctor UI exactly. Quote verbatim when "
             "reporting to users. Varies by state: 'Released X ago. Upgrade recommended.' for outdated "
-            "versions, 'You have the latest available. Click Releases above to check for any since.' "
-            "for current versions, or 'Released X ago. Upgrading is a good idea, but it's not urgent "
-            "yet.' for recent-but-behind versions."
+            "versions, 'You have the latest available.' for current versions, or 'Released X ago. "
+            "Upgrading is a good idea, but it's not urgent yet.' for recent-but-behind versions."
         ),
     )
     sql_query = serializers.CharField(

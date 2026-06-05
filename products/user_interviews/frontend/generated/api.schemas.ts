@@ -275,6 +275,17 @@ export interface BulkIntervieweeContextResponseApi {
     skipped_identifiers: string[]
 }
 
+/**
+ * * `abandoned` - Abandoned
+ * `off-topic` - Off-topic
+ */
+export type ClassificationsEnumApi = (typeof ClassificationsEnumApi)[keyof typeof ClassificationsEnumApi]
+
+export const ClassificationsEnumApi = {
+    Abandoned: 'abandoned',
+    OffTopic: 'off-topic',
+} as const
+
 export interface UserInterviewApi {
     readonly id: string
     readonly created_by: UserBasicApi
@@ -285,6 +296,8 @@ export interface UserInterviewApi {
     readonly topic: string | null
     readonly transcript: string
     summary?: string
+    /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+    classifications?: ClassificationsEnumApi[]
     audio: string
 }
 
@@ -307,6 +320,8 @@ export interface PatchedUserInterviewApi {
     readonly topic?: string | null
     readonly transcript?: string
     summary?: string
+    /** Searchable classifications on the response. `abandoned` is auto-derived from the transcript when the interview is recorded; `off-topic` is set manually. Sending `classifications` on an update replaces the whole list — pass the full desired set, not a delta. */
+    classifications?: ClassificationsEnumApi[]
     audio?: string
 }
 
@@ -338,6 +353,11 @@ export interface UserInterviewSearchRequestApi {
      * @nullable
      */
     topic_id?: string | null
+    /**
+     * Optional. Restrict results to interviews carrying any of these classifications (OR). Combines with `topic_id` as AND.
+     * @minItems 1
+     */
+    classifications?: ClassificationsEnumApi[]
     /**
      * Maximum number of matches to return (1-50). Defaults to 10. Two matches per interview are possible — one for the transcript, one for the summary.
      * @minimum 1
@@ -396,6 +416,10 @@ export type UserInterviewTopicsIntervieweesListParams = {
 }
 
 export type UserInterviewsListParams = {
+    /**
+     * Comma-separated classifications; returns responses carrying any of them (OR). Valid values: abandoned, off-topic.
+     */
+    classifications?: string
     /**
      * Number of results to return per page.
      */

@@ -15,6 +15,11 @@
         "search": {
             "description": "Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
             "type": "string"
+        },
+        "type": {
+            "description": "* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api",
+            "enum": ["api", "external_survey", "popover", "widget"],
+            "type": "string"
         }
     },
     "type": "object"

@@ -2141,6 +2141,7 @@ class ExternalDataSourceType(StrEnum):
     REVENUE_CAT = "RevenueCat"
     POLAR = "Polar"
     GOOGLE_ADS = "GoogleAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
     META_ADS = "MetaAds"
     KLAVIYO = "Klaviyo"
     MAILCHIMP = "Mailchimp"
@@ -2811,6 +2812,7 @@ class IntegrationKind(StrEnum):
     GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
     GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
     GOOGLE_ADS = "google-ads"
+    GOOGLE_SEARCH_CONSOLE = "google-search-console"
     GOOGLE_SHEETS = "google-sheets"
     LINKEDIN_ADS = "linkedin-ads"
     SNAPCHAT = "snapchat"
@@ -7642,6 +7644,7 @@ class HogQLQueryModifiers(BaseModel):
     personsJoinMode: PersonsJoinMode | None = None
     personsOnEventsMode: PersonsOnEventsMode | None = None
     propertyGroupsMode: PropertyGroupsMode | None = None
+    pushDownPredicates: bool | None = None
     s3TableUseInvalidColumns: bool | None = None
     sessionIdPushdown: bool | None = Field(
         default=None,
@@ -9593,6 +9596,7 @@ class TrendsFilter(BaseModel):
         )
     )
     showAlertThresholdLines: bool | None = False
+    showAnnotations: bool | None = True
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
@@ -22785,6 +22789,10 @@ class FunnelsFilter(BaseModel):
         default=None,
         description="Customizations for the appearance of result datasets.",
     )
+    showAnnotations: bool | None = Field(
+        default=True,
+        description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
+    )
     showTrendLines: bool | None = Field(
         default=None,
         description=("Display linear regression trend lines on the chart (only for historical trends viz)"),
@@ -23415,6 +23423,10 @@ class TraceSpansQuery(BaseModel):
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=("Omit the per-span `attributes` map from results to keep payloads compact"),
+    )
     filterGroup: PropertyGroupFilter | None = None
     kind: Literal["TraceSpansQuery"] = "TraceSpansQuery"
     limit: int | None = None
