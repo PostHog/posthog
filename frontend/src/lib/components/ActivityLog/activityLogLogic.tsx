@@ -40,7 +40,10 @@ import {
     organizationDomainActivityDescriber,
 } from 'scenes/settings/organization/activityDescriptions'
 import { projectSecretAPIKeyActivityDescriber } from 'scenes/settings/project/activityDescriptions'
-import { personalAPIKeyActivityDescriber } from 'scenes/settings/user/activityDescriptions'
+import {
+    oauthApplicationActivityDescriber,
+    personalAPIKeyActivityDescriber,
+} from 'scenes/settings/user/activityDescriptions'
 import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
@@ -158,6 +161,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return organizationActivityDescriber
         case ActivityScope.ORGANIZATION_DOMAIN:
             return organizationDomainActivityDescriber
+        case ActivityScope.OAUTH_APPLICATION:
+            return oauthApplicationActivityDescriber
         case ActivityScope.LEGAL_DOCUMENT:
             return legalDocumentActivityDescriber
         case ActivityScope.SURVEY:
