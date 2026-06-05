@@ -2079,6 +2079,11 @@ export interface EndpointRequest {
     deleted?: boolean
     /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
     tags?: string[]
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of
+     * that breakdown.
+     */
+    optional_breakdown_properties?: string[]
 }
 
 /**

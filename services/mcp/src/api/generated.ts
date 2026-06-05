@@ -18857,6 +18857,11 @@ export namespace Schemas {
          * @nullable
          */
       tags?: string[] | null;
+      /**
+         * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+         * @nullable
+         */
+      optional_breakdown_properties?: string[] | null;
     }
 
     /**
@@ -18934,6 +18939,8 @@ export namespace Schemas {
       columns: EndpointColumn[];
       /** Tag names associated with this endpoint. */
       tags: string[];
+      /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+      optional_breakdown_properties: string[];
     }
 
     /**
@@ -19067,6 +19074,8 @@ export namespace Schemas {
       columns: EndpointColumn[];
       /** Tag names associated with this endpoint. */
       tags: string[];
+      /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+      optional_breakdown_properties: string[];
       /** Version number. */
       version: number;
       /** Version unique identifier (UUID). */
@@ -37315,6 +37324,11 @@ export namespace Schemas {
          * @nullable
          */
       tags?: string[] | null;
+      /**
+         * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+         * @nullable
+         */
+      optional_breakdown_properties?: string[] | null;
     }
 
     /**

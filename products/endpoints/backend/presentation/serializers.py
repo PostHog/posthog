@@ -74,6 +74,15 @@ class EndpointRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="List of tag names to associate with this endpoint. Replaces any existing tags.",
     )
+    optional_breakdown_properties = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Breakdown property names that may be omitted on /run. Omitted ones return data aggregated "
+            "across all values of that breakdown. Defaults to [] — every breakdown variable is required."
+        ),
+    )
 
 
 class EndpointMaterializationSerializer(serializers.Serializer):
@@ -190,6 +199,13 @@ class EndpointResponseSerializer(serializers.Serializer):
     tags = serializers.ListField(
         child=serializers.CharField(),
         help_text="Tag names associated with this endpoint.",
+    )
+    optional_breakdown_properties = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Breakdown property names that may be omitted on /run. Omitted ones return data aggregated "
+            "across all values of that breakdown."
+        ),
     )
 
 

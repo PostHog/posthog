@@ -52,6 +52,12 @@ export const EndpointsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -98,6 +104,12 @@ export const EndpointsUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
@@ -144,6 +156,12 @@ export const EndpointsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe('List of tag names to associate with this endpoint. Replaces any existing tags.'),
+        optional_breakdown_properties: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Breakdown property names that may be omitted on \/run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.'
+            ),
     })
     .describe('Schema for creating\/updating endpoints. OpenAPI docs only — validation uses Pydantic.')
 
