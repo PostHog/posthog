@@ -49,6 +49,7 @@ the row lists both.
 | bamboohr         | HTTP                        | requests                                                        | ✅                          |
 | bigquery         | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads         | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
+| braze            | HTTP                        | requests                                                        | ✅                          |
 | brevo            | HTTP                        | requests                                                        | ✅                          |
 | buildbetter      | HTTP                        | requests                                                        | ✅                          |
 | calendly         | HTTP                        | requests                                                        | ✅                          |
@@ -72,6 +73,7 @@ the row lists both.
 | granola          | HTTP                        | requests                                                        | ✅                          |
 | gorgias          | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
+| intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
 | lever            | HTTP                        | requests                                                        | ✅                          |
@@ -164,7 +166,6 @@ doesn't conflict with concurrent PRs.
 - bigcommerce
 - box
 - braintree
-- braze
 - circleci
 - clickup
 - cockroachdb
@@ -185,7 +186,6 @@ doesn't conflict with concurrent PRs.
 - greenhouse
 - helpscout
 - instagram
-- intercom
 - iterable
 - jira
 - kafka

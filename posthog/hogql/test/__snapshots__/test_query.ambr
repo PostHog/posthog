@@ -271,12 +271,15 @@
   '''
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
-  FROM events AS e LEFT JOIN (
+  FROM (
+  SELECT e.event AS event, e.`$session_id` AS `$session_id` 
+  FROM events AS e 
+  WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) 
+  LIMIT 10) AS e LEFT JOIN (
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 99999) 
   GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, nullIf(nullIf(e.`$session_id`, ''), 'null')) 
-  WHERE and(equals(e.team_id, 99999), isNotNull(nullIf(nullIf(e.`$session_id`, ''), 'null'))) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
@@ -300,12 +303,15 @@
   '''
   -- ClickHouse
   SELECT e.event AS event, s.session_id AS session_id 
-  FROM events AS e LEFT JOIN (
+  FROM (
+  SELECT e.event AS event, e.properties AS properties 
+  FROM events AS e 
+  WHERE and(equals(e.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''))) 
+  LIMIT 10) AS e LEFT JOIN (
   SELECT session_replay_events.session_id AS session_id 
   FROM session_replay_events 
   WHERE equals(session_replay_events.team_id, 99999) 
-  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '')) 
-  WHERE and(equals(e.team_id, 99999), isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''))) 
+  GROUP BY session_replay_events.session_id) AS s ON equals(s.session_id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', '')) 
   LIMIT 10 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   

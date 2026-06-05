@@ -392,6 +392,32 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.scanners_url}?order_by=sampling_rate")
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["low", "mid", "high"])
 
+    def test_stats_endpoint_returns_team_wide_counts(self) -> None:
+        self._create_scanner(name="m1", scanner_type=ScannerType.MONITOR, enabled=True)
+        self._create_scanner(name="m2", scanner_type=ScannerType.MONITOR, enabled=False)
+        self._create_scanner(name="c1", scanner_type=ScannerType.CLASSIFIER, enabled=True)
+        self._create_scanner(name="s1", scanner_type=ScannerType.SCORER, enabled=False)
+        resp = self.client.get(f"{self.scanners_url}stats/?enabled=enabled&scanner_type=monitor")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["total"], 4)
+        self.assertEqual(body["enabled"], 2)
+        self.assertEqual(body["by_type"]["monitor"], {"enabled": 1, "total": 2})
+        self.assertEqual(body["by_type"]["classifier"], {"enabled": 1, "total": 1})
+        self.assertEqual(body["by_type"]["scorer"], {"enabled": 0, "total": 1})
+        self.assertEqual(body["by_type"]["summarizer"], {"enabled": 0, "total": 0})
+
+    def test_stats_endpoint_respects_per_scanner_access_control(self) -> None:
+        self._create_scanner(name="visible")
+        hidden = self._create_scanner(name="hidden")
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
+        ):
+            resp = self.client.get(f"{self.scanners_url}stats/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["total"], 1)
+
     def test_creators_endpoint_respects_per_scanner_access_control(self) -> None:
         other = User.objects.create_and_join(self.team.organization, "hidden@example.com", "pw")
         visible = self._create_scanner(name="visible")
@@ -667,6 +693,46 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["monitor"], {"yes_total": 1, "no_total": 0, "inconclusive_total": 0})
         self.assertIsNone(body["classifier"])
         self.assertIsNone(body["scorer"])
+
+    def test_stats_status_counts_with_multiple_rows_per_status(self) -> None:
+        for i in range(5):
+            self._create_observation(session_id=f"p-{i}", status=ObservationStatus.PENDING)
+        for i in range(3):
+            self._create_observation(
+                session_id=f"yes-{i}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "monitor",
+                        "verdict": "yes",
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        for i in range(2):
+            self._create_observation(
+                session_id=f"no-{i}",
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=timezone.now(),
+                scanner_result={
+                    "model_output": {
+                        "scanner_type": "monitor",
+                        "verdict": "no",
+                        "reasoning": "r",
+                        "confidence": 0.9,
+                    },
+                    "signals_count": 0,
+                },
+            )
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
+        body = resp.json()
+        self.assertEqual(body["status_counts"]["total"], 10)
+        self.assertEqual(body["status_counts"]["succeeded"], 5)
+        self.assertEqual(body["status_counts"]["in_flight"], 5)
+        self.assertEqual(body["monitor"], {"yes_total": 3, "no_total": 2, "inconclusive_total": 0})
 
     def test_stats_classifier_tag_rankings(self) -> None:
         classifier = self._create_scanner(

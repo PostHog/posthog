@@ -627,6 +627,7 @@ const ConditionContent = ({
                                                 }}
                                                 suffix={<span>%</span>}
                                                 className="w-20"
+                                                data-attr="rollout-percentage"
                                             />
                                         </div>
                                         {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
