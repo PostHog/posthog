@@ -97,6 +97,10 @@ class LogicalPropertyLowering(CloningVisitor):
 
 def lower_property_access(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Lower JSON-blob property reads to `JSONFieldAccess`. No-op unless `context.lower_property_access` is set (§12.8)."""
-    if not context.lower_property_access:
+    # within_non_hogql_query (legacy filters; the lightweight-DELETE predicate path) requires *unqualified* column
+    # references — the printer's within_non_hogql path drops the table prefix, but the synthetic fields a lowered read
+    # would build are always table-qualified. So leave those queries entirely on the printer path (§8.4); the
+    # differential keeps them byte-identical because nothing lowers.
+    if not context.lower_property_access or context.within_non_hogql_query:
         return node
     return cast(_T_AST, LogicalPropertyLowering(context).visit(node))
