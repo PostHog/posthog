@@ -479,7 +479,7 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LaunchDarklySourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
