@@ -156,6 +156,19 @@ class TestFlattenTimelineEntry:
         assert result["noteId"] == "note_1"
         assert result["text"] == "internal"
 
+    def test_custom_entry(self):
+        entry = {
+            "id": "te_4",
+            "timestamp": {"iso8601": "2024-01-01T00:00:00Z"},
+            "actor": {"actorType": "user", "userId": "u_1"},
+            "entry": {"__typename": "CustomEntry", "title": "Order placed", "externalId": "ext_1"},
+        }
+        result = _flatten_timeline_entry(entry, thread_id="t_1")
+
+        assert result["entryType"] == "CustomEntry"
+        assert result["title"] == "Order placed"
+        assert result["externalId"] == "ext_1"
+
 
 class TestPlainSourcePipeline:
     def test_unknown_endpoint_raises(self):
