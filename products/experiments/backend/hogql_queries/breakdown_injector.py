@@ -40,6 +40,10 @@ class BreakdownInjector:
         self.breakdowns = breakdowns
         self.metric = metric
 
+    def attributes_from_exposure(self) -> bool:
+        """This injector attributes the breakdown value from the exposure event."""
+        return True
+
     def _has_breakdown(self) -> bool:
         """Returns True if any breakdowns are configured"""
         return len(self.breakdowns) > 0
