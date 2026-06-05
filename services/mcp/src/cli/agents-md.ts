@@ -3,11 +3,10 @@ import * as path from 'node:path'
 
 import agentsMdPrompt from './agents-md-snippet.md'
 
-const START_MARKER = '<!-- posthog-cli-api:start -->'
-const END_MARKER = '<!-- posthog-cli-api:end -->'
-
 export const AGENTS_MD_PROMPT = agentsMdPrompt.trim()
-export const AGENTS_MD_SNIPPET = `${START_MARKER}\n${AGENTS_MD_PROMPT}\n${END_MARKER}`
+export const AGENTS_MD_SNIPPET = AGENTS_MD_PROMPT
+
+const LEGACY_MANAGED_SECTION_PATTERN = /<!-- posthog-cli-api:start -->\n?[\s\S]*?\n?<!-- posthog-cli-api:end -->/
 
 function errorCode(error: unknown): unknown {
     return typeof error === 'object' && error !== null && 'code' in error
@@ -27,10 +26,10 @@ export async function installAgentsMdSnippet(opts: { cwd?: string; filePath?: st
     }
 
     let next: string
-    const start = existing.indexOf(START_MARKER)
-    const end = existing.indexOf(END_MARKER)
-    if (start !== -1 && end !== -1 && end > start) {
-        next = `${existing.slice(0, start)}${AGENTS_MD_SNIPPET}${existing.slice(end + END_MARKER.length)}`
+    if (LEGACY_MANAGED_SECTION_PATTERN.test(existing)) {
+        next = existing.replace(LEGACY_MANAGED_SECTION_PATTERN, AGENTS_MD_SNIPPET)
+    } else if (existing.includes(AGENTS_MD_SNIPPET)) {
+        next = existing
     } else if (existing.trim()) {
         next = `${existing.trimEnd()}\n\n${AGENTS_MD_SNIPPET}\n`
     } else {
