@@ -151,6 +151,7 @@ class HyperCache:
         value: str,
         load_fn: Callable[[KeyType], dict | HyperCacheStoreMissing],
         token_based: bool = False,
+        hashed_credential_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
@@ -159,10 +160,17 @@ class HyperCache:
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
     ):
+        if token_based and hashed_credential_based:
+            raise ValueError("token_based and hashed_credential_based are mutually exclusive")
+
         self.namespace = namespace
         self.value = value
         self.load_fn = load_fn
         self.token_based = token_based
+        # Credential-centric mode: keys by an already-hashed credential string
+        # (sha256$<hex>) rather than a team. Used by the first-party gateway
+        # policy cache, where one blob exists per phx_/pha_ credential.
+        self.hashed_credential_based = hashed_credential_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
         self.batch_load_fn = batch_load_fn
@@ -203,6 +211,9 @@ class HyperCache:
         return team.api_token if self.token_based else team.id
 
     def get_cache_key(self, key: KeyType) -> str:
+        if self.hashed_credential_based:
+            # key is the precomputed sha256$<hex> credential hash, never a Team.
+            return f"cache/team_tokens_hashed/{key}/{self.namespace}/{self.value}"
         if self.token_based:
             if isinstance(key, Team):
                 key = key.api_token

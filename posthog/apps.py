@@ -27,9 +27,13 @@ class PostHogConfig(AppConfig):
 
     def ready(self):
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
+        from posthog.storage.first_party_gateway_policy_signal_handlers import (
+            connect_signal_handlers as connect_first_party_gateway_policy_signal_handlers,
+        )
         from posthog.storage.team_llm_gateway_policy_signal_handlers import connect_signal_handlers
 
         connect_signal_handlers()
+        connect_first_party_gateway_policy_signal_handlers()
 
         self._setup_lazy_admin()
         self._prewarm_timezone_offsets_cache()
