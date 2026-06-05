@@ -932,6 +932,7 @@ def start_file_download_batch_export(
     workflow_id: str,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
+    batch_export_model: BatchExportModel,
     batch_export_run_id: UUID | None = None,
     compression: str | None = None,
     format: str = "Parquet",
@@ -941,6 +942,7 @@ def start_file_download_batch_export(
 ) -> None:
     inputs = FileDownloadBatchExportInputs(
         batch_export_id=batch_export.id,
+        batch_export_model=batch_export_model,
         batch_export_run_id=batch_export_run_id,
         team_id=batch_export.team_id,
         data_interval_start=data_interval_start.isoformat(),
