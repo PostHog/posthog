@@ -1,8 +1,8 @@
-import io
 import gzip
 import json
 import base64
 import zipfile
+import tempfile
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -27,6 +27,12 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 
 REQUEST_TIMEOUT_SECONDS = 600
 RETRY_MAX_ATTEMPTS = 5
+
+# Stream export archives to disk rather than buffering the whole compressed body in memory.
+# A 24h window can be gigabytes, so we spool to a temporary file that rolls over to disk once
+# it exceeds this in-memory threshold, keeping worker memory bounded regardless of export size.
+EXPORT_DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+EXPORT_SPOOL_MAX_BYTES = 32 * 1024 * 1024
 
 # Amplitude export timestamps are UTC strings formatted as "yyyy-MM-dd HH:mm:ss.SSSSSS"
 # (and occasionally without the microsecond component). We normalize them to real datetimes
@@ -126,8 +132,8 @@ def validate_credentials(api_key: str, secret_key: str, region: str) -> tuple[bo
     wait=wait_exponential_jitter(initial=2, max=60),
     reraise=True,
 )
-def _get(session: requests.Session, url: str, headers: dict[str, str]) -> requests.Response:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+def _get(session: requests.Session, url: str, headers: dict[str, str], stream: bool = False) -> requests.Response:
+    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, stream=stream)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise AmplitudeRetryableError(f"Amplitude API error (retryable): status={response.status_code}, url={url}")
@@ -144,7 +150,7 @@ def _iter_export_window(
     logger: FilteringBoundLogger,
 ) -> Iterator[dict[str, Any]]:
     url = f"{host}/api/2/export?{urlencode({'start': start_param, 'end': end_param})}"
-    response = _get(session, url, headers)
+    response = _get(session, url, headers, stream=True)
 
     # Amplitude returns 404 (not an empty 200) when a window contains no events. That is a
     # normal outcome for sparse windows, not an error — skip the window and continue.
@@ -157,13 +163,19 @@ def _iter_export_window(
         response.raise_for_status()
 
     # The export response is a zip archive of gzipped JSON-lines files (one event per line).
-    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
-        for entry in archive.namelist():
-            with archive.open(entry) as raw, gzip.open(raw) as decompressed:
-                for line in decompressed:
-                    if not line.strip():
-                        continue
-                    yield _normalize_event(json.loads(line))
+    # Spool it to a temporary file (in memory up to EXPORT_SPOOL_MAX_BYTES, then on disk) so a
+    # large 24h window never has to be held entirely in memory before rows are yielded.
+    with tempfile.SpooledTemporaryFile(max_size=EXPORT_SPOOL_MAX_BYTES) as buffer:
+        for chunk in response.iter_content(chunk_size=EXPORT_DOWNLOAD_CHUNK_BYTES):
+            buffer.write(chunk)
+        buffer.seek(0)
+        with zipfile.ZipFile(buffer) as archive:
+            for entry in archive.namelist():
+                with archive.open(entry) as raw, gzip.open(raw) as decompressed:
+                    for line in decompressed:
+                        if not line.strip():
+                            continue
+                        yield _normalize_event(json.loads(line))
 
 
 def _get_events_rows(

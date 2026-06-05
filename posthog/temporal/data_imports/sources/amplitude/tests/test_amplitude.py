@@ -53,6 +53,13 @@ def _response(status: int = 200, content: bytes = b"", json_body: Any = None, te
     response.ok = 200 <= status < 300
     response.content = content
     response.text = text
+    # Export downloads are streamed via iter_content; chunk the body so the spooled-file path is exercised.
+    response.iter_content.side_effect = lambda chunk_size=None: iter(
+        [
+            content[i : i + (chunk_size or len(content) or 1)]
+            for i in range(0, len(content), chunk_size or len(content) or 1)
+        ]
+    )
     if json_body is not None:
         response.json.return_value = json_body
     return response
