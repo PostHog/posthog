@@ -18,6 +18,13 @@ from products.product_analytics.backend.models.insight import Insight
 SLACK_FILTERS = {"events": [{"id": INSIGHT_ALERT_FIRING_EVENT, "type": "events"}]}
 
 
+def _filters_scoped_to_alert(alert_id: str) -> dict:
+    return {
+        "events": [{"id": INSIGHT_ALERT_FIRING_EVENT, "type": "events"}],
+        "properties": [{"key": "alert_id", "value": alert_id, "operator": "exact", "type": "event"}],
+    }
+
+
 class TestAlertChartImage(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -51,9 +58,21 @@ class TestAlertChartImage(APIBaseTest):
     def test_no_destinations_means_no_slack(self) -> None:
         assert alert_has_slack_destination(self.alert) is False
 
-    def test_enabled_slack_destination_detected(self) -> None:
+    def test_team_wide_slack_destination_detected(self) -> None:
+        # No alert_id property filter — applies to every alert on the team.
         self._create_slack_destination()
         assert alert_has_slack_destination(self.alert) is True
+
+    def test_destination_scoped_to_this_alert_detected(self) -> None:
+        self._create_slack_destination(filters=_filters_scoped_to_alert(str(self.alert.id)))
+        assert alert_has_slack_destination(self.alert) is True
+
+    def test_destination_scoped_to_other_alert_ignored(self) -> None:
+        other_alert = AlertConfiguration.objects.create(
+            team=self.team, insight=self.insight, name="other", enabled=True, created_by=self.user
+        )
+        self._create_slack_destination(filters=_filters_scoped_to_alert(str(other_alert.id)))
+        assert alert_has_slack_destination(self.alert) is False
 
     @parameterized.expand(
         [

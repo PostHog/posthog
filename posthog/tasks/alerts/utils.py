@@ -298,22 +298,37 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         )
 
 
-def alert_has_slack_destination(alert: AlertConfiguration) -> bool:
-    """Whether the alert has an enabled Slack HogFunction destination that would render the chart.
+def _destination_targets_alert(filters: dict | None, alert_id: str) -> bool:
+    """A Slack destination consumes this alert's chart if it has no ``alert_id`` filter (team-wide)
+    or one that matches this alert. A filter bound to a *different* alert does not."""
+    alert_id_values = [p.get("value") for p in (filters or {}).get("properties", []) if p.get("key") == "alert_id"]
+    if not alert_id_values:
+        return True
+    return any(
+        alert_id in [str(v) for v in value] if isinstance(value, list) else str(value) == alert_id
+        for value in alert_id_values
+    )
 
-    Used to gate the (heavy) browser screenshot so we only render a chart image when a Slack
-    destination actually exists to consume it. Matches both per-alert destinations (created via
-    the alert UI, which add an ``alert_id`` filter) and team-wide ``$insight_alert_firing`` Slack
-    destinations.
+
+def alert_has_slack_destination(alert: AlertConfiguration) -> bool:
+    """Whether *this* alert has an enabled Slack HogFunction destination that would render the chart.
+
+    Gates the (heavy) browser screenshot so we only render a chart image when a Slack destination
+    actually exists to consume it. Matches destinations scoped to this alert via the ``alert_id``
+    property filter (created by the alert UI) as well as team-wide ``$insight_alert_firing`` Slack
+    destinations — but not destinations bound to a *different* alert, which would otherwise cause
+    needless renders. The candidate set per team is small, so the alert_id check runs in Python to
+    sidestep JSONB null semantics for destinations without a ``properties`` filter.
     """
-    return HogFunction.objects.filter(
+    candidate_filters = HogFunction.objects.filter(
         team_id=alert.team_id,
         enabled=True,
         deleted=False,
         type=HogFunctionType.INTERNAL_DESTINATION,
         template_id="template-slack",
         filters__events__contains=[{"id": INSIGHT_ALERT_FIRING_EVENT}],
-    ).exists()
+    ).values_list("filters", flat=True)
+    return any(_destination_targets_alert(filters, str(alert.id)) for filters in candidate_filters)
 
 
 def generate_alert_chart_image_url(alert: AlertConfiguration) -> str | None:

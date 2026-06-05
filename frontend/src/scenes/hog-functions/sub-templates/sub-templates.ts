@@ -967,8 +967,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             },
                         },
                         {
+                            // Fall back to a valid image when no chart URL is present, otherwise Slack
+                            // rejects the whole message (invalid image block) instead of degrading.
                             type: 'image',
-                            image_url: '{event.properties.chart_image_url}',
+                            image_url:
+                                "{event.properties.chart_image_url ? event.properties.chart_image_url : 'https://posthog.com/brand/posthog-logo.png'}",
                             alt_text: "Chart for insight '{event.properties.insight_name}'",
                         },
                         {
