@@ -138,15 +138,18 @@ else
     # script (e.g. ANTHROPIC_API_KEY=... ./deploy-hobby) is used as-is without prompting.
     # Only prompt on an interactive terminal — a piped/non-interactive install
     # (CI, `curl | bash`) skips the prompts and relies on the env vars instead.
+    # Read silently (-s) — these are secrets and shouldn't echo to the terminal/scrollback.
     if [ -t 0 ] && [ -z "$ANTHROPIC_API_KEY" ]; then
         echo ""
         echo "PostHog's AI assistant (Max) runs on an Anthropic API key."
         echo "Enter one to enable Max now, or leave blank to skip (you can add it later):"
-        read -r ANTHROPIC_API_KEY
+        read -rs ANTHROPIC_API_KEY
+        echo
     fi
     if [ -t 0 ] && [ -z "$OPENAI_API_KEY" ]; then
         echo "Optionally enter an OpenAI API key to enable SQL and regex AI assist, or leave blank to skip:"
-        read -r OPENAI_API_KEY
+        read -rs OPENAI_API_KEY
+        echo
     fi
 
     POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
@@ -160,9 +163,12 @@ REGISTRY_URL=$REGISTRY_URL
 CADDY_TLS_BLOCK=$TLS_BLOCK
 CADDY_HOST="$DOMAIN, http://, https://"
 POSTHOG_APP_TAG=$POSTHOG_APP_TAG
-ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
-OPENAI_API_KEY=$OPENAI_API_KEY
 EOF
+    # Only persist AI keys that were actually provided — writing a blank line
+    # (ANTHROPIC_API_KEY=) would make bin/upgrade-hobby think the key exists and
+    # skip its add-key prompt.
+    [ -n "$ANTHROPIC_API_KEY" ] && echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY" >> .env
+    [ -n "$OPENAI_API_KEY" ] && echo "OPENAI_API_KEY=$OPENAI_API_KEY" >> .env
 fi
 
 # Download GeoLite2-City.mmdb if it doesn't exist
