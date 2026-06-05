@@ -1929,6 +1929,20 @@ class TestUnifiedAccessControlPreload(BaseUserAccessControlTest):
             uac.access_level_for_object(self.notebook_1)
             uac.filter_queryset_by_access_level(Notebook.objects.all())
 
+    def test_cache_fingerprint_methods_share_single_query(self):
+        uac = self._fresh_uac()
+        # Warm the membership / role caches so we isolate the access-control fetch.
+        assert uac.is_organization_admin is False
+        assert uac.rbac_supported is True
+        _ = uac._user_role_ids
+
+        # blocked_resource_ids_by_scope (object-level) and blocked_resources (resource-level)
+        # are the two methods feeding the HogQL query cache fingerprint. Both resolve from the
+        # single bulk preload in memory, so together they fire exactly one access-control query.
+        with self.assertNumQueries(1):
+            assert uac.blocked_resource_ids_by_scope
+            assert uac.blocked_resources
+
     def test_can_serve_from_preload_guard(self):
         uac = self._fresh_uac()
         assert uac._can_serve_from_preload({"team_id": self.team.id, "resource": "notebook"}) is True

@@ -1316,3 +1316,44 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         no_user_payload = self._runner(None).get_cache_payload()
         assert "restricted_objects" not in no_user_payload
         assert "restricted_resources" not in no_user_payload
+
+    def test_run_issues_bounded_access_control_queries(self):
+        """End-to-end: building the database (schema filtering) plus computing the cache key issues
+        exactly two access-control queries - one for property-level AC and one shared bulk fetch for
+        resource/object AC - regardless of how many resources/objects/system tables exist. Schema
+        filtering must reuse the fingerprint's UserAccessControl, not issue its own ee_accesscontrol
+        query."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from products.access_control.backend.property_access_control import restriction_cache_scope
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self._ac(resource="notebook", access_level="none")
+
+        with (
+            mock.patch("posthog.hogql.database.database.posthoganalytics.feature_enabled", return_value=True),
+            restriction_cache_scope(),
+            CaptureQueriesContext(connection) as ctx,
+        ):
+            runner = self._runner(self.user)
+            runner.get_cache_key()
+
+        # Guard against a false pass: prove schema filtering actually ran and consulted access control
+        # (it removed the notebook-scoped system table for this denied user). Without this, a single
+        # ee_accesscontrol query could come from the fingerprint alone and the "shared fetch" claim
+        # would be untested.
+        assert "system.notebooks" in runner.database._denied_tables
+
+        sqls = [q["sql"] for q in ctx.captured_queries]
+        resource_object_ac = [s for s in sqls if "ee_accesscontrol" in s]
+        property_ac = [s for s in sqls if "access_control_propertyaccesscontrol" in s]
+
+        # One shared bulk fetch for resource/object AC (schema filtering + fingerprint), one for property AC.
+        assert len(resource_object_ac) == 1, resource_object_ac
+        assert len(property_ac) == 1, property_ac
