@@ -15,7 +15,6 @@ import type { SessionRecordingType } from '~/types'
 import {
     WidgetCardBodyMessage,
     WidgetCardContent,
-    WidgetCardContentScroll,
     WidgetContentFooter,
     WidgetListCount,
     WIDGET_LIST_COUNT_RECORDINGS,
@@ -62,13 +61,11 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     if (loading) {
         return (
             <WidgetCardContent>
-                <WidgetCardContentScroll>
-                    {Array.from({ length: 4 }, (_, index) => (
-                        <div key={index} className="border-b">
-                            <SessionRecordingPreviewSkeleton />
-                        </div>
-                    ))}
-                </WidgetCardContentScroll>
+                {Array.from({ length: 4 }, (_, index) => (
+                    <div key={index} className="border-b">
+                        <SessionRecordingPreviewSkeleton />
+                    </div>
+                ))}
             </WidgetCardContent>
         )
     }
@@ -76,33 +73,31 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     if (recordings.length === 0) {
         return (
             <WidgetCardContent>
-                <WidgetCardContentScroll>
-                    <WidgetCardBodyMessage>
-                        <div
-                            className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
-                            data-attr="session-replay-widget-empty-state"
-                        >
-                            <FilmCameraHog className="size-20 shrink-0" />
-                            <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
-                            <p className="m-0 text-sm text-muted">
-                                No session recordings matched your filters for this date range.
-                            </p>
-                        </div>
-                    </WidgetCardBodyMessage>
-                </WidgetCardContentScroll>
+                <WidgetCardBodyMessage>
+                    <div
+                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                        data-attr="session-replay-widget-empty-state"
+                    >
+                        <FilmCameraHog className="size-20 shrink-0" />
+                        <p className="m-0 text-base font-semibold text-primary">No recordings yet</p>
+                        <p className="m-0 text-sm text-muted">
+                            No session recordings matched your filters for this date range.
+                        </p>
+                    </div>
+                </WidgetCardBodyMessage>
             </WidgetCardContent>
         )
     }
 
     return (
-        <WidgetCardContent>
-            <WidgetCardContentScroll>
+        <>
+            <WidgetCardContent>
                 <div className="flex flex-col">
                     {recordings.map((recording) => (
                         <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
                     ))}
                 </div>
-            </WidgetCardContentScroll>
+            </WidgetCardContent>
             <WidgetContentFooter>
                 <WidgetListCount
                     shown={recordings.length}
@@ -113,6 +108,6 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                     dataAttr="session-replay-widget-count"
                 />
             </WidgetContentFooter>
-        </WidgetCardContent>
+        </>
     )
 }
