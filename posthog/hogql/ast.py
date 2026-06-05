@@ -940,6 +940,24 @@ class Tuple(Expr):
 
 
 @dataclass(kw_only=True, slots=True)
+class JSONFieldAccess(Expr):
+    """The dialect-neutral logical form of a `properties.X` read after logical lowering.
+
+    Extract the key path `keys` from the JSON source `expr` (a JSON blob column such as `events.properties`). Each
+    printer renders it in its own JSON syntax via `visit_jsonfield_access` — ClickHouse `JSONExtractRaw(...)` + null/quote
+    scrubbing, Postgres/DuckDB `->`/`->>` — and makes **no physical-column decision**: that is the whole point of the
+    printer rearchitecture (see `PRINTER_REARCHITECTURE.md` §4.4, §12.2). The ClickHouse materialized-column /
+    skip-index / property-group passes rewrite this node to a concrete column read *before* printing when one exists;
+    if none does, the node prints as the raw-blob extract. `keys` mirrors a `PropertyType.chain`: string object keys and
+    integer array indices, passed through untyped so each dialect's `_json_property_args` handles them as it already
+    does for the legacy `visit_property_type` blob fallback.
+    """
+
+    expr: Expr
+    keys: list[str | int]
+
+
+@dataclass(kw_only=True, slots=True)
 class Lambda(Expr):
     args: list[str]
     expr: Expr | Block

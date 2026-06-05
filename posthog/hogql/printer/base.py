@@ -1386,6 +1386,14 @@ class BasePrinter(Visitor[str]):
 
         return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
 
+    def visit_jsonfield_access(self, node: ast.JSONFieldAccess) -> str:
+        # Mechanical leaf rendering of a lowered property read: extract the key path from the JSON source in this
+        # dialect's syntax (ClickHouse JSONExtractRaw + null/quote scrub via the base helper; Postgres/DuckDB override
+        # `_unsafe_json_extract_trim_quotes`/`_json_property_args` for `->`/`->>`). This reuses the exact helper the
+        # legacy ``visit_property_type`` blob fallback uses just above, so a lowered read prints identically to master.
+        # No physical-column decision happens here — that is the whole point of the rearchitecture.
+        return self._unsafe_json_extract_trim_quotes(self.visit(node.expr), self._json_property_args(node.keys))
+
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
         if node.sample_value.left.value == 1 and node.sample_value.right is None and node.offset_value is None:
