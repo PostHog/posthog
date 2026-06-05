@@ -121,6 +121,7 @@ the row lists both.
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| twilio           | HTTP                        | requests                                                        | ✅                          |
 | typeform         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow          | HTTP                        | requests                                                        | ✅                          |
@@ -216,7 +217,6 @@ doesn't conflict with concurrent PRs.
 - smartsheet
 - surveymonkey
 - trello
-- twilio
 - twitter_ads
 - workday
 - wrike
