@@ -200,7 +200,9 @@ class TestIterExportWindow:
 
     def test_non_ok_status_raises(self) -> None:
         response = _response(status=400, text="bad request")
-        response.raise_for_status.side_effect = requests.HTTPError("400 Client Error: Bad Request")
+        # Assign the class (not an instance) so the requests-stubs `response` arg isn't required;
+        # the mock raises `HTTPError()` when `raise_for_status` is called.
+        response.raise_for_status.side_effect = requests.HTTPError
         session = self._session_returning(response)
 
         with pytest.raises(requests.HTTPError):

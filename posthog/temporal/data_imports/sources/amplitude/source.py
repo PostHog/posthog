@@ -16,7 +16,7 @@ from posthog.temporal.data_imports.sources.amplitude.amplitude import (
     amplitude_source,
     validate_credentials as validate_amplitude_credentials,
 )
-from posthog.temporal.data_imports.sources.amplitude.settings import ENDPOINTS, EVENTS_ENDPOINT, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.amplitude.settings import AMPLITUDE_ENDPOINTS, EVENTS_ENDPOINT
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -53,14 +53,13 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Only syncs the last 30 days on initial sync" if endpoint == EVENTS_ENDPOINT else None,
+                name=endpoint.name,
+                supports_incremental=endpoint.supports_incremental,
+                supports_append=endpoint.supports_append,
+                incremental_fields=endpoint.incremental_fields,
+                description="Only syncs the last 30 days on initial sync" if endpoint.name == EVENTS_ENDPOINT else None,
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in AMPLITUDE_ENDPOINTS.values()
         ]
 
         if names is not None:

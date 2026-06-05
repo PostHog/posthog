@@ -7,17 +7,29 @@ Verified with unauthenticated / bad-credential curls (no live project credential
 
 - No credentials → `401`.
 - Bad credentials → `403` with body `{"error": {..., "metadata": {"details": "Invalid API Key"}}}`.
-- Both US and EU hosts reachable; both 401 without auth.
+- Both US and EU hosts reachable; both `401` without auth.
 
-So 401/403 are permanent auth failures (wired into `get_non_retryable_errors`).
+So `401`/`403` are permanent auth failures (wired into `get_non_retryable_errors`).
 
 ## Endpoints
 
-| Stream        | Path                | Grain       | Pagination | Primary key | Sync mode                | Notes |
-| ------------- | ------------------- | ----------- | ---------- | ----------- | ------------------------ | ----- |
-| `events`      | `/api/2/export`     | one event   | time window | `uuid`     | incremental (append)     | Export API. Returns a **zip of gzipped JSON-lines** archives, not JSON. `start`/`end` are hour-granular `YYYYMMDDTHH` and filter on **server upload time**. ~2h ingestion latency; max 365-day window; max 4GB/response. Returns **404 (not empty 200)** for windows with no events. |
-| `cohorts`     | `/api/3/cohorts`    | one cohort  | none       | `id`        | full refresh             | Behavioral Cohorts API. Response wrapped in `{"cohorts": [...]}`. |
-| `annotations` | `/api/2/annotations`| one annotation | none    | `id`        | full refresh             | Dashboard REST API. Response wrapped in `{"data": [...]}`. |
+### `events` — `/api/2/export`
+
+- Grain: one event. Primary key: `uuid`. Sync mode: incremental (append-only).
+- Export API. Returns a **zip of gzipped JSON-lines** archives, not a JSON body.
+- `start`/`end` are hour-granular `YYYYMMDDTHH` and filter on **server upload time**.
+- ~2h ingestion latency; max 365-day window; max 4GB per response.
+- Returns **404 (not an empty 200)** for windows with no events.
+
+### `cohorts` — `/api/3/cohorts`
+
+- Grain: one cohort. Primary key: `id`. Sync mode: full refresh.
+- Behavioral Cohorts API. Response wrapped in `{"cohorts": [...]}`.
+
+### `annotations` — `/api/2/annotations`
+
+- Grain: one annotation. Primary key: `id`. Sync mode: full refresh.
+- Dashboard REST API. Response wrapped in `{"data": [...]}`.
 
 ## Incremental design (events)
 
