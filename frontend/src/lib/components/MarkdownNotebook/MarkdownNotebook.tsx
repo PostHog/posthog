@@ -321,7 +321,6 @@ export function MarkdownNotebook({
             if (element) {
                 element.focus()
                 restoreSelection(element, request.start, request.end)
-                dispatchSelectionChange()
             }
             return
         }
@@ -1017,6 +1016,7 @@ export function MarkdownNotebook({
                 children: setInlineLinkMark(node.children, activeSelectionRange, href),
             }
         })
+        setFloatingToolbar(null)
     }
 
     const setBlockStyle = (nodeId: string, style: 'paragraph' | 'blockquote' | 1 | 2 | 3): void => {
@@ -4800,10 +4800,6 @@ function restoreSelection(element: HTMLElement, start: number, end: number): voi
     range.setEnd(endPosition.node, endPosition.offset)
     selection.removeAllRanges()
     selection.addRange(range)
-}
-
-function dispatchSelectionChange(): void {
-    window.document.dispatchEvent(new Event('selectionchange'))
 }
 
 function getNotebookBlockCaretRangeFromPoint(
