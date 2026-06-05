@@ -2641,6 +2641,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-source-configs-create": {
+        "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To turn the Signals scout source on for a project, create `source_product=signals_scout`, `source_type=cross_source_issue`, `enabled=true` — this is the team-level source gate that scout emit also requires (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Create signal source config",
+        "title": "Create signal source config",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-source-configs-list": {
         "description": "List the configured signal sources for the current project. A signal source ties a product (e.g. error_tracking, session_replay, github, linear, zendesk) and a source_type to an enabled flag and configuration. The 'status' field reflects the current state of the underlying data import or workflow (running, completed, failed) when applicable.",
         "category": "Signals",
@@ -2655,6 +2669,20 @@
             "readOnlyHint": true
         }
     },
+    "inbox-source-configs-partial-update": {
+        "description": "Partially update an existing signal source config by ID — typically to flip its `enabled` flag on or off, or to adjust its `config`. Only the fields you pass are changed. To turn the Signals scout source off for a project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Update signal source config",
+        "title": "Update signal source config",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-source-configs-retrieve": {
         "description": "Get a single signal source config by ID. Returns the full record including source_product, source_type, enabled flag, configuration JSON, and current status of the underlying data import or workflow.",
         "category": "Signals",
@@ -2667,6 +2695,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "inbox-source-configs-update": {
+        "description": "Replace an existing signal source config by ID (full update — `source_product` and `source_type` are required; `enabled` and `config` are optional and keep their current values if omitted). Prefer `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Replace signal source config",
+        "title": "Replace signal source config",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "insight-create": {
