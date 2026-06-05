@@ -12,6 +12,7 @@ import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import type { InsightLogicProps, InsightShortId } from '~/types'
 
+import { realisticRetentionResult } from '../shared/retentionStoryFixtures'
 import { RetentionBarChart } from './RetentionBarChart'
 
 type Story = StoryObj<{}>
@@ -90,26 +91,9 @@ export const Default: Story = {
     render: () => renderRetentionBarChart(retentionBarFixture),
 }
 
-// Realistic retention curve for a richer visual
-const retentionCurve = [1.0, 0.58, 0.42, 0.32, 0.26, 0.22, 0.18, 0.15]
-const cohortSeeds = [1024, 1150, 980, 870, 1320, 1080, 940, 760]
-const realisticResult = cohortSeeds.map((seed, cohortIndex) => {
-    const periodCount = Math.max(1, cohortSeeds.length - cohortIndex)
-    const jitter = 1 + ((cohortIndex % 3) - 1) * 0.04
-    return {
-        label: `Day ${cohortIndex}`,
-        date: `2023-07-${String(cohortIndex + 1).padStart(2, '0')}T00:00:00Z`,
-        values: retentionCurve.slice(0, Math.min(periodCount, retentionCurve.length)).map((r, i) => ({
-            count: i === 0 ? seed : Math.round(seed * r * jitter),
-            people: [],
-        })),
-        people_url: '',
-    }
-})
-
 const realisticBarFixture = {
     ...retentionBarFixture,
-    result: realisticResult,
+    result: realisticRetentionResult,
 }
 
 export const RealisticCurve: Story = {
