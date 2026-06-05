@@ -2271,17 +2271,7 @@ jobs:
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
                     echo "| handle-snapshots | ${{ needs.handle-snapshots.result }} |"
-                  } >> "$GITHUB_STEP_SUMMARY"
-
-                  echo "Backend CI dependency results:"
-                  echo "  django: ${{ needs.django.result }}"
-                  echo "  check-migrations: ${{ needs.check-migrations.result }}"
-                  echo "  check-openapi-types: ${{ needs.check-openapi-types.result }}"
-                  echo "  async-migrations: ${{ needs.async-migrations.result }}"
-                  echo "  repo-checks: ${{ needs.repo-checks.result }}"
-                  echo "  turbo-discover: ${{ needs.turbo-discover.result }}"
-                  echo "  turbo-tests: ${{ needs.turbo-tests.result }}"
-                  echo "  handle-snapshots: ${{ needs.handle-snapshots.result }}"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Check dependency results
               run: |

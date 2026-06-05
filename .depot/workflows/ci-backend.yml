@@ -1191,15 +1191,7 @@ jobs:
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
-                  } >> "$GITHUB_STEP_SUMMARY"
-
-                  echo "Backend CI dependency results:"
-                  echo "  django: ${{ needs.django.result }}"
-                  echo "  check-migrations: ${{ needs.check-migrations.result }}"
-                  echo "  async-migrations: ${{ needs.async-migrations.result }}"
-                  echo "  repo-checks: ${{ needs.repo-checks.result }}"
-                  echo "  turbo-discover: ${{ needs.turbo-discover.result }}"
-                  echo "  turbo-tests: ${{ needs.turbo-tests.result }}"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - name: Check dependency results
               run: |
