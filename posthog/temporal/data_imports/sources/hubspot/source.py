@@ -85,6 +85,11 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
         return {
             "missing or invalid refresh token": "Your HubSpot connection is invalid or expired. Please reconnect it.",
             "missing or unknown hub id": None,
+            # Raised by source_for_pipeline when the source config carries no refresh token at all
+            # (integration never connected or lost its token). Retrying cannot recover.
+            "Hubspot refresh token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
+            # Raised by source_for_pipeline (OAuth path) when the integration is missing its access or refresh token.
+            "Hubspot refresh or access token not found": "Your HubSpot connection is missing its refresh token. Please reconnect it.",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
