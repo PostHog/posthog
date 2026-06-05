@@ -190,15 +190,12 @@ describe('PropertiesTable inline editor', () => {
             })
         }
 
-        it('matches person properties by their person-group label ("Latest city name")', () => {
-            renderSearchable(PropertyDefinitionType.Person)
-            search('latest')
-            expect(screen.getByText('London')).toBeInTheDocument()
-        })
-
-        it('matches event properties by their event-group label ("City name")', () => {
-            renderSearchable(PropertyDefinitionType.Event)
-            search('city')
+        it.each<[PropertyDefinitionType, string, string]>([
+            [PropertyDefinitionType.Person, 'latest', 'Latest city name'],
+            [PropertyDefinitionType.Event, 'city', 'City name'],
+        ])('matches %s properties by their group label (%s → %s)', (type, term) => {
+            renderSearchable(type)
+            search(term)
             expect(screen.getByText('London')).toBeInTheDocument()
         })
     })
