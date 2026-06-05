@@ -26,6 +26,7 @@ from products.data_modeling.backend.models.modeling import DataWarehouseModelPat
 from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
 from products.endpoints.backend.api import EndpointViewSet
 from products.endpoints.backend.materialization import build_endpoint_hogql
+from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.services.endpoint_materialization_service import (
     OrphanedEndpointSavedQueryError,
     prepare_executable_query,
@@ -1450,9 +1451,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
+        observed: dict = {}
+
         def simulate_immediate_temporal_run(self_saved_query):
-            # Mirrors the data-modeling worker, which runs on trigger_immediately=True
-            # and resolves the query via the saved_query -> EndpointVersion reverse link.
+            # schedule_materialization() triggers an immediate run on a separate worker
+            # process, which sees only committed DB state. Capture whether the version is
+            # already linked, then run the real activity code that throws when it isn't.
+            observed["link_committed"] = EndpointVersion.objects.filter(saved_query_id=self_saved_query.id).exists()
             prepare_executable_query(self_saved_query)
 
         with mock.patch.object(
@@ -1467,6 +1472,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
+        self.assertTrue(
+            observed.get("link_committed"),
+            "EndpointVersion must be linked to the saved query before materialization is scheduled",
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     def test_build_endpoint_hogql_performs_no_db_writes(self):
