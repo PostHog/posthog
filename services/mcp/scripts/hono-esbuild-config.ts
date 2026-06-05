@@ -10,6 +10,13 @@ import { resolve } from 'path'
 export const honoOutfile = resolve(process.cwd(), 'dist/hono-server.mjs')
 export const cliOutfile = resolve(process.cwd(), 'dist/posthog-api-cli.mjs')
 
+type HonoEsbuildOptions = {
+    dev?: boolean
+    extraPlugins?: Plugin[]
+    outfile?: string
+    sourcemap?: boolean
+}
+
 const cfWorkersStub: Plugin = {
     name: 'cf-workers-stub',
     setup(build): void {
@@ -24,15 +31,15 @@ const cfWorkersStub: Plugin = {
     },
 }
 
-export function honoEsbuildOptions(opts: { dev?: boolean; extraPlugins?: Plugin[] } = {}): BuildOptions {
+export function honoEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions {
     return {
         entryPoints: [resolve(process.cwd(), 'src/hono/index.ts')],
         bundle: true,
         platform: 'node',
         target: 'node22',
         format: 'esm',
-        outfile: honoOutfile,
-        sourcemap: true,
+        outfile: opts.outfile ?? honoOutfile,
+        sourcemap: opts.sourcemap ?? true,
         external: [],
         plugins: [cfWorkersStub, ...(opts.extraPlugins ?? [])],
         loader: { '.html': 'text', '.md': 'text', '.json': 'json' },
@@ -44,10 +51,10 @@ export function honoEsbuildOptions(opts: { dev?: boolean; extraPlugins?: Plugin[
     }
 }
 
-export function cliEsbuildOptions(opts: { dev?: boolean; extraPlugins?: Plugin[] } = {}): BuildOptions {
+export function cliEsbuildOptions(opts: HonoEsbuildOptions = {}): BuildOptions {
     return {
         ...honoEsbuildOptions(opts),
         entryPoints: [resolve(process.cwd(), 'src/cli/index.ts')],
-        outfile: cliOutfile,
+        outfile: opts.outfile ?? cliOutfile,
     }
 }
