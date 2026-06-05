@@ -1,6 +1,6 @@
 import equal from 'fast-deep-equal'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -9,7 +9,11 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
-import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
+import {
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    SUGGESTED_DISTINCT_ID_ATTRIBUTE_KEYS,
+    logsConfigLogic,
+} from 'products/logs/frontend/logsConfigLogic'
 
 const MAX_KEY_LENGTH = 200
 
@@ -29,7 +33,7 @@ function cleanKeys(input: string[]): string[] {
 }
 
 export function LogsDistinctIdAttributeKey(): JSX.Element {
-    const { logsConfig, logsConfigLoading } = useValues(logsConfigLogic)
+    const { logsConfig, logsConfigLoading, attributeKeyOptions } = useValues(logsConfigLogic)
     const { updateLogsConfig } = useActions(logsConfigLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -43,6 +47,21 @@ export function LogsDistinctIdAttributeKey(): JSX.Element {
             setValue(logsConfig.logs_distinct_id_attribute_keys)
         }
     }, [logsConfig])
+
+    // Build the autocomplete option list: ingested attribute keys (from the team's actual logs
+    // in the past 30 days) merged with the canonical PostHog-link conventions, deduped, with
+    // the suggested keys floated to the top so they're discoverable on a fresh team.
+    const options = useMemo(() => {
+        const seen = new Set<string>()
+        const ordered: string[] = []
+        for (const key of [...SUGGESTED_DISTINCT_ID_ATTRIBUTE_KEYS, ...attributeKeyOptions]) {
+            if (!seen.has(key)) {
+                seen.add(key)
+                ordered.push(key)
+            }
+        }
+        return ordered.map((key) => ({ key, label: key }))
+    }, [attributeKeyOptions])
 
     if (!logsConfig && logsConfigLoading) {
         return <LemonSkeleton className="w-1/2 h-4" />
@@ -63,15 +82,15 @@ export function LogsDistinctIdAttributeKey(): JSX.Element {
                 value={value}
                 onChange={setValue}
                 placeholder={DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS[0]}
-                options={[]}
+                options={options}
                 disabled={!!restrictedReason}
             />
             <p className="text-muted text-xs mt-1">
                 {restrictedReason ?? (
                     <>
-                        Order is priority — for each log, the first configured key found on that row is used as the
-                        person identifier (priority-ordered fallback via SQL <code>coalesce</code>). Drag to reorder,
-                        press Enter or paste a comma-separated list to add multiple at once.
+                        Type to search attribute keys present in your logs, or paste a custom key — both are accepted.
+                        Order is priority: for each log, the first configured key found on that row is used as the
+                        person identifier (priority-ordered fallback via SQL <code>coalesce</code>). Drag to reorder.
                     </>
                 )}
             </p>
