@@ -1,14 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import {
-    IconDownload,
-    IconEllipsis,
-    IconMinusSmall,
-    IconNotebook,
-    IconPlusSmall,
-    IconTrash,
-} from '@posthog/icons'
+import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -210,15 +203,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         }
         return itemsArray
         // oxlint-disable-next-line exhaustive-deps
-    }, [
-        logicProps.playerKey,
-        onDelete,
-        exportRecordingToFile,
-        size,
-        isMuted,
-        setMuted,
-        hasReachedExportFullVideoLimit,
-    ])
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size, isMuted, setMuted, hasReachedExportFullVideoLimit])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">
