@@ -556,7 +556,10 @@ class MicrosoftTeamsSourceConfig(config.Config):
 
 @config.config
 class MixpanelSourceConfig(config.Config):
-    pass
+    project_id: str
+    service_account_username: str
+    service_account_secret: str
+    region: Literal["us", "eu", "in"] = config.value(default="us")
 
 
 @config.config

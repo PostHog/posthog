@@ -89,6 +89,7 @@ the row lists both.
 | mailerlite       | HTTP                        | requests                                                        | ✅                          |
 | mailjet          | HTTP                        | requests                                                        | ✅                          |
 | meta_ads         | HTTP                        | requests                                                        | ✅                          |
+| mixpanel         | HTTP                        | requests                                                        | ✅                          |
 | mongodb          | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql            | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mysql            | DB protocol                 | pymysql                                                         | ➖                          |
@@ -201,7 +202,6 @@ doesn't conflict with concurrent PRs.
 - lever
 - marketo
 - microsoft_teams
-- mixpanel
 - monday
 - netsuite
 - onedrive
