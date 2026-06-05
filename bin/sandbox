@@ -628,15 +628,31 @@ def _check_host_git_signing() -> None:
 # --- Host SSH forwarding ---
 
 
-def _host_ssh_auth_sock() -> str:
-    """Host-side path for the /ssh-agent bind mount.
+def _ssh_agent_compose_env() -> dict[str, str]:
+    """Resolve how the host SSH agent is forwarded into the sandbox.
 
-    On macOS, OrbStack/Docker Desktop expose the host agent at a magic path;
-    the real launchd socket can't be mounted into the Linux VM directly.
+    macOS: OrbStack/Docker Desktop expose the host agent at a stable magic
+    socket path; mount that file directly (the real launchd socket can't be
+    mounted into the Linux VM).
+
+    Linux: mount the *directory* containing $SSH_AUTH_SOCK, not the socket
+    file. A bind mount of the socket pins the inode that existed at
+    container-create time, so it goes stale the moment the host agent restarts
+    and recreates its socket (common with gnome-keyring/gcr) — leaving a dead
+    /ssh-agent that answers "Connection refused". Mounting the parent dir lets
+    the container always see the live socket inode; the entrypoint rebuilds the
+    path from SANDBOX_SSH_AGENT_NAME. Unset keys fall back to /dev/null in compose.
     """
     if platform.system() == "Darwin":
-        return "/run/host-services/ssh-auth.sock"
-    return os.environ.get("SSH_AUTH_SOCK", "")
+        return {"SANDBOX_SSH_AGENT_SOCK": "/run/host-services/ssh-auth.sock"}
+    sock = os.environ.get("SSH_AUTH_SOCK", "")
+    if not sock:
+        return {}
+    sock_path = Path(sock)
+    return {
+        "SANDBOX_SSH_AGENT_DIR": str(sock_path.parent),
+        "SANDBOX_SSH_AGENT_NAME": sock_path.name,
+    }
 
 
 def _check_macos_ssh_agent_launchd() -> None:
@@ -775,7 +791,7 @@ def _host_compose_env() -> dict[str, str]:
         # Signing paths — entrypoint rewrites the copied gitconfig to point here.
         "SANDBOX_HOST_GIT_SIGNINGKEY": _host_git_config_file("user.signingkey"),
         "SANDBOX_HOST_ALLOWED_SIGNERS": _host_git_config_file("gpg.ssh.allowedSignersFile"),
-        "SSH_AUTH_SOCK": _host_ssh_auth_sock(),
+        **_ssh_agent_compose_env(),
     }
     if ide:
         env["SANDBOX_IDE_VOLUME"] = f"sandbox-{ide}"

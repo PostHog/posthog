@@ -162,8 +162,14 @@ services:
             # outlive container recreation and `sandbox rm`.
             - ${SANDBOX_CLAUDE_SESSIONS}:/home/sandbox/.claude/projects
             - ${SANDBOX_CLAUDE_TODOS}:/home/sandbox/.claude/todos
-            # Forwarded SSH agent. Host path resolved by bin/sandbox.
-            - ${SSH_AUTH_SOCK:-/dev/null}:/ssh-agent
+            # Forwarded SSH agent. macOS mounts the host's stable magic socket
+            # file directly at /ssh-agent; Linux mounts the *directory* holding
+            # the agent socket at /ssh-agent-dir so the bind tracks the live inode
+            # across host agent restarts (a socket-file mount pins the create-time
+            # inode and goes stale). Host paths resolved by bin/sandbox; the
+            # entrypoint selects whichever is a live socket.
+            - ${SANDBOX_SSH_AGENT_SOCK:-/dev/null}:/ssh-agent
+            - ${SANDBOX_SSH_AGENT_DIR:-/dev/null}:/ssh-agent-dir
             # Shared caches — persist across sandboxes so the second one is fast.
             # uv and pnpm download packages here; subsequent sandboxes get cache hits.
             - uv-cache:/cache/uv
@@ -187,6 +193,9 @@ services:
             SANDBOX_GID: '${SANDBOX_GID:-1000}'
             POSTHOG_SANDBOX: '1'
             SANDBOX_INTENTS: '${SANDBOX_INTENTS:-product_analytics}'
+            # Basename of the forwarded agent socket inside /ssh-agent-dir (Linux
+            # dir-mount path); empty on macOS, which mounts the socket at /ssh-agent.
+            SANDBOX_SSH_AGENT_NAME: '${SANDBOX_SSH_AGENT_NAME:-}'
             DEBUG: '1'
             HOST_BIND: '0.0.0.0'
             AUTO_LOGIN: '1'

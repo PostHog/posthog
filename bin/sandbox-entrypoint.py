@@ -143,11 +143,24 @@ def export_environment(uid: int, gid: int) -> None:
 
 
 def _configure_ssh_agent_env() -> None:
-    """Set SSH_AUTH_SOCK only if /ssh-agent is a real socket (not /dev/null fallback)."""
-    if Path("/ssh-agent").exists() and stat.S_ISSOCK(Path("/ssh-agent").lstat().st_mode):
-        os.environ["SSH_AUTH_SOCK"] = "/ssh-agent"
-    else:
-        os.environ.pop("SSH_AUTH_SOCK", None)
+    """Point SSH_AUTH_SOCK at the forwarded host agent, if one is present.
+
+    macOS mounts the agent socket directly at /ssh-agent. Linux mounts the
+    directory containing it at /ssh-agent-dir (so the bind tracks the live inode
+    across host agent restarts); SANDBOX_SSH_AGENT_NAME is the socket's basename
+    within that dir. The unused mount is /dev/null, which is not a socket, so it
+    is skipped. Falls back to unsetting SSH_AUTH_SOCK when neither is live.
+    """
+    candidates = ["/ssh-agent"]
+    name = os.environ.get("SANDBOX_SSH_AGENT_NAME", "")
+    if name:
+        candidates.append(f"/ssh-agent-dir/{name}")
+    for cand in candidates:
+        path = Path(cand)
+        if path.exists() and stat.S_ISSOCK(path.lstat().st_mode):
+            os.environ["SSH_AUTH_SOCK"] = cand
+            return
+    os.environ.pop("SSH_AUTH_SOCK", None)
 
 
 def configure_user_ssh(uid: int, gid: int) -> None:
