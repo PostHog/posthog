@@ -636,6 +636,46 @@ class Database(BaseModel):
 
         self._denied_tables = denied
 
+    def _is_warehouse_table_denied(self, table: "DataWarehouseTable") -> bool:
+        """True if the user can't query this warehouse table. Called per-table by create_for's build
+        loop (behind the FF + bypass gate), which skips (`continue`) when this returns True — the
+        warehouse counterpart of `_filter_system_tables_for_user` (system tables are eagerly built
+        and deleted; warehouse tables are built lazily under multiple keys, so we skip at build time).
+
+        A userless context (no UserAccessControl) fails closed — every table is denied. Otherwise
+        resolution matches the warehouse_table REST API via check_access_level_for_object (specific
+        role/member grant > resource default > per-object default, with creator/admin shortcuts).
+        """
+        uac = self.user_access_control
+        if uac is not None and (
+            uac.is_organization_admin or uac.check_access_level_for_object(table, required_level="viewer")
+        ):
+            return False
+
+        # Record every name this table would have occupied so a query against it raises
+        # "You don't have access" (see get_table) instead of "Unknown table".
+        self._denied_tables.add(table.name)
+        if table.external_data_source:
+            for table_key in _get_warehouse_table_keys(table, direct_query=self._is_direct_query()):
+                self._denied_tables.add(table_key)
+        return True
+
+    def _is_warehouse_view_denied(self, saved_query: Any) -> bool:
+        """View counterpart of `_is_warehouse_table_denied`, on the warehouse_view resource. Closes
+        the saved-query-as-backdoor gap: a user denied a warehouse table could otherwise SELECT
+        through a non-materialized view that references it. A userless context fails closed.
+        """
+        uac = self.user_access_control
+        if uac is not None and (
+            uac.is_organization_admin or uac.check_access_level_for_object(saved_query, required_level="viewer")
+        ):
+            return False
+
+        # Record the name so a query against it raises "You don't have access" (see get_table)
+        # instead of "Unknown table".
+        self._denied_tables.add(saved_query.name)
+        return True
+
     def serialize(
         self,
         context: HogQLContext,
@@ -875,6 +915,7 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
+        bypass_access_control: bool = False,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -962,11 +1003,22 @@ class Database(BaseModel):
                     },
                     send_feature_flag_events=False,
                 )
-                if is_hogql_access_control_enabled:
+                if is_hogql_access_control_enabled and not bypass_access_control:
                     if user is not None:
                         database._filter_system_tables_for_user()
                     else:
                         database._filter_all_scoped_system_tables()
+
+        is_hogql_warehouse_access_control_enabled = posthoganalytics.feature_enabled(
+            "hogql-warehouse-access-control",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            send_feature_flag_events=False,
+        )
 
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
@@ -1101,6 +1153,12 @@ class Database(BaseModel):
 
                 for saved_query in saved_queries:
                     with timings.measure(f"saved_query_{saved_query.name}"):
+                        if (
+                            is_hogql_warehouse_access_control_enabled
+                            and not bypass_access_control
+                            and database._is_warehouse_view_denied(saved_query)
+                        ):
+                            continue
                         views.add_child(
                             TableNode.create_nested_for_chain(
                                 saved_query.name.split("."),
@@ -1121,6 +1179,13 @@ class Database(BaseModel):
                     )
                     for endpoint_saved_query in endpoint_saved_queries:
                         with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                            # Endpoint-origin saved queries are a separate list, so they're checked too
+                            if (
+                                is_hogql_warehouse_access_control_enabled
+                                and not bypass_access_control
+                                and database._is_warehouse_view_denied(endpoint_saved_query)
+                            ):
+                                continue
                             views.add_child(
                                 TableNode(
                                     name=endpoint_saved_query.name,
@@ -1194,6 +1259,13 @@ class Database(BaseModel):
                     not database._is_direct_query()
                     and table.external_data_source
                     and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                ):
+                    continue
+
+                if (
+                    is_hogql_warehouse_access_control_enabled
+                    and not bypass_access_control
+                    and database._is_warehouse_table_denied(table)
                 ):
                     continue
 

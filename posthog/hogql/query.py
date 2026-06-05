@@ -261,6 +261,8 @@ class HogQLQueryExecutor:
     connection_id: Optional[str] = None
     send_raw_query: bool = False
     user: Optional[User] = None
+    # SECURITY-SENSITIVE: opt-in bypass for HogQL access control. See HogQLContext.bypass_access_control.
+    bypass_access_control: bool = False
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -273,7 +275,9 @@ class HogQLQueryExecutor:
     @tracer.start_as_current_span("HogQLQueryExecutor.__post_init__")
     def __post_init__(self):
         if self.context is self.__uninitialized_context:
-            self.context = HogQLContext(team_id=self.team.pk, user=self.user)
+            self.context = HogQLContext(
+                team_id=self.team.pk, user=self.user, bypass_access_control=self.bypass_access_control
+            )
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
         self.debug = self.modifiers is not None and self.modifiers.debug
@@ -328,6 +332,7 @@ class HogQLQueryExecutor:
                         user=self.user,
                         modifiers=self.query_modifiers,
                         timings=self.timings,
+                        bypass_access_control=self.context.bypass_access_control,
                     )
                 self.select_query = replace_filters(
                     self.select_query, self.filters, self.team, database=self.context.database
@@ -388,6 +393,7 @@ class HogQLQueryExecutor:
                 modifiers=self.query_modifiers,
                 timings=self.timings,
                 connection_id=self.connection_id,
+                bypass_access_control=self.context.bypass_access_control,
             )
 
         # Reset between executions: the resolver appends per query, and dataclasses.replace below
