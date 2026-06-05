@@ -113,6 +113,10 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EMAIL_TRACKING_URL: string
 
+    // Comma-separated allowlist of SNS TopicArns permitted to deliver SES events to the webhook.
+    // Empty = allow any topic whose signature verifies (logs a warning); set per environment to enforce.
+    CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS: string
+
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
@@ -228,6 +232,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_WAREHOUSE_SOURCE_WEBHOOKS_PRODUCER: WAREHOUSE_PRODUCER,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
+        CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS: '',
 
         // Cyclotron
         CYCLOTRON_DATABASE_URL: isTestEnv()

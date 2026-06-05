@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
+import { defaultConfig } from '~/config/config'
 import { parseJSON } from '~/utils/json-parse'
 import { logger } from '~/utils/logger'
 import { fetch } from '~/utils/request'
@@ -157,6 +158,39 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
+
+    /** Allowlist of SNS TopicArns permitted to deliver to this webhook. Empty = allow any topic. */
+    private readonly allowedTopicArns: Set<string>
+    private hasWarnedEmptyAllowlist = false
+
+    constructor(allowedTopicArns: string = defaultConfig.CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS) {
+        this.allowedTopicArns = new Set(
+            allowedTopicArns
+                .split(',')
+                .map((arn) => arn.trim())
+                .filter((arn) => arn.length > 0)
+        )
+    }
+
+    /**
+     * A valid SNS signature only proves the message was signed by *some* SNS topic, not that it came
+     * from our SES notification topic. Without this check an attacker could get their own topic
+     * auto-confirmed and then publish forged (e.g. Bounce) notifications. An empty allowlist means
+     * allow-all so the code can ship before the env var is wired up per environment; it warns once
+     * so the permissive state is visible in logs.
+     */
+    private isAllowedTopicArn(topicArn: string): boolean {
+        if (this.allowedTopicArns.size === 0) {
+            if (!this.hasWarnedEmptyAllowlist) {
+                logger.warn(
+                    '[SesWebhookHandler] CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS is empty - accepting SES events from any SNS topic. Set it to enforce a topic allowlist.'
+                )
+                this.hasWarnedEmptyAllowlist = true
+            }
+            return true
+        }
+        return this.allowedTopicArns.has(topicArn)
+    }
 
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
@@ -334,6 +368,15 @@ export class SesWebhookHandler {
             if (!ok) {
                 return { status: 403, body: { error: 'Invalid SNS signature' } }
             }
+        }
+
+        // Reject envelopes from topics we don't recognise before doing anything with them (auto-confirm,
+        // opt-out, ...). A verified signature alone doesn't prove the message came from our SES topic.
+        if ('envelope' in parsed && !this.isAllowedTopicArn(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting envelope from non-allowlisted TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'TopicArn not allowed' } }
         }
 
         // Handle confirmation flow

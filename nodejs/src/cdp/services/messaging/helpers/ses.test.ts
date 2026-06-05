@@ -287,4 +287,93 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].metricName).toBe('email_opened')
     })
+
+    describe('TopicArn allowlist', () => {
+        const allowedArn = 'arn:aws:sns:us-east-1:123456789012:ses-topic'
+        const foreignArn = 'arn:aws:sns:us-east-1:999999999999:attacker-topic'
+
+        const notification = (topicArn: string): Record<string, unknown> => ({
+            Type: 'Notification',
+            MessageId: 'sns-msg-1',
+            TopicArn: topicArn,
+            Message: JSON.stringify({
+                eventType: 'Open',
+                mail: baseMail,
+                open: { ipAddress: '1.2.3.4', userAgent: 'UA', timestamp: '2025-10-03T12:01:00Z' },
+            }),
+            Timestamp: '2025-10-03T12:10:00Z',
+            SignatureVersion: '1',
+            Signature: 'fake',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+        })
+
+        it('processes a Notification from an allowlisted TopicArn', async () => {
+            const allowlisted = new SesWebhookHandler(allowedArn)
+            const result = await allowlisted.handleWebhook({
+                body: notification(allowedArn),
+                headers: {},
+                verifySignature: false,
+            })
+            expect(result.status).toBe(200)
+            expect(result.metrics?.[0].metricName).toBe('email_opened')
+        })
+
+        it('rejects a Notification from a TopicArn outside the allowlist', async () => {
+            const allowlisted = new SesWebhookHandler(allowedArn)
+            const result = await allowlisted.handleWebhook({
+                body: notification(foreignArn),
+                headers: {},
+                verifySignature: false,
+            })
+            expect(result.status).toBe(403)
+            expect(result.metrics).toBeUndefined()
+        })
+
+        it('parses a comma-separated allowlist with surrounding whitespace', async () => {
+            const allowlisted = new SesWebhookHandler(`  arn:aws:sns:us-east-1:000000000000:other  ,  ${allowedArn} `)
+            const result = await allowlisted.handleWebhook({
+                body: notification(allowedArn),
+                headers: {},
+                verifySignature: false,
+            })
+            expect(result.status).toBe(200)
+        })
+
+        it('does not auto-confirm a SubscriptionConfirmation from a non-allowlisted TopicArn', async () => {
+            const allowlisted = new SesWebhookHandler(allowedArn)
+            const fetchSpy = jest.spyOn(allowlisted as any, 'fetchText').mockResolvedValue('')
+            const result = await allowlisted.handleWebhook({
+                body: {
+                    Type: 'SubscriptionConfirmation',
+                    MessageId: 'sns-msg-1',
+                    Token: 'token-123',
+                    TopicArn: foreignArn,
+                    Message: JSON.stringify({
+                        SubscribeURL:
+                            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=' + foreignArn,
+                    }),
+                    Timestamp: '2025-10-03T12:10:00Z',
+                    SignatureVersion: '1',
+                    Signature: 'fake',
+                    SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+                },
+                headers: {},
+                verifySignature: false,
+            })
+            expect(result.status).toBe(403)
+            expect(fetchSpy).not.toHaveBeenCalled()
+            fetchSpy.mockRestore()
+        })
+
+        it('allows any TopicArn when the allowlist is empty (default)', async () => {
+            const permissive = new SesWebhookHandler('')
+            const result = await permissive.handleWebhook({
+                body: notification(foreignArn),
+                headers: {},
+                verifySignature: false,
+            })
+            expect(result.status).toBe(200)
+            expect(result.metrics?.[0].metricName).toBe('email_opened')
+        })
+    })
 })
