@@ -47,7 +47,7 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
     }
 }
 
-export type RoleFilterValue = number | null
+export type RoleFilterValue = number[]
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
@@ -92,9 +92,9 @@ export interface AccountsViewUrlState {
     search?: string
     tags?: string[]
     unassigned?: boolean
-    csm?: number
-    accountExecutive?: number
-    accountOwner?: number
+    csm?: number[]
+    accountExecutive?: number[]
+    accountOwner?: number[]
     sort?: NonNullable<AccountSortOrder>
     columns?: string[]
     tileFilter?: TileFilter
@@ -169,19 +169,19 @@ export const accountsLogic = kea<accountsLogicType>([
             },
         ],
         csmFilter: [
-            null as RoleFilterValue,
+            [] as RoleFilterValue,
             {
                 setCsmFilter: (_, { value }) => value,
             },
         ],
         accountExecutiveFilter: [
-            null as RoleFilterValue,
+            [] as RoleFilterValue,
             {
                 setAccountExecutiveFilter: (_, { value }) => value,
             },
         ],
         accountOwnerFilter: [
-            null as RoleFilterValue,
+            [] as RoleFilterValue,
             {
                 setAccountOwnerFilter: (_, { value }) => value,
             },
@@ -240,9 +240,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 [
                     !!searchQuery.trim(),
                     tagsFilter.length > 0,
-                    csmFilter !== null,
-                    accountExecutiveFilter !== null,
-                    accountOwnerFilter !== null,
+                    csmFilter.length > 0,
+                    accountExecutiveFilter.length > 0,
+                    accountOwnerFilter.length > 0,
                     allRolesUnassigned,
                 ].filter(Boolean).length,
         ],
@@ -280,13 +280,13 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (allRolesUnassigned) {
                     state.unassigned = true
                 }
-                if (csmFilter !== null) {
+                if (csmFilter.length > 0) {
                     state.csm = csmFilter
                 }
-                if (accountExecutiveFilter !== null) {
+                if (accountExecutiveFilter.length > 0) {
                     state.accountExecutive = accountExecutiveFilter
                 }
-                if (accountOwnerFilter !== null) {
+                if (accountOwnerFilter.length > 0) {
                     state.accountOwner = accountOwnerFilter
                 }
                 if (sortOrder) {
@@ -344,13 +344,13 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (allRolesUnassigned) {
                     source.allRolesUnassigned = true
                 }
-                if (csmFilter !== null) {
+                if (csmFilter.length > 0) {
                     source.csm = csmFilter
                 }
-                if (accountExecutiveFilter !== null) {
+                if (accountExecutiveFilter.length > 0) {
                     source.accountExecutive = accountExecutiveFilter
                 }
-                if (accountOwnerFilter !== null) {
+                if (accountOwnerFilter.length > 0) {
                     source.accountOwner = accountOwnerFilter
                 }
                 if (tileFilter) {
@@ -397,15 +397,18 @@ export const accountsLogic = kea<accountsLogicType>([
                     break
                 case 'csm':
                     properties.value = values.csmFilter
-                    properties.is_cleared = values.csmFilter === null
+                    properties.role_count = values.csmFilter.length
+                    properties.is_cleared = values.csmFilter.length === 0
                     break
                 case 'account_executive':
                     properties.value = values.accountExecutiveFilter
-                    properties.is_cleared = values.accountExecutiveFilter === null
+                    properties.role_count = values.accountExecutiveFilter.length
+                    properties.is_cleared = values.accountExecutiveFilter.length === 0
                     break
                 case 'account_owner':
                     properties.value = values.accountOwnerFilter
-                    properties.is_cleared = values.accountOwnerFilter === null
+                    properties.role_count = values.accountOwnerFilter.length
+                    properties.is_cleared = values.accountOwnerFilter.length === 0
                     break
                 case 'unassigned_only':
                     properties.value = values.allRolesUnassigned
@@ -416,29 +419,29 @@ export const accountsLogic = kea<accountsLogicType>([
         },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
-                if (values.csmFilter !== null) {
-                    actions.setCsmFilter(null)
+                if (values.csmFilter.length > 0) {
+                    actions.setCsmFilter([])
                 }
-                if (values.accountExecutiveFilter !== null) {
-                    actions.setAccountExecutiveFilter(null)
+                if (values.accountExecutiveFilter.length > 0) {
+                    actions.setAccountExecutiveFilter([])
                 }
-                if (values.accountOwnerFilter !== null) {
-                    actions.setAccountOwnerFilter(null)
+                if (values.accountOwnerFilter.length > 0) {
+                    actions.setAccountOwnerFilter([])
                 }
             }
         },
         setCsmFilter: ({ value }) => {
-            if (value !== null && values.allRolesUnassigned) {
+            if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
         },
         setAccountExecutiveFilter: ({ value }) => {
-            if (value !== null && values.allRolesUnassigned) {
+            if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
         },
         setAccountOwnerFilter: ({ value }) => {
-            if (value !== null && values.allRolesUnassigned) {
+            if (value.length > 0 && values.allRolesUnassigned) {
                 actions.setAllRolesUnassigned(false)
             }
         },
@@ -552,18 +555,18 @@ export const accountsLogic = kea<accountsLogicType>([
                 actions.setAllRolesUnassigned(unassigned)
             }
 
-            const csm = view.csm ?? null
-            if (csm !== values.csmFilter) {
+            const csm = view.csm ?? []
+            if (!objectsEqual(csm, values.csmFilter)) {
                 actions.setCsmFilter(csm)
             }
 
-            const accountExecutive = view.accountExecutive ?? null
-            if (accountExecutive !== values.accountExecutiveFilter) {
+            const accountExecutive = view.accountExecutive ?? []
+            if (!objectsEqual(accountExecutive, values.accountExecutiveFilter)) {
                 actions.setAccountExecutiveFilter(accountExecutive)
             }
 
-            const accountOwner = view.accountOwner ?? null
-            if (accountOwner !== values.accountOwnerFilter) {
+            const accountOwner = view.accountOwner ?? []
+            if (!objectsEqual(accountOwner, values.accountOwnerFilter)) {
                 actions.setAccountOwnerFilter(accountOwner)
             }
 

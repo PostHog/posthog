@@ -75,9 +75,9 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('')
         expect(logic.values.tagsFilter).toEqual([])
         expect(logic.values.allRolesUnassigned).toBe(false)
-        expect(logic.values.csmFilter).toBeNull()
-        expect(logic.values.accountExecutiveFilter).toBeNull()
-        expect(logic.values.accountOwnerFilter).toBeNull()
+        expect(logic.values.csmFilter).toEqual([])
+        expect(logic.values.accountExecutiveFilter).toEqual([])
+        expect(logic.values.accountOwnerFilter).toEqual([])
     })
 
     it('setTagsFilter updates the reducer', () => {
@@ -107,33 +107,35 @@ describe('accountsLogic', () => {
         expect(logic.values.allRolesUnassigned).toBe(true)
     })
 
-    it('setCsmFilter accepts a user id and null', () => {
-        logic.actions.setCsmFilter(42)
-        expect(logic.values.csmFilter).toBe(42)
-        logic.actions.setCsmFilter(null)
-        expect(logic.values.csmFilter).toBeNull()
+    it('setCsmFilter accepts a list of user ids and clears with an empty list', () => {
+        logic.actions.setCsmFilter([42])
+        expect(logic.values.csmFilter).toEqual([42])
+        logic.actions.setCsmFilter([42, 43])
+        expect(logic.values.csmFilter).toEqual([42, 43])
+        logic.actions.setCsmFilter([])
+        expect(logic.values.csmFilter).toEqual([])
     })
 
     it('setting a role filter clears the all_roles_unassigned flag', async () => {
         logic.actions.setAllRolesUnassigned(true)
-        logic.actions.setCsmFilter(7)
+        logic.actions.setCsmFilter([7])
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.allRolesUnassigned).toBe(false)
-        expect(logic.values.csmFilter).toBe(7)
+        expect(logic.values.csmFilter).toEqual([7])
     })
 
     it('enabling all_roles_unassigned clears any active role filters', async () => {
-        logic.actions.setCsmFilter(7)
-        logic.actions.setAccountExecutiveFilter(9)
-        logic.actions.setAccountOwnerFilter(11)
+        logic.actions.setCsmFilter([7])
+        logic.actions.setAccountExecutiveFilter([9])
+        logic.actions.setAccountOwnerFilter([11])
         logic.actions.setAllRolesUnassigned(true)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.allRolesUnassigned).toBe(true)
-        expect(logic.values.csmFilter).toBeNull()
-        expect(logic.values.accountExecutiveFilter).toBeNull()
-        expect(logic.values.accountOwnerFilter).toBeNull()
+        expect(logic.values.csmFilter).toEqual([])
+        expect(logic.values.accountExecutiveFilter).toEqual([])
+        expect(logic.values.accountOwnerFilter).toEqual([])
     })
 
     describe('sortOrder', () => {
@@ -228,7 +230,7 @@ describe('accountsLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchQuery('acme')
                 logic.actions.setTagsFilter(['enterprise'])
-                logic.actions.setCsmFilter(7)
+                logic.actions.setCsmFilter([7])
                 logic.actions.setSortOrder({ column: 'name', direction: 'desc' })
                 logic.actions.setTileFilter({ tileId: 'tile-1', expression: 'count() > 5' })
             }).toFinishAllListeners()
@@ -236,7 +238,7 @@ describe('accountsLogic', () => {
             expect(router.values.hashParams.view).toEqual({
                 search: 'acme',
                 tags: ['enterprise'],
-                csm: 7,
+                csm: [7],
                 sort: { column: 'name', direction: 'desc' },
                 tileFilter: { tileId: 'tile-1', expression: 'count() > 5' },
             })
@@ -257,14 +259,14 @@ describe('accountsLogic', () => {
                 urls.customerAnalyticsAccounts(),
                 {},
                 {
-                    view: { search: 'beta', csm: 7, sort: { column: 'name', direction: 'desc' }, tileFilter },
+                    view: { search: 'beta', csm: [7], sort: { column: 'name', direction: 'desc' }, tileFilter },
                 }
             )
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.searchQuery).toBe('beta')
             expect(logic.values.searchInput).toBe('beta')
-            expect(logic.values.csmFilter).toBe(7)
+            expect(logic.values.csmFilter).toEqual([7])
             expect(logic.values.sortOrder).toEqual({ column: 'name', direction: 'desc' })
             expect(logic.values.tileFilter).toEqual(tileFilter)
         })
