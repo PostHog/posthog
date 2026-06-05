@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -94,7 +95,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         toggleBreakdown: (dimension: 'type' | 'team') => ({ dimension }),
         resetFilters: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, props }) => ({
         billingSpendResponse: [
             null as BillingSpendResponse | null,
             {
@@ -112,10 +113,20 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
-                    // Errors are handled by the global kea-loaders onFailure handler in initKea.ts,
-                    // which captures the exception for monitoring. The toast is suppressed there via
-                    // ERROR_FILTER_ALLOW_LIST since the user doesn't initiate this background request.
-                    return await api.get(`api/billing/spend/?${toParams(params)}`)
+                    try {
+                        return await api.get(`api/billing/spend/?${toParams(params)}`)
+                    } catch (error) {
+                        // On the spend page (syncWithUrl) the user is viewing this data, so let the
+                        // failure surface through the global kea-loaders handler — including their own
+                        // filter/date reloads. When mounted only to build context elsewhere (e.g. Max's
+                        // billing context), the user isn't on a billing surface and didn't initiate the
+                        // request, so there's nothing for them to act on: capture for monitoring and swallow.
+                        if (props.syncWithUrl !== true) {
+                            posthog.captureException(new Error('Failed to load billing spend', { cause: error }))
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
