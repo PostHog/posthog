@@ -37,6 +37,7 @@ from posthog.hogql.database.models import (
     TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -427,7 +428,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
 
         assert database.has_table("pull_requests")
-        assert database.get_table("pull_requests").url == "s3://live/*"
+        assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://live/*"
 
     def test_create_hogql_database_keeps_self_managed_table_without_source(self):
         # Guards the deleted-source exclusion against the Django exclude()-with-NULL gotcha:
@@ -438,7 +439,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
 
         assert database.has_table("self_managed")
-        assert database.get_table("self_managed").url == "s3://self/*"
+        assert cast(HogQLDataWarehouseTable, database.get_table("self_managed")).url == "s3://self/*"
 
     def test_create_hogql_database_resolves_duplicate_live_table_names_to_newest(self):
         # Two live tables share a name (e.g. a re-sync produced a duplicate): newest wins.
@@ -452,7 +453,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team)
 
-        assert database.get_table("pull_requests").url == "s3://newer/*"
+        assert cast(HogQLDataWarehouseTable, database.get_table("pull_requests")).url == "s3://newer/*"
 
     def test_serialize_database_warehouse_table_source_query_count(self):
         source = ExternalDataSource.objects.create(

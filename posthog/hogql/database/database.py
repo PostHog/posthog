@@ -703,8 +703,13 @@ class Database(BaseModel):
                     to_attr="latest_completed_job",
                 ),
             )
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
-            .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
+            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
+            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
+            .queryable()
+            .filter(team_id=context.team_id)
+            # The catalog is built last-write-wins per table key, so order created_at ascending to
+            # land the newest row last when two live tables share a name — matching tree resolution.
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
         )
         if self._is_direct_query():
             warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
