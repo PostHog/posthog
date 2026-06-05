@@ -63,9 +63,7 @@ export function ErrorProjectUnavailable(): JSX.Element {
                 </>
             ) : (
                 <>
-                    <h1 className="text-3xl font-bold mt-4 mb-0">
-                        Welcome to {user?.organization?.name} on PostHog
-                    </h1>
+                    <h1 className="text-3xl font-bold mt-4 mb-0">Welcome to {user?.organization?.name} on PostHog</h1>
                     <p className="text-sm mt-3 mb-0">
                         You do not have access to any projects in this organization. You can{listOptions()}.
                     </p>
