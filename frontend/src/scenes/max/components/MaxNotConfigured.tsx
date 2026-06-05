@@ -21,8 +21,8 @@ export function MaxNotConfigured(): JSX.Element {
                     PostHog AI isn't set up yet
                 </h2>
                 <p className="text-sm text-tertiary text-pretty mb-0">
-                    Max runs on your own LLM provider key. Set <code>ANTHROPIC_API_KEY</code> for this instance and
-                    restart PostHog to start chatting.
+                    PostHog AI runs on your own LLM provider key. Set <code>ANTHROPIC_API_KEY</code> for this instance
+                    and restart PostHog to start chatting.
                 </p>
             </div>
             <CodeSnippet language={Language.Bash} className="w-full text-left">

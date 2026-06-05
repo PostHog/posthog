@@ -141,8 +141,8 @@ else
     # Read silently (-s) — these are secrets and shouldn't echo to the terminal/scrollback.
     if [ -t 0 ] && [ -z "$ANTHROPIC_API_KEY" ]; then
         echo ""
-        echo "PostHog's AI assistant (Max) runs on an Anthropic API key."
-        echo "Enter one to enable Max now, or leave blank to skip (you can add it later):"
+        echo "PostHog AI runs on an Anthropic API key."
+        echo "Enter one to enable PostHog AI now, or leave blank to skip (you can add it later):"
         read -rs ANTHROPIC_API_KEY
         echo
     fi

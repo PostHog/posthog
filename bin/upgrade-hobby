@@ -118,8 +118,8 @@ fi
 # skipped the key at install still gets prompted. Read silently (-s) — these are secrets.
 if [ -t 0 ] && ! grep -qE "^ANTHROPIC_API_KEY=.+" .env; then
     echo ""
-    echo "PostHog's AI assistant (Max) runs on an Anthropic API key, which isn't configured yet."
-    read -rsp "Enter an Anthropic API key to enable Max (leave blank to skip): " ANTHROPIC_API_KEY_INPUT
+    echo "PostHog AI runs on an Anthropic API key, which isn't configured yet."
+    read -rsp "Enter an Anthropic API key to enable PostHog AI (leave blank to skip): " ANTHROPIC_API_KEY_INPUT
     echo
     if [ -n "$ANTHROPIC_API_KEY_INPUT" ]; then
         echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY_INPUT" >> .env
