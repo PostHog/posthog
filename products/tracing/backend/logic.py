@@ -49,6 +49,16 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
 
+# Day-range bound on time_bucket, pinned to UTC. With convertToProjectTimezone=False the date
+# constants print UTC-pinned, while bare DateTime columns read in the session tz; pinning both
+# sides keeps them on the same day grid so a non-UTC session can't drop same-day rows (which
+# previously emptied keyset page 2).
+TIME_BUCKET_DATE_RANGE_WHERE = (
+    "toStartOfDay(time_bucket, 'UTC') >= toStartOfDay({date_from}, 'UTC') "
+    "and toStartOfDay(time_bucket, 'UTC') <= toStartOfDay({date_to}, 'UTC')"
+)
+
+
 def _normalise_to_base64(value: str) -> str:
     try:
         int(value, 16)
@@ -185,7 +195,7 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
 
         exprs.append(
             parse_expr(
-                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+                TIME_BUCKET_DATE_RANGE_WHERE,
                 placeholders={
                     **self.query_date_range.to_placeholders(),
                 },
@@ -347,6 +357,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # Per-trace pagination key (earliest matching-span timestamp); identical for every
                 # span of a trace. Falls back to this row's timestamp on the off chance it is null.
                 "trace_start": (result[13] or result[8]).replace(tzinfo=ZoneInfo("UTC")),
+                # OTel span attributes the user set, as a key-value map.
+                "attributes": result[14],
             }
             results.append(row)
 
@@ -386,15 +398,26 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         op = ">" if self.query.orderBy == "earliest" else "<"
         ts_op = ">=" if self.query.orderBy == "earliest" else "<="
 
+        # rootSpans is opt-in and gated on `is True` (not truthiness): the frontend never sends it
+        # (None), so its prefetch-driven waterfall is untouched. An explicit True narrows the result
+        # to root spans only — applied to both the trace-selection subquery (so we pick traces whose
+        # root matches the filter) and the outer fetch (so only those roots come back), keeping
+        # matched_filter consistent instead of surfacing roots flagged 0.
+        root_only = self.query.rootSpans is True
+
         subquery_where_exprs: list[ast.Expr] = [self.where()]
+        if root_only:
+            subquery_where_exprs.append(parse_expr("is_root_span = 1"))
         having_expr: ast.Expr | None = None
         if cursor is not None:
             cursor_ts, cursor_trace_id = cursor
-            # Scalar bound on time_bucket lets ClickHouse prune parts via the primary index;
-            # min(timestamp) of any kept trace is always within this bound.
+            # Coarse day bound on time_bucket lets ClickHouse prune parts via the primary index.
+            # Pin both sides to UTC for the same reason as the where() date bound: the cursor
+            # constant prints UTC-pinned, so an unpinned toStartOfDay would truncate on the
+            # session-tz day grid and drop same-day rows under a non-UTC session.
             subquery_where_exprs.append(
                 parse_expr(
-                    f"time_bucket {ts_op} toStartOfDay({{cursor_ts}})",
+                    f"toStartOfDay(time_bucket, 'UTC') {ts_op} toStartOfDay({{cursor_ts}}, 'UTC')",
                     placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
                 )
             )
@@ -455,9 +478,10 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 duration_nano,
                 is_root_span,
                 {where} as matched_filter,
-                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start
+                min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
+                {attributes}
             FROM posthog.trace_spans
-            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND {root_filter} AND trace_id IN ({trace_id_query}) LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
@@ -465,6 +489,11 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "trace_id_query": trace_id_query,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                "root_filter": parse_expr("is_root_span = 1") if root_only else ast.Constant(value=True),
+                # The attribute map dominates payload size (db.statement holds multi-KB SQL). When
+                # excluded we still SELECT a column so the positional result mapping stays stable —
+                # an empty map instead of the real one.
+                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -499,7 +528,7 @@ def run_service_names_query(
 
     exprs: list[ast.Expr] = [
         parse_expr(
-            "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+            TIME_BUCKET_DATE_RANGE_WHERE,
             placeholders={**query_date_range.to_placeholders()},
         ),
         ast.Placeholder(expr=ast.Field(chain=["filters"])),

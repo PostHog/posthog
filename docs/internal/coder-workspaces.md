@@ -59,6 +59,20 @@ hogli devbox:share bob-box --list           # see who has access
 
 Once shared, the teammate can target your workspace with `@user[/label]` syntax (e.g. `hogli devbox:ssh @bob/bob-box`).
 
+**Editing locally while running on the devbox** —
+Mirror your local PostHog checkout to a devbox with `hogli devbox:sync`. Local is the source of truth (one-way-safe); remote-only files like the AMI's prewarmed `node_modules` and `.venv` are left untouched. Useful for agentic loops or when you want to keep using your normal local editor without pushing every iteration:
+
+```bash
+hogli devbox:start                                   # ensure the box is running
+hogli devbox:sync                                    # create the mirror (idempotent)
+# edit files locally — changes propagate within seconds
+hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend typescript:check'
+hogli devbox:sync --status                           # check sync state
+hogli devbox:sync --terminate                        # tear down when done
+```
+
+`devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)
@@ -76,7 +90,7 @@ hogli devbox:setup
 This does the host-side setup only:
 
 - verifies Tailscale connectivity
-- installs the `coder` CLI at the version matching the server
+- installs the `coder` CLI at the version matching the server and the `mutagen` binary (pinned v0.18.1) that powers `devbox:sync`
 - logs you into the Coder deployment
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings

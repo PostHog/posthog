@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -489,6 +490,11 @@ class APIScopePermission(ScopeBasePermission):
             if not key_scopes:
                 self.message = "OAuth token has no scopes and cannot access this resource"
                 return False
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            key_scopes = list(request.successful_authenticator.scopes)
+            if not key_scopes:
+                self.message = "ID-JAG access token has no scopes and cannot access this resource"
+                return False
         else:
             # Session (and other non-token) auth normally bypasses API-scope checks — scopes
             # are a PAK/OAuth concept; logged-in users are gated by team membership + access
@@ -562,6 +568,14 @@ class APIScopePermission(ScopeBasePermission):
         elif isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
             scoped_organizations = request.successful_authenticator.personal_api_key.scoped_organizations
             scoped_teams = request.successful_authenticator.personal_api_key.scoped_teams
+        elif isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            # ID-JAG access tokens are bound to the specific PostHog Organization
+            # whose OrganizationDomain pinned the trusted IdP — carried in the
+            # `org_id` claim. Pin `scoped_organizations` to that single org so
+            # the token cannot reach other orgs the resolved user happens to
+            # be a member of (cross-org confused-deputy defense).
+            scoped_organizations = [request.successful_authenticator.organization_id]
+            scoped_teams = None
         else:
             raise ValueError("Unexpected authentication type")
 
@@ -861,3 +875,33 @@ class UserCanInvitePermission(BasePermission):
             return True
 
         return members_can_invite
+
+
+class UserCanCreateProjectPermission(BasePermission):
+    """
+    Only allows Admins+, and Members if the members_can_create_projects org setting is True
+    AND the organization has the entitlement to configure it. Without the entitlement this
+    behaves exactly like the admin-write permission (members blocked), regardless of the toggle.
+    """
+
+    message = "You need to be an organization admin or above to create new projects."
+
+    def has_permission(self, request: Request, view) -> bool:
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return True
+
+        try:
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
+        except OrganizationMembership.DoesNotExist:
+            raise NotFound("Organization not found.")
+
+        if membership.level >= OrganizationMembership.Level.ADMIN:
+            return True
+
+        # Gated behind the org invite-settings entitlement for now (will move to a dedicated feature later).
+        if not organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+            return False
+
+        return bool(organization.members_can_create_projects)

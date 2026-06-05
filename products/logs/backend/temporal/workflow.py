@@ -19,13 +19,21 @@ with workflow.unsafe.imports_passed_through():
         CheckAlertsOutput,
         DiscoverCohortsInput,
         DiscoverCohortsOutput,
+        EmitAlertSignalsInput,
         EvaluateCohortBatchInput,
         EvaluateCohortBatchOutput,
+        NotifiedAlert,
         discover_cohorts_activity,
+        emit_alert_signals_activity,
         evaluate_cohort_batch_activity,
     )
 
-from products.logs.backend.temporal.constants import ACTIVITY_RETRY_POLICY, ACTIVITY_TIMEOUT, WORKFLOW_NAME
+from products.logs.backend.temporal.constants import (
+    ACTIVITY_RETRY_POLICY,
+    ACTIVITY_TIMEOUT,
+    EMIT_SIGNAL_BATCH_SIZE,
+    WORKFLOW_NAME,
+)
 
 
 @temporalio.workflow.defn(name=WORKFLOW_NAME)
@@ -81,6 +89,7 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
         alerts_fired = 0
         alerts_resolved = 0
         alerts_errored = 0
+        notified: list[NotifiedAlert] = []
         for batch, result in zip(batches, results):
             if isinstance(result, ActivityError):
                 # Batch's retries exhausted — count its alerts as errored, keep going.
@@ -98,6 +107,21 @@ class LogsAlertCheckWorkflow(PostHogWorkflow):
                 alerts_fired += result.alerts_fired
                 alerts_resolved += result.alerts_resolved
                 alerts_errored += result.alerts_errored
+                notified.extend(result.notified)
+
+        # Off the eval critical path. Best-effort: signal emission must never fail
+        # the alert cycle, so retry-exhaustion is swallowed. Chunked because the
+        # input crosses the workflow->activity boundary as a single Temporal payload.
+        for chunk in batched(notified, EMIT_SIGNAL_BATCH_SIZE):
+            try:
+                await workflow.execute_activity(
+                    emit_alert_signals_activity,
+                    EmitAlertSignalsInput(notified=list(chunk)),
+                    start_to_close_timeout=ACTIVITY_TIMEOUT,
+                    retry_policy=ACTIVITY_RETRY_POLICY,
+                )
+            except ActivityError:
+                workflow.logger.warning("emit_alert_signals_activity chunk failed; alert cycle continues")
 
         return CheckAlertsOutput(
             alerts_checked=alerts_checked,

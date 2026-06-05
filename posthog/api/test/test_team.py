@@ -25,7 +25,6 @@ from posthog.api.team import (
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
-from posthog.api.test.batch_exports.conftest import start_test_worker
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog
 from posthog.models.group_type_mapping import (
@@ -44,9 +43,11 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.common.test_utils import start_test_worker
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_instance_realm
 
+from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 
@@ -628,7 +629,12 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(temporal):
+            with start_test_worker(
+                temporal,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+            ):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -674,7 +680,12 @@ def team_api_test_factory():
 
             temporal = sync_connect()
 
-            with start_test_worker(temporal):
+            with start_test_worker(
+                temporal,
+                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                workflows=WORKFLOWS,
+                activities=ACTIVITIES,
+            ):
                 response = self.client.post(
                     f"/api/environments/{team.id}/batch_exports",
                     json.dumps(batch_export_data),
@@ -1615,6 +1626,29 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
+        def test_promoted_product_intent_returns_helper_value(
+            self, mock_get_promoted_product_intent: MagicMock
+        ) -> None:
+            mock_get_promoted_product_intent.return_value = "session_replay"
+
+            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"product_key": "session_replay"}
+            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
+
+        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
+        def test_promoted_product_intent_returns_null_when_helper_returns_none(
+            self, mock_get_promoted_product_intent: MagicMock
+        ) -> None:
+            mock_get_promoted_product_intent.return_value = None
+
+            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")

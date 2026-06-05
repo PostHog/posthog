@@ -12,6 +12,7 @@
  */
 import { Autocomplete } from '@base-ui/react/autocomplete'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconChevronRight } from '@posthog/icons'
@@ -43,6 +44,7 @@ import { TaxonomicDefinitionTypes, TaxonomicFilterGroup, TaxonomicFilterGroupTyp
 import { MenuFilterHeader } from './Header'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, DrillCategory, MenuFilterEntry } from './types'
+import { VerificationBadge } from './VerificationBadge'
 
 // `threshold` + `ignoreDiacritics` come from `createFuse` defaults; we
 // only override what's specific to the menu (keys + the
@@ -294,11 +296,30 @@ export function MenuFilterCombobox({
 
     const filtered = useMemo<MenuFilterEntry[]>(() => {
         const q = searchQuery.trim()
-        const base = q
-            ? createFuse(indexed, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
-                  .search(q)
-                  .map((r) => r.item)
-            : indexed
+        let base: MenuFilterEntry[]
+        if (!q) {
+            base = indexed
+        } else {
+            // The endpoint is the search authority for endpoint-backed
+            // groups (e.g. Cohorts use `name__icontains` server-side, plus
+            // server-side behavioral-cohort exclusion). Re-running the
+            // client Fuse over already-server-searched results filters them
+            // a *second*, fuzzier time — and Fuse scoring isn't monotonic as
+            // the query grows, so a valid match shown for "posthog te" can
+            // vanish at "posthog team". So only Fuse locally-sourced groups
+            // (Actions, etc., which load their full list client-side); pass
+            // server-searched entries through untouched, preserving order.
+            const localSourced = indexed.filter((e) => !e.group.endpoint)
+            const localMatches =
+                localSourced.length > 0
+                    ? new Set(
+                          createFuse(localSourced, FUSE_OPTIONS as Parameters<typeof createFuse<MenuFilterEntry>>[1])
+                              .search(q)
+                              .map((r) => r.item)
+                      )
+                    : null
+            base = indexed.filter((e) => !!e.group.endpoint || (localMatches?.has(e) ?? false))
+        }
         // Promote the committed selection to index 0 so base-ui's
         // `autoHighlight="always"` lands on it the moment the list
         // mounts — keyboard nav starts on the selected row, the
@@ -429,6 +450,12 @@ export function MenuFilterCombobox({
             const idx = ordered.indexOf(activeChip)
             const dir = e.shiftKey ? -1 : 1
             const next = ordered[(idx + dir + ordered.length) % ordered.length]
+            posthog.capture('taxonomic filter menu category changed', {
+                fromChip: activeChip,
+                toChip: next,
+                via: 'tab',
+                direction: e.shiftKey ? 'backward' : 'forward',
+            })
             setActiveChip(next)
             e.preventDefault()
             e.stopPropagation()
@@ -490,6 +517,11 @@ export function MenuFilterCombobox({
                                         <Select<DrillCategory>
                                             value={activeChip}
                                             onValueChange={(value) => {
+                                                posthog.capture('taxonomic filter menu category changed', {
+                                                    fromChip: activeChip,
+                                                    toChip: value ?? 'all',
+                                                    via: 'dropdown',
+                                                })
                                                 setActiveChip(value ?? 'all')
                                                 inputRef.current?.focus()
                                             }}
@@ -505,7 +537,14 @@ export function MenuFilterCombobox({
                                             >
                                                 <SelectValue />
                                             </SelectTrigger>
-                                            <SelectContent align="end">
+                                            {/* Fit the list to its items: at least as wide as the
+                                                trigger, grow to the longest option, capped at the
+                                                available viewport width so it never overflows. */}
+                                            <SelectContent
+                                                align="end"
+                                                alignItemWithTrigger={false}
+                                                className="w-max min-w-(--anchor-width) max-w-(--available-width)"
+                                            >
                                                 <SelectGroup>
                                                     {categoryOptions.map((o) => (
                                                         <SelectItem key={o.value} value={o.value}>
@@ -632,12 +671,12 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 // `data-selected` mirrors base-ui's `highlighted` state via
                 // the render fn below — keyboard / pointer cursor on this
                 // row gets a soft hover tint.
-                'data-[selected]:bg-[var(--fill-hover)]',
+                'data-selected:bg-(--fill-hover)',
                 // Persistent tint for the committed selection. Plain
                 // conditional class — base-ui's `render` override only
                 // forwards its own computed props, so `data-*` extras
                 // passed to `Autocomplete.Item` would be dropped.
-                isSelected && 'bg-[var(--fill-hover)]'
+                isSelected && 'bg-(--fill-hover)'
             )}
             // `id` lives on the rendered `<div>` (not on the Autocomplete.Item
             // props) — base-ui omits `id` from its prop typing because it
@@ -656,6 +695,7 @@ function Row({ entry, showCategory, opensSubmenu, selectedRowId, onCommit }: Row
                 </span>
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-px">{category}</MenuLabel>}
             </div>
+            <VerificationBadge entry={entry} />
             {isSelected && <IconCheck className="size-3.5 text-foreground shrink-0" />}
             {opensSubmenu && <IconChevronRight className="size-3.5 text-tertiary shrink-0" />}
         </Autocomplete.Item>

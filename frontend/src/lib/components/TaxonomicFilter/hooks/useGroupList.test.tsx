@@ -164,6 +164,51 @@ describe('useGroupList', () => {
         })
     })
 
+    describe('clientFilterFirstPage', () => {
+        it('filters the cached first page locally without refetching when the whole list fits one page', async () => {
+            apiGet.mockResolvedValue({
+                results: [{ name: 'Internal team' }, { name: 'Power users' }, { name: 'Zzzbeta' }],
+                count: 3,
+            })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Cohorts,
+                endpoint: 'api/projects/1/cohorts/',
+                clientFilterFirstPage: true,
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.totalResultCount).toBe(3))
+            rerender({ q: 'zzzbeta' })
+            await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Zzzbeta']))
+            // First page covered the whole list — no extra request for the typed query.
+            expect(apiGet).toHaveBeenCalledTimes(1)
+        })
+
+        it('falls back to a server search when the dataset is larger than the cached first page', async () => {
+            const firstPage = Array.from({ length: 100 }, (_, i) => ({ name: `Cohort ${i + 1}` }))
+            apiGet.mockImplementation((url: string) => {
+                if (url.includes('search=needle')) {
+                    return Promise.resolve({ results: [{ name: 'Needle cohort' }], count: 1 })
+                }
+                // Empty-query first page: 100 of 150 total.
+                return Promise.resolve({ results: firstPage, count: 150 })
+            })
+            const group = makeGroup({
+                type: TaxonomicFilterGroupType.Cohorts,
+                endpoint: 'api/projects/1/cohorts/',
+                clientFilterFirstPage: true,
+            })
+            const { result, rerender } = renderHook(({ q }: { q: string }) => useGroupList({ group, searchQuery: q }), {
+                initialProps: { q: '' },
+            })
+            await waitFor(() => expect(result.current.totalResultCount).toBe(150))
+            // "Needle cohort" is not in the first page — only a server search finds it.
+            rerender({ q: 'needle' })
+            await waitFor(() => expect(result.current.items.map((i: any) => i.name)).toEqual(['Needle cohort']))
+        })
+    })
+
     describe('keyword shortcuts', () => {
         it('prepends QuickFilterItems when enabled and group provides shortcuts', () => {
             const shortcut: QuickFilterItem = {

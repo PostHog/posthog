@@ -8,7 +8,9 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
-from posthog.models import Organization, Team, User
+from posthog.models import Cohort, Organization, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -531,6 +533,166 @@ class TestHogFlowAPI(APIBaseTest):
         assert data["code"] == "invalid_input"
         assert data["type"] == "validation_error"
 
+    def test_hog_flow_wait_until_events_filters_bytecode(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "condition": {"filters": None},
+                "max_wait_duration": "5m",
+                "events": [
+                    {
+                        "filters": {
+                            "events": [
+                                {
+                                    "id": "subscription created",
+                                    "name": "subscription created",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [
+                                        {
+                                            "key": "plan",
+                                            "type": "event",
+                                            "value": ["growth"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Wait Events Bytecode",
+            "status": "active",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        events = response.json()["actions"][1]["config"]["events"]
+        assert len(events) == 1
+        filters = events[0]["filters"]
+        assert "bytecode" in filters, filters
+        bytecode = filters["bytecode"]
+        assert "subscription created" in bytecode, bytecode
+        assert "plan" in bytecode, bytecode
+        assert "growth" in bytecode, bytecode
+
+    def test_hog_flow_conversion_events_filters_bytecode(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Conversion Events Bytecode",
+            "status": "active",
+            "actions": [trigger_action],
+            "conversion": {
+                "window_minutes": 60,
+                "events": [
+                    {
+                        "filters": {
+                            "events": [
+                                {
+                                    "id": "purchase completed",
+                                    "name": "purchase completed",
+                                    "type": "events",
+                                    "order": 0,
+                                    "properties": [
+                                        {
+                                            "key": "tier",
+                                            "type": "event",
+                                            "value": ["enterprise"],
+                                            "operator": "exact",
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    },
+                ],
+            },
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        conversion_events = response.json()["conversion"]["events"]
+        assert len(conversion_events) == 1
+        filters = conversion_events[0]["filters"]
+        assert "bytecode" in filters, filters
+        bytecode = filters["bytecode"]
+        assert "purchase completed" in bytecode, bytecode
+        assert "tier" in bytecode, bytecode
+        assert "enterprise" in bytecode, bytecode
+
+    def test_hog_flow_draft_conversion_event_strips_client_supplied_bytecode(self):
+        # A draft with invalid conversion-event filters must not persist client-supplied
+        # bytecode: conversion is not revalidated on a status-only activation, so it would
+        # otherwise activate unvalidated and the matcher would execute it.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Draft Conversion Bytecode Injection",
+            # No status => draft, so invalid filters are tolerated rather than rejected.
+            "actions": [trigger_action],
+            "conversion": {
+                "window_minutes": 60,
+                "events": [
+                    {
+                        "filters": {
+                            # Invalid source fails serializer validation, so the draft branch
+                            # keeps the raw filters - which must not retain the injected bytecode.
+                            "source": "not-a-valid-source",
+                            "bytecode": ["_H", 1, 32, "injected"],
+                        },
+                    },
+                ],
+            },
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        filters = response.json()["conversion"]["events"][0]["filters"]
+        assert "bytecode" not in filters, filters
+
     def test_hog_flow_enable_disable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {
@@ -565,6 +727,7 @@ class TestHogFlowAPI(APIBaseTest):
         return flow_id
 
     def test_mcp_cannot_modify_active_workflow(self):
+        # Active workflows are read-only via MCP for now — editing risks breaking already-scheduled runs.
         flow_id = self._create_active_hog_flow()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -572,7 +735,7 @@ class TestHogFlowAPI(APIBaseTest):
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert response.status_code == 400, response.json()
-        assert "enabled (active) workflow via MCP" in response.json()["detail"]
+        assert "active workflow isn't supported via MCP" in response.json()["detail"]
 
     @parameterized.expand([("disable_to_draft", "draft"), ("archive", "archived")])
     def test_mcp_can_disable_active_workflow(self, _name, target_status):
@@ -635,6 +798,8 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "active"
 
     def test_mcp_cannot_mix_status_with_other_field_updates(self):
+        # Status changes must route through the lifecycle tools — a mixed status + field PATCH is rejected
+        # (here on a draft, so it's the status-mixing guard rather than the active-workflow read-only guard).
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
@@ -688,7 +853,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
 
-        with patch("posthog.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
+        with patch("products.workflows.backend.api.hog_flow.create_hog_flow_invocation_test") as mock_invoke:
             mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
 
             response = self.client.post(
@@ -1038,6 +1203,142 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert response.json()["exit_condition"] == "exit_only_at_end"
 
+    @parameterized.expand(
+        [
+            ("events", {"events": [{"id": "$pageview", "type": "events"}]}),
+            ("actions", {"actions": [{"id": "5", "type": "actions"}]}),
+        ]
+    )
+    def test_hog_flow_batch_trigger_rejects_event_behavior_filters(self, _name, extra_filters):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "batch", "filters": {"properties": [], **extra_filters}},
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_event_filters_rejected_for_mcp_draft(self):
+        # Same draft discriminator as behavioral cohorts: enforced for programmatic callers, lenient for the UI.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {"properties": [], "events": [{"id": "$pageview", "type": "events"}]},
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": "draft", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert "event" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_allows_empty_properties_audience(self):
+        # Empty properties = broadcast to everyone, a legitimate batch audience — must not be rejected.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "batch",
+                "filters": {"properties": []},
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None) -> Cohort:
+        if behavioral:
+            properties = {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": "performed_event",
+                                "event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
+                            }
+                        ],
+                    }
+                ],
+            }
+        elif nested_cohort_id is not None:
+            properties = {
+                "type": "OR",
+                "values": [{"type": "OR", "values": [{"key": "id", "type": "cohort", "value": nested_cohort_id}]}],
+            }
+        else:  # property-based dynamic
+            properties = {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [{"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"}],
+                    }
+                ],
+            }
+        filters = {} if static else {"properties": properties}
+        return Cohort.objects.create(team=self.team, name="c", filters=filters, is_static=static)
+
+    def _post_batch_with_cohort(self, cohort_id: int, *, status: str = "active", trigger_type: str = "batch", **extra):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": trigger_type,
+                "filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}]},
+            },
+        }
+        hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
+
+    @parameterized.expand(["batch", "schedule"])
+    def test_hog_flow_audience_rejects_behavioral_cohort(self, trigger_type: str):
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+        assert response.status_code == 400, response.json()
+        assert "behavior" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_rejects_nested_behavioral_cohort(self):
+        behavioral = self._make_cohort(behavioral=True)
+        wrapper = self._make_cohort(nested_cohort_id=behavioral.pk)
+        response = self._post_batch_with_cohort(wrapper.pk)
+        assert response.status_code == 400, response.json()
+        assert "behavior" in response.json()["detail"].lower()
+
+    @parameterized.expand([("static", {"static": True}), ("property-based", {})])
+    def test_hog_flow_batch_trigger_allows_non_behavioral_cohort(self, _name, cohort_kwargs):
+        cohort = self._make_cohort(**cohort_kwargs)
+        response = self._post_batch_with_cohort(cohort.pk)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_batch_trigger_behavioral_cohort_rejected_for_mcp_draft(self):
+        # Draft is lenient for the UI builder but enforced for programmatic (MCP) callers.
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_batch_with_cohort(cohort.pk, status="draft", HTTP_X_POSTHOG_CLIENT="mcp")
+        assert response.status_code == 400, response.json()
+        assert "behavior" in response.json()["detail"].lower()
+
+    def test_hog_flow_batch_trigger_behavioral_cohort_allowed_for_web_draft(self):
+        # Web UI must be able to save incomplete draft graphs without the guard firing.
+        cohort = self._make_cohort(behavioral=True)
+        response = self._post_batch_with_cohort(cohort.pk, status="draft")
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_user_blast_radius_requires_filters(self):
         with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
             response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/user_blast_radius", {})
@@ -1059,6 +1360,41 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json() == {"affected": 4, "total": 10}
+
+    def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
+        # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
+        # this as a person-count oracle — person:read is also required.
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow only", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": []}},
+            headers={"authorization": f"Bearer {key}"},
+        )
+        assert response.status_code == 403, response.json()
+        assert "person:read" in response.json().get("detail", "")
+
+    def test_user_blast_radius_personal_api_key_with_person_read_scope_allowed(self):
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="hog_flow + person",
+            user=self.user,
+            secure_value=hash_key_value(key),
+            scopes=["hog_flow:read", "person:read"],
+        )
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=1, total=10)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+                headers={"authorization": f"Bearer {key}"},
+            )
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"affected": 1, "total": 10}
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
@@ -1208,15 +1544,7 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_post_hog_flow_batch_jobs_endpoint_creates_job(self, mock_create_invocation):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {
-                "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example.com"}},
-            }
-        )
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert create_response.status_code == 201, create_response.json()
-        flow_id = create_response.json()["id"]
+        flow_id = self._create_active_hog_flow()
 
         batch_job_data = {
             "variables": [{"key": "first_name", "value": "Test"}],
@@ -1230,6 +1558,22 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
 
+    def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
+        # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+            {"variables": [{"key": "first_name", "value": "Test"}]},
+        )
+        assert response.status_code == 400, response.json()
+        assert "active" in response.json()["detail"].lower()
+
     def test_post_hog_flow_batch_jobs_endpoint_nonexistent_flow(self):
         batch_job_data = {"variables": [{"key": "first_name", "value": "Test"}]}
 
@@ -1241,26 +1585,9 @@ class TestHogFlowAPI(APIBaseTest):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_get_hog_flow_batch_jobs_only_returns_jobs_for_flow(self, mock_create_invocation):
-        hog_flow, _ = self._create_hog_flow_with_action(
-            {
-                "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example.com"}},
-            }
-        )
-        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
-        assert create_response.status_code == 201, create_response.json()
-        flow_id = create_response.json()["id"]
-
-        # Create another flow
-        hog_flow_2, _ = self._create_hog_flow_with_action(
-            {
-                "template_id": "template-webhook",
-                "inputs": {"url": {"value": "https://example2.com"}},
-            }
-        )
-        create_response_2 = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow_2)
-        assert create_response_2.status_code == 201, create_response_2.json()
-        flow_id_2 = create_response_2.json()["id"]
+        # Both must be active — the batch_jobs POST is gated on an enabled workflow.
+        flow_id = self._create_active_hog_flow()
+        flow_id_2 = self._create_active_hog_flow()
 
         # Create batch jobs for both flows
         batch_job_data_1 = {"variables": [{"key": "first_name", "value": "Test1"}]}

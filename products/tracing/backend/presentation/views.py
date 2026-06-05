@@ -36,8 +36,10 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
+from ..has_spans_query_runner import team_has_spans
 from ..logic import (
     TraceSpansQueryRunner,
     run_aggregation_query,
@@ -140,6 +142,11 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         required=False,
         help_text="Number of child spans to prefetch per trace (1-100).",
     )
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+    )
 
 
 class _TracingQueryRequestSerializer(serializers.Serializer):
@@ -150,6 +157,11 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last 24 hours.",
+    )
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -268,6 +280,12 @@ class _TracingTreeRequestSerializer(serializers.Serializer):
     query = _TracingTreeQueryBodySerializer(help_text="The span call-tree aggregation query to execute.")
 
 
+class _HasSpansResponseSerializer(serializers.Serializer):
+    hasSpans = serializers.BooleanField(
+        help_text="Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state."
+    )
+
+
 class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "tracing"
     serializer_class = _FallbackSerializer
@@ -295,6 +313,22 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         results = run_service_names_query(team=self.team, date_range=date_range, search=search)
         return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: _HasSpansResponseSerializer})
+    @action(detail=False, methods=["GET"], url_path="has_spans", required_scopes=["tracing:read"])
+    def has_spans(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
+        has_spans = team_has_spans(self.team)
+
+        report_user_action(
+            request.user,
+            "tracing has_spans checked",
+            {"has_spans": has_spans},
+            team=self.team,
+            request=request,
+        )
+
+        return Response({"hasSpans": has_spans}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_TracingQueryRequestSerializer)
     @action(detail=False, methods=["POST"], required_scopes=["tracing:read"])
@@ -331,6 +365,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             after=after_cursor,
             rootSpans=query_data.get("rootSpans", True),
             prefetchSpans=prefetch_spans,
+            excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
@@ -361,6 +396,23 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             next_cursor = base64.b64encode(
                 json.dumps({"timestamp": boundary_ts.isoformat(), "trace_id": boundary_trace_id}).encode("utf-8")
             ).decode("utf-8")
+
+        report_user_action(
+            request.user,
+            "tracing query executed",
+            {
+                "traces_count": len(kept_trace_ids),
+                "spans_count": len(results),
+                "has_more": has_more,
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "status_codes_count": len(query_data.get("statusCodes") or []),
+                "order_by": order_by,
+                "is_paginated": bool(after_cursor),
+            },
+            team=self.team,
+            request=request,
+        )
 
         return Response(
             {
@@ -528,6 +580,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=1000,
             prefetchSpans=2000,
             rootSpans=False,
+            excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)

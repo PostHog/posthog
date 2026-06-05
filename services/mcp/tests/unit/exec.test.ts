@@ -462,6 +462,7 @@ describe('exec tool', () => {
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
                     POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
                 },
@@ -510,6 +511,119 @@ describe('exec tool', () => {
             expect(drilled.field).toBe(firstHintedField)
             expect(drilled.note).toBeUndefined()
             expect(drilled.schema).not.toBeUndefined()
+        })
+
+        // Regression for the reported bug: `schema query-trends series` resolves to an
+        // array-of-union node that overflows the inline budget. The summarizer used to
+        // walk only `properties`, so it returned `{ type: 'array', properties: {} }` —
+        // an empty schema that hid the EventsNode/ActionsNode/GroupNode variants and
+        // forced callers onto the prose examples instead. The series item shapes must
+        // now be visible in the summary.
+        it('eval: query-trends series drill-down exposes the item variant shapes (not an empty array)', async () => {
+            const context: Context = {
+                api: {} as any,
+                cache: {} as any,
+                env: {
+                    MCP_APPS_BASE_URL: undefined,
+                    POSTHOG_ANALYTICS_API_KEY: undefined,
+                    POSTHOG_ANALYTICS_HOST: undefined,
+                    POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
+                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+                    POSTHOG_UI_APPS_TOKEN: undefined,
+                },
+                stateManager: {
+                    getApiKey: async () => ({ scopes: ['*'] }),
+                    getAiConsentGiven: async () => true,
+                } as any,
+                sessionManager: new SessionManager({} as any),
+                getDistinctId: async () => 'test-distinct-id',
+                trackEvent: async () => {},
+            }
+            const v2Tools = await getToolsFromContext(context)
+            const exec = createExecTool(v2Tools, context, 'test', 'test', undefined)
+
+            const drilled = JSON.parse(
+                (await exec.handler(context, { command: 'schema query-trends series' })) as string
+            ) as {
+                field?: string
+                schema?: {
+                    type?: string
+                    items?: { variants?: Array<{ properties?: Record<string, unknown> }> }
+                }
+            }
+
+            expect(drilled.field).toBe('series')
+            expect(drilled.schema?.type).toBe('array')
+            // The historical bug returned `{ type: "array", properties: {} }` with no
+            // `items` at all. The item schema — here a summarized union of variants —
+            // must now be present, and the variants must carry real field names. The old
+            // empty output exposes none of these keys, so this fails on a regression.
+            const variants = drilled.schema?.items?.variants
+            expect(variants?.length).toBeGreaterThan(0)
+            const variantFields = variants!.flatMap((v) => Object.keys(v.properties ?? {}))
+            expect(variantFields).toContain('kind')
+            expect(variantFields).toContain('event')
+        })
+    })
+
+    describe('search command', () => {
+        it('returns a plain array of matching tool names', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExec([flagTool])
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
+        })
+
+        it('rejects an overly long search pattern before compiling the regex', async () => {
+            const exec = createExec([makeMockTool()])
+            const longPattern = 'a'.repeat(201)
+            await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
+                /pattern too long/i
+            )
+        })
+
+        it('hints scope-gated tools that match but are hidden by missing scopes', async () => {
+            const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'external-data-sources-refresh-schemas',
+                    title: 'Refresh available schemas',
+                    description: 'Fetch the latest table list from the remote database',
+                    missingScopes: ['external_data_source:write'],
+                },
+                {
+                    name: 'external-data-schemas-list',
+                    title: 'List data import schemas',
+                    description: 'List all table schemas',
+                    missingScopes: ['external_data_source:read'],
+                },
+            ])
+            const result = JSON.parse(
+                (await exec.handler(mockContext, {
+                    command: 'search external-data-sources|external-data-schemas',
+                })) as string
+            )
+            expect(result.matches).toEqual([])
+            expect(result.scope_gated_matches).toEqual([
+                { name: 'external-data-sources-refresh-schemas', missing_scopes: ['external_data_source:write'] },
+                { name: 'external-data-schemas-list', missing_scopes: ['external_data_source:read'] },
+            ])
+            expect(result.hint).toContain('external_data_source:read')
+            expect(result.hint).toContain('external_data_source:write')
+        })
+
+        it('does not hint scope-gated tools that do not match the query', async () => {
+            const flagTool = makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' })
+            const exec = createExecTool([flagTool], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'external-data-schemas-list',
+                    title: 'List data import schemas',
+                    description: 'List all table schemas',
+                    missingScopes: ['external_data_source:read'],
+                },
+            ])
+            const result = await exec.handler(mockContext, { command: 'search feature-flag' })
+            expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
     })
 
@@ -572,6 +686,7 @@ describe('exec tool', () => {
                     POSTHOG_ANALYTICS_API_KEY: undefined,
                     POSTHOG_ANALYTICS_HOST: undefined,
                     POSTHOG_API_BASE_URL: undefined,
+                    POSTHOG_PUBLIC_URL: undefined,
                     POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
                     POSTHOG_UI_APPS_TOKEN: undefined,
                 },
