@@ -71,3 +71,34 @@ class TestExtractionFailureDoesNotCleanupS3:
                 await pipeline.run()
 
         s3_writer.cleanup.assert_not_called()
+
+
+class TestFullRefreshDefersTableClearToLoad:
+    @pytest.mark.asyncio
+    async def test_v3_full_refresh_does_not_delete_s3_on_extract(self) -> None:
+        # drives the real handle_reset_or_full_refresh: v3 must ask reset_table to skip the racy
+        # S3 delete (delete_s3_data=False) and let the load's overwrite clear instead
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        pipeline = _make_pipeline()
+        pipeline._schema.sync_type = ExternalDataSchema.SyncType.FULL_REFRESH
+        reset_table = AsyncMock()
+        cast(MagicMock, pipeline._delta_table_helper).reset_table = reset_table
+        # stop run() right after reset/full-refresh handling so we don't drive extraction
+        cast(MagicMock, pipeline._resource).items.side_effect = RuntimeError("stop after reset handling")
+
+        module = "posthog.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+        extract = "posthog.temporal.data_imports.pipelines.common.extract"
+        with (
+            patch(f"{module}.cdp_producer_clear_chunks", new=AsyncMock()),
+            patch(f"{module}.reset_rows_synced_if_needed", new=AsyncMock()),
+            patch(f"{module}.setup_row_tracking_with_billing_check", new=AsyncMock()),
+            patch(f"{extract}.database_sync_to_async_pool", new=lambda fn: AsyncMock()),
+            patch(f"{module}.activity") as mock_activity,
+        ):
+            mock_activity.in_activity.return_value = False
+
+            with pytest.raises(RuntimeError, match="stop after reset handling"):
+                await pipeline.run()
+
+        reset_table.assert_awaited_once_with(delete_s3_data=False)
