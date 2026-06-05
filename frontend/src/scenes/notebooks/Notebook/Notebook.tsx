@@ -21,11 +21,7 @@ import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
 import { AddExperimentsToNotebookModal } from '../AddExperimentsToNotebookModal/AddExperimentsToNotebookModal'
 import { AddInsightsToNotebookModal } from '../AddInsightsToNotebookModal/AddInsightsToNotebookModal'
 import { Editor } from './Editor'
-import {
-    buildMarkdownNotebookContent,
-    convertNotebookContentToMarkdown,
-    isMarkdownNotebookContent,
-} from './markdownNotebookV2'
+import { isMarkdownNotebookContent } from './markdownNotebookV2'
 import { MarkdownNotebookV2 } from './MarkdownNotebookV2Renderer'
 import { NotebookCollabConflictModal } from './NotebookCollabConflictModal'
 import { NotebookColumnLeft } from './NotebookColumnLeft'
@@ -34,6 +30,7 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
+import { openUpgradeToMarkdownNotebookDialog } from './notebookUpgradeDialog'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -115,7 +112,7 @@ export function Notebook({
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        setLocalContent(buildMarkdownNotebookContent(convertNotebookContentToMarkdown(content)))
+        openUpgradeToMarkdownNotebookDialog({ content, setLocalContent })
     }
 
     return (
@@ -170,7 +167,7 @@ export function Notebook({
                     {isEditable && !isMarkdownNotebook && canUpgradeToMarkdownNotebooks ? (
                         <div className="Notebook__top-actions">
                             <LemonButton type="secondary" onClick={upgradeToMarkdownNotebook}>
-                                Upgrade to Markdown Notebooks
+                                Convert to Markdown notebooks
                             </LemonButton>
                         </div>
                     ) : null}

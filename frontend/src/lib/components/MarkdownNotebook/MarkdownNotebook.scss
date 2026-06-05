@@ -128,6 +128,7 @@
 }
 
 .MarkdownNotebook__text-row--inline-menu-visible .MarkdownNotebook__line-insert-menu-button:hover,
+.MarkdownNotebook__line-insert-menu-button[aria-expanded='true'],
 .MarkdownNotebook__line-insert-menu-button:focus-visible {
     pointer-events: auto;
     opacity: 1;
@@ -235,7 +236,11 @@
 }
 
 .MarkdownNotebook__text-block--invalid-insert-filter {
-    color: var(--danger);
+    color: inherit;
+    text-decoration: underline wavy var(--danger);
+    text-decoration-thickness: 0.08em;
+    text-underline-offset: 0.2em;
+    text-decoration-skip-ink: none;
 }
 
 .MarkdownNotebook__text-block:empty::before {
@@ -636,7 +641,8 @@ h3.MarkdownNotebook__text-block--heading {
     outline: none;
 }
 
-.MarkdownNotebook__component-shell:focus::after {
+.MarkdownNotebook__component-shell:focus::after,
+.MarkdownNotebook__component-shell--selected::after {
     position: absolute;
     inset: 0;
     z-index: var(--z-raised);
@@ -644,6 +650,11 @@ h3.MarkdownNotebook__text-block--heading {
     content: '';
     border-radius: inherit;
     box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--color-blue-500) 70%, var(--color-bg-surface-primary));
+}
+
+.MarkdownNotebook__component-shell--selected,
+.MarkdownNotebook__component-shell--selected * {
+    user-select: none;
 }
 
 .MarkdownNotebook__component-shell:focus-visible {
