@@ -1076,7 +1076,13 @@ jobs:
               # rotation, app misconfig) must not redden check-migrations
               # when migration validation itself passed. On failure the
               # token output is empty and the publish step below is skipped.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+              #
+              # !cancelled(), not always(): a cancelled run (concurrency
+              # cancel-in-progress supersedes it with a newer run on the same
+              # ref) must not mint a token or publish a verdict — the
+              # superseding run will. See the publish step below. (Wrapped in
+              # ${{ }} because a leading ! is a YAML tag indicator.)
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
               id: migration-risk-app-token
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -1095,11 +1101,20 @@ jobs:
               # Published via the posthog-tests app token (see the token step
               # above) so the check lands in that app's own check suite.
               #
-              # Always published — even with zero migrations to analyze, or
-              # when the analyzer crashed — so every PR ends up with a
+              # Published on success or genuine failure (including an analyzer
+              # crash, or zero migrations to analyze) so every PR ends up with a
               # definitive verdict on its head SHA. Consumers can then treat
               # "no completed check yet" purely as "CI hasn't finished" and
               # don't need a fallback heuristic.
+              #
+              # !cancelled(), not always(): a cancelled job leaves no
+              # migration_analysis.json (the analyzer step is skipped), so an
+              # always() publish would stamp a spurious "❌ Analyzer failed".
+              # Cancellation here means concurrency cancel-in-progress
+              # superseded this run with a newer one on the same ref — that
+              # run publishes the real verdict on the same head SHA. Skipping
+              # on cancel avoids the false failure; genuine crashes (job
+              # failed, not cancelled) still publish a definitive verdict.
               #
               # Skipped on PRs from forks: the app token can't be minted there
               # (secrets are withheld from fork-triggered workflows), so the
@@ -1111,7 +1126,9 @@ jobs:
               # Also skipped when the token step failed: its output is then
               # empty and the check-runs POST would 401 and redden the job
               # for a reason unrelated to migration validation.
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != ''
+              #
+              # (Wrapped in ${{ }} because a leading ! is a YAML tag indicator.)
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false && steps.migration-risk-app-token.outputs.token != '' }}
               env:
                   GITHUB_TOKEN: ${{ steps.migration-risk-app-token.outputs.token }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
