@@ -1,17 +1,21 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+import { BarChart, ValueLabels } from '@posthog/quill-charts'
+import type { BarChartConfig, PointClickData, Series, TooltipContext } from '@posthog/quill-charts'
 
+import { buildTheme } from 'lib/charts/utils/theme'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { hexToRGBA } from 'lib/utils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
+import {
+    computeBarColors,
+    resolveRatingClick,
+} from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 import { StackedBar, StackedBarSegment, StackedBarSkeleton } from 'scenes/surveys/components/StackedBar'
 import {
@@ -37,9 +41,6 @@ import {
     ChartDisplayType,
     ChoiceQuestionProcessedResponses,
     EventPropertyFilter,
-    GraphPointPayload,
-    GraphType,
-    InsightLogicProps,
     PropertyFilterType,
     PropertyOperator,
     RatingSurveyQuestion,
@@ -47,10 +48,6 @@ import {
     SurveyEventName,
     SurveyEventProperties,
 } from '~/types'
-
-const insightProps: InsightLogicProps = {
-    dashboardItemId: `new-survey`,
-}
 
 function createNPSTrendSeries(
     values: string[],
@@ -512,7 +509,7 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
     const { data } = processedData
     const npsBreakdown = calculateNpsBreakdownFromProcessedData(processedData)
     const thumbsBreakdown = isThumbQuestion(question) ? calculateThumbsBreakdown(processedData) : null
-    const chartLabels = CHART_LABELS?.[question.scale] || ['1', '2', '3']
+    const chartLabels = useMemo(() => CHART_LABELS?.[question.scale] || ['1', '2', '3'], [question.scale])
     const isNpsRatingQuestion = question.scale === 10 && question.isNpsQuestion !== false
     const emptyRatingLabels = chartLabels.filter((_label, index) => (data[index]?.value ?? 0) === 0)
     const totalResponses = data.reduce((sum, entry) => sum + entry.value, 0)
@@ -524,10 +521,6 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
             })),
         [data, totalResponses]
     )
-
-    const tooltipCountLabel = (value: number): JSX.Element => {
-        return <span className="font-semibold tabular-nums">{value}</span>
-    }
 
     const responseFilterKey = question.id ? getSurveyIdBasedResponseKey(question.id) : null
 
@@ -557,19 +550,79 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
 
     const highlightedRatingLabel = activeRatingLabel
 
-    const ratingBarColors = useMemo((): string[] => {
-        return chartLabels.map((label) => {
-            const baseColor = isNpsRatingQuestion
-                ? NPS_BUCKET_COLORS[getNpsBucketByRatingLabel(label).bucket]
-                : barColor
+    const theme = useMemo(() => buildTheme(), [])
 
-            if (!highlightedRatingLabel || label === highlightedRatingLabel) {
-                return baseColor
-            }
+    const ratingBaseColors = useMemo(
+        () =>
+            chartLabels.map((label) =>
+                isNpsRatingQuestion ? NPS_BUCKET_COLORS[getNpsBucketByRatingLabel(label).bucket] : barColor
+            ),
+        [chartLabels, isNpsRatingQuestion, barColor]
+    )
 
-            return hexToRGBA(baseColor, activeRatingLabel ? 0.22 : 0.35)
-        })
-    }, [activeRatingLabel, barColor, chartLabels, highlightedRatingLabel, isNpsRatingQuestion])
+    const ratingBarColors = useMemo(
+        () => computeBarColors(ratingBaseColors, chartLabels, highlightedRatingLabel, !!activeRatingLabel),
+        [ratingBaseColors, chartLabels, highlightedRatingLabel, activeRatingLabel]
+    )
+
+    const series = useMemo<Series[]>(
+        () => [
+            {
+                key: 'survey-rating',
+                label: 'Number of responses',
+                data: chartLabels.map((_, i) => data[i]?.value ?? 0),
+                color: ratingBarColors[0],
+                bars: chartLabels.map((_, i) => ({ color: ratingBarColors[i] })),
+            },
+        ],
+        [chartLabels, data, ratingBarColors]
+    )
+
+    const config = useMemo<BarChartConfig>(
+        () => ({
+            hideYAxis: true,
+            bars: { bandPadding: 0.2 },
+        }),
+        []
+    )
+
+    const valueLabelFormatter = (value: number): string => {
+        const total = totalResponses || 1
+        const percentage = ((value / total) * 100).toFixed(1)
+        return `${value} (${percentage}%)`
+    }
+
+    const renderTooltip = (ctx: TooltipContext): JSX.Element => {
+        const ratingLabel = chartLabels[ctx.dataIndex] ?? String(ctx.dataIndex + 1)
+        const context = tooltipContextByIndex[ctx.dataIndex]
+        const value = ctx.seriesData[0]?.value ?? 0
+        const npsBucket = isNpsRatingQuestion ? getNpsBucketByRatingLabel(ratingLabel) : null
+
+        let inspectLabel = 'Click to filter'
+        if (activeRatingLabel && ratingLabel === activeRatingLabel) {
+            inspectLabel = 'Click to clear filter'
+        } else if (activeRatingLabel) {
+            inspectLabel = 'Click to switch filter'
+        }
+
+        return (
+            <div className="bg-surface-primary border rounded-md shadow-md px-3 py-2 text-sm">
+                <div className="flex items-center gap-2 leading-tight">
+                    <span className="font-semibold">Rating {ratingLabel}</span>
+                    {npsBucket && (
+                        <span className={`text-xs ${NPS_BUCKET_TEXT_CLASS[npsBucket.bucket]}`}>{npsBucket.label}</span>
+                    )}
+                </div>
+                <div className="text-xs text-secondary leading-tight mt-0.5">
+                    <span className="font-semibold tabular-nums text-primary">{value}</span> responses
+                    <span className="mx-1 text-muted-alt">•</span>
+                    <span className="font-semibold text-primary">{context?.respondentPercentage ?? '0.0'}%</span>{' '}
+                    respondents
+                </div>
+                <div className="text-xs text-muted mt-1">{inspectLabel}</div>
+            </div>
+        )
+    }
 
     const upsertRatingAnswerFilter = (ratingLabel: string | null): void => {
         if (!responseFilterKey) {
@@ -603,21 +656,17 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
         setAnswerFilters(updatedFilters)
     }
 
-    const handleRatingBarClick = ({ index }: GraphPointPayload): void => {
+    const handleRatingBarClick = ({ dataIndex }: PointClickData): void => {
         if (!responseFilterKey) {
             return
         }
 
-        const clickedRatingLabel = chartLabels[index]
+        const clickedRatingLabel = chartLabels[dataIndex]
         if (!clickedRatingLabel) {
             return
         }
 
-        if (activeRatingLabel === clickedRatingLabel) {
-            upsertRatingAnswerFilter(null)
-        } else {
-            upsertRatingAnswerFilter(clickedRatingLabel)
-        }
+        upsertRatingAnswerFilter(resolveRatingClick(activeRatingLabel, clickedRatingLabel))
     }
 
     if (isThumbQuestion(question)) {
@@ -629,86 +678,17 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
             <div className="flex flex-col gap-1">
                 <div className="h-50 border rounded pt-8">
                     <div className="relative h-full w-full">
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <LineGraph
-                                inSurveyView={true}
-                                hideYAxis={true}
-                                showValuesOnSeries={true}
-                                labelGroupType={1}
-                                data-attr="survey-rating"
-                                type={GraphType.Bar}
-                                hideAnnotations={true}
-                                formula="-"
-                                onClick={handleRatingBarClick}
-                                tooltip={{
-                                    showHeader: false,
-                                    hideColorCol: true,
-                                    groupTypeLabel: 'responses',
-                                    getInspectLabel: (referenceDatum) => {
-                                        const hoveredRatingLabel = referenceDatum
-                                            ? (chartLabels[referenceDatum.dataIndex] ?? null)
-                                            : null
-
-                                        if (activeRatingLabel && hoveredRatingLabel === activeRatingLabel) {
-                                            return 'Click to clear filter'
-                                        }
-
-                                        if (activeRatingLabel) {
-                                            return 'Click to switch filter'
-                                        }
-
-                                        return 'Click to filter'
-                                    },
-                                    renderSeries: (_value, datum) => {
-                                        const ratingLabel = chartLabels[datum.dataIndex] ?? String(datum.dataIndex + 1)
-                                        const context = tooltipContextByIndex[datum.dataIndex]
-                                        const npsBucket = isNpsRatingQuestion
-                                            ? getNpsBucketByRatingLabel(ratingLabel)
-                                            : null
-
-                                        return (
-                                            <div className="space-y-0.5">
-                                                <div className="flex items-center gap-2 leading-tight">
-                                                    <span className="font-semibold">Rating {ratingLabel}</span>
-                                                    {npsBucket && (
-                                                        <span
-                                                            className={`text-xs ${NPS_BUCKET_TEXT_CLASS[npsBucket.bucket]}`}
-                                                        >
-                                                            {npsBucket.label}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="text-xs text-secondary leading-tight">
-                                                    <span className="font-semibold text-primary">
-                                                        {context?.respondentPercentage ?? '0.0'}%
-                                                    </span>{' '}
-                                                    respondents
-                                                </div>
-                                            </div>
-                                        )
-                                    },
-                                    renderCount: tooltipCountLabel,
-                                }}
-                                datasets={[
-                                    {
-                                        id: 1,
-                                        label: 'Number of responses',
-                                        barPercentage: 0.8,
-                                        data: data.map((d) => d.value),
-                                        labels: chartLabels,
-                                        backgroundColor: ratingBarColors,
-                                        borderColor: ratingBarColors,
-                                        hoverBackgroundColor: ratingBarColors,
-                                    },
-                                ]}
-                                labels={chartLabels}
-                                datalabelFormatter={(value) => {
-                                    const total = totalResponses || 1
-                                    const percentage = ((value / total) * 100).toFixed(1)
-                                    return `${value} (${percentage}%)`
-                                }}
-                            />
-                        </BindLogic>
+                        <BarChart
+                            series={series}
+                            labels={chartLabels}
+                            config={config}
+                            theme={theme}
+                            tooltip={renderTooltip}
+                            onPointClick={handleRatingBarClick}
+                            dataAttr="survey-rating"
+                        >
+                            <ValueLabels valueFormatter={valueLabelFormatter} />
+                        </BarChart>
                     </div>
                 </div>
                 <div className="flex flex-row justify-between">

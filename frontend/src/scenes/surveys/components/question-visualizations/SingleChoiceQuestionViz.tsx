@@ -1,52 +1,69 @@
 import clsx from 'clsx'
-import { BindLogic } from 'kea'
+import { useMemo } from 'react'
 
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
+
+import { buildTheme } from 'lib/charts/utils/theme'
 import { CHART_INSIGHTS_COLORS } from 'scenes/surveys/components/question-visualizations/util'
 
-import { ChoiceQuestionProcessedResponses, GraphType, InsightLogicProps, MultipleSurveyQuestion } from '~/types'
-
-const insightProps: InsightLogicProps = {
-    dashboardItemId: `new-survey`,
-}
+import { ChoiceQuestionProcessedResponses, MultipleSurveyQuestion } from '~/types'
 
 interface Props {
     question: MultipleSurveyQuestion
     processedData: ChoiceQuestionProcessedResponses
 }
 
+const PIE_CONFIG: PieChartConfig = {
+    showValueOnSlice: true,
+}
+
+function SingleChoiceTooltip({ ctx }: { ctx: TooltipContext }): JSX.Element | null {
+    const entry = ctx.seriesData[0]
+    if (!entry) {
+        return null
+    }
+    const percentage = ((entry.fraction ?? 0) * 100).toFixed(1)
+
+    return (
+        <div className="bg-surface-primary border rounded-md shadow-md px-3 py-2 text-sm">
+            <div className="font-semibold leading-tight">{entry.series.label}</div>
+            <div className="text-xs text-secondary leading-tight mt-0.5">
+                <span className="font-semibold tabular-nums text-primary">{entry.value}</span> responses
+                <span className="mx-1 text-muted-alt">•</span>
+                <span className="font-semibold text-primary">{percentage}%</span> of total
+            </div>
+        </div>
+    )
+}
+
 export function SingleChoiceQuestionViz({
     question,
     processedData: { data, totalResponses },
 }: Props): JSX.Element | null {
+    const theme = useMemo(() => buildTheme(), [])
+
+    const series = useMemo<Series[]>(
+        () =>
+            data.map((d, i) => ({
+                key: `${i}`,
+                label: d.label,
+                data: [d.value],
+                color: CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length],
+            })),
+        [data]
+    )
+
     return (
         <div className="h-80 overflow-y-auto border rounded pt-4 pb-2 flex">
             <div className="relative h-full w-80">
-                <BindLogic logic={insightLogic} props={insightProps}>
-                    <PieChart
-                        labelGroupType={1}
-                        data-attr="survey-rating"
-                        type={GraphType.Pie}
-                        hideAnnotations={true}
-                        formula="-"
-                        tooltip={{
-                            showHeader: false,
-                            hideColorCol: true,
-                        }}
-                        datasets={[
-                            {
-                                id: 1,
-                                data: data.map((d: { value: number }) => d.value),
-                                labels: data.map((d: { label: string }) => d.label),
-                                backgroundColor: data.map(
-                                    (_: any, i: number) => CHART_INSIGHTS_COLORS[i % CHART_INSIGHTS_COLORS.length]
-                                ),
-                            },
-                        ]}
-                        labels={data.map((d: { label: string }) => d.label)}
-                    />
-                </BindLogic>
+                <PieChart
+                    series={series}
+                    theme={theme}
+                    config={PIE_CONFIG}
+                    tooltip={(ctx) => <SingleChoiceTooltip ctx={ctx} />}
+                    dataAttr="survey-rating"
+                />
             </div>
             <div
                 className={clsx(
