@@ -40,6 +40,9 @@ CODEOWNERS @PostHog/team-security
 .github/workflows/pr-approval-agent.yml @PostHog/team-security
 tools/pr-approval-agent/** @PostHog/team-security
 
+# Error Tracking team owns the PostHog CLI upload flows
+cli/** @PostHog/team-error-tracking
+
 # Ingestion team owns persons migrations
 rust/persons_migrations/** @PostHog/team-ingestion
 
