@@ -25331,6 +25331,12 @@ class LogsQuery(BaseModel):
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
+    excludeAttributes: bool | None = Field(
+        default=None,
+        description=(
+            "Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact"
+        ),
+    )
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
     limit: int | None = None
