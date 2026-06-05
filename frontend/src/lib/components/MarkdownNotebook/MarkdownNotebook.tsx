@@ -321,6 +321,7 @@ export function MarkdownNotebook({
             if (element) {
                 element.focus()
                 restoreSelection(element, request.start, request.end)
+                dispatchSelectionChange()
             }
             return
         }
@@ -988,6 +989,7 @@ export function MarkdownNotebook({
             return
         }
 
+        restoreSelectionRef.current = activeSelectionRange
         updateNode(activeSelectionRange.nodeId, (node) => {
             if (!isTextBlockNode(node)) {
                 return node
@@ -997,7 +999,6 @@ export function MarkdownNotebook({
                 children: toggleInlineMark(node.children, activeSelectionRange, markType),
             }
         })
-        restoreSelectionRef.current = activeSelectionRange
     }
 
     const applyInlineLink = (href: string | null): void => {
@@ -1006,6 +1007,7 @@ export function MarkdownNotebook({
             return
         }
 
+        restoreSelectionRef.current = activeSelectionRange
         updateNode(activeSelectionRange.nodeId, (node) => {
             if (!isTextBlockNode(node)) {
                 return node
@@ -1015,7 +1017,6 @@ export function MarkdownNotebook({
                 children: setInlineLinkMark(node.children, activeSelectionRange, href),
             }
         })
-        restoreSelectionRef.current = activeSelectionRange
     }
 
     const setBlockStyle = (nodeId: string, style: 'paragraph' | 'blockquote' | 1 | 2 | 3): void => {
@@ -4759,12 +4760,16 @@ function getSelectionRange(element: HTMLElement, nodeId: string): NotebookTextSe
 }
 
 function getSelectionClientRect(range: Range): DOMRect | null {
+    if (typeof range.getBoundingClientRect !== 'function') {
+        return null
+    }
+
     const rect = range.getBoundingClientRect()
     if (rect.width || rect.height) {
         return rect
     }
 
-    return range.getClientRects()[0] ?? null
+    return typeof range.getClientRects === 'function' ? (range.getClientRects()[0] ?? null) : null
 }
 
 function getCollapsedSelectionRange(element: HTMLElement, nodeId: string): NotebookTextSelectionRange | null {
@@ -4795,6 +4800,10 @@ function restoreSelection(element: HTMLElement, start: number, end: number): voi
     range.setEnd(endPosition.node, endPosition.offset)
     selection.removeAllRanges()
     selection.addRange(range)
+}
+
+function dispatchSelectionChange(): void {
+    window.document.dispatchEvent(new Event('selectionchange'))
 }
 
 function getNotebookBlockCaretRangeFromPoint(

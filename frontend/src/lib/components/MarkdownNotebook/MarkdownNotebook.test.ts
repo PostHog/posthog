@@ -1060,6 +1060,37 @@ Third paragraph`,
         expect(container.querySelector('input[aria-label="Link URL"]')).toBeNull()
     })
 
+    it('keeps the formatting toolbar available after adding or removing a link on the row', () => {
+        const { container } = render(createElement(MarkdownNotebook, { value: 'PostHog docs' }))
+        const textBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+
+        selectTextNode(getFirstTextNode(textBlock), 0, 7, true)
+        fireEvent.click(container.querySelector('button[aria-label="Link"]') as HTMLButtonElement)
+
+        const linkInput = container.querySelector('input[aria-label="Link URL"]') as HTMLInputElement
+        fireEvent.change(linkInput, { target: { value: 'https://posthog.com/docs' } })
+        fireEvent.keyDown(linkInput, { key: 'Enter' })
+
+        const textAfterLink = textBlock.lastChild
+        expect(textAfterLink).toBeInstanceOf(Text)
+
+        selectTextNode(textAfterLink as Text, 1, 5, true)
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
+
+        selectTextNode(textBlock.querySelector('a')?.firstChild as Text, 0, 7, true)
+        fireEvent.click(container.querySelector('button[aria-label="Link"]') as HTMLButtonElement)
+        fireEvent.click(
+            Array.from(container.querySelectorAll('.MarkdownNotebook__format-link-editor button')).find(
+                (button) => button.textContent === 'Remove'
+            ) as HTMLButtonElement
+        )
+
+        selectTextNode(getFirstTextNode(textBlock), 0, 7, true)
+
+        expect(container.querySelector('.MarkdownNotebook__format-toolbar')).toBeInstanceOf(HTMLElement)
+    })
+
     it('deletes selected text when pressing Enter and splits at the selection', () => {
         const onChange = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: 'Hello selected text tail', onChange }))
