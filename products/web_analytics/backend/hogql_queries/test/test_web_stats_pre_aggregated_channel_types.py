@@ -399,7 +399,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
 
         # Verify both queries used their respective query engines
         assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-        assert regular_response.preComputeStrategy != WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert regular_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
         actual_sorted = sorted(preagg_response.results, key=lambda x: x[0])
         expected_sorted = sorted(regular_response.results, key=lambda x: x[0])
@@ -427,7 +427,7 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
 
         # Verify that pre-aggregated tables were used
         assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-        assert regular_response.preComputeStrategy != WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert regular_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
         preagg_result = preagg_response.results[0]
         regular_result = regular_response.results[0]

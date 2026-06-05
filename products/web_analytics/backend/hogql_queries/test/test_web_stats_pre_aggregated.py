@@ -432,7 +432,7 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
 
                 # Verify both queries used their respective query engines
                 assert preagg_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
-                assert regular_response.preComputeStrategy != WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+                assert regular_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LIVE
 
                 assert self._sort_results(preagg_response.results) == self._sort_results(regular_response.results)
 

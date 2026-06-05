@@ -5423,6 +5423,7 @@ export interface WebPageURLSearchQueryResponse extends AnalyticsQueryResponseBas
     results: PageURL[]
     hasMore?: boolean
     limit?: integer
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
 }
 
 export type CachedWebPageURLSearchQueryResponse = CachedQueryResponse<WebPageURLSearchQueryResponse>
