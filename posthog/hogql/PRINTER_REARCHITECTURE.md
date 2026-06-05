@@ -502,9 +502,19 @@ Per §12.8, the new path reproduces master's **results** everywhere. **Any diver
 
 ### 13.7 Status / what to build
 
-- **Build:** the differential shadow-compare — test-mode (`if TEST` at the compile boundary) first; the Celery production shadow second.
+- **Build:** the differential shadow-compare — test-mode (env-gated hook at the compile boundary) **BUILT** (`differential.py` + `prepare_and_print_ast` hook + `run_shadow_differential.py`, commit `09d756bd`); the Celery production shadow second (task #17).
 - **Remove:** the committed reachability-oracle scaffolding (`posthog/hogql/printer/test/reachability_oracle.py`, `run_reachability_oracle.py`, the baseline report) as part of the restructure.
 - **Keep:** the characterization corpus, the execution + skip-index net, the `JSONFieldAccess` node + leaf renderers, the logical-lowering pass, the ClickHouse physical passes, and the gated flip — these are the real work; only the oracle apparatus changes.
+
+### 13.8 Reading a test-mode sweep: the divergence taxonomy
+
+The first suite-wide sweep (`run_shadow_differential.py` over `test_printer.py`): **267 compiles, 256 byte-identical, 0 fail-loud errors, 10 result-equivalent divergences, 0 production regressions.** Test-sweep divergences fall into three buckets — only the third is a bug:
+
+1. **§8.7 result-equivalent churn (expected, not a bug).** The ClickHouse physical pass deliberately emits result-equivalent AST where the old printer string-built a form no clean AST reproduces: parameterized scrub sentinels (`nullIf(nullIf(col, %(v)s), %(v)s)` vs the printer's inline `nullIf(nullIf(col, ''), 'null')`), and `if(has(g,k), g[k], NULL)` vs the printer's `has(g,k) ? g[k] : null` ternary. Same results, same skip-index eligibility. Adjudicated PASS by result+index comparison (the execution net §9.4 / the prod shadow). Driving these to byte-identity is **optional efficiency** work — a byte-identical pair lets the prod shadow skip execution — not a correctness fix.
+2. **Strangler-transitional mock-binding artifacts (expected, not a bug).** A test that patches the *old* path's module binding — e.g. `@patch("posthog.hogql.printer.base.get_materialized_column_for_property")` — does **not** patch the new path, which imports the same symbol into `clickhouse_physical_passes`' own namespace (both bind it from the same source `posthog.clickhouse.materialized_columns`). So the old path sees the mocked materialized column and the new path sees the real (absent) one and falls back to the JSON blob. This is a **test-environment divergence only**: in production (no mocks) both call the same real resolver and agree. It vanishes when the old path is deleted (§13.4 / task #15) and the tests move to mock the sole remaining path. The **prod shadow is authoritative** for materialized-column resolution; the test sweep is not.
+3. **A real regression (a bug to fix toward master — §13.6).** Results differ, OR skip-index eligibility differs under *real* (unmocked) resolution. The `test_printer.py` sweep found none.
+
+Consequence: the test-mode sweep is a strong gate for **unmaterialized parity** (byte-identity over everything the suite compiles) and for **fail-loud gaps** (errors), but it is **noisy for materialized cases** (buckets 1–2). Materialized result+index parity is gated by the execution net (§9.4, real data, no mocks) and ultimately the prod shadow (§13.2, real traffic, no mocks). Do not chase bucket-1/2 divergences as regressions; do triage every error and every *unmaterialized* divergence.
 
 ### 12.8 Behavior-preservation policy (applies to every PR)
 
