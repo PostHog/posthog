@@ -6,12 +6,12 @@ export const WIDGET_LIST_ORDER_DIRECTION_OPTIONS = [
     { value: 'ASC', label: 'Ascending' },
 ] as const
 
-/** Debounce before PATCHing tile config after on-tile filter edits (run_widgets refresh). */
-export const WIDGET_TILE_REFRESH_DEBOUNCE_MS = 300
-
 /** Shown on widget tile filter controls when the viewer cannot edit the dashboard. */
 export const DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
+
+/** Debounce before PATCHing tile config after on-tile filter edits (run_widgets refresh). */
+export const WIDGET_TILE_REFRESH_DEBOUNCE_MS = 300
 
 const WIDGET_FETCH_ERROR_PASSTHROUGH_PREFIXES = [
     'Tile not found',

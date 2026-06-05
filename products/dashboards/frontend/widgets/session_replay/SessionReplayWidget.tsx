@@ -13,8 +13,9 @@ import type { RecordingsQuery } from '~/queries/schema/schema-general'
 import type { SessionRecordingType } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
-import { formatWidgetListCountFooter, WIDGET_LIST_COUNT_RECORDINGS } from '../constants'
+import { WIDGET_LIST_COUNT_RECORDINGS } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { WidgetListCountFooter } from '../WidgetListCountFooter'
 import { parseSessionReplayWidgetConfig } from './sessionReplayWidgetConfigValidation'
 
 type SessionReplayWidgetResult = {
@@ -84,20 +85,19 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
         )
     }
 
-    const footer = (
-        <p className="text-xs text-muted m-0 text-center" data-attr="session-replay-widget-count">
-            {formatWidgetListCountFooter(
-                recordings.length,
-                payload?.totalCount,
-                payload?.totalCountCapped,
-                WIDGET_LIST_COUNT_RECORDINGS,
-                payload?.hasMore
-            )}
-        </p>
-    )
-
     return (
-        <WidgetCardContent footer={footer}>
+        <WidgetCardContent
+            footer={
+                <WidgetListCountFooter
+                    shown={recordings.length}
+                    totalCount={payload?.totalCount}
+                    totalCountCapped={payload?.totalCountCapped}
+                    noun={WIDGET_LIST_COUNT_RECORDINGS}
+                    hasMore={payload?.hasMore}
+                    dataAttr="session-replay-widget-count"
+                />
+            }
+        >
             <div className="flex flex-col">
                 {recordings.map((recording) => (
                     <SessionReplayWidgetRecordingRow key={recording.id} recording={recording} order={order} />
