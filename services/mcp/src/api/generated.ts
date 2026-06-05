@@ -4084,6 +4084,10 @@ export namespace Schemas {
     export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentFunnelMetric {
+      /** How to attribute the breakdown value across funnel steps. */
+      breakdownAttributionType?: BreakdownAttributionType | null;
+      /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+      breakdownAttributionValue?: number | null;
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
