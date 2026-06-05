@@ -31,6 +31,7 @@ type ErrorTrackingWidgetResult = {
     hasMore?: boolean
     limit?: number
     totalCount?: number
+    /** Lower-bound total when the count query hit MAX_WIDGET_RESULT_LIMIT — footer shows "N+". */
     totalCountCapped?: boolean
 }
 
