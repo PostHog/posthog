@@ -1927,6 +1927,9 @@ importers:
         specifier: ^7.8.3
         version: 7.8.8
     devDependencies:
+      '@posthog/quill-tokens':
+        specifier: workspace:*
+        version: link:../tokens
       '@storybook/react':
         specifier: 'catalog:'
         version: 8.6.18(@storybook/test@8.6.18(storybook@8.6.18(prettier@3.8.2)))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@8.6.18(prettier@3.8.2))(typescript@6.0.3)

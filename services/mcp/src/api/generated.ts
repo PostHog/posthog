@@ -24143,6 +24143,31 @@ export namespace Schemas {
       results: OrganizationOAuthApplication[];
     }
 
+    export interface ParserRecipe {
+      readonly id: string;
+      /**
+         * Human-readable recipe name shown in the editor.
+         * @maxLength 255
+         */
+      name: string;
+      /** Raw YAML recipe source, compiled and validated client-side. */
+      source: string;
+      /** User who created the recipe. */
+      readonly created_by: UserBasic | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedParserRecipeList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ParserRecipe[];
+    }
+
     export interface PauseStateResponse {
       /**
          * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -30079,6 +30104,22 @@ export namespace Schemas {
       readonly is_2fa_enabled?: boolean;
       readonly has_social_auth?: boolean;
       readonly last_login?: string;
+    }
+
+    export interface PatchedParserRecipe {
+      readonly id?: string;
+      /**
+         * Human-readable recipe name shown in the editor.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Raw YAML recipe source, compiled and validated client-side. */
+      source?: string;
+      /** User who created the recipe. */
+      readonly created_by?: UserBasic | null;
+      readonly created_at?: string;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export interface PatchedPersistedFolder {
@@ -49141,6 +49182,17 @@ export namespace Schemas {
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
 
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown };
+
+    export type LlmAnalyticsParserRecipesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown };
 

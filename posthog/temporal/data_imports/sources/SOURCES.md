@@ -75,6 +75,7 @@ the row lists both.
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
+| gong             | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
 | granola          | HTTP                        | requests                                                        | ✅                          |
@@ -115,6 +116,7 @@ the row lists both.
 | resend           | HTTP                        | requests                                                        | ✅                          |
 | revenuecat       | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | salesforce       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| salesloft        | HTTP                        | requests                                                        | ✅                          |
 | sendgrid         | HTTP                        | requests                                                        | ✅                          |
 | sentry           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow       | HTTP                        | requests                                                        | ✅                          |
@@ -130,6 +132,7 @@ the row lists both.
 | surveymonkey     | HTTP                        | requests                                                        | ✅                          |
 | temporalio       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| trello           | HTTP                        | requests                                                        | ✅                          |
 | twilio           | HTTP                        | requests                                                        | ✅                          |
 | typeform         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | vitally          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -192,7 +195,6 @@ doesn't conflict with concurrent PRs.
 - firebase
 - fullstory
 - gitlab
-- gong
 - google_analytics
 - google_drive
 - helpscout
@@ -215,11 +217,9 @@ doesn't conflict with concurrent PRs.
 - plaid
 - quickbooks
 - ringcentral
-- salesloft
 - sftp
 - sharepoint
 - surveymonkey
-- trello
 - twitter_ads
 - workday
 - xero

@@ -399,7 +399,8 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GongSourceConfig(config.Config):
-    pass
+    access_key: str
+    access_key_secret: str
 
 
 @config.config
@@ -760,7 +761,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SalesLoftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -881,7 +882,8 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class TrelloSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_token: str
 
 
 @config.config

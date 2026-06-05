@@ -30,7 +30,7 @@ jobs:
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
-                  fetch-depth: 0
+                  sparse-checkout: cli/.sampo/changesets
 
             - name: Check for changesets
               id: check
@@ -92,6 +92,7 @@ jobs:
               with:
                   ref: master
                   fetch-depth: 0
+                  filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Install Rust
