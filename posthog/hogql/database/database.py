@@ -34,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -148,6 +149,7 @@ from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStats
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
+from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
@@ -1584,15 +1586,21 @@ class Database(BaseModel):
                         continue
 
                     join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
+                    use_experiments = bool(
+                        join.joining_table_name == "events" and join_configuration.get("experiments_optimized")
+                    )
+                    dw_join_kwargs: dict[str, Any] = {
+                        "source_table_key": join.source_table_key,
+                        "joining_table_key": join.joining_table_key,
+                        "joining_table_name": join.joining_table_name,
+                        "configuration": join_configuration,
+                    }
                     source_table.fields[join.field_name] = LazyJoin(
                         from_field=from_field,
                         to_field=to_field,
                         join_table=joining_table,
-                        join_function=(
-                            join.join_function_for_experiments()
-                            if "events" == join.joining_table_name and join_configuration.get("experiments_optimized")
-                            else join.join_function()
-                        ),
+                        resolver=DATA_WAREHOUSE_EXPERIMENTS if use_experiments else DATA_WAREHOUSE,
+                        resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                     )
 
                     if not database._is_direct_query() and join.source_table_name == "persons":
@@ -1631,9 +1639,11 @@ class Database(BaseModel):
                                     from_field=from_field,
                                     to_field=to_field,
                                     join_table=joining_table,
-                                    # reusing join_function but with different source_table_key since we're joining 'directly' on events
-                                    join_function=join.join_function(
-                                        override_source_table_key=override_source_table_key
+                                    # reusing the data-warehouse resolver but with a different source_table_key
+                                    # since we're joining 'directly' on events
+                                    resolver=DATA_WAREHOUSE,
+                                    resolver_params=data_warehouse_resolver_params(
+                                        **dw_join_kwargs, override_source_table_key=override_source_table_key
                                     ),
                                 )
                             else:
@@ -1641,14 +1651,16 @@ class Database(BaseModel):
                                     from_field=from_field,
                                     to_field=to_field,
                                     join_table=joining_table,
-                                    join_function=join.join_function(),
+                                    resolver=DATA_WAREHOUSE,
+                                    resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                                 )
                         elif isinstance(person_field, ast.LazyJoin):
                             person_field.join_table.fields[join.field_name] = LazyJoin(  # type: ignore
                                 from_field=from_field,
                                 to_field=to_field,
                                 join_table=joining_table,
-                                join_function=join.join_function(),
+                                resolver=DATA_WAREHOUSE,
+                                resolver_params=data_warehouse_resolver_params(**dw_join_kwargs),
                             )
 
                 except Exception as e:

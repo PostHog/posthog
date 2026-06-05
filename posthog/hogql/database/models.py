@@ -17,7 +17,7 @@ from posthog.hogql.errors import NotImplementedError, ResolutionError
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
-    from posthog.hogql.ast import LazyJoinType, SelectQuery
+    from posthog.hogql.ast import JoinExpr, LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
     from posthog.hogql.context import HogQLContext
 
@@ -377,7 +377,14 @@ class TableNode(BaseModel):
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
-    join_function: Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]
+    # A lazy join builds its JOIN either from a serializable descriptor (`resolver` tag +
+    # `resolver_params`, dispatched through the registry) or from a `join_function` closure.
+    # Prefer `resolver`: it keeps the LazyJoin — and therefore the whole Database — free of
+    # closures, so it can be serialized and cached. `join_function` is the legacy path still
+    # used by the built-in joins.
+    resolver: Optional[str] = None
+    resolver_params: dict[str, Any] = PydanticField(default_factory=dict)
+    join_function: Optional[Callable[["LazyJoinToAdd", "HogQLContext", "SelectQuery"], Any]] = None
     join_table: Table | str
     from_field: list[str | int]
     to_field: Optional[list[str | int]] = None
@@ -390,6 +397,18 @@ class LazyJoin(FieldOrTable):
             raise ResolutionError("Database is not set")
 
         return context.database.get_table(self.join_table)
+
+    def resolve_join_to_add(
+        self, join_to_add: "LazyJoinToAdd", context: "HogQLContext", node: "SelectQuery"
+    ) -> "JoinExpr":
+        if self.resolver is not None:
+            # The registry imports the resolver modules, which import this module — defer to break the cycle.
+            from posthog.hogql.database.lazy_join_registry import get_lazy_join_resolver  # noqa: PLC0415
+
+            return get_lazy_join_resolver(self.resolver)(join_to_add, context, node)
+        if self.join_function is not None:
+            return self.join_function(join_to_add, context, node)
+        raise ResolutionError("LazyJoin must define either a resolver or a join_function")
 
 
 class LazyTable(Table):

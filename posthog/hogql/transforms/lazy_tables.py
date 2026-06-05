@@ -600,7 +600,7 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
-            join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
+            join_to_add: ast.JoinExpr = join_scope.lazy_join.resolve_join_to_add(
                 join_scope,
                 self.context,
                 node,
