@@ -49,7 +49,6 @@ from posthog.tasks.tasks import (
     ingestion_lag,
     kill_stale_queued_task_runs,
     pg_plugin_server_query_timing,
-    pg_row_count,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
     redis_celery_queue_depth,
@@ -63,7 +62,6 @@ from posthog.tasks.tasks import (
     update_event_partitions,
     update_survey_adaptive_sampling,
     update_survey_iteration,
-    verify_persons_data_in_sync,
 )
 from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_policy_cache_entries
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
@@ -370,8 +368,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
     # PostHog Cloud cron jobs
     # NOTE: We can't use is_cloud here as some Django elements aren't loaded yet. We check in the task execution instead
-    # Verify that persons data is in sync every day at 4 AM UTC
-    sender.add_periodic_task(crontab(hour="4", minute="0"), verify_persons_data_in_sync.s())
 
     # Every 30 minutes, send decide request counts to the main posthog instance
     sender.add_periodic_task(
@@ -434,12 +430,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="clickhouse instance errors count",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/2"),
-        pg_row_count.s(),
-        name="PG tables row counts",
-    )
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/2"),
