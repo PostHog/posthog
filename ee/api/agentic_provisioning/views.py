@@ -1654,7 +1654,9 @@ def provisioning_resources_create(request: Request) -> Response:
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _maybe_create_provisioned_pat(user, team, access_token.application, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
@@ -1743,7 +1745,9 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "api_key": team.api_token,
         "host": host,
     }
-    if personal_api_key := _maybe_create_provisioned_pat(user, team, access_token.application, label_prefix=label_prefix):
+    if personal_api_key := _maybe_create_provisioned_pat(
+        user, team, access_token.application, label_prefix=label_prefix
+    ):
         access_configuration["personal_api_key"] = personal_api_key
 
     return Response(
