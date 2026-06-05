@@ -6,10 +6,16 @@ import { initKeaTests } from '~/test/init'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from './data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerLogic } from './logsViewerLogic'
+
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
 
 const createMockRawLog = (uuid: string): LogMessage => ({
     uuid,
@@ -719,6 +725,24 @@ describe('logsViewerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.linkToLogId).toBeNull()
+        })
+    })
+
+    describe('copyLinkToLog', () => {
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs())
+            jest.mocked(copyToClipboard).mockClear()
+        })
+
+        it('copies a link pointing at the viewer tab even when copied from another tab', async () => {
+            window.history.replaceState({}, '', '/project/1/logs?activeTab=services')
+
+            logic.actions.copyLinkToLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            const copiedUrl = new URL(jest.mocked(copyToClipboard).mock.calls[0][0])
+            expect(copiedUrl.searchParams.get('activeTab')).toEqual('viewer')
+            expect(copiedUrl.searchParams.get('linkToLogId')).toEqual('log-2')
         })
     })
 
