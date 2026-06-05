@@ -207,9 +207,12 @@ export function parseInlineMarkdown(markdown: string, marks: NotebookInlineMark[
             if (labelEnd !== -1) {
                 const hrefEnd = markdown.indexOf(')', labelEnd + 2)
                 if (hrefEnd !== -1) {
-                    const href = markdown.slice(labelEnd + 2, hrefEnd)
+                    const href = sanitizeNotebookLinkHref(markdown.slice(labelEnd + 2, hrefEnd))
                     nodes.push(
-                        ...parseInlineMarkdown(markdown.slice(index + 1, labelEnd), [...marks, { type: 'link', href }])
+                        ...parseInlineMarkdown(
+                            markdown.slice(index + 1, labelEnd),
+                            href ? [...marks, { type: 'link', href }] : marks
+                        )
                     )
                     index = hrefEnd + 1
                     continue
@@ -248,6 +251,20 @@ export function htmlElementToInlineNodes(element: HTMLElement): NotebookInlineNo
 
 export function inlineNodesToHtml(nodes: NotebookInlineNode[]): string {
     return nodes.map(inlineNodeToHtml).join('')
+}
+
+export function sanitizeNotebookLinkHref(href: string): string | null {
+    const trimmedHref = href.trim()
+    if (!/^https?:\/\/\S+$/i.test(trimmedHref)) {
+        return null
+    }
+
+    try {
+        const url = new URL(trimmedHref)
+        return url.protocol === 'http:' || url.protocol === 'https:' ? trimmedHref : null
+    } catch {
+        return null
+    }
 }
 
 export function validateComponentNode(
@@ -683,7 +700,17 @@ function readPropValue(source: string, index: number): { value: unknown; nextInd
                 continue
             }
             if (char === quote) {
-                return { value, nextIndex: nextIndex + 1 }
+                if (quote === '"') {
+                    try {
+                        const parsedValue = JSON.parse(source.slice(index, nextIndex + 1))
+                        if (typeof parsedValue === 'string') {
+                            return { value: decodeHtmlEntities(parsedValue), nextIndex: nextIndex + 1 }
+                        }
+                    } catch {
+                        // Fall through to the permissive parser for legacy hand-written values.
+                    }
+                }
+                return { value: decodeHtmlEntities(value), nextIndex: nextIndex + 1 }
             }
             value += char
             nextIndex += 1
@@ -785,7 +812,7 @@ function serializeComponentProps(props: NotebookComponentProps): string {
 
 function serializePropValue(value: NotebookPropValue): string {
     if (typeof value === 'string') {
-        return `"${escapeAttribute(value)}"`
+        return JSON.stringify(value)
     }
     if (typeof value === 'number' || typeof value === 'boolean' || value === null) {
         return `{${String(value)}}`
@@ -821,7 +848,8 @@ function wrapInlineText(text: string, mark: NotebookInlineMark): string {
     if (mark.type === 'code') {
         return `\`${text.replace(/`/g, '\\`')}\``
     }
-    return `[${text}](${mark.href})`
+    const href = sanitizeNotebookLinkHref(mark.href)
+    return href ? `[${text}](${href})` : text
 }
 
 function pushTextWithMarks(nodes: NotebookInlineNode[], text: string, marks: NotebookInlineMark[]): void {
@@ -867,7 +895,10 @@ function htmlNodeToInlineNodes(node: ChildNode, marks: NotebookInlineMark[]): No
         nextMarks.push({ type: 'code' })
     }
     if (tagName === 'a') {
-        nextMarks.push({ type: 'link', href: node.getAttribute('href') ?? '' })
+        const href = sanitizeNotebookLinkHref(node.getAttribute('href') ?? '')
+        if (href) {
+            nextMarks.push({ type: 'link', href })
+        }
     }
 
     const children: NotebookInlineNode[] = []
@@ -903,7 +934,8 @@ function wrapHtmlText(html: string, mark: NotebookInlineMark): string {
     if (mark.type === 'code') {
         return `<code>${html}</code>`
     }
-    return `<a href="${escapeAttribute(mark.href)}">${html}</a>`
+    const href = sanitizeNotebookLinkHref(mark.href)
+    return href ? `<a href="${escapeAttribute(href)}">${html}</a>` : html
 }
 
 function escapeMarkdownText(text: string): string {
@@ -928,6 +960,16 @@ function escapeHtml(text: string): string {
 
 function escapeAttribute(text: string): string {
     return escapeHtml(text).replace(/'/g, '&#39;')
+}
+
+function decodeHtmlEntities(text: string): string {
+    return text
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&apos;/g, "'")
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&amp;/g, '&')
 }
 
 export function makeEmptyParagraph(idSeed: string = 'empty'): NotebookTextBlockNode {

@@ -4,6 +4,7 @@ import { createElement, useEffect } from 'react'
 import { mergeNotebookMarkdownChanges } from './collaboration'
 import {
     htmlElementToInlineNodes,
+    inlineNodesToHtml,
     parseMarkdownNotebook,
     serializeInlineNodes,
     serializeMarkdownNotebook,
@@ -102,6 +103,24 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
         expect(serializeMarkdownNotebook(parseMarkdownNotebook(markdown))).toEqual(markdown)
     })
 
+    it('strips unsafe protocols from markdown links', () => {
+        const document = parseMarkdownNotebook(
+            'Safe [link](https://posthog.com), unsafe [link](javascript:alert), relative [link](/project), and mail [link](mailto:test@example.com).'
+        )
+        const node = document.nodes[0]
+
+        expect(serializeMarkdownNotebook(document)).toEqual(
+            'Safe [link](https://posthog.com), unsafe link, relative link, and mail link.'
+        )
+        expect(node.type).toEqual('paragraph')
+        if (node.type !== 'paragraph') {
+            throw new Error('Expected paragraph node')
+        }
+        expect(inlineNodesToHtml(node.children)).toEqual(
+            'Safe <a href="https://posthog.com">link</a>, unsafe link, relative link, and mail link.'
+        )
+    })
+
     it('parses and serializes JSX-like component tags', () => {
         const markdown = `<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} title="Activation" />`
         const document = parseMarkdownNotebook(markdown)
@@ -115,6 +134,42 @@ Paragraph with **bold**, *italic*, <u>underline</u>, \`code\`, and [link](https:
             },
         })
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+    })
+
+    it('round-trips component string props with reversible escaping', () => {
+        const props = {
+            src: 'https://posthog.com/embed?one=1&two=2',
+            title: 'A "quoted" <embed> & title',
+            latex: 'E = mc^2 & x < y',
+        }
+        const markdown = `<Embed src=${JSON.stringify(props.src)} title=${JSON.stringify(props.title)} latex=${JSON.stringify(props.latex)} />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'Embed',
+            props,
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(markdown)
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(serializeMarkdownNotebook(document)))).toEqual(markdown)
+    })
+
+    it('decodes legacy HTML entities in component string props', () => {
+        const markdown =
+            '<Embed src="https://posthog.com/embed?one=1&amp;two=2" title="A &quot;quoted&quot; &lt;embed&gt; &amp; title" />'
+        const expectedMarkdown = `<Embed src=${JSON.stringify('https://posthog.com/embed?one=1&two=2')} title=${JSON.stringify('A "quoted" <embed> & title')} />`
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes[0]).toMatchObject({
+            type: 'component',
+            tagName: 'Embed',
+            props: {
+                src: 'https://posthog.com/embed?one=1&two=2',
+                title: 'A "quoted" <embed> & title',
+            },
+        })
+        expect(serializeMarkdownNotebook(document)).toEqual(expectedMarkdown)
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(expectedMarkdown))).toEqual(expectedMarkdown)
     })
 
     it('round-trips markdown image blocks as image components', () => {
@@ -205,6 +260,18 @@ Second paragraph stays stable.`)
 
         expect(serializeInlineNodes(htmlElementToInlineNodes(element))).toEqual(
             'Hello **bold** alert(1)<u>underlined</u>'
+        )
+    })
+
+    it('strips unsafe protocols from pasted HTML links', () => {
+        const element = document.createElement('div')
+        element.innerHTML =
+            'Safe <a href="https://posthog.com">link</a> unsafe <a href="javascript:alert">link</a> relative <a href="/project">link</a>'
+        const inlineNodes = htmlElementToInlineNodes(element)
+
+        expect(serializeInlineNodes(inlineNodes)).toEqual('Safe [link](https://posthog.com) unsafe link relative link')
+        expect(inlineNodesToHtml(inlineNodes)).toEqual(
+            'Safe <a href="https://posthog.com">link</a> unsafe link relative link'
         )
     })
 
@@ -410,6 +477,54 @@ Activation improved today.`
         )
 
         expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('Remote text')
+    })
+
+    it('applies empty remote markdown updates', () => {
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: 'Local text',
+            })
+        )
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: '',
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('')
+    })
+
+    it('applies deferred empty remote markdown updates', () => {
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: 'Local text',
+                deferRemoteValue: true,
+            })
+        )
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: '',
+                deferRemoteValue: true,
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('Local text')
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: 'Local text',
+                remoteValue: '',
+                deferRemoteValue: false,
+            })
+        )
+
+        expect(container.querySelector('.MarkdownNotebook__text-block')?.textContent).toEqual('')
     })
 
     it('marks interaction active before clearing slash command text', () => {

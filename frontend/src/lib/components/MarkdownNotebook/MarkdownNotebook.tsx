@@ -43,6 +43,7 @@ import {
     inlineNodesToHtml,
     makeEmptyParagraph,
     parseMarkdownNotebook,
+    sanitizeNotebookLinkHref,
     serializeMarkdownNotebook,
 } from './markdown'
 import { reconcileNotebookDocuments } from './reconcile'
@@ -419,7 +420,11 @@ export function MarkdownNotebook({
 
     useEffect(() => {
         const nextRemoteValue = pendingRemoteValueRef.current ?? remoteValue
-        if (!nextRemoteValue || nextRemoteValue === lastRemoteValueRef.current) {
+        if (
+            nextRemoteValue === null ||
+            nextRemoteValue === undefined ||
+            nextRemoteValue === lastRemoteValueRef.current
+        ) {
             return
         }
 
@@ -3853,7 +3858,7 @@ function FormattingToolbar({
         '--markdown-notebook-format-toolbar-top': `${top}px`,
         '--markdown-notebook-format-toolbar-left': `${left}px`,
     } as CSSProperties
-    const normalizedLinkHref = getPastedHttpUrl(linkHref)
+    const normalizedLinkHref = sanitizeNotebookLinkHref(linkHref)
     const hasExistingLink = !!currentLinkHref
 
     useEffect(() => {
@@ -5299,7 +5304,7 @@ function getInlineLinkPasteResult(
     children: NotebookInlineNode[],
     plainText: string
 ): InlineLinkPasteResult | null {
-    const href = getPastedHttpUrl(plainText)
+    const href = sanitizeNotebookLinkHref(plainText)
     if (!href) {
         return null
     }
@@ -5354,20 +5359,6 @@ function getInlineNodesInRange(nodes: NotebookInlineNode[], range: NotebookTextS
     const [selectedChildren] = splitInlineNodesAt(selectionAndAfter, selectionEnd - selectionStart)
 
     return selectedChildren
-}
-
-function getPastedHttpUrl(plainText: string): string | null {
-    const href = plainText.trim()
-    if (!/^https?:\/\/\S+$/i.test(href)) {
-        return null
-    }
-
-    try {
-        const url = new URL(href)
-        return url.protocol === 'http:' || url.protocol === 'https:' ? href : null
-    } catch {
-        return null
-    }
 }
 
 function applyLinkMarkToInlineNodes(nodes: NotebookInlineNode[], href: string): NotebookInlineNode[] {
