@@ -49,7 +49,8 @@ done
 case "$subcommand" in
     commit|push)
         echo "git $subcommand is disabled in PostHog Code: commits must be signed." >&2
-        echo "Stage changes with 'git add', then call the git_signed_commit tool." >&2
+        echo "To commit: stage changes with 'git add', then call the git_signed_commit tool." >&2
+        echo "To force-push after a rebase/conflict fix: call the git_signed_rewrite tool." >&2
         exit 1
         ;;
 esac

@@ -9,7 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AddDashboardWidgetsBatchRequestApi,
+    AddDashboardWidgetsBatchRequestOpenApiApi,
     AddDashboardWidgetsBatchResponseApi,
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
@@ -921,7 +921,7 @@ export const getDashboardsWidgetsBatchCreateUrl = (
 export const dashboardsWidgetsBatchCreate = async (
     projectId: string,
     id: number,
-    addDashboardWidgetsBatchRequestApi: AddDashboardWidgetsBatchRequestApi,
+    addDashboardWidgetsBatchRequestOpenApiApi: AddDashboardWidgetsBatchRequestOpenApiApi,
     params?: DashboardsWidgetsBatchCreateParams,
     options?: RequestInit
 ): Promise<AddDashboardWidgetsBatchResponseApi> => {
@@ -929,7 +929,7 @@ export const dashboardsWidgetsBatchCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addDashboardWidgetsBatchRequestApi),
+        body: JSON.stringify(addDashboardWidgetsBatchRequestOpenApiApi),
     })
 }
 

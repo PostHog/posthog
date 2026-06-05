@@ -1,5 +1,5 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { forms, type DeepPartialMap, type ValidationErrorType } from 'kea-forms'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -26,11 +26,13 @@ import {
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
+import { getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { insightAlertsLogic } from './insightAlertsLogic'
-import { quietHoursFormError } from './scheduleRestrictionValidation'
 import { AlertSimulationResult, AlertType, AlertTypeWrite, AnomalyPoint } from './types'
+
+export { THRESHOLD_BOUNDS_FORM_ERROR, thresholdAlertHasBounds } from './alertFormSchema'
 
 export type AlertFormType = Pick<
     AlertType,
@@ -164,6 +166,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         simulateAlert: true,
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setAlertFormSubmitAttempted: true,
     }),
 
     reducers({
@@ -171,6 +174,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
             null as string | null,
             {
                 setSimulationDateFrom: (_, { dateFrom }) => dateFrom,
+            },
+        ],
+        alertFormSubmitAttempted: [
+            false,
+            {
+                setAlertFormSubmitAttempted: () => true,
+                submitAlertFormSuccess: () => false,
             },
         ],
     }),
@@ -234,11 +244,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                       investigation_inconclusive_action: 'notify',
                       insight: props.insightId,
                   } as AlertFormType),
-            errors: (alert: AlertFormType) =>
-                ({
-                    name: !alert.name ? 'You need to give your alert a name' : undefined,
-                    schedule_restriction: quietHoursFormError(alert.schedule_restriction),
-                }) as DeepPartialMap<AlertFormType, ValidationErrorType>,
+            errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
             submit: async (alert) => {
                 if (
                     blockSubmitWithoutHighFrequencyAlertsEntitlement(
@@ -333,7 +339,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 lemonToast.success(alert.id === undefined ? 'Alert created.' : 'Alert saved.')
                 if (alert.id === undefined) {
-                    tryShowMCPHint('alerts.create')
+                    tryShowMCPHint('alerts.create', {
+                        derivedPrompt: alert.name ? `Create an alert called ${alert.name}` : undefined,
+                    })
                 }
 
                 return alertToFormType(updatedAlert, props.insightId)
@@ -341,7 +349,20 @@ export const alertFormLogic = kea<alertFormLogicType>([
         },
     })),
 
-    listeners(({ props, values }) => {
+    selectors({
+        thresholdBoundsFormError: [
+            (s) => [s.alertFormSubmitAttempted, s.alertFormErrors],
+            (submitAttempted, alertFormErrors): string | undefined => {
+                if (!submitAttempted) {
+                    return undefined
+                }
+                const thresholdError = alertFormErrors.threshold
+                return typeof thresholdError === 'string' ? thresholdError : undefined
+            },
+        ],
+    }),
+
+    listeners(({ props, values, actions }) => {
         const getParentLogic = (): ReturnType<typeof insightAlertsLogic.build> | undefined => {
             if (props.insightVizDataLogicProps) {
                 return insightAlertsLogic({
@@ -395,6 +416,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     parent.actions.loadAlerts()
                 }
                 props.onEditSuccess(values.alertForm.id)
+            },
+            submitAlertForm: () => {
+                actions.setAlertFormSubmitAttempted()
             },
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes

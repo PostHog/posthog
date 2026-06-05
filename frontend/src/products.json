@@ -57,6 +57,13 @@
             "intents": ["llm_prompts"]
         },
         {
+            "path": "Business knowledge",
+            "category": "AI engineering",
+            "iconType": "conversations",
+            "type": null,
+            "intents": ["conversations"]
+        },
+        {
             "path": "Web scripts",
             "category": "Tools",
             "iconType": "data_pipeline",
