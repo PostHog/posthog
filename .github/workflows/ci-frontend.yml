@@ -382,6 +382,9 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
 
+            - name: Check if the MCP app-url manifest is up to date
+              run: pnpm --filter=@posthog/frontend build:app-urls && git diff --exit-code
+
             - name: Validate SetupTaskId completions
               run: node bin/validate-setup-tasks.mjs
 
