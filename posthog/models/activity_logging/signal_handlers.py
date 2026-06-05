@@ -19,6 +19,7 @@ from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
     ActivityScope,
+    Change,
     Detail,
     LogActivityEntry,
     bulk_log_activity,
@@ -26,6 +27,7 @@ from posthog.models.activity_logging.activity_log import (
     log_activity,
 )
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
@@ -370,6 +372,77 @@ def handle_experiment_holdout_delete(sender, instance, **kwargs):
         scope="Experiment",
         activity="deleted",
         detail=Detail(name=instance.name, type="holdout"),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class OAuthApplicationScopesContext(ActivityContextBase):
+    client_id: str
+    application_name: str
+    is_cimd_client: bool
+    is_dcr_client: bool
+    is_first_party: bool
+
+
+@mutable_receiver(model_activity_signal, sender=OAuthApplication)
+def handle_oauth_application_scopes_change(
+    sender: type[OAuthApplication],
+    scope: ActivityScope,
+    before_update: OAuthApplication | None,
+    after_update: OAuthApplication | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs,
+) -> None:
+    application = after_update or before_update
+    if application is None:
+        return
+
+    if activity == "created":
+        changes = [Change(type=scope, action="created", field="scopes", after=list(application.scopes or []))]
+    else:
+        # Only the scope ceiling is audited for OAuth apps; other fields changed in the
+        # same save are deliberately left out of the entry.
+        changes = [
+            change
+            for change in changes_between(scope, previous=before_update, current=after_update)
+            if change.field == "scopes"
+        ]
+        if not changes:
+            return
+
+    organization_id = application.organization_id or (user.current_organization_id if user else None)
+    if organization_id is None:
+        # ActivityLog rows must carry an organization or team. Apps registered anonymously
+        # (e.g. DCR) have neither until they are linked to an organization — and without an
+        # organization there is nobody who could view the entry anyway.
+        logger.warning(
+            "oauth_application_scopes_change_not_logged",
+            application_id=str(application.pk),
+            activity=activity,
+        )
+        return
+
+    log_activity(
+        organization_id=organization_id,
+        team_id=None,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=application.pk,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            name=application.name,
+            changes=changes,
+            context=OAuthApplicationScopesContext(
+                client_id=application.client_id,
+                application_name=application.name,
+                is_cimd_client=application.is_cimd_client,
+                is_dcr_client=application.is_dcr_client,
+                is_first_party=application.is_first_party,
+            ),
+        ),
     )
 
 
