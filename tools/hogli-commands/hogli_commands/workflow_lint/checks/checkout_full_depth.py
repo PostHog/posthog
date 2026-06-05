@@ -71,7 +71,8 @@ def _allowed_checkout_ordinals(path: str) -> frozenset[int]:
     steps.
     """
 
-    lines = open(path, encoding="utf-8").read().splitlines()
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().splitlines()
     allowed: set[int] = set()
     checkout_ordinal = 0
 
