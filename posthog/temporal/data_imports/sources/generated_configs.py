@@ -600,7 +600,7 @@ class OktaSourceConfig(config.Config):
 
 @config.config
 class OmnisendSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
