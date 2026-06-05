@@ -38,9 +38,7 @@ function WidgetCardBodyContent({
         return (
             <WidgetCardBodySlot>
                 <WidgetCardContent>
-                    <WidgetCardContentScroll>
-                        <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
-                    </WidgetCardContentScroll>
+                    <WidgetCardBodyMessage variant="locked">{lockedMessage}</WidgetCardBodyMessage>
                 </WidgetCardContent>
             </WidgetCardBodySlot>
         )
@@ -50,11 +48,9 @@ function WidgetCardBodyContent({
         return (
             <WidgetCardBodySlot>
                 <WidgetCardContent>
-                    <WidgetCardContentScroll>
-                        <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
-                            {error}
-                        </WidgetCardBodyMessage>
-                    </WidgetCardContentScroll>
+                    <WidgetCardBodyMessage variant="error" onRefresh={onRefresh} refreshing={refreshing}>
+                        {error}
+                    </WidgetCardBodyMessage>
                 </WidgetCardContent>
             </WidgetCardBodySlot>
         )
@@ -95,7 +91,7 @@ export function WidgetCardBody({
     )
 }
 
-/** Passes flex height from the card shell into widget body content. Scroll lives in `WidgetCardContentScroll`. */
+/** Passes flex height from the card shell into widget body content. */
 function WidgetCardBodySlot({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
 }
@@ -193,13 +189,11 @@ export type WidgetLoadingStateProps = {
 export function WidgetLoadingState({ children, rowCount, className }: WidgetLoadingStateProps): JSX.Element {
     return (
         <WidgetCardContent>
-            <WidgetCardContentScroll>
-                <div data-slot="widget-loading-state" className="flex min-h-min w-full items-center justify-center">
-                    {children ?? (
-                        <WidgetCardBodySkeleton rowCount={rowCount} className={clsx('w-full max-w-lg', className)} />
-                    )}
-                </div>
-            </WidgetCardContentScroll>
+            <div data-slot="widget-loading-state" className="flex min-h-min w-full items-center justify-center">
+                {children ?? (
+                    <WidgetCardBodySkeleton rowCount={rowCount} className={clsx('w-full max-w-lg', className)} />
+                )}
+            </div>
         </WidgetCardContent>
     )
 }
@@ -209,23 +203,16 @@ type WidgetCardContentProps = {
     className?: string
 }
 
-/** Widget body column — compose with `WidgetCardContentScroll` and optional `WidgetContentFooter`. */
+/** Scrollable widget body — compose with optional `WidgetContentFooter` as a sibling. */
 export function WidgetCardContent({ children, className }: WidgetCardContentProps): JSX.Element {
     return (
-        <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
+        <div
+            data-slot="widget-card-content"
+            className={clsx('min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden', className)}
+        >
             {children}
         </div>
     )
-}
-
-type WidgetCardContentScrollProps = {
-    children: React.ReactNode
-    className?: string
-}
-
-/** Scrollable main area inside `WidgetCardContent`. */
-export function WidgetCardContentScroll({ children, className }: WidgetCardContentScrollProps): JSX.Element {
-    return <div className={cn('min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden', className)}>{children}</div>
 }
 
 type WidgetContentFooterProps = {
@@ -233,7 +220,7 @@ type WidgetContentFooterProps = {
     className?: string
 }
 
-/** Pinned footer slot for list widgets — compose as a child of `WidgetCardContent`, not a prop. */
+/** Pinned footer slot for list widgets — sibling of `WidgetCardContent`. */
 export function WidgetContentFooter({ children, className }: WidgetContentFooterProps): JSX.Element {
     return (
         <div data-slot="widget-card-content-footer" className={cn('flex shrink-0 justify-center pt-0.5', className)}>
@@ -304,18 +291,16 @@ export function WidgetCardSharedPlaceholderBody({ copy }: { copy: WidgetCardShar
     return (
         <WidgetCardBody>
             <WidgetCardContent>
-                <WidgetCardContentScroll>
-                    <WidgetCardBodyMessage>
-                        <div
-                            className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
-                            data-attr="shared-dashboard-widget-placeholder"
-                        >
-                            <GraphsHog className="size-20 shrink-0" />
-                            <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
-                            <p className="m-0 text-sm text-muted">{copy.message}</p>
-                        </div>
-                    </WidgetCardBodyMessage>
-                </WidgetCardContentScroll>
+                <WidgetCardBodyMessage>
+                    <div
+                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                        data-attr="shared-dashboard-widget-placeholder"
+                    >
+                        <GraphsHog className="size-20 shrink-0" />
+                        <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
+                        <p className="m-0 text-sm text-muted">{copy.message}</p>
+                    </div>
+                </WidgetCardBodyMessage>
             </WidgetCardContent>
         </WidgetCardBody>
     )

@@ -4,7 +4,6 @@ export {
     WidgetCardBodyMessage,
     WidgetCardBodySkeleton,
     WidgetCardContent,
-    WidgetCardContentScroll,
     WidgetContentFooter,
     WidgetListCount,
     WidgetCardSharedPlaceholderBody,
