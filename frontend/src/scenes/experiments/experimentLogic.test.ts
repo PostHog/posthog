@@ -11,7 +11,7 @@ import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments
 import { useMocks } from '~/mocks/jest'
 import { Breakdown, ExperimentMetric, ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
+import { Experiment, MultivariateFlagVariant } from '~/types'
 
 import {
     ExperimentSavedMetric,
@@ -1663,6 +1663,56 @@ describe('experimentLogic', () => {
             // Re-include test-2 — the new list (computed in the listener) must drop it.
             const next = logic.values.excludedVariants.filter((k) => k !== 'test-2')
             expect(next).toEqual(['test-1'])
+        })
+    })
+
+    describe('variants', () => {
+        const parameterVariants: MultivariateFlagVariant[] = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'param-test', rollout_percentage: 50 },
+        ]
+        const flagVariants: MultivariateFlagVariant[] = [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'flag-test', rollout_percentage: 50 },
+        ]
+
+        it.each<{
+            desc: string
+            parameterVariants?: MultivariateFlagVariant[]
+            flagVariants?: MultivariateFlagVariant[]
+            expected: MultivariateFlagVariant[]
+        }>([
+            {
+                desc: 'prefers parameters.feature_flag_variants when present',
+                parameterVariants,
+                flagVariants,
+                expected: parameterVariants,
+            },
+            {
+                desc: 'falls back to the linked flag variants when parameters.feature_flag_variants is absent',
+                flagVariants,
+                expected: flagVariants,
+            },
+            {
+                desc: 'defaults to [] when neither source has variants',
+                expected: [],
+            },
+        ])('$desc', async (row) => {
+            await expectLogic(logic, () => {
+                logic.actions.setExperiment({
+                    ...experiment,
+                    parameters: { ...experiment.parameters, feature_flag_variants: row.parameterVariants },
+                    feature_flag: {
+                        ...experiment.feature_flag,
+                        filters: {
+                            ...experiment.feature_flag?.filters,
+                            multivariate: row.flagVariants ? { variants: row.flagVariants } : undefined,
+                        },
+                    },
+                } as unknown as Experiment)
+            }).toMatchValues({
+                variants: row.expected,
+            })
         })
     })
 })

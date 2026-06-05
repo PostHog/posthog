@@ -2451,7 +2451,11 @@ export const experimentLogic = kea<experimentLogicType>([
         variants: [
             (s) => [s.experiment],
             (experiment): MultivariateFlagVariant[] => {
-                return experiment?.parameters?.feature_flag_variants || []
+                return (
+                    experiment?.parameters?.feature_flag_variants ??
+                    experiment?.feature_flag?.filters?.multivariate?.variants ??
+                    []
+                )
             },
         ],
         excludedVariants: [
