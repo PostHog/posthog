@@ -22,14 +22,21 @@ from posthog.schema import (
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
+from posthog.tasks.exporter import export_asset_direct
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 logger = structlog.get_logger(__name__)
+
+# Internal event that alert HogFunction destinations (Slack, webhook, …) subscribe to.
+INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
 
 @dataclass
@@ -269,7 +276,7 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
         produce_internal_event(
             team_id=alert.team_id,
             event=InternalEventEvent(
-                event="$insight_alert_firing",
+                event=INSIGHT_ALERT_FIRING_EVENT,
                 distinct_id=f"team_{alert.team_id}",
                 properties=props,
             ),
@@ -289,6 +296,57 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
             error=str(e),
             exc_info=True,
         )
+
+
+def alert_has_slack_destination(alert: AlertConfiguration) -> bool:
+    """Whether the alert has an enabled Slack HogFunction destination that would render the chart.
+
+    Used to gate the (heavy) browser screenshot so we only render a chart image when a Slack
+    destination actually exists to consume it. Matches both per-alert destinations (created via
+    the alert UI, which add an ``alert_id`` filter) and team-wide ``$insight_alert_firing`` Slack
+    destinations.
+    """
+    return HogFunction.objects.filter(
+        team_id=alert.team_id,
+        enabled=True,
+        deleted=False,
+        type=HogFunctionType.INTERNAL_DESTINATION,
+        template_id="template-slack",
+        filters__events__contains=[{"id": INSIGHT_ALERT_FIRING_EVENT}],
+    ).exists()
+
+
+def generate_alert_chart_image_url(alert: AlertConfiguration) -> str | None:
+    """Render the alert's insight to a PNG and return a signed delivery URL for Slack to embed.
+
+    Best-effort: returns None only if we can't create the asset at all. The ExportedAsset (and
+    therefore the URL) is created *before* the heavy browser render, so the URL is a valid,
+    Slack-fetchable link even if the screenshot itself fails — Slack then shows an unloadable
+    image rather than rejecting the whole message.
+    """
+    try:
+        asset = ExportedAsset.objects.create(
+            team=alert.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            insight=alert.insight,
+            created_by=alert.created_by,
+            # System-generated: excluded from the per-team user-export quota.
+            is_system=True,
+        )
+    except Exception as e:
+        capture_exception(e, additional_properties={"alert_id": str(alert.id), "feature": "alerts"})
+        logger.exception("alerts.chart_image_asset_creation_failed", alert_id=str(alert.id))
+        return None
+
+    try:
+        export_asset_direct(asset, source=EventSource.ALERT)
+    except Exception as e:
+        # Don't fail the notification over a render error — the URL is still valid, Slack just
+        # won't be able to load the image.
+        capture_exception(e, additional_properties={"alert_id": str(alert.id), "feature": "alerts"})
+        logger.exception("alerts.chart_image_render_failed", alert_id=str(alert.id), asset_id=asset.id)
+
+    return asset.get_subscription_delivery_content_url()
 
 
 def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[str], idempotency_key: str) -> list[str]:
@@ -320,7 +378,14 @@ def send_notifications_for_breaches(alert: AlertConfiguration, breaches: list[st
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         message.send()
 
-    trigger_alert_hog_functions(alert=alert, properties={"breaches": ", ".join(breaches)})
+    hog_function_properties: dict = {"breaches": ", ".join(breaches)}
+    # Only render the chart when a Slack destination exists to show it — the screenshot is expensive.
+    if alert_has_slack_destination(alert):
+        chart_image_url = generate_alert_chart_image_url(alert)
+        if chart_image_url:
+            hog_function_properties["chart_image_url"] = chart_image_url
+
+    trigger_alert_hog_functions(alert=alert, properties=hog_function_properties)
 
     return email_targets
 

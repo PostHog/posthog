@@ -967,6 +967,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             },
                         },
                         {
+                            type: 'image',
+                            image_url: '{event.properties.chart_image_url}',
+                            alt_text: "Chart for insight '{event.properties.insight_name}'",
+                        },
+                        {
                             type: 'context',
                             elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
                         },
