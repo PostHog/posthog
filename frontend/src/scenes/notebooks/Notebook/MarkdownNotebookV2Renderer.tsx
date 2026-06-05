@@ -31,7 +31,7 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
@@ -383,6 +383,9 @@ function MountedRealNotebookNodeComponent({
     const Settings = options.Settings
     const showSettings = forceEditing && Settings
     const showContent = !editOnly || !Settings
+    const contentStyle: CSSProperties | undefined = options.resizeable
+        ? { height: attributes.height ?? options.heightEstimate, minHeight: options.minHeight }
+        : undefined
 
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
@@ -394,7 +397,7 @@ function MountedRealNotebookNodeComponent({
                         </div>
                     ) : null}
                     {showContent ? (
-                        <div className="MarkdownNotebook__real-node-content">
+                        <div className="MarkdownNotebook__real-node-content" style={contentStyle}>
                             <Component attributes={attributes} updateAttributes={updateAttributes} />
                         </div>
                     ) : null}
