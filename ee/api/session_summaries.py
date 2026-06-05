@@ -982,7 +982,7 @@ class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModel
         # Defer the heavy `summary` column and project just `session_outcome` so a page of rows doesn't
         # pull the full ~50 KB summary JSON per row (see `SingleSessionSummaryMinimalSerializer`).
         deduped = (
-            SingleSessionSummary.objects.filter(id__in=Subquery(latest_ids))
+            SingleSessionSummary.objects.filter(team=self.team, id__in=Subquery(latest_ids))
             .select_related("created_by", "team")
             .defer("summary")
             .annotate(session_outcome_json=KeyTransform("session_outcome", "summary"))
