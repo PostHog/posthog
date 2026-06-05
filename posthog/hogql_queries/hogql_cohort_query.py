@@ -1171,7 +1171,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         Query cohort_membership table for realtime cohort membership.
         Filters most recent status='entered' to find current members.
         """
-        cohort_id = cast(int, prop.value)
+        cohort_id = parse_and_validate_positive_integer(prop.value, "cohort id")
 
         return cast(
             ast.SelectQuery,

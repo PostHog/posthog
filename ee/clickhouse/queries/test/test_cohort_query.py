@@ -68,9 +68,8 @@ def execute(filter: Filter, team: Team):
     sync_execute("OPTIMIZE TABLE sharded_events FINAL")
 
     cohort_query = CohortQuery(filter=filter, team=team)
-    q, params = cohort_query.get_query()
     assert ["id"] == cohort_query.hogql_result.columns
-    return cohort_query.hogql_result.results, q, params
+    return cohort_query.hogql_result.results
 
 
 class TestCohortQuery(ClickhouseTestMixin, BaseTest):
@@ -200,7 +199,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data=data)
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -217,7 +216,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         filter = Filter(data=data)
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
         """
@@ -267,7 +266,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -318,7 +317,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -383,7 +382,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                 }
             )
 
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
 
             assert [p1.uuid] == [r[0] for r in res]
 
@@ -452,7 +451,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                 }
             )
 
-            res, _, _ = execute(filter, self.team)
+            res = execute(filter, self.team)
 
             assert [p1.uuid] == [r[0] for r in res]
 
@@ -512,7 +511,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -583,7 +582,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -648,7 +647,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert {p2.uuid} == {r[0] for r in res}
 
@@ -730,7 +729,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert {p1.uuid, p2.uuid, p3.uuid} == {r[0] for r in res}
 
@@ -805,7 +804,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -895,7 +894,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -949,7 +948,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p2.uuid] == [r[0] for r in res]
 
@@ -987,7 +986,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -1025,7 +1024,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -1079,11 +1078,11 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
             filter = Filter(data=data)
 
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
             assert sorted([p1.uuid, p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
             data["properties"]["values"][0] |= {"time_value": 2, "total_periods": 3, "min_periods": 3}
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
             assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_performed_event_regularly_with_variable_event_counts_in_each_period(self):
@@ -1127,7 +1126,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert [p2.uuid] == [r[0] for r in res]
         flush_persons_and_events()
 
@@ -1156,7 +1155,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_person_props_only(self):
@@ -1218,7 +1217,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p1.uuid, p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
@@ -1346,7 +1345,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p1.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
@@ -1382,7 +1381,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -1506,7 +1505,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert sorted([p3.uuid]) == sorted([r[0] for r in res])
 
     def test_negation_dynamic_time_bound_with_performed_event(self):
@@ -1610,7 +1609,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p3.uuid, p4.uuid]) == sorted([r[0] for r in res])
 
@@ -1750,7 +1749,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert sorted([p3.uuid, p4.uuid, p5.uuid, p6.uuid]) == sorted([r[0] for r in res])
 
     def test_cohort_filter(self):
@@ -1777,7 +1776,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -1923,10 +1922,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            q, params = CohortQuery(filter=filter, team=self.team).get_query()
             # Precalculated cohorts should not be used as is
             # since we want cohort calculation with cohort properties to not be out of sync
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -1962,9 +1960,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            # TODO: update
-            q, params = CohortQuery(filter=filter, team=self.team).get_query()
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
@@ -2016,7 +2012,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
         sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert sorted([p2.uuid]) == sorted([r[0] for r in res])
 
         filter = Filter(
@@ -2042,7 +2038,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
         sync_execute("OPTIMIZE TABLE cohortpeople FINAL")
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
     def test_cohort_filter_with_another_cohort_with_event_sequence(self):
@@ -2130,7 +2126,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         cohort.calculate_people_ch(pending_version=0)
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p2.uuid] == [r[0] for r in res]
 
@@ -2153,7 +2149,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2199,7 +2195,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p2.uuid] == [r[0] for r in res]
 
@@ -2223,7 +2219,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
@@ -2273,7 +2269,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2342,7 +2338,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2409,7 +2405,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
@@ -2485,7 +2481,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2592,7 +2588,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                 }
             )
 
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2678,7 +2674,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert [p1.uuid] == [r[0] for r in res]
 
@@ -2752,7 +2748,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
                     }
                 }
             )
-            res, q, params = execute(filter, self.team)
+            res = execute(filter, self.team)
 
         assert {p1.uuid, p2.uuid} == {r[0] for r in res}
 
@@ -2852,7 +2848,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         other_cohort.calculate_people_ch(pending_version=0)
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
@@ -2971,7 +2967,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         cohort1.calculate_people_ch(pending_version=0)
         cohort2.calculate_people_ch(pending_version=0)
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p2.uuid]) == sorted([r[0] for r in res])
 
@@ -3122,7 +3118,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             team=self.team,
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         assert sorted([p4.uuid]) == sorted([r[0] for r in res])
 
@@ -3243,7 +3239,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         # Execute the filter
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         # Only person 1 should match
         assert len(res) == 1
@@ -3307,7 +3303,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         # Execute the filter
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
 
         # Person 1 and 2 should match because their emails are in the list
         assert len(res) == 2
@@ -3367,7 +3363,7 @@ class TestCohortNegationValidation(BaseTest):
             team=self.team,
         )
 
-        res, q, params = execute(filter, self.team)
+        res = execute(filter, self.team)
         assert 1 == len(res)
 
     def test_project_properties(self):

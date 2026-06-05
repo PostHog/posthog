@@ -23,7 +23,6 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import PersonsOnEventsMode
 
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
-from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.cohort import Cohort
@@ -926,7 +925,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         self.calculate_cohort_hogql_test_harness(cohort, 0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort, 0, HogQLContext(team_id=self.team.pk))
+            sql, _ = format_filter_query(cohort, 0)
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
