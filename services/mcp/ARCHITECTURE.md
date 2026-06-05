@@ -43,8 +43,8 @@ The Worker resolves the caller's region (from cache/KV or by probing both region
 ```typescript
 // In Worker (index.ts)
 if (url.pathname.startsWith('/mcp')) {
-    const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
-    return proxyToHono(request, region)
+  const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
+  return proxyToHono(request, region)
 }
 ```
 
