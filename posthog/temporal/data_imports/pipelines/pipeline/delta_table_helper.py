@@ -211,14 +211,15 @@ class DeltaTableHelper:
 
         return None
 
-    async def reset_table(self):
-        delta_uri = await self._get_delta_table_uri()
+    async def reset_table(self, delete_s3_data: bool = True):
+        if delete_s3_data:
+            delta_uri = await self._get_delta_table_uri()
 
-        async with aget_s3_client() as s3:
-            try:
-                await s3._rm(delta_uri, recursive=True)
-            except FileNotFoundError:
-                pass
+            async with aget_s3_client() as s3:
+                try:
+                    await s3._rm(delta_uri, recursive=True)
+                except FileNotFoundError:
+                    pass
 
         self.get_delta_table.cache_clear()
 

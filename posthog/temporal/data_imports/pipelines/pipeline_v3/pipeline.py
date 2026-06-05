@@ -216,7 +216,12 @@ class PipelineV3(Generic[ResumableData]):
             chunk_index = 0
 
             await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._delta_table_helper,
+                self._logger,
+                delete_s3_data=False,
             )
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None

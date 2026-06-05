@@ -231,17 +231,17 @@ async def handle_reset_or_full_refresh(
     schema: "ExternalDataSchema",
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
+    delete_s3_data: bool = True,
 ) -> None:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     if reset_pipeline and not should_resume:
-        await logger.adebug("Deleting existing table due to reset_pipeline being set")
-        await delta_table_helper.reset_table()
+        await logger.adebug("Resetting existing table due to reset_pipeline being set")
+        await delta_table_helper.reset_table(delete_s3_data=delete_s3_data)
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
     elif schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH and not should_resume:
-        # Avoid schema mismatches from existing data about to be overwritten
-        await logger.adebug("Deleting existing table due to sync being full refresh")
-        await delta_table_helper.reset_table()
+        await logger.adebug("Resetting existing table due to sync being full refresh")
+        await delta_table_helper.reset_table(delete_s3_data=delete_s3_data)
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
 
