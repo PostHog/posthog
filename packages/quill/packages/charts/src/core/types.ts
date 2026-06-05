@@ -108,6 +108,11 @@ export interface PointClickData<Meta = unknown> {
     /** Cursor position in pixels relative to the chart wrapper at click time, or `null`
      *  when unavailable. Same origin as `TooltipContext.hoverPosition`. */
     cursor: { x: number; y: number } | null
+    /** Grouped layouts only: `true` when the cursor was in the bar's band slot but beyond its
+     *  filled value extent — i.e. the track region above (vertical) or past (horizontal) a short
+     *  bar. Lets consumers route "clicked the empty remainder" differently from "clicked the bar"
+     *  (e.g. funnel drop-off vs converted). `undefined` outside grouped click resolution. */
+    inTrackArea?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */

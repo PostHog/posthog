@@ -745,6 +745,7 @@ export interface HogQLQueryModifiersApi {
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
     propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
     s3TableUseInvalidColumns?: boolean | null
     /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
     sessionIdPushdown?: boolean | null
@@ -1863,6 +1864,7 @@ export interface TrendsFilterApi {
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: TrendsFilterApiResultCustomizations
     showAlertThresholdLines?: boolean | null
+    showAnnotations?: boolean | null
     showConfidenceIntervals?: boolean | null
     showLabelsOnSeries?: boolean | null
     showLegend?: boolean | null
@@ -2189,6 +2191,8 @@ export interface FunnelsFilterApi {
     layout?: FunnelLayoutApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
+    showAnnotations?: boolean | null
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean | null
     showValuesOnSeries?: boolean | null
@@ -3862,6 +3866,7 @@ export const IntegrationKindApi = {
     GoogleCloudServiceAccount: 'google-cloud-service-account',
     GoogleCloudStorage: 'google-cloud-storage',
     GoogleAds: 'google-ads',
+    GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
     LinkedinAds: 'linkedin-ads',
     Snapchat: 'snapchat',
@@ -7757,14 +7762,32 @@ export interface UpdateTextTileRequestApi {
     color?: string | null
 }
 
-export interface AddDashboardWidgetRequestApi {
-    /**
-     * Widget type identifier. Supported values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type.
-     * @maxLength 64
-     */
-    widget_type: string
-    /** Widget-specific configuration. Shape depends on widget_type; see dashboard-widget-catalog-list for config_schema_hints. Supported types: error_tracking_list, session_replay_list. */
-    config: DashboardWidgetConfigApi
+export interface _WidgetTileLayoutBoxOpenApiApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface _WidgetTileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: _WidgetTileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: _WidgetTileLayoutBoxOpenApiApi
+}
+
+export type ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType]
+
+export const ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType = {
+    ErrorTrackingList: 'error_tracking_list',
+} as const
+
+export interface ErrorTrackingListWidgetAddRequestOpenApiApi {
     /**
      * Optional custom display name for the widget tile.
      * @maxLength 400
@@ -7774,14 +7797,49 @@ export interface AddDashboardWidgetRequestApi {
     /** Optional markdown description shown when show_description is enabled. */
     description?: string
     /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
-    layouts?: TileLayoutsApi
+    layouts?: _WidgetTileLayoutsOpenApiApi
     /** Whether to show the description on the dashboard tile. */
     show_description?: boolean
+    widget_type: ErrorTrackingListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the error tracking list widget. */
+    config: ErrorTrackingListWidgetConfigApi
 }
 
-export interface AddDashboardWidgetsBatchRequestApi {
+export type SessionReplayListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof SessionReplayListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetAddRequestOpenApiApiWidgetType]
+
+export const SessionReplayListWidgetAddRequestOpenApiApiWidgetType = {
+    SessionReplayList: 'session_replay_list',
+} as const
+
+export interface SessionReplayListWidgetAddRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically (1–10). Use a single-element list to add one widget.
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: SessionReplayListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the session replay list widget. */
+    config: SessionReplayListWidgetConfigApi
+}
+
+export type AddDashboardWidgetRequestApi =
+    | ErrorTrackingListWidgetAddRequestOpenApiApi
+    | SessionReplayListWidgetAddRequestOpenApiApi
+
+/**
+ * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
+ */
+export interface AddDashboardWidgetsBatchRequestOpenApiApi {
+    /**
+     * Widget tiles to add atomically. Supported widget_type values: error_tracking_list, session_replay_list. Use dashboard-widget-catalog-list for config_schema_hints per type. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -7892,6 +7950,26 @@ export interface PatchedDataColorThemeApi {
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+/**
+ * * `error_tracking_list` - error_tracking_list
+ */
+export type ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnumApi =
+    (typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnumApi)[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnumApi]
+
+export const ErrorTrackingListWidgetAddRequestOpenApiWidgetTypeEnumApi = {
+    ErrorTrackingList: 'error_tracking_list',
+} as const
+
+/**
+ * * `session_replay_list` - session_replay_list
+ */
+export type SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnumApi =
+    (typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnumApi)[keyof typeof SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnumApi]
+
+export const SessionReplayListWidgetAddRequestOpenApiWidgetTypeEnumApi = {
+    SessionReplayList: 'session_replay_list',
+} as const
 
 export type DashboardTemplatesListParams = {
     /**

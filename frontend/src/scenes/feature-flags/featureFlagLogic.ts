@@ -906,7 +906,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return {
                         ...state,
-                        features: [...(state.features || []), newEarlyAccessFeature],
+                        features: [
+                            ...(state.features || []),
+                            {
+                                id: newEarlyAccessFeature.id,
+                                name: newEarlyAccessFeature.name,
+                                description: newEarlyAccessFeature.description,
+                                stage: newEarlyAccessFeature.stage,
+                                documentationUrl: newEarlyAccessFeature.documentation_url,
+                                flagKey: newEarlyAccessFeature.feature_flag?.key ?? null,
+                                payload: newEarlyAccessFeature.payload,
+                            },
+                        ],
                     }
                 },
                 createSurveySuccess: (state, { newSurvey }) => {

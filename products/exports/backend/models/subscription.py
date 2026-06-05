@@ -94,6 +94,16 @@ class Subscription(ModelActivityMixin, models.Model):
         SubscriptionFrequency.YEARLY: YEARLY,
     }
 
+    # Look-back window (in days) an AI report should analyse for each cadence. Unknown
+    # frequencies fall back to the weekly window.
+    _AI_REPORT_WINDOW_DAYS: dict[str, int] = {
+        SubscriptionFrequency.DAILY: 1,
+        SubscriptionFrequency.WEEKLY: 7,
+        SubscriptionFrequency.MONTHLY: 30,
+        SubscriptionFrequency.YEARLY: 365,
+    }
+    DEFAULT_AI_REPORT_WINDOW_DAYS = 7
+
     # Relations - i.e. WHAT are we exporting?
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
@@ -171,15 +181,26 @@ class Subscription(ModelActivityMixin, models.Model):
                 kwargs["update_fields"].append("next_delivery_date")
         super().save(*args, **kwargs)
 
+    @classmethod
+    def derive_resource_type(cls, insight_id: int | None, dashboard_id: int | None, prompt: str | None) -> str:
+        # Shared by the `resource_type` property and the scheduler's `.values()` fan-out
+        # (which has field dicts, not model instances) so the derivation stays single-source.
+        if insight_id:
+            return cls.ResourceType.INSIGHT
+        if dashboard_id:
+            return cls.ResourceType.DASHBOARD
+        if prompt:
+            return cls.ResourceType.AI_PROMPT
+        raise ValueError("Subscription has no insight, dashboard, or prompt to derive a resource type from")
+
     @property
     def resource_type(self) -> str:
-        if self.insight_id:
-            return self.ResourceType.INSIGHT
-        if self.dashboard_id:
-            return self.ResourceType.DASHBOARD
-        if self.prompt:
-            return self.ResourceType.AI_PROMPT
-        raise ValueError(f"Subscription {self.pk} has no insight, dashboard, or prompt to derive a resource type from")
+        return self.derive_resource_type(self.insight_id, self.dashboard_id, self.prompt)
+
+    @property
+    def _has_resource(self) -> bool:
+        # Guards url/resource_info from resource_type's raise on a relationless sub.
+        return bool(self.insight_id or self.dashboard_id or self.prompt)
 
     @staticmethod
     def _build_rrule(
@@ -251,8 +272,13 @@ class Subscription(ModelActivityMixin, models.Model):
         return None
 
     @property
+    def ai_report_window_days(self) -> int:
+        """Days of history an AI report for this subscription should analyse, derived from its cadence."""
+        return self._AI_REPORT_WINDOW_DAYS.get(self.frequency, self.DEFAULT_AI_REPORT_WINDOW_DAYS)
+
+    @property
     def url(self) -> str | None:
-        if not (self.insight_id or self.dashboard_id or self.prompt):
+        if not self._has_resource:
             return None
         match self.resource_type:
             case self.ResourceType.INSIGHT if self.insight:
@@ -265,7 +291,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     @property
     def resource_info(self) -> Optional[SubscriptionResourceInfo]:
-        if not (self.insight_id or self.dashboard_id or self.prompt):
+        if not self._has_resource:
             return None
         match self.resource_type:
             case self.ResourceType.INSIGHT if self.insight:

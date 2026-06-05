@@ -305,6 +305,14 @@ class OAuthValidator(OAuth2Validator):
         request.client = app
         return request.client
 
+    def validate_silent_login(self, request) -> bool:
+        # Called by oauthlib's OIDC validator for `prompt=none` openid requests. Neither
+        # the base class nor django-oauth-toolkit implements this, so the default raises
+        # NotImplementedError. Returning False here lets oauthlib emit `login_required`
+        # to the client instead of crashing with a 500.
+        user = getattr(request, "user", None)
+        return bool(user and getattr(user, "is_authenticated", False))
+
     def validate_client_id(self, client_id, request, *args, **kwargs):
         """
         Validate client_id, supporting CIMD URL-form client_ids.
@@ -665,6 +673,12 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return [IsAuthenticated()]
         return []
 
+    @staticmethod
+    def _registration_type(application: OAuthApplication) -> str:
+        if application.is_cimd_client:
+            return "cimd"
+        return "dcr" if application.is_dcr_client else "manual"
+
     @method_decorator(login_required)
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
@@ -709,7 +723,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Track OAuth authorization attempts with the authenticated user
-        registration_type = "cimd" if application.is_cimd_client else ("dcr" if application.is_dcr_client else "manual")
+        registration_type = self._registration_type(application)
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
             event="oauth_authorization_requested",
@@ -872,6 +886,22 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         error details or providing an error response
         """
         redirect, error_response = super().error_response(error, **kwargs)
+
+        # Surface scope-ceiling rejections so on-call can alert on /authorize failing with invalid_scope.
+        if getattr(error_response["error"], "error", None) == "invalid_scope" and application is not None:
+            distinct_id = getattr(getattr(self.request, "user", None), "distinct_id", None) or application.client_id
+            posthoganalytics.capture(
+                distinct_id=str(distinct_id),
+                event="oauth_authorization_rejected",
+                properties={
+                    "reason": "invalid_scope",
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": self._registration_type(application),
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                },
+            )
 
         if redirect:
             if no_redirect:

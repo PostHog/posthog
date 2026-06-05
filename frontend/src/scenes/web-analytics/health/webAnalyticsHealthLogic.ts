@@ -1,14 +1,20 @@
-import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
-import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
-import { isDefinitionStale } from 'lib/utils/definitions'
+import api, { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import type { HealthIssuesResponse } from 'scenes/health/healthSceneLogic'
+import {
+    REFRESH_COOLDOWN_MS,
+    REFRESH_POLL_COUNT,
+    REFRESH_POLL_INTERVAL_MS,
+    type HealthIssue,
+} from 'scenes/health/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { EventDefinitionType, TeamType } from '~/types'
+import { TeamType } from '~/types'
 
 import {
     HealthCheck,
@@ -26,16 +32,30 @@ export interface WebAnalyticsHealthStatus {
     isSendingPageLeavesScroll: boolean
 }
 
+const KIND_FOR_CHECK: Record<HealthCheckId, string> = {
+    [HealthCheckId.PAGEVIEW_EVENTS]: 'no_live_events',
+    [HealthCheckId.PAGELEAVE_EVENTS]: 'no_pageleave_events',
+    [HealthCheckId.SCROLL_DEPTH]: 'scroll_depth',
+    [HealthCheckId.AUTHORIZED_URLS]: 'authorized_urls',
+    [HealthCheckId.REVERSE_PROXY]: 'reverse_proxy',
+    [HealthCheckId.WEB_VITALS]: 'web_vitals',
+}
+
+function severityToStatus(severity: HealthIssue['severity']): HealthCheckStatus {
+    return severity === 'critical' ? 'error' : 'warning'
+}
+
+function statusForCheck(checkId: HealthCheckId, issuesByKind: Record<string, HealthIssue>): HealthCheckStatus {
+    const issue = issuesByKind[KIND_FOR_CHECK[checkId]]
+    return issue ? severityToStatus(issue.severity) : 'success'
+}
+
 export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     path(['scenes', 'web-analytics', 'health', 'webAnalyticsHealthLogic']),
 
     connect(() => ({
-        values: [teamLogic, ['currentTeam'], reverseProxyCheckerLogic, ['hasReverseProxy', 'hasReverseProxyLoading']],
+        values: [teamLogic, ['currentTeam', 'currentTeamIdStrict']],
         actions: [
-            teamLogic,
-            ['updateCurrentTeam'],
-            reverseProxyCheckerLogic,
-            ['loadHasReverseProxy'],
             eventUsageLogic,
             [
                 'reportWebAnalyticsHealthStatus',
@@ -48,7 +68,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     })),
 
     actions({
-        refreshHealthChecks: true,
+        refreshHealthChecks: (isManual: boolean = true) => ({ isManual }),
         trackTabViewed: true,
         trackSectionToggled: (category: HealthCheckCategory, isExpanded: boolean) => ({ category, isExpanded }),
         trackActionClicked: (
@@ -62,68 +82,68 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
             status,
             isUrgent,
         }),
+        setNextRefreshAvailableAt: (timestamp: number | null) => ({ timestamp }),
     }),
 
-    loaders(({}) => ({
-        webAnalyticsHealthStatus: {
-            __default: null as WebAnalyticsHealthStatus | null,
-            loadWebAnalyticsHealthStatus: async (): Promise<WebAnalyticsHealthStatus> => {
-                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$web_vitals',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageview',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageleave',
-                    }),
-                    api.propertyDefinitions.list({
-                        event_names: ['$pageleave'],
-                        properties: ['$prev_pageview_max_content_percentage'],
-                    }),
-                ])
+    reducers({
+        nextRefreshAvailableAt: [
+            null as number | null,
+            { persist: true },
+            {
+                setNextRefreshAvailableAt: (_, { timestamp }) => timestamp,
+            },
+        ],
+    }),
 
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const webVitalsEntry =
-                    webVitalsResult.status === 'fulfilled'
-                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
-                        : undefined
-
-                const pageviewEntry =
-                    pageviewResult.status === 'fulfilled'
-                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
-                        : undefined
-
-                const pageleaveEntry =
-                    pageleaveResult.status === 'fulfilled'
-                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
-                        : undefined
-
-                const pageleaveScrollEntry =
-                    pageleaveScroll.status === 'fulfilled'
-                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
-                        : undefined
-
-                return {
-                    isSendingWebVitals: !!webVitalsEntry && !isDefinitionStale(webVitalsEntry),
-                    isSendingPageViews: !!pageviewEntry && !isDefinitionStale(pageviewEntry),
-                    isSendingPageLeaves: !!pageleaveEntry && !isDefinitionStale(pageleaveEntry),
-                    isSendingPageLeavesScroll: !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry),
-                }
+    loaders(({ values }) => ({
+        healthIssues: {
+            __default: null as HealthIssuesResponse | null,
+            loadHealthIssues: async (): Promise<HealthIssuesResponse | null> => {
+                const url = `api/projects/${values.currentTeamIdStrict}/health_issues/?status=active&dismissed=false`
+                return await api.get(url)
             },
         },
     })),
 
     selectors({
+        issuesByKind: [
+            (s) => [s.healthIssues],
+            (healthIssues: HealthIssuesResponse | null): Record<string, HealthIssue> => {
+                const byKind: Record<string, HealthIssue> = {}
+                for (const issue of healthIssues?.results ?? []) {
+                    byKind[issue.kind] ??= issue
+                }
+                return byKind
+            },
+        ],
+
+        webAnalyticsHealthStatus: [
+            (s) => [s.healthIssues, s.issuesByKind],
+            (
+                healthIssues: HealthIssuesResponse | null,
+                issuesByKind: Record<string, HealthIssue>
+            ): WebAnalyticsHealthStatus | null => {
+                if (healthIssues === null) {
+                    return null
+                }
+                return {
+                    isSendingWebVitals: !issuesByKind.web_vitals,
+                    isSendingPageViews: !issuesByKind.no_live_events,
+                    isSendingPageLeaves: !issuesByKind.no_pageleave_events,
+                    isSendingPageLeavesScroll: !issuesByKind.scroll_depth,
+                }
+            },
+        ],
+
+        isInitialLoad: [
+            (s) => [s.healthIssues, s.healthIssuesLoading],
+            (healthIssues: HealthIssuesResponse | null, loading: boolean): boolean => loading && healthIssues === null,
+        ],
+
         eventChecks: [
-            (s) => [s.webAnalyticsHealthStatus, s.webAnalyticsHealthStatusLoading],
-            (webAnalyticsHealthStatus: WebAnalyticsHealthStatus | null, loading: boolean): HealthCheck[] => {
-                if (loading || !webAnalyticsHealthStatus) {
+            (s) => [s.issuesByKind, s.isInitialLoad],
+            (issuesByKind: Record<string, HealthIssue>, isInitialLoad: boolean): HealthCheck[] => {
+                if (isInitialLoad) {
                     return [
                         createLoadingCheck(HealthCheckId.PAGEVIEW_EVENTS, 'events', 'PageView events'),
                         createLoadingCheck(HealthCheckId.PAGELEAVE_EVENTS, 'events', 'PageLeave events'),
@@ -131,16 +151,20 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     ]
                 }
 
+                const pageviewOk = statusForCheck(HealthCheckId.PAGEVIEW_EVENTS, issuesByKind) === 'success'
+                const pageleaveOk = statusForCheck(HealthCheckId.PAGELEAVE_EVENTS, issuesByKind) === 'success'
+                const scrollOk = statusForCheck(HealthCheckId.SCROLL_DEPTH, issuesByKind) === 'success'
+
                 return [
                     {
                         id: HealthCheckId.PAGEVIEW_EVENTS,
                         category: 'events',
                         title: '$pageview',
-                        description: webAnalyticsHealthStatus.isSendingPageViews
+                        description: pageviewOk
                             ? 'Events are flowing in as expected. Head over to the Web Analytics tab to start reviewing your analytics!'
                             : 'Complete the PostHog installation to start seeing events in your dashboard.',
-                        status: webAnalyticsHealthStatus.isSendingPageViews ? 'success' : 'error',
-                        action: webAnalyticsHealthStatus.isSendingPageViews
+                        status: statusForCheck(HealthCheckId.PAGEVIEW_EVENTS, issuesByKind),
+                        action: pageviewOk
                             ? undefined
                             : {
                                   label: 'View installation guide',
@@ -153,11 +177,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.PAGELEAVE_EVENTS,
                         category: 'events',
                         title: '$pageleave',
-                        description: webAnalyticsHealthStatus.isSendingPageLeaves
+                        description: pageleaveOk
                             ? 'Bounce rate and session duration are accurate!'
                             : 'Without $pageleave events, bounce rate and session duration might be inaccurate.',
-                        status: webAnalyticsHealthStatus.isSendingPageLeaves ? 'success' : 'warning',
-                        action: webAnalyticsHealthStatus.isSendingPageLeaves
+                        status: statusForCheck(HealthCheckId.PAGELEAVE_EVENTS, issuesByKind),
+                        action: pageleaveOk
                             ? undefined
                             : {
                                   label: 'View installation guide',
@@ -169,11 +193,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.SCROLL_DEPTH,
                         category: 'events',
                         title: 'Scroll depth',
-                        description: webAnalyticsHealthStatus.isSendingPageLeavesScroll
+                        description: scrollOk
                             ? 'Scroll tracking is enabled! Tracking how far users scroll on each page.'
                             : 'Enable scroll depth to see how far users read your content before leaving.',
-                        status: webAnalyticsHealthStatus.isSendingPageLeavesScroll ? 'success' : 'warning',
-                        action: webAnalyticsHealthStatus.isSendingPageLeavesScroll
+                        status: statusForCheck(HealthCheckId.SCROLL_DEPTH, issuesByKind),
+                        action: scrollOk
                             ? undefined
                             : {
                                   label: 'View installation guide',
@@ -186,14 +210,15 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         ],
 
         configurationChecks: [
-            (s) => [s.currentTeam, s.hasReverseProxy, s.hasReverseProxyLoading, s.hasAuthorizedUrls],
+            (s) => [s.currentTeam, s.issuesByKind, s.isInitialLoad, s.hasAuthorizedUrls],
             (
                 currentTeam: TeamType | null,
-                hasReverseProxy: boolean | null,
-                hasReverseProxyLoading: boolean,
+                issuesByKind: Record<string, HealthIssue>,
+                isInitialLoad: boolean,
                 hasAuthorizedUrls: boolean
             ): HealthCheck[] => {
-                const reverseProxyCheck: HealthCheck = hasReverseProxyLoading
+                const hasReverseProxy = statusForCheck(HealthCheckId.REVERSE_PROXY, issuesByKind) === 'success'
+                const reverseProxyCheck: HealthCheck = isInitialLoad
                     ? createLoadingCheck(HealthCheckId.REVERSE_PROXY, 'configuration', 'Reverse proxy')
                     : {
                           id: HealthCheckId.REVERSE_PROXY,
@@ -202,7 +227,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                           description: hasReverseProxy
                               ? 'Reverse proxy is configured! Your tracking requests are routed through your own domain.'
                               : 'A reverse proxy routes PostHog requests through your own domain and helps prevent ad blockers from blocking tracking. Some metrics may not be accurate until this is configured.',
-                          status: hasReverseProxy ? 'success' : 'warning',
+                          status: statusForCheck(HealthCheckId.REVERSE_PROXY, issuesByKind),
                           action: hasReverseProxy
                               ? undefined
                               : {
@@ -213,35 +238,37 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                           urgent: true,
                       }
 
-                return [
-                    {
-                        id: HealthCheckId.AUTHORIZED_URLS,
-                        category: 'configuration',
-                        title: 'Authorized URLs',
-                        description: hasAuthorizedUrls
-                            ? `${currentTeam?.app_urls?.length} domain${(currentTeam?.app_urls?.length ?? 0) > 1 ? 's' : ''} configured. Your analytics are filtered to only include traffic from your domains.`
-                            : "No authorized URLs configured. Some filters won't work correctly until you let us know what domains you are sending events from.",
-                        status: hasAuthorizedUrls ? 'success' : 'warning',
-                        action: hasAuthorizedUrls
-                            ? { label: 'Manage domains', to: urls.settings('environment-web-analytics') }
-                            : { label: 'Add domains', to: urls.settings('environment-web-analytics') },
-                    },
-                    reverseProxyCheck,
-                ]
+                const authorizedUrlsCheck: HealthCheck = isInitialLoad
+                    ? createLoadingCheck(HealthCheckId.AUTHORIZED_URLS, 'configuration', 'Authorized URLs')
+                    : {
+                          id: HealthCheckId.AUTHORIZED_URLS,
+                          category: 'configuration',
+                          title: 'Authorized URLs',
+                          description: hasAuthorizedUrls
+                              ? `${currentTeam?.app_urls?.length} domain${(currentTeam?.app_urls?.length ?? 0) > 1 ? 's' : ''} configured. Your analytics are filtered to only include traffic from your domains.`
+                              : "No authorized URLs configured. Some filters won't work correctly until you let us know what domains you are sending events from.",
+                          status: statusForCheck(HealthCheckId.AUTHORIZED_URLS, issuesByKind),
+                          action: hasAuthorizedUrls
+                              ? { label: 'Manage domains', to: urls.settings('environment-web-analytics') }
+                              : { label: 'Add domains', to: urls.settings('environment-web-analytics') },
+                      }
+
+                return [authorizedUrlsCheck, reverseProxyCheck]
             },
         ],
 
         performanceChecks: [
-            (s) => [s.webAnalyticsHealthStatus, s.webAnalyticsHealthStatusLoading, s.currentTeam],
+            (s) => [s.issuesByKind, s.isInitialLoad, s.currentTeam],
             (
-                webAnalyticsHealthStatus: WebAnalyticsHealthStatus | null,
-                loading: boolean,
+                issuesByKind: Record<string, HealthIssue>,
+                isInitialLoad: boolean,
                 currentTeam: TeamType | null
             ): HealthCheck[] => {
-                if (loading || !webAnalyticsHealthStatus) {
+                if (isInitialLoad) {
                     return [createLoadingCheck(HealthCheckId.WEB_VITALS, 'performance', 'Web vitals')]
                 }
 
+                const isSendingWebVitals = statusForCheck(HealthCheckId.WEB_VITALS, issuesByKind) === 'success'
                 const webVitalsEnabled = currentTeam?.autocapture_web_vitals_opt_in ?? false
 
                 return [
@@ -249,14 +276,14 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.WEB_VITALS,
                         category: 'performance',
                         title: '$web_vitals',
-                        description: webAnalyticsHealthStatus.isSendingWebVitals
+                        description: isSendingWebVitals
                             ? 'LCP, INP, and CLS are being tracked. You can monitor your real user experience!'
                             : webVitalsEnabled
                               ? 'Enabled but no data yet. Core Web Vitals (LCP, INP, CLS) measure real user experience.'
                               : 'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
-                        status: webAnalyticsHealthStatus.isSendingWebVitals ? 'success' : 'warning',
+                        status: statusForCheck(HealthCheckId.WEB_VITALS, issuesByKind),
                         action:
-                            webAnalyticsHealthStatus.isSendingWebVitals || webVitalsEnabled
+                            isSendingWebVitals || webVitalsEnabled
                                 ? { label: 'View Web Vitals', to: '/web/web-vitals' }
                                 : {
                                       label: 'Enable Web Vitals',
@@ -347,25 +374,57 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         ],
 
         hasAuthorizedUrls: [
-            (s) => [s.currentTeam],
-            (currentTeam: TeamType | null): boolean => {
-                return !!currentTeam?.app_urls && currentTeam.app_urls.length > 0
-            },
+            (s) => [s.issuesByKind],
+            (issuesByKind: Record<string, HealthIssue>): boolean => !issuesByKind.authorized_urls,
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        refreshHealthChecks: () => {
+        refreshHealthChecks: async ({ isManual }, breakpoint) => {
             const { overallHealthStatus } = values
             actions.reportWebAnalyticsHealthRefreshed({
                 overall_status: overallHealthStatus.status,
                 passed_count: overallHealthStatus.passedCount,
             })
-            actions.loadWebAnalyticsHealthStatus()
-            actions.loadHasReverseProxy()
+
+            const url = `api/projects/${values.currentTeamIdStrict}/health_issues/refresh/`
+            try {
+                const response = await api.create<{
+                    scheduled_kinds: string[]
+                    kinds_failed: string[]
+                    team_id: number
+                }>(url)
+                breakpoint()
+
+                actions.setNextRefreshAvailableAt(Date.now() + REFRESH_COOLDOWN_MS)
+
+                if ((response?.scheduled_kinds ?? []).length === 0) {
+                    if (isManual) {
+                        lemonToast.info('No health checks are registered for this project.')
+                    }
+                    return
+                }
+
+                for (let i = 0; i < REFRESH_POLL_COUNT; i++) {
+                    await breakpoint(REFRESH_POLL_INTERVAL_MS)
+                    actions.loadHealthIssues()
+                }
+            } catch (error: unknown) {
+                if (error instanceof ApiError && error.status === 429) {
+                    const retryAfterSeconds = Number(error.headers?.get('Retry-After'))
+                    if (!isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
+                        actions.setNextRefreshAvailableAt(Date.now() + retryAfterSeconds * 1000)
+                    }
+                    if (isManual) {
+                        lemonToast.warning(`Refresh available again ${error.formattedRetryAfter ?? 'in a few minutes'}`)
+                    }
+                } else if (isManual) {
+                    lemonToast.error('Failed to refresh health checks')
+                }
+            }
         },
-        loadWebAnalyticsHealthStatusSuccess: () => {
-            const { webAnalyticsHealthStatus, hasAuthorizedUrls, hasReverseProxy, overallHealthStatus } = values
+        loadHealthIssuesSuccess: () => {
+            const { webAnalyticsHealthStatus, hasAuthorizedUrls, overallHealthStatus, issuesByKind } = values
             if (webAnalyticsHealthStatus && overallHealthStatus.status !== 'loading') {
                 actions.reportWebAnalyticsHealthStatus({
                     has_pageviews: webAnalyticsHealthStatus.isSendingPageViews,
@@ -373,7 +432,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                     has_scroll_depth: webAnalyticsHealthStatus.isSendingPageLeavesScroll,
                     has_web_vitals: webAnalyticsHealthStatus.isSendingWebVitals,
                     has_authorized_urls: hasAuthorizedUrls,
-                    has_reverse_proxy: hasReverseProxy ?? false,
+                    has_reverse_proxy: !issuesByKind.reverse_proxy,
                     overall_status: overallHealthStatus.status,
                 })
             }
@@ -403,8 +462,13 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
-        actions.loadWebAnalyticsHealthStatus()
+    afterMount(({ actions, values }) => {
+        actions.loadHealthIssues()
+
+        const { nextRefreshAvailableAt } = values
+        if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+            actions.refreshHealthChecks(false)
+        }
     }),
 ])
 
