@@ -385,6 +385,11 @@ class ConversionGoalProcessor:
         for prop in self.goal.properties or []:
             if prop.type in ("person", "cohort"):
                 return False
+        # The shared touchpoints precompute is config-agnostic: build_touchpoints_precompute_query()
+        # always materializes the default UTM property names. A goal that remaps any tracked field via
+        # schema_map would read mismatched columns on the conversion side, so use the direct path.
+        if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
+            return False
         if self._precompute_properties_restricted_for_user():
             return False
         return True
