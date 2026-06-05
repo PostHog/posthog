@@ -152,8 +152,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     sandboxBackend: z
         .enum(['docker', 'modal'])
         .optional()
+        .transform((v): 'docker' | 'modal' | undefined => v ?? (isDev() ? 'docker' : undefined))
         .describe(
-            "Sandbox pool impl. `modal` (prod) provisions per-session Modal sandboxes; `docker` (local dev) runs the posthog-agent-sandbox-host image via the docker socket. Optional in the schema so config parse stays clean in tests that don't construct a sandbox pool; the runner entrypoint throws at boot when unset. In-process sandbox is selected by tests directly, never via config — it has no isolation and isn't a valid prod / local-dev choice."
+            "Sandbox pool impl. `modal` (prod) provisions per-session Modal sandboxes; `docker` (local dev) runs the posthog-agent-sandbox-host image via the docker socket. Defaults to `docker` under `isDev()` so `bin/start` works without configuration; prod must set this explicitly or `selectSandboxPool` throws at boot. In-process sandbox is selected by tests directly, never via config — it has no isolation and isn't a valid prod / local-dev choice."
         ),
     sandboxHostImage: z
         .string()

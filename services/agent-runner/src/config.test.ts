@@ -26,6 +26,22 @@ describe('loadAgentRunnerConfig', () => {
         expect(cfg.memoryS3Bucket).toBe('posthog')
     })
 
+    it('defaults sandboxBackend to docker in dev so bin/start works without configuration', () => {
+        const cfg = loadAgentRunnerConfig({})
+        expect(cfg.sandboxBackend).toBe('docker')
+    })
+
+    it('leaves sandboxBackend unset in prod so selectSandboxPool fails fast at boot', () => {
+        vi.stubEnv('NODE_ENV', 'production')
+        const cfg = loadAgentRunnerConfig({})
+        expect(cfg.sandboxBackend).toBeUndefined()
+    })
+
+    it('explicit SANDBOX_BACKEND wins over the dev default', () => {
+        const cfg = loadAgentRunnerConfig({ SANDBOX_BACKEND: 'modal' })
+        expect(cfg.sandboxBackend).toBe('modal')
+    })
+
     it('AGENT_USE_AI_GATEWAY=1 parses to true', () => {
         const cfg = loadAgentRunnerConfig({ AGENT_USE_AI_GATEWAY: '1' })
         expect(cfg.useAiGateway).toBe(true)
