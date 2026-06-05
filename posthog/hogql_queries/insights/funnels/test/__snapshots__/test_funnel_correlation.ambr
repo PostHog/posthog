@@ -3625,16 +3625,40 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events
   '''
-  WITH funnel_actors AS MATERIALIZED
-    (SELECT aggregation_target AS actor_id, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            (matched_events_array[1][1]).1 AS timestamp,
+            nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+            (matched_events_array[1][1]).1 AS first_timestamp,
+            steps AS steps,
+            final_timestamp,
+            first_timestamp
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, [''] AS prop, arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, af_tuple.5 AS steps_bitfield, aggregation_target AS aggregation_target
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
         FROM
-          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e.`$group_0` AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
@@ -3642,7 +3666,7 @@
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
-  SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
+  SELECT if(ifNull(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 0), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)
                                                                         and isNull(target_step))) AS success_count,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, target_step), isNotNull(aggregation_target_with_props.steps)
@@ -3650,7 +3674,7 @@
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
-            arrayJoin(arrayZip(['industry'], [JSONExtractString(groups_0.properties, 'industry')])) AS prop
+            arrayJoin(arrayConcat([tuple('Total_Values_In_Query', '')], arrayZip(['industry'], [JSONExtractString(groups_0.properties, 'industry')]))) AS prop
      FROM funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -3665,15 +3689,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
-  LIMIT 100
-  UNION ALL
-  SELECT 'Total_Values_In_Query' AS name,
-         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
-                                                        and isNull(target_step))) AS success_count,
-         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
-                                                        or isNotNull(target_step))) AS failure_count
-  FROM funnel_actors
+  HAVING or(ifNull(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 0), ifNull(notIn((aggregation_target_with_props.prop).1, []), 1))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3996,16 +4012,40 @@
 # ---
 # name: TestClickhouseFunnelCorrelation.test_funnel_correlation_with_properties_and_groups_person_on_events.5
   '''
-  WITH funnel_actors AS MATERIALIZED
-    (SELECT aggregation_target AS actor_id, (matched_events_array[1][1]).1 AS timestamp, nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp, (matched_events_array[1][1]).1 AS first_timestamp, steps AS steps, final_timestamp, first_timestamp
+  WITH funnel_actors AS
+    (SELECT aggregation_target AS actor_id,
+            (matched_events_array[1][1]).1 AS timestamp,
+            nullIf((matched_events_array[2][1]).1, 0) AS final_timestamp,
+            (matched_events_array[1][1]).1 AS first_timestamp,
+            steps AS steps,
+            final_timestamp,
+            first_timestamp
      FROM
-       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array, [''] AS prop, arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                                                                                                                            and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                                                                                                                                                                                                                                            and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple, af_tuple.1 AS step_reached, plus(af_tuple.1, 1) AS steps, af_tuple.2 AS breakdown, af_tuple.3 AS timings, af_tuple.4 AS matched_event_uuids_array_array, groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events, mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map, arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array, af_tuple.5 AS steps_bitfield, aggregation_target AS aggregation_target
+       (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
+               [''] AS prop,
+               arrayJoin(aggregate_funnel(2, 1209600, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                        and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                        and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                       and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                       and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+               af_tuple.1 AS step_reached,
+               plus(af_tuple.1, 1) AS steps,
+               af_tuple.2 AS breakdown,
+               af_tuple.3 AS timings,
+               af_tuple.4 AS matched_event_uuids_array_array,
+               groupArray(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS user_events,
+               mapFromArrays(arrayMap(x -> x.2, user_events), user_events) AS user_events_map,
+               arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) AS matched_events_array,
+               af_tuple.5 AS steps_bitfield,
+               aggregation_target AS aggregation_target
         FROM
-          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp, e.`$group_0` AS aggregation_target, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, if(equals(e.event, 'user signed up'), 1, 0) AS step_0, if(equals(e.event, 'paid'), 1, 0) AS step_1
+          (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
+                  e.`$group_0` AS aggregation_target,
+                  e.uuid AS uuid,
+                  e.`$session_id` AS `$session_id`,
+                  e.`$window_id` AS `$window_id`,
+                  if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
+                  if(equals(e.event, 'paid'), 1, 0) AS step_1
            FROM events AS e
            WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(e.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(e.timestamp, toDateTime64('2020-01-14 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('paid', 'user signed up')), and(notEquals(toString(aggregation_target), ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0))))
         GROUP BY aggregation_target
@@ -4013,7 +4053,7 @@
      WHERE bitTest(steps_bitfield, 0)
      ORDER BY aggregation_target ASC SETTINGS join_algorithm='auto'),
        2 AS target_step
-  SELECT concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), '')) AS name,
+  SELECT if(ifNull(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 0), 'Total_Values_In_Query', concat(ifNull(toString((aggregation_target_with_props.prop).1), ''), '::', ifNull(toString((aggregation_target_with_props.prop).2), ''))) AS name,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(equals(aggregation_target_with_props.steps, target_step), isNull(aggregation_target_with_props.steps)
                                                                         and isNull(target_step))) AS success_count,
          countDistinctIf(aggregation_target_with_props.actor_id, ifNull(notEquals(aggregation_target_with_props.steps, target_step), isNotNull(aggregation_target_with_props.steps)
@@ -4021,7 +4061,7 @@
   FROM
     (SELECT funnel_actors.actor_id AS actor_id,
             funnel_actors.steps AS steps,
-            arrayJoin(JSONExtractKeysAndValues(groups_0.properties, 'String')) AS prop
+            arrayJoin(arrayConcat([tuple('Total_Values_In_Query', '')], JSONExtractKeysAndValues(groups_0.properties, 'String'))) AS prop
      FROM funnel_actors
      LEFT JOIN
        (SELECT groups.key AS key,
@@ -4036,15 +4076,7 @@
                     groups.group_key) AS groups
         WHERE ifNull(equals(groups.index, 0), 0)) AS groups_0 ON equals(funnel_actors.actor_id, groups_0.key)) AS aggregation_target_with_props
   GROUP BY (aggregation_target_with_props.prop).1, (aggregation_target_with_props.prop).2
-  HAVING ifNull(notIn((aggregation_target_with_props.prop).1, []), 1)
-  LIMIT 100
-  UNION ALL
-  SELECT 'Total_Values_In_Query' AS name,
-         countDistinctIf(funnel_actors.actor_id, ifNull(equals(funnel_actors.steps, target_step), isNull(funnel_actors.steps)
-                                                        and isNull(target_step))) AS success_count,
-         countDistinctIf(funnel_actors.actor_id, ifNull(notEquals(funnel_actors.steps, target_step), isNotNull(funnel_actors.steps)
-                                                        or isNotNull(target_step))) AS failure_count
-  FROM funnel_actors
+  HAVING or(ifNull(equals((aggregation_target_with_props.prop).1, 'Total_Values_In_Query'), 0), ifNull(notIn((aggregation_target_with_props.prop).1, []), 1))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
