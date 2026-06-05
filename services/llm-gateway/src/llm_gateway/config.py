@@ -43,7 +43,7 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
     "posthog_code": UserCostLimit(
         burst_limit_usd=300.0,
         burst_window_seconds=86400,
-        sustained_limit_usd=1500.0,
+        sustained_limit_usd=3000.0,
         sustained_window_seconds=2592000,
     ),
     "background_agents": UserCostLimit(

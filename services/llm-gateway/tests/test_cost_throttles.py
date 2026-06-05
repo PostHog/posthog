@@ -78,7 +78,7 @@ class TestUserCostLimitConfig:
         posthog_code = settings.user_cost_limits["posthog_code"]
         assert posthog_code.burst_limit_usd == 300.0
         assert posthog_code.burst_window_seconds == 86400
-        assert posthog_code.sustained_limit_usd == 1500.0
+        assert posthog_code.sustained_limit_usd == 3000.0
         assert posthog_code.sustained_window_seconds == 2592000
         get_settings.cache_clear()
 
@@ -328,7 +328,7 @@ class TestUserCostSustainedThrottle:
         throttle = UserCostSustainedThrottle(redis=None)
         context = make_context(product="posthog_code")
 
-        await throttle.record_cost(context, 1500.0)
+        await throttle.record_cost(context, 3000.0)
 
         result = await throttle.allow_request(context)
         assert result.allowed is False
@@ -482,7 +482,7 @@ class TestBurstSustainedInteraction:
         context = make_context(product="posthog_code")
 
         await burst.record_cost(context, 50.0)
-        await sustained.record_cost(context, 1500.0)
+        await sustained.record_cost(context, 3000.0)
 
         assert (await burst.allow_request(context)).allowed is True
         assert (await sustained.allow_request(context)).allowed is False
@@ -818,7 +818,7 @@ class TestUnconfiguredProductsUseDefaults:
 
         await burst.record_cost(ctx_posthog_code, 300.0)
         await burst.record_cost(ctx_wizard, 100.0)
-        await sustained.record_cost(ctx_posthog_code, 1500.0)
+        await sustained.record_cost(ctx_posthog_code, 3000.0)
         await sustained.record_cost(ctx_wizard, 1000.0)
 
         assert (await burst.allow_request(ctx_posthog_code)).allowed is False
