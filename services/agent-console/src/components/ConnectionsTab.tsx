@@ -20,7 +20,7 @@
 
 'use client'
 
-import { AlertCircleIcon, KeyIcon, LinkIcon, PlusIcon, ServerIcon } from 'lucide-react'
+import { AlertCircleIcon, KeyIcon, LinkIcon, PlusIcon, ServerIcon, Trash2Icon } from 'lucide-react'
 import { useState } from 'react'
 
 import type { AgentApplicationFixture, AgentRevisionFixture } from '@posthog/agent-chat/fixtures'
@@ -38,9 +38,10 @@ import {
 } from '@posthog/quill'
 
 import { useSessionTeamId } from '@/components/session-context'
-import { listEnvKeys } from '@/lib/apiClient'
+import { clearEnvKey, listEnvKeys } from '@/lib/apiClient'
 import { useResource } from '@/lib/useResource'
 
+import { ConfirmDialog } from './ConfirmDialog'
 import { SecretEditDialog } from './SecretEditDialog'
 
 interface ConnectionsTabProps {
@@ -120,10 +121,13 @@ export function ConnectionsTab({
             ) : null}
 
             <SecretsCard
+                agentSlug={agent.slug}
+                teamId={teamId}
                 declared={declaredSecrets}
                 extras={extraKeys}
                 setKeys={new Set(setKeys)}
                 onEdit={onChangeEditingSecret}
+                onMutated={bumpReload}
             />
             <IntegrationsCard integrations={integrations} />
             <McpsCard mcps={mcps} />
@@ -141,19 +145,57 @@ export function ConnectionsTab({
 }
 
 function SecretsCard({
+    agentSlug,
+    teamId,
     declared,
     extras,
     setKeys,
     onEdit,
+    onMutated,
 }: {
+    agentSlug: string
+    teamId: number
     declared: string[]
     /** Set keys not declared on the spec. Listed under a separate group. */
     extras: string[]
     setKeys: ReadonlySet<string>
     onEdit: (key: string | null) => void
+    onMutated: () => void
 }): React.ReactElement {
     const [adding, setAdding] = useState(false)
+    // Two-step delete: click the trash icon to stage `deletingKey`, then
+    // confirm in the dialog. Errors stay inline so the user can retry
+    // without losing context.
+    const [deletingKey, setDeletingKey] = useState<string | null>(null)
+    const [deleting, setDeleting] = useState(false)
+    const [deleteError, setDeleteError] = useState<string | null>(null)
     const total = declared.length + extras.length
+
+    const closeDelete = (): void => {
+        if (deleting) {
+            return
+        }
+        setDeletingKey(null)
+        setDeleteError(null)
+    }
+
+    const confirmDelete = async (): Promise<void> => {
+        if (!deletingKey || deleting) {
+            return
+        }
+        setDeleting(true)
+        setDeleteError(null)
+        try {
+            await clearEnvKey(teamId, agentSlug, deletingKey)
+            onMutated()
+            setDeletingKey(null)
+        } catch (err) {
+            setDeleteError(err instanceof Error ? err.message : String(err))
+        } finally {
+            setDeleting(false)
+        }
+    }
+
     return (
         <>
             <ConnectionCard
@@ -190,7 +232,14 @@ function SecretsCard({
                                 </div>
                                 <ul className="divide-y divide-border">
                                     {extras.map((name) => (
-                                        <SecretRow key={name} name={name} isSet isOrphan onEdit={onEdit} />
+                                        <SecretRow
+                                            key={name}
+                                            name={name}
+                                            isSet
+                                            isOrphan
+                                            onEdit={onEdit}
+                                            onDelete={() => setDeletingKey(name)}
+                                        />
                                     ))}
                                 </ul>
                             </>
@@ -210,6 +259,27 @@ function SecretsCard({
                     onEdit(name)
                 }}
             />
+            <ConfirmDialog
+                open={deletingKey !== null}
+                onOpenChange={(o) => {
+                    if (!o) {
+                        closeDelete()
+                    }
+                }}
+                title="Delete secret"
+                description={
+                    <>
+                        Delete <code className="font-mono">{deletingKey}</code>? It's set on the application but not
+                        declared on the live spec, so no agent is reading it. This clears the encrypted value
+                        immediately and can't be undone.
+                    </>
+                }
+                confirmLabel="Delete"
+                confirmVariant="destructive"
+                running={deleting}
+                error={deleteError}
+                onConfirm={() => void confirmDelete()}
+            />
         </>
     )
 }
@@ -219,11 +289,14 @@ function SecretRow({
     isSet,
     isOrphan,
     onEdit,
+    onDelete,
 }: {
     name: string
     isSet: boolean
     isOrphan?: boolean
     onEdit: (key: string | null) => void
+    /** When provided, renders a trash button that opens a confirm dialog. */
+    onDelete?: () => void
 }): React.ReactElement {
     return (
         <li className="flex items-center justify-between gap-2 px-3 py-2 text-xs">
@@ -240,6 +313,17 @@ function SecretRow({
                 >
                     {isSet ? 'Rotate' : 'Set'}
                 </button>
+                {onDelete ? (
+                    <button
+                        type="button"
+                        onClick={onDelete}
+                        aria-label={`Delete secret ${name}`}
+                        title={`Delete ${name}`}
+                        className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:bg-destructive/20 hover:text-destructive-foreground"
+                    >
+                        <Trash2Icon className="h-3 w-3" />
+                    </button>
+                ) : null}
             </div>
         </li>
     )

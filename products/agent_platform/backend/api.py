@@ -22,18 +22,18 @@ import os
 import json
 import logging
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from functools import cached_property
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import StreamingHttpResponse
 from django.utils import timezone
 
-import jwt as pyjwt
 import requests
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
@@ -62,7 +62,7 @@ from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
-from posthog.jwt import PosthogJwtAudience
+from posthog.jwt import AgentInternalAudience, encode_agent_internal_jwt
 from posthog.models.organization import OrganizationMembership
 
 from .janitor_client import JanitorClient, JanitorClientError, default_client
@@ -144,28 +144,29 @@ AGENT_SESSION_LOG_SOURCE = "agent_session"
 def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, user: Any) -> tuple[str, int] | None:
     """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
 
-    Returns `(token, ttl_seconds)` or `None` when no shared secret is
+    Returns `(token, ttl_seconds)` or `None` when no shared signing key is
     configured (dev / harness path — ingress's gate is then also bypassed).
 
-    Same payload + secret the runtime uses; pulled out of preview_proxy so
-    the standalone `preview_token` action and the legacy server-side proxy
-    share one implementation. Bound to (app, rev) so a captured token can't
-    be replayed against a different draft. See docs/agent-platform/plans/
-    draft-preview-auth.md.
+    Bound to (app, rev) so a captured token can't be replayed against a
+    different draft, and to `aud = agent-ingress.preview` so it can't be
+    replayed against any other agent-platform service. See
+    docs/agent-platform/plans/draft-preview-auth.md.
     """
-    preview_secret = os.environ.get("AGENT_PREVIEW_SECRET", "")
-    if not preview_secret:
+    if not settings.AGENT_INTERNAL_SIGNING_KEY:
         return None
     ttl_seconds = 60
     payload: dict[str, Any] = {
         "app": str(application.id),
         "rev": str(revision.id),
-        "aud": PosthogJwtAudience.AGENT_PREVIEW.value,
-        "exp": datetime.now(tz=UTC) + timedelta(seconds=ttl_seconds),
     }
     if user and getattr(user, "is_authenticated", False):
         payload["sub"] = f"user:{user.id}"
-    return pyjwt.encode(payload, preview_secret, algorithm="HS256"), ttl_seconds
+    token = encode_agent_internal_jwt(
+        payload,
+        timedelta(seconds=ttl_seconds),
+        AgentInternalAudience.INGRESS_PREVIEW,
+    )
+    return token, ttl_seconds
 
 
 class EventStreamRenderer(renderers.BaseRenderer):
@@ -761,7 +762,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         token_pair = _mint_preview_jwt(application, revision, request.user)
         if token_pair is None:
-            # No AGENT_PREVIEW_SECRET configured — ingress's gate is
+            # No AGENT_INTERNAL_SIGNING_KEY configured — ingress's gate is
             # also bypassed in that mode, so an empty token is fine
             # (and signals the dev/harness configuration to the caller).
             return Response({"token": "", "expires_in": 0, "ingress_slug": f"{application.slug}-{revision.id.hex}"})

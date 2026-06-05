@@ -3901,6 +3901,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@posthog/agent-migrations':
+        specifier: workspace:*
+        version: link:../agent-migrations
       '@types/express':
         specifier: ^4.17.21
         version: 4.17.25
@@ -4065,6 +4068,9 @@ importers:
       fernet-nodejs:
         specifier: ^1.0.6
         version: 1.0.6
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
       minisearch:
         specifier: ^7.1.2
         version: 7.2.0
