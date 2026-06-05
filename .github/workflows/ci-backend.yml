@@ -1707,6 +1707,15 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   lfs: true
                   clean: false
+
+            # Put signal-fanout on PATH so the pytest steps below can use it as
+            # their `shell:` wrapper. GHA's `shell:` field doesn't allow
+            # ${{ github.workspace }} expansion, so a plain name on PATH is the
+            # only portable way to reference it.
+            - name: Install signal-fanout
+              shell: bash
+              run: sudo install -m 0755 .github/scripts/signal-fanout /usr/local/bin/signal-fanout
+
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -1941,7 +1950,12 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
-              shell: bash
+              # Wrap bash with signal-fanout so the runner's cancel signal is
+              # propagated to the entire process tree (incl. pytest). Without
+              # this, GHA only signals the top-level bash and pytest survives
+              # until the runner's 10s SIGKILL — which sometimes misses
+              # detached descendants entirely. Installed earlier on PATH.
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   set +e
                   pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
@@ -2005,7 +2019,8 @@ jobs:
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
+              # See "Run Core tests" for why signal-fanout wraps bash here.
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
