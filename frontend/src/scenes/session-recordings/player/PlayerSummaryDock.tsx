@@ -11,6 +11,7 @@ import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerL
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -73,6 +74,7 @@ function formatSessionSummary(summary: SessionSummaryContent, sessionId: string)
 
 export function PlayerSummaryDock(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
     const { logicProps, sessionRecordingId, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const {
         sessionSummary,
@@ -156,6 +158,18 @@ export function PlayerSummaryDock(): JSX.Element | null {
                         data-attr="cancel-session-summary"
                     >
                         Cancel summarization
+                    </LemonButton>
+                ) : !isCloudOrDev ? (
+                    // AI session summaries run on PostHog Cloud only — show the standard upsell.
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconMagicWand />}
+                        to={urls.moveToPostHogCloud()}
+                        tooltip="AI session summaries are available on PostHog Cloud"
+                        data-attr="session-summary-move-to-cloud"
+                    >
+                        Summarize with PostHog Cloud
                     </LemonButton>
                 ) : (
                     <LemonButton
