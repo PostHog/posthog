@@ -2664,6 +2664,21 @@
             "readOnlyHint": true
         }
     },
+    "generate-app-url": {
+        "description": "Build a correct, clickable PostHog app URL for any page or entity — run `info generate-app-url` for the full catalog of path templates.\nALWAYS use this (or an existing `_posthogUrl` field on a tool result) instead of writing PostHog links by hand: slugs and project/host prefixes are easy to get wrong (a person UUID lives at `/persons/<uuid>`, not `/person/...`) and IDs must never be retyped into a path. Pass a `url` template from the catalog plus its `{placeholders}` as `params`; returns `{ url }` — surface it verbatim.",
+        "category": "Utilities",
+        "feature": "links",
+        "summary": "Build a correct PostHog app URL for a page or entity.",
+        "title": "Generate app URL",
+        "required_scopes": [],
+        "always_available": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "get-llm-total-costs-for-project": {
         "description": "Fetches the total LLM daily costs for each model for a project over a given number of days. If no number of days is provided, it defaults to 7. The results are sorted by model name. The total cost is rounded to 4 decimal places. The query is executed against the project's data warehouse. Show the results as a Markdown formatted table with the following information for each model: Model name, Total cost in USD, Each day's date, Each day's cost in USD. Write in bold the model name with the highest total cost. Properly render the markdown table in the response.",
         "category": "AI observability",
