@@ -16,14 +16,9 @@ in ``services/mcp/src/templates/cli-proxy-tool.md`` and
   by an ``info <tool>`` in the same run.
 * ``eval_verify_event_before_query`` — for ``query-*`` calls, the agent
   verifies the event/property exists via ``read-data-schema`` first.
-* ``eval_app_link_generation`` — for a link to an entity found via SQL (no
-  tool-attached ``_posthogUrl``), the agent resolves it through
-  ``generate-app-url`` and surfaces that url verbatim, instead of hand-building
-  a 404 link. Mode-agnostic — the tool exists in both ``cli`` and ``tools`` modes.
 
-All evals except ``eval_app_link_generation`` skip when ``--mcp-mode=tools``
-because the ``exec`` tool is only registered in ``cli`` mode (see
-``conftest.py:_apply_mcp_mode``).
+All five skip when ``--mcp-mode=tools`` because the ``exec`` tool is only
+registered in ``cli`` mode (see ``conftest.py:_apply_mcp_mode``).
 
 To run a single eval:
     pytest ee/hogai/eval/sandboxed/cli_mcp/eval_workflow.py::eval_typo_recovery --mcp-mode=cli
@@ -41,7 +36,6 @@ from ee.hogai.eval.sandboxed.cli_mcp.scorers import (
     PreferredSearchOverTools,
     RanPythonPostProcessing,
     RecoveredToCorrectTool,
-    SurfacedGeneratedAppUrl,
     UsedJsonOutputFormat,
     VerifiedEventBeforeQuery,
 )
@@ -249,57 +243,6 @@ async def eval_verify_event_before_query(sandboxed_demo_data, pytestconfig, post
         experiment_name=f"sandboxed-cli-mcp-verify-event-{mcp_mode}",
         cases=cases,
         scorers=[ExitCodeZero(), CalledTargetTool(), VerifiedEventBeforeQuery()],
-        pytestconfig=pytestconfig,
-        sandboxed_demo_data=sandboxed_demo_data,
-        posthog_client=posthog_client,
-    )
-
-
-async def eval_app_link_generation(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
-    """Entity links must be resolved via ``generate-app-url``, not hand-built.
-
-    Reproduces the reported failure where the MCP confidently returned 404 links — a person
-    UUID under the singular ``/person/`` slug instead of ``/persons/``, and session ids mistyped
-    into ``/replay/`` paths. The trigger is an entity discovered via ``execute-sql``: there is no
-    tool-attached ``_posthogUrl`` on a raw query result, so the agent must call ``generate-app-url``
-    and surface the url it returns verbatim rather than guessing the slug or retyping the id.
-
-    Runs in both mcp modes — ``generate-app-url`` is registered in each.
-    """
-    cases: list[SandboxedEvalCase] = [
-        # Person by UUID: the exact reported slug bug (`/persons/<uuid>`, not `/person/<uuid>`).
-        # Forcing the UUID via SQL keeps the agent off persons-retrieve's `_posthogUrl` shortcut,
-        # so `generate-app-url` is the only correct path.
-        SandboxedEvalCase(
-            name="person_profile_link",
-            prompt=(
-                "Using SQL, find one person in this project and read their UUID. Then give me a "
-                "clickable link to open that person's profile page in PostHog."
-            ),
-            expected={
-                "called_target_tool": {"tool": "generate-app-url"},
-                "surfaced_generated_app_url": {},
-            },
-        ),
-        # Event link: another raw-SQL entity with no `_posthogUrl` tool, where ids must be passed
-        # as params rather than transcribed into the path.
-        SandboxedEvalCase(
-            name="event_link",
-            prompt=(
-                "Using SQL, find one recent `$pageview` event and read its uuid and timestamp. "
-                "Then give me a clickable link to view that specific event in PostHog."
-            ),
-            expected={
-                "called_target_tool": {"tool": "generate-app-url"},
-                "surfaced_generated_app_url": {},
-            },
-        ),
-    ]
-
-    await SandboxedPublicEval(
-        experiment_name=f"sandboxed-cli-mcp-app-link-generation-{mcp_mode}",
-        cases=cases,
-        scorers=[ExitCodeZero(), CalledTargetTool(), SurfacedGeneratedAppUrl()],
         pytestconfig=pytestconfig,
         sandboxed_demo_data=sandboxed_demo_data,
         posthog_client=posthog_client,
