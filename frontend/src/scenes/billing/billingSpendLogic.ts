@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -113,14 +112,10 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         end_date: values.dateTo || dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
                         ...(interval ? { interval } : {}),
                     }
-                    try {
-                        return await api.get(`api/billing/spend/?${toParams(params)}`)
-                    } catch (error) {
-                        // The user didn't initiate this request, so don't surface a toast they can't act on.
-                        // Capture for monitoring instead.
-                        posthog.captureException(new Error('Failed to load billing spend', { cause: error }))
-                        throw error
-                    }
+                    // Errors are handled by the global kea-loaders onFailure handler in initKea.ts,
+                    // which captures the exception for monitoring. The toast is suppressed there via
+                    // ERROR_FILTER_ALLOW_LIST since the user doesn't initiate this background request.
+                    return await api.get(`api/billing/spend/?${toParams(params)}`)
                 },
             },
         ],

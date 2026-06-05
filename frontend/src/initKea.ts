@@ -27,6 +27,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'signup', // Special error handling on login
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
+    'loadBillingSpend', // Background request the user doesn't initiate; still captured for monitoring
     'loadData', // Gracefully handled in the data table
     'loadRecordingMeta', // Gracefully handled in the recording player
     'loadSimilarIssues', // Gracefully handled in the similar issues list
