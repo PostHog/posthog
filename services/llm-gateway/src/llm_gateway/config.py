@@ -151,6 +151,11 @@ class Settings(BaseSettings):
 
     metrics_enabled: bool = True
 
+    # Shared secret for the staff admin endpoints (api/admin.py). Set on both the
+    # gateway and the PostHog Django app (LLM_GATEWAY_ADMIN_SECRET). When unset the
+    # admin endpoints are disabled (return 404), so they never run unauthenticated.
+    admin_secret: str | None = None
+
     # ~600 bytes per entry (key + AuthenticatedUser + LRU overhead), 10000 entries ≈ 6 MB
     auth_cache_max_size: int = 10000
     auth_cache_ttl: int = 900  # 15 minutes — used for personal API keys

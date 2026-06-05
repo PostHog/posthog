@@ -132,6 +132,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         health_check_runs_fragment_view,
         health_check_trigger_view,
     )
+    from posthog.admin.admins.llm_gateway_limits_admin import LLMGatewayLimitsViewSet, llm_gateway_limits_view
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
@@ -185,6 +186,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/api/email-mfa-global-disable/",
             EmailMFAGlobalDisableViewSet.as_view({"get": "list", "post": "create", "delete": "destroy"}),
             name="email-mfa-global-disable-api",
+        ),
+        path(
+            "admin/llm-gateway-limits/",
+            admin.site.admin_view(llm_gateway_limits_view),
+            name="llm-gateway-limits",
+        ),
+        path(
+            "admin/api/llm-gateway-limits/<str:user_id>/",
+            LLMGatewayLimitsViewSet.as_view({"get": "retrieve"}),
+            name="llm-gateway-limits-api-usage",
+        ),
+        path(
+            "admin/api/llm-gateway-limits/<str:user_id>/reset/",
+            LLMGatewayLimitsViewSet.as_view({"post": "reset"}),
+            name="llm-gateway-limits-api-reset",
         ),
         path(
             "admin/resave-cohorts/",

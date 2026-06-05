@@ -1,0 +1,204 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style nonce="{{ request.csp_nonce }}">
+    .form-row { margin-bottom: 15px; margin-top: 15px; }
+    .help { font-size: 11px; color: #666; }
+    .submit-row { margin-top: 20px; }
+    .usage-list { margin-top: 20px; }
+    .usage-list table { width: 100%; border-collapse: collapse; }
+    .usage-list th, .usage-list td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #ddd; }
+    .usage-list th { background: #f8f8f8; font-weight: bold; }
+    .empty-state { color: #666; font-style: italic; padding: 12px 0; }
+    .msg-success { background: #dfd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
+    .msg-error { background: #fdd; padding: 8px 12px; margin-bottom: 10px; border-radius: 4px; }
+    .checkbox-row { margin: 6px 0; }
+    .mono { font-family: monospace; font-size: 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div id="messages"></div>
+
+<p class="help">
+    Reset PostHog Code usage / rate-limit counters for a single user. The counters live in
+    the LLM gateway's Redis; this page calls the gateway's staff admin endpoints over HTTP.
+</p>
+
+<form id="lookup-form">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+        <h2>Look up a user</h2>
+        <div class="form-row">
+            <label for="id_user_id">User ID:</label>
+            <input type="number" name="user_id" id="id_user_id" min="1" required />
+            <p class="help">The PostHog user ID (the end_user_id the gateway rate-limits on).</p>
+        </div>
+    </fieldset>
+    <div class="submit-row">
+        <input type="submit" id="lookup-btn" value="Look up usage" class="default" />
+    </div>
+</form>
+
+<div class="usage-list" id="usage-section" style="display:none">
+    <fieldset class="module aligned">
+        <h2>Current cost counters for user <span id="usage-user-id" class="mono"></span></h2>
+        <table id="usage-table">
+            <thead>
+                <tr>
+                    <th>Scope</th>
+                    <th>Used (USD)</th>
+                    <th>Base limit (USD)</th>
+                    <th>Resets in (s)</th>
+                    <th>Key</th>
+                </tr>
+            </thead>
+            <tbody id="usage-body"></tbody>
+        </table>
+        <p id="usage-empty" class="empty-state" style="display:none">No live cost counters for this user.</p>
+    </fieldset>
+</div>
+
+<form id="reset-form" style="margin-top: 30px; display:none">
+    {% csrf_token %}
+    <fieldset class="module aligned">
+        <h2>Reset limits for user <span id="reset-user-id" class="mono"></span></h2>
+        <div class="checkbox-row">
+            <label><input type="checkbox" id="reset_cost" checked /> Cost counters (live per-user limit)</label>
+        </div>
+        <div class="checkbox-row">
+            <label><input type="checkbox" id="reset_request" /> Request-rate counters (currently dormant)</label>
+        </div>
+        <div class="checkbox-row">
+            <label><input type="checkbox" id="reset_product_total" /> Product-wide cost pool (affects all users)</label>
+        </div>
+        <div class="checkbox-row">
+            <label><input type="checkbox" id="dry_run" /> Dry run (count keys, delete nothing)</label>
+        </div>
+    </fieldset>
+    <div class="submit-row">
+        <input type="submit" id="reset-btn" value="Reset limits" class="default" />
+    </div>
+</form>
+
+<script nonce="{{ request.csp_nonce }}">
+const API_BASE = '/admin/api/llm-gateway-limits/';
+
+function getCSRFToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]').value;
+}
+
+function showMessage(text, isError) {
+    const el = document.getElementById('messages');
+    el.textContent = '';
+    const div = document.createElement('div');
+    div.className = 'msg-' + (isError ? 'error' : 'success');
+    div.textContent = text;
+    el.appendChild(div);
+    if (!isError) setTimeout(() => { el.textContent = ''; }, 6000);
+}
+
+function currentUserId() {
+    return document.getElementById('id_user_id').value.trim();
+}
+
+function renderUsage(userId, counters) {
+    document.getElementById('usage-user-id').textContent = userId;
+    document.getElementById('reset-user-id').textContent = userId;
+    const body = document.getElementById('usage-body');
+    body.textContent = '';
+    counters.forEach(c => {
+        const tr = document.createElement('tr');
+        [c.scope, c.used_usd, c.base_limit_usd, c.resets_in_seconds, c.key].forEach((val, i) => {
+            const td = document.createElement('td');
+            td.textContent = val;
+            if (i === 4) td.className = 'mono';
+            tr.appendChild(td);
+        });
+        body.appendChild(tr);
+    });
+    document.getElementById('usage-table').style.display = counters.length ? '' : 'none';
+    document.getElementById('usage-empty').style.display = counters.length ? 'none' : '';
+    document.getElementById('usage-section').style.display = '';
+    document.getElementById('reset-form').style.display = '';
+}
+
+async function handleError(resp) {
+    let detail = 'Request failed (' + resp.status + ')';
+    try { const j = await resp.json(); if (j.detail) detail = j.detail; } catch (e) {}
+    showMessage(detail, true);
+}
+
+document.getElementById('lookup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const userId = currentUserId();
+    if (!userId) return;
+    const btn = document.getElementById('lookup-btn');
+    btn.disabled = true;
+    btn.value = 'Looking up…';
+    try {
+        const resp = await fetch(API_BASE + encodeURIComponent(userId) + '/', {
+            headers: {'X-CSRFToken': getCSRFToken()},
+        });
+        if (!resp.ok) { await handleError(resp); return; }
+        const data = await resp.json();
+        renderUsage(userId, data.counters || []);
+    } catch (err) {
+        showMessage('Network error: ' + err, true);
+    } finally {
+        btn.disabled = false;
+        btn.value = 'Look up usage';
+    }
+});
+
+document.getElementById('reset-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const userId = currentUserId();
+    if (!userId) return;
+    const dryRun = document.getElementById('dry_run').checked;
+    const productTotal = document.getElementById('reset_product_total').checked;
+    const warn = (productTotal && !dryRun)
+        ? 'Reset the PRODUCT-WIDE pool (affects ALL users) for user ' + userId + '?'
+        : 'Reset limits for user ' + userId + '?';
+    if (!dryRun && !confirm(warn)) return;
+
+    const btn = document.getElementById('reset-btn');
+    btn.disabled = true;
+    btn.value = 'Resetting…';
+    try {
+        const resp = await fetch(API_BASE + encodeURIComponent(userId) + '/reset/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRFToken()},
+            body: JSON.stringify({
+                reset_cost: document.getElementById('reset_cost').checked,
+                reset_request: document.getElementById('reset_request').checked,
+                reset_product_total: productTotal,
+                dry_run: dryRun,
+            }),
+        });
+        if (!resp.ok) { await handleError(resp); return; }
+        const data = await resp.json();
+        const verb = data.dry_run ? 'Would reset' : 'Reset';
+        showMessage(
+            verb + ' ' + data.total_keys + ' keys (cost: ' + data.cost_keys +
+            ', request: ' + data.request_keys + ', product pool: ' + data.product_total_keys + ').',
+            false
+        );
+        // Refresh the usage table to reflect the reset.
+        const usageResp = await fetch(API_BASE + encodeURIComponent(userId) + '/', {
+            headers: {'X-CSRFToken': getCSRFToken()},
+        });
+        if (usageResp.ok) { renderUsage(userId, (await usageResp.json()).counters || []); }
+    } catch (err) {
+        showMessage('Network error: ' + err, true);
+    } finally {
+        btn.disabled = false;
+        btn.value = 'Reset limits';
+    }
+});
+</script>
+
+{% endblock %}

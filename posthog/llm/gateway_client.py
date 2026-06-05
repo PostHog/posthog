@@ -29,6 +29,64 @@ def _team_id_header(team_id: int) -> dict[str, str]:
     return {"x-posthog-property-team_id": str(team_id)}
 
 
+_ADMIN_SECRET_HEADER = "x-llm-gateway-admin-secret"
+_ADMIN_TIMEOUT_SECONDS = 10.0
+
+
+class GatewayAdminError(Exception):
+    """Raised when an LLM gateway admin call is not configured or fails."""
+
+
+def _admin_base_url() -> str:
+    if not settings.LLM_GATEWAY_URL:
+        raise GatewayAdminError("LLM_GATEWAY_URL is not configured")
+    if not settings.LLM_GATEWAY_ADMIN_SECRET:
+        raise GatewayAdminError("LLM_GATEWAY_ADMIN_SECRET is not configured")
+    return f"{settings.LLM_GATEWAY_URL.rstrip('/')}/v1/admin"
+
+
+def get_posthog_code_usage(user_id: int) -> dict:
+    """Read a user's live posthog_code cost counters from the gateway.
+
+    Calls the gateway's staff admin endpoint (the rate-limit counters live in the
+    gateway's own Redis, unreachable from Django directly). Raises GatewayAdminError
+    when the gateway URL / admin secret is not configured.
+    """
+    url = f"{_admin_base_url()}/usage/{user_id}"
+    with httpx.Client(trust_env=False, timeout=_ADMIN_TIMEOUT_SECONDS) as client:
+        response = client.get(url, headers={_ADMIN_SECRET_HEADER: settings.LLM_GATEWAY_ADMIN_SECRET})
+        response.raise_for_status()
+        return response.json()
+
+
+def reset_posthog_code_usage(
+    user_id: int,
+    *,
+    reset_cost: bool = True,
+    reset_request: bool = False,
+    reset_product_total: bool = False,
+    dry_run: bool = False,
+) -> dict:
+    """Reset a user's posthog_code limits via the gateway's staff admin endpoint.
+
+    `reset_cost` clears the live per-user cost counters. `reset_request` clears the
+    (currently dormant) per-user request-rate counters. `reset_product_total` clears
+    the shared product-wide cost pool — affects every user, so it is opt-in. Raises
+    GatewayAdminError when the gateway URL / admin secret is not configured.
+    """
+    url = f"{_admin_base_url()}/reset/{user_id}"
+    payload = {
+        "cost": reset_cost,
+        "request": reset_request,
+        "product_total": reset_product_total,
+        "dry_run": dry_run,
+    }
+    with httpx.Client(trust_env=False, timeout=_ADMIN_TIMEOUT_SECONDS) as client:
+        response = client.post(url, headers={_ADMIN_SECRET_HEADER: settings.LLM_GATEWAY_ADMIN_SECRET}, json=payload)
+        response.raise_for_status()
+        return response.json()
+
+
 def get_llm_client(product: Product = "django", team_id: int | None = None) -> OpenAI:
     """
     Get an OpenAI-compatible client for the internal LLM gateway.

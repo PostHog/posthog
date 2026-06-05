@@ -97,6 +97,9 @@ OPENAI_BASE_URL = get_from_env("OPENAI_BASE_URL", "https://api.openai.com/v1")
 # LLM Gateway (internal service for proxying LLM requests with rate limiting and attribution)
 LLM_GATEWAY_URL = get_from_env("LLM_GATEWAY_URL", "http://localhost:3308" if DEBUG else "")
 LLM_GATEWAY_API_KEY = get_from_env("LLM_GATEWAY_PERSONAL_API_KEY", DEV_API_KEY if DEBUG else "")
+# Shared secret for the gateway's staff admin endpoints (rate-limit reset / usage).
+# Must match `admin_secret` on the llm-gateway service. Empty disables the admin UI.
+LLM_GATEWAY_ADMIN_SECRET = get_from_env("LLM_GATEWAY_ADMIN_SECRET", "")
 INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
