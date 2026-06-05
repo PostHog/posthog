@@ -24,11 +24,11 @@ class FlagPayloadCodec:
     """Symmetric Fernet encryption for feature flag payloads, with key rotation.
 
     A thin wrapper over ``MultiFernet``: the primary key encrypts new payloads while
-    fallback keys decrypt older ones, so ``FLAGS_SECRET_KEY`` can rotate without a hard
-    cutover. Deliberately independent of Temporal's ``EncryptionCodec`` — flag payloads
-    have their own key lifecycle (``FLAGS_SECRET_KEY`` / ``FLAGS_FALLBACK_KEYS``) and
-    need none of the Temporal ``PayloadCodec`` machinery (async ``encode``/``decode``,
-    protobuf ``Payload``).
+    fallback keys decrypt older ones, so the keys in ``FLAGS_SECRET_KEYS`` can rotate
+    without a hard cutover. Deliberately independent of Temporal's ``EncryptionCodec`` —
+    flag payloads have their own key lifecycle (``FLAGS_SECRET_KEYS``) and need none of
+    the Temporal ``PayloadCodec`` machinery (async ``encode``/``decode``, protobuf
+    ``Payload``).
     """
 
     def __init__(self, primary: Fernet, fallbacks: Iterable[Fernet]) -> None:
@@ -89,9 +89,12 @@ class FlagPayloadCodec:
 
 
 def flag_payload_codec() -> FlagPayloadCodec:
+    # FLAGS_SECRET_KEYS is ordered and always non-empty: the first key encrypts,
+    # the rest are decrypt-only fallbacks.
+    keys = settings.FLAGS_SECRET_KEYS
     return FlagPayloadCodec.from_keys(
-        settings.FLAGS_SECRET_KEY,
-        settings.FLAGS_FALLBACK_KEYS,
+        keys[0],
+        keys[1:],
         require_min_length=not settings.TEST and not settings.DEBUG,
     )
 

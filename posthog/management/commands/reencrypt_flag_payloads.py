@@ -13,9 +13,9 @@ logger = structlog.get_logger(__name__)
 
 class Command(BaseCommand):
     help = (
-        "Re-encrypt remote-config feature flag payloads with the current FLAGS_SECRET_KEY. "
-        "Run after promoting a new FLAGS_SECRET_KEY (with the old key kept in FLAGS_FALLBACK_KEYS) "
-        "and before dropping the old key from FLAGS_FALLBACK_KEYS. Safe to re-run; idempotent."
+        "Re-encrypt remote-config feature flag payloads with the primary key in FLAGS_SECRET_KEYS. "
+        "Run after prepending a new key to FLAGS_SECRET_KEYS (keeping the old key in the list) "
+        "and before dropping the old key from FLAGS_SECRET_KEYS. Safe to re-run; idempotent."
     )
 
     def add_arguments(self, parser):
@@ -30,8 +30,8 @@ class Command(BaseCommand):
         limit: int | None = options["limit"]
         batch_size: int = options["batch_size"]
 
-        # rotate() decrypts with any key in FLAGS_FALLBACK_KEYS, then re-encrypts
-        # with the primary FLAGS_SECRET_KEY — exactly the re-encryption we need.
+        # rotate() decrypts with any key in FLAGS_SECRET_KEYS, then re-encrypts
+        # with the primary (first) key — exactly the re-encryption we need.
         codec = flag_payload_codec()
 
         mode = "LIVE RUN" if live_run else "DRY RUN"

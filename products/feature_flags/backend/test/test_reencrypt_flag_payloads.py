@@ -41,7 +41,7 @@ class TestReencryptFlagPayloads(BaseTest):
     def test_live_run_reencrypts_with_new_main_key(self):
         flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY)
 
-        with override_settings(FLAGS_SECRET_KEY=NEW_KEY, FLAGS_FALLBACK_KEYS=[OLD_KEY]):
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             self._run("--live-run")
 
         flag.refresh_from_db()
@@ -56,18 +56,18 @@ class TestReencryptFlagPayloads(BaseTest):
         flag = self._make_flag("rc-flag", encrypt_with=OLD_KEY)
         original = flag.filters["payloads"]["true"]
 
-        with override_settings(FLAGS_SECRET_KEY=NEW_KEY, FLAGS_FALLBACK_KEYS=[OLD_KEY]):
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             self._run()  # no --live-run
 
         flag.refresh_from_db()
         assert flag.filters["payloads"]["true"] == original
 
     def test_skips_flag_no_key_can_decrypt(self):
-        # Payload encrypted with a key absent from both FLAGS_SECRET_KEY and the fallbacks.
+        # Payload encrypted with a key absent from FLAGS_SECRET_KEYS.
         flag = self._make_flag("rc-flag", encrypt_with="orphan-key-0123456789abcdefghijklmnop")
         original = flag.filters["payloads"]["true"]
 
-        with override_settings(FLAGS_SECRET_KEY=NEW_KEY, FLAGS_FALLBACK_KEYS=[OLD_KEY]):
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             self._run("--live-run")
 
         flag.refresh_from_db()
@@ -76,18 +76,18 @@ class TestReencryptFlagPayloads(BaseTest):
     def test_helper_decrypts_after_reencryption(self):
         self._make_flag("rc-flag", encrypt_with=OLD_KEY)
 
-        with override_settings(FLAGS_SECRET_KEY=NEW_KEY, FLAGS_FALLBACK_KEYS=[OLD_KEY]):
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             self._run("--live-run")
 
             flag = FeatureFlag.objects.get(team=self.team, key="rc-flag")
             token = flag.filters["payloads"]["true"]
-            # The production decrypt path (FLAGS_SECRET_KEY as main) reads it back.
+            # The production decrypt path (primary key in FLAGS_SECRET_KEYS) reads it back.
             assert get_decrypted_flag_payload(token, should_decrypt=True) == PAYLOAD
 
     def test_rerun_skips_already_rotated_rows(self):
         self._make_flag("rc-flag", encrypt_with=OLD_KEY)
 
-        with override_settings(FLAGS_SECRET_KEY=NEW_KEY, FLAGS_FALLBACK_KEYS=[OLD_KEY]):
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             self._run("--live-run")
             first = FeatureFlag.objects.get(team=self.team, key="rc-flag").filters["payloads"]["true"]
 
@@ -106,7 +106,7 @@ class TestReencryptFlagPayloads(BaseTest):
             filters={"groups": [{"properties": [{"key": "x", "value": "y"}]}], "payloads": flag.filters["payloads"]}
         )
 
-        with override_settings(FLAGS_SECRET_KEY=NEW_KEY, FLAGS_FALLBACK_KEYS=[OLD_KEY]):
+        with override_settings(FLAGS_SECRET_KEYS=[NEW_KEY, OLD_KEY]):
             assert Command()._reencrypt(flag.pk, flag_payload_codec()) is True
 
         flag.refresh_from_db()
