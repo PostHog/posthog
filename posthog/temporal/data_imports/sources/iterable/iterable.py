@@ -46,8 +46,11 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def validate_credentials(api_key: str, region: str | None) -> bool:
     # `/api/channels` is a cheap, low-cardinality endpoint that requires a valid server-side key.
     url = f"{base_url_for_region(region)}/api/channels"
+    # `redact_values` masks the key in logs and sample capture: the sampler's name-based scrubber
+    # doesn't recognise Iterable's `Api-Key` header, so the value would otherwise be captured raw.
+    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = session.get(url, timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -70,8 +73,10 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[IterableResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = ITERABLE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
     base_url = base_url_for_region(region)
+    # `redact_values` masks the key in logs and sample capture: the sampler's name-based scrubber
+    # doesn't recognise Iterable's `Api-Key` header, so the value would otherwise be captured raw.
+    session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume_config is not None:
@@ -87,7 +92,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise IterableRetryableError(
