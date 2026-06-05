@@ -111,7 +111,14 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
     def get_readonly_fields(self, request, obj=None):
         if obj:
-            return ("id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url")
+            readonly = ["id", "client_id", "is_dcr_client", "is_cimd_client", "cimd_metadata_url"]
+            if obj.is_cimd_client:
+                # A CIMD client's scope ceiling is derived from its own metadata document and
+                # re-applied on every refresh, so a manual edit here would be silently reverted.
+                # The unprivileged/hidden allow-list is the only ceiling that applies to CIMD
+                # apps; to cut off an abusive one, block its metadata URL rather than editing scopes.
+                readonly.append("scopes")
+            return tuple(readonly)
         else:
             return ("id", "is_dcr_client", "is_cimd_client")
 

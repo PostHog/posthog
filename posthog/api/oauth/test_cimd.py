@@ -1012,6 +1012,31 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
         assert refreshed is not None
         self.assertEqual(refreshed.scopes, ["survey:read"])
 
+    # Guard for the "scope ceiling bypass" review finding: a CIMD client controls its own
+    # metadata document, but republishing it on refresh can never escalate the ceiling past
+    # the unprivileged allow-list — privileged, hidden, and unknown scopes are stripped on
+    # the refresh path exactly as on creation.
+    @patch("posthog.api.oauth.cimd.requests.get")
+    def test_refresh_cannot_grant_non_grantable_scopes(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": ["insight:read"]}), headers={})
+        fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        hidden_scope = next(iter(OAUTH_HIDDEN_SCOPES)) if OAUTH_HIDDEN_SCOPES else None
+        escalated = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write", "insight:read"]
+        if hidden_scope:
+            escalated.append(hidden_scope)
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": escalated}), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        for privileged_scope in PRIVILEGED_SCOPES:
+            self.assertNotIn(privileged_scope, refreshed.scopes)
+        self.assertNotIn("not_a_real_scope:write", refreshed.scopes)
+        if hidden_scope:
+            self.assertNotIn(hidden_scope, refreshed.scopes)
+        self.assertEqual(refreshed.scopes, ["insight:read"])
+
     # absent com.posthog.scopes on initial creation → empty scopes list.
     @patch("posthog.api.oauth.cimd.requests.get")
     def test_absent_scopes_on_creation_yields_empty_list(self, mock_get, _url_mock):
