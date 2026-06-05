@@ -122,9 +122,9 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
             assert params == {"hogql_val_0": "Chrome"}, params
 
     def test_within_non_hogql_predicate_stays_unqualified_with_materialized_column(self) -> None:
-        # The lowering pass declines for within_non_hogql_query queries: the lowered physical pass would build
-        # table-qualified synthetic fields (`events.mat_$browser`), which the lightweight-delete mutation analyzer
-        # rejects (§8.4). So the predicate compiles to the unqualified printer form via the legacy property path.
+        # within_non_hogql_query queries run through lowering + the physical pass like any other: the synthetic
+        # materialized-column field is marked `unqualified`, so the printer drops the table prefix and the
+        # lightweight-delete mutation analyzer accepts the bare column (§8.4).
         self.addCleanup(cleanup_materialized_columns)
         with materialized("events", "$browser", is_nullable=False):
             mat_name = self._materialized_column_name("events", "$browser")

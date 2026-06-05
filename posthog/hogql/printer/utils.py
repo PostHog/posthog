@@ -198,14 +198,13 @@ def prepare_ast_for_printing(
 
         # Logical lowering + ClickHouse physical optimization. Runs AFTER both PropertySwapper passes: any scalar cast
         # already wraps the property, so lowering replaces the inner PropertyType Field with JSONFieldAccess, then the
-        # physical passes substitute the materialized-column / skip-index / property-group forms.
-        # within_non_hogql_query stays on the printer path — it needs unqualified column references the lowered synthetic
-        # fields can't produce (§8.4).
-        if not context.within_non_hogql_query:
-            with context.timings.measure("lower_property_access"):
-                node = lower_property_access(node, context)
-            with context.timings.measure("clickhouse_physical_passes"):
-                node = clickhouse_physical_passes(node, context)
+        # physical passes substitute the materialized-column / skip-index / property-group forms. The within_non_hogql_query
+        # (lightweight-DELETE) path runs through here too: lowering + the physical pass mark their column fields
+        # `unqualified` so the printer drops the table prefix the mutation analyzer rejects (§8.4).
+        with context.timings.measure("lower_property_access"):
+            node = lower_property_access(node, context)
+        with context.timings.measure("clickhouse_physical_passes"):
+            node = clickhouse_physical_passes(node, context)
 
         # We support global query settings, and local subquery settings.
         # If the global query is a select query with settings, merge the two.
