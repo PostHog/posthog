@@ -36,7 +36,7 @@ MAX_RUNS_PER_TICK = 50
 
 # Coordinator tick cadence. Per-scout schedules are enforced via the due-check, so this is
 # just the polling granularity — the floor on how often any scout can run.
-COORDINATOR_INTERVAL_MINUTES = 15
+COORDINATOR_INTERVAL_MINUTES = 30
 
 
 @dataclass
