@@ -732,6 +732,12 @@ class Team(UUIDTClassicModel):
             self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
         )
 
+    @cached_property
+    def workflows_config(self):
+        from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+        return get_or_create_team_extension(self, TeamWorkflowsConfig)
+
     @property
     def default_modifiers(self) -> dict:
         modifiers = HogQLQueryModifiers()
