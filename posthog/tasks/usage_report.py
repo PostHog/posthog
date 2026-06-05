@@ -37,6 +37,14 @@ from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
+from posthog.models.usage_report_events_preagg.sql import (
+    USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_TABLE,
+    USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL,
+    USAGE_REPORT_EVENTS_HAS_GROUP_EXPRESSION,
+    USAGE_REPORT_EVENTS_LATEST_BUCKET_VERSIONS_CTE_SQL,
+    USAGE_REPORT_EVENTS_LIB_EXPRESSION,
+    USAGE_REPORT_EVENTS_PREAGGREGATION_BOUNDS_SQL,
+)
 from posthog.models.utils import namedtuplefetchall
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
@@ -86,6 +94,60 @@ CH_BILLING_SETTINGS = {
 QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
+
+USAGE_REPORT_EVENTS_PREAGGREGATION_MAX_STALENESS = timedelta(minutes=30)
+USAGE_REPORT_EVENTS_PREAGGREGATION_TAIL_MAX_AGE = timedelta(days=6)
+USAGE_REPORT_EVENTS_PREAGGREGATION_SETTING = "USE_USAGE_REPORT_EVENTS_PREAGGREGATION"
+
+EVENT_METRIC_KEYS = [
+    "helicone_events",
+    "langfuse_events",
+    "keywords_ai_events",
+    "traceloop_events",
+    "web_events",
+    "web_lite_events",
+    "node_events",
+    "android_events",
+    "flutter_events",
+    "ios_events",
+    "go_events",
+    "java_events",
+    "react_native_events",
+    "ruby_events",
+    "python_events",
+    "php_events",
+    "dotnet_events",
+    "elixir_events",
+    "unity_events",
+    "rust_events",
+]
+
+EVENT_METRIC_EXPRESSION = """
+multiIf(
+    event LIKE 'helicone%%', 'helicone_events',
+    event LIKE 'langfuse%%', 'langfuse_events',
+    event LIKE 'keywords_ai%%', 'keywords_ai_events',
+    event LIKE 'traceloop%%', 'traceloop_events',
+    {lib_expression} = 'web', 'web_events',
+    {lib_expression} = 'js', 'web_lite_events',
+    {lib_expression} = 'posthog-node', 'node_events',
+    {lib_expression} = 'posthog-android', 'android_events',
+    {lib_expression} = 'posthog-flutter', 'flutter_events',
+    {lib_expression} = 'posthog-ios', 'ios_events',
+    {lib_expression} = 'posthog-go', 'go_events',
+    {lib_expression} = 'posthog-java', 'java_events',
+    {lib_expression} = 'posthog-server', 'java_events',
+    {lib_expression} = 'posthog-react-native', 'react_native_events',
+    {lib_expression} = 'posthog-ruby', 'ruby_events',
+    {lib_expression} = 'posthog-python', 'python_events',
+    {lib_expression} = 'posthog-php', 'php_events',
+    {lib_expression} = 'posthog-dotnet', 'dotnet_events',
+    {lib_expression} = 'posthog-elixir', 'elixir_events',
+    {lib_expression} = 'posthog-unity', 'unity_events',
+    {lib_expression} = 'posthog-rs', 'rust_events',
+    'other'
+)
+""".strip()
 
 # Kafka's default `message.max.bytes` is ~1 MiB. For orgs with several hundred
 # teams the per-team breakdown under `teams` makes the report payload exceed
@@ -528,11 +590,319 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
     return list(team_counts.items())
 
 
+def _to_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _is_usage_report_events_preaggregation_enabled() -> bool:
+    return bool(getattr(settings, USAGE_REPORT_EVENTS_PREAGGREGATION_SETTING, False))
+
+
+def _is_whole_utc_day_range(begin: datetime, end: datetime) -> bool:
+    begin_utc = _to_utc(begin)
+    end_utc = _to_utc(end)
+    return (
+        begin_utc < end_utc
+        and begin_utc.hour == 0
+        and begin_utc.minute == 0
+        and begin_utc.second == 0
+        and begin_utc.microsecond == 0
+        and end_utc.hour == 0
+        and end_utc.minute == 0
+        and end_utc.second == 0
+        and end_utc.microsecond == 0
+    )
+
+
+def _get_usage_report_events_preaggregation_max_bucket_end(begin: datetime, end: datetime) -> Optional[datetime]:
+    if not _is_usage_report_events_preaggregation_enabled():
+        return None
+
+    if _to_utc(end) < datetime.now(UTC) - USAGE_REPORT_EVENTS_PREAGGREGATION_TAIL_MAX_AGE:
+        return None
+
+    try:
+        rows = sync_execute(
+            USAGE_REPORT_EVENTS_PREAGGREGATION_BOUNDS_SQL(),
+            {"begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+    except Exception:
+        logger.warning("usage_report_events_preaggregation.bounds_failed", exc_info=True)
+        return None
+
+    if not rows or rows[0][0] is None or rows[0][1] is None:
+        return None
+
+    min_bucket_start = _to_utc(rows[0][0])
+    max_bucket_end = _to_utc(rows[0][1])
+
+    if min_bucket_start > _to_utc(begin):
+        return None
+
+    if (
+        max_bucket_end < _to_utc(end)
+        and max_bucket_end < datetime.now(UTC) - USAGE_REPORT_EVENTS_PREAGGREGATION_MAX_STALENESS
+    ):
+        return None
+
+    return max_bucket_end
+
+
+def _get_excluded_billable_events() -> list[str]:
+    return [
+        "$feature_flag_called",
+        "survey sent",
+        "survey shown",
+        "survey dismissed",
+        "$exception",
+        *AI_EVENTS,
+    ]
+
+
+def _get_teams_with_billable_event_count_from_preaggregation(
+    begin: datetime,
+    end: datetime,
+    *,
+    usage_kind: Literal["all", "enhanced_persons"],
+    count_distinct: bool,
+) -> Optional[list[tuple[int, int]]]:
+    # Exact distinct counts are not composable by summing 15-minute bucket
+    # uniques, because duplicate event UUIDs can land in different inserted_at
+    # buckets. Keep those reads on the raw events path until we store a safely
+    # mergeable range-level dedup state.
+    if count_distinct:
+        return None
+
+    if not _is_whole_utc_day_range(begin, end):
+        return None
+
+    with tags_context(
+        product=Product.PRODUCT_ANALYTICS,
+        feature=Feature.USAGE_REPORT,
+        usage_report="events_preaggregation_read",
+    ):
+        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
+        if max_bucket_end is None:
+            return None
+
+        excluded_events = _get_excluded_billable_events()
+        person_mode_clause = "AND person_mode IN ('full', 'force_upgrade')" if usage_kind == "enhanced_persons" else ""
+
+        try:
+            preaggregated_rows = sync_execute(
+                USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_READ_SQL("raw_count"),
+                {
+                    "begin": begin,
+                    "end": end,
+                    "max_bucket_end": max_bucket_end,
+                    "usage_kind": usage_kind,
+                    "excluded_events": excluded_events,
+                },
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+            tail_rows = sync_execute(
+                f"""
+                SELECT team_id, count(1) as count
+                FROM events_recent
+                WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+                    AND inserted_at >= %(max_bucket_end)s
+                    AND event NOT IN %(excluded_events)s
+                    {person_mode_clause}
+                GROUP BY team_id
+                """,
+                {
+                    "begin": begin,
+                    "end": end,
+                    "max_bucket_end": max_bucket_end,
+                    "excluded_events": excluded_events,
+                },
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+        except Exception:
+            logger.warning("usage_report_events_preaggregation.billable_read_failed", exc_info=True)
+            return None
+
+    return _combine_team_count_results([preaggregated_rows, tail_rows])
+
+
+def _get_teams_with_event_count_with_groups_from_preaggregation(
+    begin: datetime, end: datetime
+) -> Optional[list[tuple[int, int]]]:
+    if not _is_whole_utc_day_range(begin, end):
+        return None
+
+    with tags_context(
+        product=Product.GROUP_ANALYTICS,
+        feature=Feature.USAGE_REPORT,
+        usage_report="events_preaggregation_read",
+    ):
+        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
+        if max_bucket_end is None:
+            return None
+
+        try:
+            preaggregated_rows = sync_execute(
+                f"""
+                WITH {USAGE_REPORT_EVENTS_LATEST_BUCKET_VERSIONS_CTE_SQL()}
+                SELECT team_id, sum(count) AS count
+                FROM
+                (
+                    SELECT
+                        c.date,
+                        c.bucket_start,
+                        c.team_id,
+                        c.person_mode,
+                        c.lib,
+                        c.event,
+                        c.has_group,
+                        max(c.event_count) AS count
+                    FROM {USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_TABLE} c
+                    INNER JOIN latest_bucket_versions
+                        ON c.bucket_start = latest_bucket_versions.bucket_start
+                       AND c.computed_at = latest_bucket_versions.computed_at
+                    WHERE c.date >= toDate(%(begin)s)
+                      AND c.date < toDate(%(end)s)
+                      AND c.bucket_start < %(max_bucket_end)s
+                      AND c.has_group = 1
+                    GROUP BY c.date, c.bucket_start, c.team_id, c.person_mode, c.lib, c.event, c.has_group
+                )
+                GROUP BY team_id
+                """,
+                {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+            tail_rows = sync_execute(
+                f"""
+                SELECT team_id, count(1) as count
+                FROM events_recent
+                WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+                    AND inserted_at >= %(max_bucket_end)s
+                    AND ({USAGE_REPORT_EVENTS_HAS_GROUP_EXPRESSION})
+                GROUP BY team_id
+                """,
+                {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+        except Exception:
+            logger.warning("usage_report_events_preaggregation.group_read_failed", exc_info=True)
+            return None
+
+    return _combine_team_count_results([preaggregated_rows, tail_rows])
+
+
+def _combine_event_metrics_results(results_list: list) -> dict[str, list[tuple[int, int]]]:
+    metrics: dict[str, dict[int, int]] = {metric: {} for metric in EVENT_METRIC_KEYS}
+
+    for results in results_list:
+        for team_id, metric, count in results:
+            if metric in metrics:
+                metrics[metric][team_id] = metrics[metric].get(team_id, 0) + count
+
+    return {metric: list(team_counts.items()) for metric, team_counts in metrics.items()}
+
+
+def _get_all_event_metrics_from_preaggregation(
+    begin: datetime, end: datetime
+) -> Optional[dict[str, list[tuple[int, int]]]]:
+    if not _is_whole_utc_day_range(begin, end):
+        return None
+
+    with tags_context(
+        product=Product.PRODUCT_ANALYTICS,
+        feature=Feature.USAGE_REPORT,
+        usage_report="events_preaggregation_read",
+    ):
+        max_bucket_end = _get_usage_report_events_preaggregation_max_bucket_end(begin, end)
+        if max_bucket_end is None:
+            return None
+
+        metric_expression = EVENT_METRIC_EXPRESSION.format(lib_expression="lib")
+        tail_metric_expression = EVENT_METRIC_EXPRESSION.format(lib_expression=USAGE_REPORT_EVENTS_LIB_EXPRESSION)
+
+        try:
+            preaggregated_rows = sync_execute(
+                f"""
+                WITH {USAGE_REPORT_EVENTS_LATEST_BUCKET_VERSIONS_CTE_SQL()}
+                SELECT team_id, {metric_expression} AS metric, sum(count) AS count
+                FROM
+                (
+                    SELECT
+                        c.date,
+                        c.bucket_start,
+                        c.team_id,
+                        c.person_mode,
+                        c.lib,
+                        c.event,
+                        c.has_group,
+                        max(c.event_count) AS count
+                    FROM {USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_TABLE} c
+                    INNER JOIN latest_bucket_versions
+                        ON c.bucket_start = latest_bucket_versions.bucket_start
+                       AND c.computed_at = latest_bucket_versions.computed_at
+                    WHERE c.date >= toDate(%(begin)s)
+                      AND c.date < toDate(%(end)s)
+                      AND c.bucket_start < %(max_bucket_end)s
+                    GROUP BY c.date, c.bucket_start, c.team_id, c.person_mode, c.lib, c.event, c.has_group
+                )
+                GROUP BY team_id, metric
+                HAVING metric != 'other'
+                """,
+                {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+            tail_rows = sync_execute(
+                f"""
+                SELECT
+                    team_id,
+                    {tail_metric_expression} AS metric,
+                    count(1) AS count
+                FROM events_recent
+                WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+                  AND inserted_at >= %(max_bucket_end)s
+                GROUP BY team_id, metric
+                HAVING metric != 'other'
+                """,
+                {"begin": begin, "end": end, "max_bucket_end": max_bucket_end},
+                workload=Workload.OFFLINE,
+                settings=CH_BILLING_SETTINGS,
+                ch_user=ClickHouseUser.BILLING,
+            )
+        except Exception:
+            logger.warning("usage_report_events_preaggregation.metrics_read_failed", exc_info=True)
+            return None
+
+    return _combine_event_metrics_results([preaggregated_rows, tail_rows])
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
+    preaggregated_result = _get_teams_with_billable_event_count_from_preaggregation(
+        begin,
+        end,
+        usage_kind="all",
+        count_distinct=count_distinct,
+    )
+    if preaggregated_result is not None:
+        return preaggregated_result
+
     # count only unique events
     # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
     # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
@@ -544,16 +914,7 @@ def get_teams_with_billable_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    # We are excluding $exception events during the beta
-    # We also exclude AI events as they are billed separately through ai_event_count_in_period
-    excluded_events = [
-        "$feature_flag_called",
-        "survey sent",
-        "survey shown",
-        "survey dismissed",
-        "$exception",
-        *AI_EVENTS,
-    ]
+    excluded_events = _get_excluded_billable_events()
 
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
@@ -572,6 +933,15 @@ def get_teams_with_billable_event_count_in_period(
 def get_teams_with_billable_enhanced_persons_event_count_in_period(
     begin: datetime, end: datetime, count_distinct: bool = False
 ) -> list[tuple[int, int]]:
+    preaggregated_result = _get_teams_with_billable_event_count_from_preaggregation(
+        begin,
+        end,
+        usage_kind="enhanced_persons",
+        count_distinct=count_distinct,
+    )
+    if preaggregated_result is not None:
+        return preaggregated_result
+
     # count only unique events
     # Duplicate events will be eventually removed by ClickHouse and likely came from our library or pipeline.
     # We shouldn't bill for these. However counting unique events is more expensive, and likely to fail on longer time ranges.
@@ -583,15 +953,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
     else:
         distinct_expression = "1"
 
-    # We exclude AI events as they are billed separately through ai_event_count_in_period
-    excluded_events = [
-        "$feature_flag_called",
-        "survey sent",
-        "survey shown",
-        "survey dismissed",
-        "$exception",
-        *AI_EVENTS,
-    ]
+    excluded_events = _get_excluded_billable_events()
 
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
@@ -609,6 +971,10 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+    preaggregated_result = _get_teams_with_event_count_with_groups_from_preaggregation(begin, end)
+    if preaggregated_result is not None:
+        return preaggregated_result
+
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
@@ -628,85 +994,24 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    preaggregated_result = _get_all_event_metrics_from_preaggregation(begin, end)
+    if preaggregated_result is not None:
+        return preaggregated_result
+
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
+    metric_expression = EVENT_METRIC_EXPRESSION.format(lib_expression=lib_expression)
     query_template = f"""
         SELECT
             team_id,
-            multiIf(
-                event LIKE 'helicone%%', 'helicone_events',
-                event LIKE 'langfuse%%', 'langfuse_events',
-                event LIKE 'keywords_ai%%', 'keywords_ai_events',
-                event LIKE 'traceloop%%', 'traceloop_events',
-                {lib_expression} = 'web', 'web_events',
-                {lib_expression} = 'js', 'web_lite_events',
-                {lib_expression} = 'posthog-node', 'node_events',
-                {lib_expression} = 'posthog-android', 'android_events',
-                {lib_expression} = 'posthog-flutter', 'flutter_events',
-                {lib_expression} = 'posthog-ios', 'ios_events',
-                {lib_expression} = 'posthog-go', 'go_events',
-                {lib_expression} = 'posthog-java', 'java_events',
-                {lib_expression} = 'posthog-server', 'java_events',
-                {lib_expression} = 'posthog-react-native', 'react_native_events',
-                {lib_expression} = 'posthog-ruby', 'ruby_events',
-                {lib_expression} = 'posthog-python', 'python_events',
-                {lib_expression} = 'posthog-php', 'php_events',
-                {lib_expression} = 'posthog-dotnet', 'dotnet_events',
-                {lib_expression} = 'posthog-elixir', 'elixir_events',
-                {lib_expression} = 'posthog-unity', 'unity_events',
-                {lib_expression} = 'posthog-rs', 'rust_events',
-                'other'
-            ) AS metric,
+            {metric_expression} AS metric,
             count(1) as count
         FROM events
         WHERE timestamp >= %(begin)s AND timestamp < %(end)s
         GROUP BY team_id, metric
         HAVING metric != 'other'
     """
-
-    # Define a custom function to combine results from multiple queries
-    def combine_event_metrics_results(
-        results_list: list,
-    ) -> dict[str, list[tuple[int, int]]]:
-        metrics: dict[str, dict[int, int]] = {
-            "helicone_events": {},
-            "langfuse_events": {},
-            "keywords_ai_events": {},
-            "traceloop_events": {},
-            "web_events": {},
-            "web_lite_events": {},
-            "node_events": {},
-            "android_events": {},
-            "flutter_events": {},
-            "ios_events": {},
-            "go_events": {},
-            "java_events": {},
-            "react_native_events": {},
-            "ruby_events": {},
-            "python_events": {},
-            "php_events": {},
-            "dotnet_events": {},
-            "elixir_events": {},
-            "unity_events": {},
-            "rust_events": {},
-        }
-
-        # Process each result set
-        for results in results_list:
-            for team_id, metric, count in results:
-                if metric in metrics:  # Make sure the metric exists in our dictionary
-                    if team_id in metrics[metric]:
-                        metrics[metric][team_id] += count
-                    else:
-                        metrics[metric][team_id] = count
-
-        # Convert to the expected format
-        result = {}
-        for metric, team_counts in metrics.items():
-            result[metric] = list(team_counts.items())
-
-        return result
 
     # Execute the split query with 12 splits
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
@@ -716,7 +1021,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             query_template=query_template,
             params={},
             num_splits=12,
-            combine_results_func=combine_event_metrics_results,
+            combine_results_func=_combine_event_metrics_results,
         )
 
 

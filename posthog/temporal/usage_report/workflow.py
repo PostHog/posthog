@@ -27,11 +27,17 @@ from temporalio import common, workflow
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports, run_query_to_s3
+from posthog.temporal.usage_report.activities import (
+    aggregate_and_chunk_org_reports,
+    preaggregate_usage_report_events,
+    run_query_to_s3,
+)
 from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
+    PreaggregateUsageReportEventsActivityInputs,
+    PreaggregateUsageReportEventsInputs,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
     RunUsageReportsInputs,
@@ -166,3 +172,31 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(minutes=2),
             summary=spec.name,
         )
+
+
+@workflow.defn(name="preaggregate-usage-report-events")
+class PreaggregateUsageReportEventsWorkflow(PostHogWorkflow):
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> PreaggregateUsageReportEventsInputs:
+        if not inputs:
+            return PreaggregateUsageReportEventsInputs()
+        loaded = json.loads(inputs[0])
+        return PreaggregateUsageReportEventsInputs(**loaded)
+
+    @workflow.run
+    async def run(self, inputs: PreaggregateUsageReportEventsInputs) -> dict:
+        result = await workflow.execute_activity(
+            preaggregate_usage_report_events,
+            PreaggregateUsageReportEventsActivityInputs(
+                now=workflow.now(),
+                bucket_count=inputs.bucket_count,
+                freshness_delay_minutes=inputs.freshness_delay_minutes,
+            ),
+            start_to_close_timeout=timedelta(minutes=10),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=30),
+            ),
+            heartbeat_timeout=timedelta(minutes=2),
+        )
+        return result.model_dump()

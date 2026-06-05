@@ -16,6 +16,8 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from temporalio.client import ScheduleOverlapPolicy
+
 
 @pytest.mark.asyncio
 async def test_create_run_usage_reports_schedule_does_not_raise() -> None:
@@ -88,3 +90,27 @@ async def test_run_usage_reports_schedule_input_is_json_serializable() -> None:
     revived = RunUsageReportsInputs(**decoded)
     assert revived.organization_ids is None
     assert revived.at is None
+
+
+@pytest.mark.asyncio
+async def test_preaggregate_usage_report_events_schedule_is_every_ten_minutes() -> None:
+    from posthog.temporal.schedule import create_preaggregate_usage_report_events_schedule
+
+    captured: dict = {}
+
+    async def fake_create_schedule(client, schedule_id, schedule, trigger_immediately=False):
+        captured["schedule_id"] = schedule_id
+        captured["schedule"] = schedule
+
+    with (
+        patch("posthog.temporal.schedule.a_schedule_exists", new=AsyncMock(return_value=False)),
+        patch("posthog.temporal.schedule.a_create_schedule", new=fake_create_schedule),
+    ):
+        await create_preaggregate_usage_report_events_schedule(MagicMock())
+
+    assert captured["schedule_id"] == "preaggregate-usage-report-events-schedule"
+    schedule = captured["schedule"]
+    assert schedule.action.workflow == "preaggregate-usage-report-events"
+    assert schedule.spec.intervals[0].every.total_seconds() == 10 * 60
+    assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
+    assert json.loads(json.dumps(schedule.action.args[0])) == {"bucket_count": 2, "freshness_delay_minutes": 5}

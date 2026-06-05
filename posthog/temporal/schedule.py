@@ -70,7 +70,7 @@ from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCou
 from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
-from posthog.temporal.usage_report.types import RunUsageReportsInputs
+from posthog.temporal.usage_report.types import PreaggregateUsageReportEventsInputs, RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
 )
@@ -542,6 +542,34 @@ async def create_run_usage_reports_schedule(client: Client):
         )
 
 
+async def create_preaggregate_usage_report_events_schedule(client: Client):
+    preaggregate_usage_report_events_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "preaggregate-usage-report-events",
+            PreaggregateUsageReportEventsInputs().model_dump(mode="json"),
+            id="preaggregate-usage-report-events-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=10))],
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "preaggregate-usage-report-events-schedule"):
+        await a_update_schedule(
+            client, "preaggregate-usage-report-events-schedule", preaggregate_usage_report_events_schedule
+        )
+    else:
+        await a_create_schedule(
+            client,
+            "preaggregate-usage-report-events-schedule",
+            preaggregate_usage_report_events_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_count_all_playlists_schedule(client: Client):
     """Create or update the schedule for the playlist counting workflow.
 
@@ -620,6 +648,8 @@ if settings.CLOUD_DEPLOYMENT:
     # Sweeper compares the deployment prefix on each Gemini file's display_name against its own
     # CLOUD_DEPLOYMENT, so it can't run unscoped (would risk reaping sibling deployments' files).
     schedules.append(create_gemini_cleanup_sweep_schedule)
+    if getattr(settings, "USE_USAGE_REPORT_EVENTS_PREAGGREGATION_WRITER", False):
+        schedules.append(create_preaggregate_usage_report_events_schedule)
     schedules.append(create_run_usage_reports_schedule)
 
 if settings.EE_AVAILABLE:

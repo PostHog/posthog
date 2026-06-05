@@ -18,6 +18,24 @@ class RunUsageReportsInputs(BaseModel):
     organization_ids: Optional[list[str]] = None
 
 
+class PreaggregateUsageReportEventsInputs(BaseModel):
+    """Top-level scheduled preaggregation input."""
+
+    bucket_count: int = 2
+    freshness_delay_minutes: int = 5
+
+
+class PreaggregateUsageReportEventsActivityInputs(BaseModel):
+    now: datetime
+    bucket_count: int
+    freshness_delay_minutes: int
+
+
+class PreaggregateUsageReportEventsResult(BaseModel):
+    processed_buckets: int
+    latest_bucket_end: Optional[datetime]
+
+
 class WorkflowContext(BaseModel):
     """Snapshot of the workflow run, threaded through every activity."""
 

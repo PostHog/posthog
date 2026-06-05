@@ -9,6 +9,7 @@ elsewhere so these stay easy to read and mock in tests.
 import json
 import time
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -17,8 +18,17 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.usage_report_events_preagg.sql import (
+    INSERT_USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_SQL,
+    INSERT_USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_SQL,
+    INSERT_USAGE_REPORT_EVENTS_PREAGGREGATION_WATERMARK_SQL,
+    USAGE_REPORT_EVENTS_PREAGG_BUCKET_MINUTES,
+)
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.tasks.usage_report import get_instance_metadata
+from posthog.tasks.usage_report import CH_BILLING_SETTINGS, get_instance_metadata
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.usage_report.aggregator import (
     batched,
@@ -47,6 +57,8 @@ from posthog.temporal.usage_report.types import (
     AggregateResult,
     CleanupInputs,
     EnqueuePointerInputs,
+    PreaggregateUsageReportEventsActivityInputs,
+    PreaggregateUsageReportEventsResult,
     RunQueryToS3Inputs,
     RunQueryToS3Result,
 )
@@ -56,11 +68,99 @@ logger = structlog.get_logger(__name__)
 
 CHUNK_SIZE_ORGS = 50_000
 SQS_POINTER_VERSION = 2
+USAGE_REPORT_EVENTS_PREAGGREGATION_WRITE_SETTINGS = {
+    **CH_BILLING_SETTINGS,
+    "insert_distributed_sync": 1,
+}
 
 # Separate SQS queue for v2 messages so the existing per-org `usage_reports`
 # stream and the new pointer stream don't clash while both flows run side by
 # side. Billing opts in by reading from this queue once it's ready.
 SQS_QUEUE_NAME = "usage_reports_v2"
+
+
+def usage_report_events_preaggregation_bucket_starts(
+    now: datetime, bucket_count: int, freshness_delay_minutes: int
+) -> list[datetime]:
+    if bucket_count < 1:
+        return []
+
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+
+    delayed_now = now.astimezone(UTC) - timedelta(minutes=freshness_delay_minutes)
+    latest_bucket_end = delayed_now.replace(
+        minute=(delayed_now.minute // USAGE_REPORT_EVENTS_PREAGG_BUCKET_MINUTES)
+        * USAGE_REPORT_EVENTS_PREAGG_BUCKET_MINUTES,
+        second=0,
+        microsecond=0,
+    )
+
+    return [
+        latest_bucket_end - timedelta(minutes=USAGE_REPORT_EVENTS_PREAGG_BUCKET_MINUTES * offset)
+        for offset in range(bucket_count, 0, -1)
+    ]
+
+
+@activity.defn(name="preaggregate-usage-report-events")
+async def preaggregate_usage_report_events(
+    inputs: PreaggregateUsageReportEventsActivityInputs,
+) -> PreaggregateUsageReportEventsResult:
+    async with Heartbeater():
+
+        @database_sync_to_async_pool
+        def run() -> PreaggregateUsageReportEventsResult:
+            bucket_starts = usage_report_events_preaggregation_bucket_starts(
+                inputs.now, inputs.bucket_count, inputs.freshness_delay_minutes
+            )
+            latest_bucket_end: datetime | None = None
+            processed_buckets = 0
+
+            for bucket_start in bucket_starts:
+                bucket_end = bucket_start + timedelta(minutes=USAGE_REPORT_EVENTS_PREAGG_BUCKET_MINUTES)
+                computed_at = datetime.now(UTC)
+                params = {
+                    "bucket_start": bucket_start,
+                    "bucket_end": bucket_end,
+                    "computed_at": computed_at,
+                }
+
+                with tags_context(
+                    product=Product.PRODUCT_ANALYTICS,
+                    feature=Feature.USAGE_REPORT,
+                    usage_report="events_preaggregation",
+                ):
+                    sync_execute(
+                        INSERT_USAGE_REPORT_EVENTS_COUNT_PREAGGREGATED_SQL(),
+                        params,
+                        workload=Workload.OFFLINE,
+                        settings=USAGE_REPORT_EVENTS_PREAGGREGATION_WRITE_SETTINGS,
+                        ch_user=ClickHouseUser.BILLING,
+                    )
+                    sync_execute(
+                        INSERT_USAGE_REPORT_EVENTS_DEDUP_PREAGGREGATED_SQL(),
+                        params,
+                        workload=Workload.OFFLINE,
+                        settings=USAGE_REPORT_EVENTS_PREAGGREGATION_WRITE_SETTINGS,
+                        ch_user=ClickHouseUser.BILLING,
+                    )
+                    sync_execute(
+                        INSERT_USAGE_REPORT_EVENTS_PREAGGREGATION_WATERMARK_SQL(),
+                        params,
+                        workload=Workload.OFFLINE,
+                        settings=USAGE_REPORT_EVENTS_PREAGGREGATION_WRITE_SETTINGS,
+                        ch_user=ClickHouseUser.BILLING,
+                    )
+
+                latest_bucket_end = bucket_end
+                processed_buckets += 1
+
+            return PreaggregateUsageReportEventsResult(
+                processed_buckets=processed_buckets,
+                latest_bucket_end=latest_bucket_end,
+            )
+
+        return await run()
 
 
 @activity.defn(name="run-usage-report-query")
