@@ -149,12 +149,12 @@ class EmailConnectView(APIView):
                 status=400,
             )
 
-        # Guard: cross-team domain ownership
-        if EmailChannel.objects.filter(domain=domain).exclude(team=team).exists():
-            return Response({"error": "This domain is already in use by another team."}, status=409)
+        # Guard: cross-org domain ownership
+        if EmailChannel.objects.filter(domain=domain).exclude(team__organization_id=team.organization_id).exists():
+            return Response({"error": "This domain is already in use by another organization."}, status=409)
 
-        # Check if team already has a config on this domain (single query for both existence + data)
-        sibling = EmailChannel.objects.filter(team=team, domain=domain).first()
+        # Check if org already has a config on this domain (reuse Mailgun registration + DNS records)
+        sibling = EmailChannel.objects.filter(team__organization_id=team.organization_id, domain=domain).first()
 
         dns_records: dict = {}
         if sibling:
@@ -241,8 +241,8 @@ class EmailVerifyDomainView(APIView):
         is_active = mg_result.get("state") == "active"
         dns_records = {"sending_dns_records": mg_result.get("sending_dns_records", [])}
 
-        # Update all configs on this team sharing the same domain
-        EmailChannel.objects.filter(team=team, domain=config.domain).update(
+        # Update all configs in this org sharing the same domain
+        EmailChannel.objects.filter(team__organization_id=team.organization_id, domain=config.domain).update(
             domain_verified=is_active,
             dns_records=dns_records,
         )
