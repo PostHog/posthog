@@ -1,8 +1,11 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonSelect, type LemonSelectProps } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { LabelIndicator, StatusIndicator } from '../Indicators'
+import { issueQueryOptionsLogic } from '../IssueQueryOptions/issueQueryOptionsLogic'
 
 export type ErrorTrackingStatusSelectValue = ErrorTrackingIssue['status'] | 'all'
 
@@ -45,6 +48,19 @@ export function ErrorTrackingStatusSelect({
                 value: key,
                 label: statusOptionLabel(key),
             }))}
+        />
+    )
+}
+
+/** Issues tab filter bar — wires shared select to issueQueryOptionsLogic. */
+export function StatusFilter(): JSX.Element {
+    const { status } = useValues(issueQueryOptionsLogic)
+    const { setStatus } = useActions(issueQueryOptionsLogic)
+
+    return (
+        <ErrorTrackingStatusSelect
+            value={status ?? 'active'}
+            onChange={(value) => setStatus(value === 'all' ? 'all' : value)}
         />
     )
 }
