@@ -81,6 +81,11 @@ describe('Notebook history revert flow', () => {
             getJSON: () => editorContent,
             getText: () => 'historical',
             getCurrentPosition: () => 0,
+            getMarks: () => [],
+            getAllCommentTexts: () => ({}),
+            getAttributes: () => ({}),
+            findCommentPosition: () => null,
+            removeComment: jest.fn(),
             setTextSelection: jest.fn(),
         }) as unknown as NotebookEditor
 
@@ -89,6 +94,7 @@ describe('Notebook history revert flow', () => {
         useMocks({
             get: {
                 [`/api/projects/@current/notebooks/${SHORT_ID}/`]: () => [200, cachedNotebook],
+                [`/api/projects/:project_id/notebooks/${SHORT_ID}/kernel/status/`]: () => [200, { backend: null }],
             },
         })
         initKeaTests()
