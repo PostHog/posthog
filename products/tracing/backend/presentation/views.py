@@ -142,6 +142,11 @@ class _TracingQueryBodySerializer(serializers.Serializer):
         required=False,
         help_text="Number of child spans to prefetch per trace (1-100).",
     )
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
+    )
 
 
 class _TracingQueryRequestSerializer(serializers.Serializer):
@@ -152,6 +157,11 @@ class _TracingTraceRequestSerializer(serializers.Serializer):
     dateRange = _TracingDateRangeSerializer(
         required=False,
         help_text="Date range for the query. Defaults to last 24 hours.",
+    )
+    excludeAttributes = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Omit the per-span attributes map from results to keep payloads compact. Defaults to false.",
     )
 
 
@@ -355,6 +365,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             after=after_cursor,
             rootSpans=query_data.get("rootSpans", True),
             prefetchSpans=prefetch_spans,
+            excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)
@@ -569,6 +580,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=1000,
             prefetchSpans=2000,
             rootSpans=False,
+            excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
         runner = TraceSpansQueryRunner(spans_query, self.team)

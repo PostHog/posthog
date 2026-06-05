@@ -84,7 +84,11 @@ from products.dashboards.backend.api.dashboard_ai import generate_refresh_analys
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from products.dashboards.backend.api.widget_openapi_serializers import DashboardWidgetConfigField
+from products.dashboards.backend.api.widget_openapi_serializers import (
+    WIDGET_BATCH_ADD_OPENAPI_HELP,
+    AddDashboardWidgetRequestOpenApi,
+    DashboardWidgetConfigField,
+)
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -498,8 +502,8 @@ class MoveTileRequestSerializer(serializers.Serializer):
 
 
 class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
-    widget_type = serializers.CharField(
-        max_length=64,
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
         help_text=WIDGET_TYPE_API_HELP,
     )
     config = DashboardWidgetConfigField(
@@ -543,8 +547,8 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
 
 
 class DashboardPatchWidgetSerializer(DashboardWidgetCoreRequestSerializer):
-    widget_type = serializers.CharField(
-        max_length=64,
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
         required=False,
         help_text=WIDGET_TYPE_API_HELP,
     )
@@ -562,6 +566,17 @@ class AddDashboardWidgetsBatchRequestSerializer(serializers.Serializer):
         help_text=(
             f"Widget tiles to add atomically (1–{MAX_WIDGETS_BATCH_SIZE}). Use a single-element list to add one widget."
         ),
+    )
+
+
+class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents."""
+
+    widgets = serializers.ListField(
+        child=AddDashboardWidgetRequestOpenApi,
+        min_length=1,
+        max_length=MAX_WIDGETS_BATCH_SIZE,
+        help_text=f"{WIDGET_BATCH_ADD_OPENAPI_HELP} (1–{MAX_WIDGETS_BATCH_SIZE} per request).",
     )
 
 
@@ -2746,7 +2761,7 @@ class DashboardsViewSet(
         return Response({"results": get_widget_catalog_entries()})
 
     @extend_schema(
-        request=AddDashboardWidgetsBatchRequestSerializer,
+        request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
         responses={201: AddDashboardWidgetsBatchResponseSerializer},
     )
     @action(methods=["POST"], detail=True, url_path="widgets/batch", required_scopes=["dashboard:write"])
