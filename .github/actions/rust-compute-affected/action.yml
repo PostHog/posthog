@@ -80,9 +80,14 @@ runs:
                       fi
 
                       if [ -n "$base_branch" ]; then
-                          git fetch --no-tags --depth=1 origin "$base_branch"
-                          base_ref=$(git merge-base FETCH_HEAD HEAD)
-                          echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                          git fetch --no-tags origin "$base_branch"
+                          base_ref=$(git merge-base FETCH_HEAD HEAD || true)
+                          if [ -n "$base_ref" ]; then
+                              echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                          else
+                              echo "merge-base empty; falling back to PR base SHA"
+                              base_ref="$PR_BASE_SHA"
+                          fi
                       else
                           base_ref="$PR_BASE_SHA"
                       fi
