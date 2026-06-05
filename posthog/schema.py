@@ -22784,6 +22784,14 @@ class FunnelsFilter(BaseModel):
     funnelWindowIntervalUnit: FunnelConversionWindowTimeUnit | None = FunnelConversionWindowTimeUnit.DAY
     goalLines: list[GoalLine] | None = Field(default=None, description="Goal Lines")
     hiddenLegendBreakdowns: list[str] | None = None
+    hideIncompleteConversionWindowPeriods: bool | None = Field(
+        default=False,
+        description=(
+            "Trends only: hide periods whose conversion window has not fully elapsed"
+            " yet, so the recent tail of the trend isn't dragged down by entrants who"
+            " still have time to convert."
+        ),
+    )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,

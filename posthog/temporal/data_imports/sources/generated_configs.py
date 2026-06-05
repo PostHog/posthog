@@ -148,7 +148,7 @@ class AsanaSourceConfig(config.Config):
 
 @config.config
 class AshbySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -378,7 +378,7 @@ class FreshsalesSourceConfig(config.Config):
 
 @config.config
 class FrontSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
