@@ -135,6 +135,58 @@ class TestPollForTurnEmptyEndTurn:
         assert printed_lines == len(poll_3_lines)
 
 
+class TestPollForTurnStaleSalvage:
+    """When the sandbox SDK never emits the closing end_turn after the agent's final
+    message (an intermittent race — the turn's cost is left null and the log goes quiet),
+    poll_for_turn must salvage the last message once the log is conclusively stale rather
+    than polling until MAX_POLL_SECONDS and failing a run that actually completed."""
+
+    @pytest.mark.asyncio
+    async def test_salvages_last_message_when_end_turn_never_arrives(self):
+        # Agent's close-out message + a final usage_update, but no end_turn line — the
+        # exact shape of the prod failures (no result of any stopReason ever written).
+        log = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 30),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "close-out summary"
+        assert total_lines == 2
+
+    @pytest.mark.asyncio
+    async def test_does_not_salvage_while_log_is_still_growing(self):
+        """An active turn that keeps streaming new lines must NOT be salvaged early —
+        staleness resets on each new line, so the real end_turn is what completes it."""
+        poll_1 = [_agent_message_line("working")]
+        poll_2 = [*poll_1, _agent_message_line("still working")]
+        poll_3 = [*poll_2, _agent_message_line("final answer"), _end_turn_line()]
+        logs = ["\n".join(poll_1), "\n".join(poll_2), "\n".join(poll_3)]
+        poll_iter = iter(logs)
+
+        def next_log(*_args, **_kwargs):
+            return next(poll_iter)
+
+        fake = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=next_log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
+            # Threshold below per-poll elapsed: proves staleness reset (not a high threshold) is what holds.
+            patch("products.tasks.backend.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 5),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+
+        assert last_message == "final answer"
+        assert total_lines == len(poll_3)
+
+
 class TestPollForTurnTerminalDrain:
     """Terminal-status drain must recover an agent_message from *this* turn only.
 

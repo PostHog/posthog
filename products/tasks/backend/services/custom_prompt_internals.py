@@ -29,6 +29,16 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # 30 minutes (matches sandbox TTL)
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
+# Salvage threshold for a turn whose closing end_turn never arrives. The sandbox SDK
+# intermittently emits the agent's final message (and a final usage_update with a null
+# cost — cost is only computed at turn finalization) but never the ACP end_turn result,
+# so neither _check_logs nor the relay ever marks the turn finished. After this many
+# seconds of zero new log lines with a captured assistant message in hand, accept that
+# message as a degraded turn-end instead of polling until MAX_POLL_SECONDS and failing a
+# run that actually completed. Kept well above the gap between log lines during genuine
+# work (tool calls and thinking both stream events, resetting staleness) so a merely slow
+# step is never mistaken for a dropped turn; prod hangs sit silent for tens of minutes.
+STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
 # classifies upstream failures (rate limits, stream/connection drops, provider
@@ -199,6 +209,18 @@ async def poll_for_turn(
                 total_lines=total_lines,
                 printed_lines=printed_lines,
             )
+        # Salvage a turn whose closing end_turn never arrives (see STALE_TURN_SALVAGE_SECONDS).
+        # We have the agent's final message and the log has gone silent long enough to be
+        # conclusive, so accept it rather than burning the full MAX_POLL_SECONDS and failing.
+        if latest_assistant_text is not None and stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+            logger.warning(
+                "custom_prompt - poll_for_turn: no end_turn but agent message present and log "
+                "stale for %ds — accepting last message as turn-end, run=%s total_lines=%d",
+                stale_seconds,
+                task_run.id,
+                total_lines,
+            )
+            return latest_assistant_text, full_log, total_lines, printed_lines
         # Keep the cursor monotonic — S3 eventual-consistency can briefly return
         # fewer lines than the prior poll; without the clamp we'd re-parse old lines.
         skip_lines = max(skip_lines, total_lines)
