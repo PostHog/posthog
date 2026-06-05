@@ -119,7 +119,7 @@ export function SubscriptionsScene(): JSX.Element {
         { key: SubscriptionsTab.Mine, label: 'My subscriptions' },
         { key: SubscriptionsTab.Dashboard, label: 'Dashboard' },
         { key: SubscriptionsTab.Insight, label: 'Insight' },
-        ...(aiSubscriptionsEnabled ? [{ key: SubscriptionsTab.AI, label: 'AI reports' }] : []),
+        ...(aiSubscriptionsEnabled ? [{ key: SubscriptionsTab.AI, label: 'Prompt' }] : []),
     ]
     const showProductIntroduction =
         subscriptions.length === 0 && !subscriptionsLoading && !isFiltered && !subscriptionsListAwaitingDebouncedFetch
@@ -137,7 +137,7 @@ export function SubscriptionsScene(): JSX.Element {
                             data-attr="new-subscription-button"
                             onClick={() => router.actions.push(urls.subscriptionNew())}
                         >
-                            New AI subscription
+                            New prompt subscription
                         </LemonButton>
                     ) : undefined
                 }

@@ -408,7 +408,7 @@ function EditSubscriptionForm({
                                             },
                                             {
                                                 value: SubscriptionResourceTypes.AiPrompt,
-                                                label: 'AI report (beta)',
+                                                label: 'Report from a prompt (beta)',
                                                 disabledReason: !aiGate.aiOptionEnabled
                                                     ? AI_NOT_ALLOWED_REASON
                                                     : undefined,

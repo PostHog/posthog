@@ -120,7 +120,7 @@ function buildColumns(renderRowActions: (sub: SubscriptionApi) => JSX.Element): 
             render: (_value: unknown, sub: SubscriptionApi) => {
                 let typeTag: { icon: JSX.Element; label: string } | null = null
                 if (sub.resource_type === SubscriptionResourceTypes.AiPrompt) {
-                    typeTag = { icon: <IconAI />, label: 'AI report' }
+                    typeTag = { icon: <IconAI />, label: 'Prompt' }
                 } else if (sub.insight) {
                     typeTag = { icon: <IconGraph />, label: 'Insight' }
                 } else if (sub.dashboard) {

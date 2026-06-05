@@ -26,7 +26,7 @@ function validatePrompt(
     }
     const trimmedPrompt = prompt?.trim()
     if (!trimmedPrompt) {
-        return 'A prompt is required for AI subscriptions'
+        return 'A prompt is required for prompt subscriptions'
     }
     if (trimmedPrompt.length > AI_PROMPT_MAX_LENGTH) {
         return `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`

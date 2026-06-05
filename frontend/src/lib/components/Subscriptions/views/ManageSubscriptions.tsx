@@ -223,7 +223,12 @@ export function ManageSubscriptions({
                             <div className="deprecated-space-y-2">
                                 <div>
                                     <strong>{aiSubscriptions.length}</strong>{' '}
-                                    {pluralize(aiSubscriptions.length, 'AI subscription', 'AI subscriptions', false)}
+                                    {pluralize(
+                                        aiSubscriptions.length,
+                                        'prompt subscription',
+                                        'prompt subscriptions',
+                                        false
+                                    )}
                                     <div className="text-xs text-muted">
                                         Not tied to this {subscriptionResourceNoun}, shared across your project.
                                     </div>
@@ -233,7 +238,7 @@ export function ManageSubscriptions({
                                 </div>
                                 {aiSubscriptions.length > AI_PREVIEW_LIMIT ? (
                                     <Link to={urls.subscriptions()} className="text-xs">
-                                        View all {aiSubscriptions.length} AI subscriptions
+                                        View all {aiSubscriptions.length} prompt subscriptions
                                     </Link>
                                 ) : null}
                             </div>
