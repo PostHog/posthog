@@ -69,6 +69,7 @@ import {
     SessionEvent,
     SessionEventBus,
     SessionEventKind,
+    SessionInputsStore,
     toolSpanId,
 } from '@posthog/agent-shared'
 
@@ -107,6 +108,16 @@ export interface RunSessionDeps {
     shutdownSignal?: AbortSignal
     /** Called once per turn after the assistant message + tool results are appended. */
     onTurnPersist?: (session: AgentSession) => Promise<void>
+    /**
+     * Atomic read+clear + append path for `pending_inputs`. The loop drains
+     * via this at the start of each turn instead of operating on the
+     * (potentially stale) `session.pending_inputs` it was claimed with, so
+     * a `/send` that lands mid-turn either gets included in this turn (if
+     * it commits before the drain) or queues cleanly for the next (if it
+     * commits after). `PgSessionQueue` satisfies the interface — wire the
+     * queue here directly.
+     */
+    inputs: SessionInputsStore
     bus: SessionEventBus
     logs: LogSink
     analytics?: AnalyticsSink
@@ -680,17 +691,21 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     // pi-ai ignores `reasoning` for non-reasoning models, so forward unconditionally.
                     reasoning: rev.spec.reasoning,
                     convertToLlm: (messages) => messages as unknown as Message[],
-                    // The loop contract requires this hook to never throw. We also
-                    // must NOT clear pending_inputs up front: an approval marker
-                    // whose dispatch fails transiently has to survive for the next
-                    // resume, or the user's approval is silently lost and the row
-                    // stays stuck in `approving`. So we consume entries only as we
-                    // successfully process them; anything that throws is kept.
+                    // The loop contract requires this hook to never throw. Drain
+                    // atomically from PG so a `/send` that lands during this turn
+                    // either gets included here (commit before drain) or survives
+                    // for the next turn (commit after drain — lands in a fresh
+                    // empty column). The runner's in-memory `session.pending_inputs`
+                    // is intentionally never written back from this point on; the
+                    // worker's end-of-turn `update()` skips the column too. An
+                    // approval marker whose dispatch fails transiently is
+                    // re-appended via `inputs.appendPendingInput` so the next
+                    // resume retries instead of losing the user's approval.
                     getSteeringMessages: async (): Promise<AgentMessage[]> => {
-                        if (session.pending_inputs.length === 0) {
+                        const pending = await deps.inputs.drainPendingInputs(session.id)
+                        if (pending.length === 0) {
                             return []
                         }
-                        const pending = session.pending_inputs
                         const out: ConversationMessage[] = []
                         const kept: ConversationMessage[] = []
                         for (const msg of pending) {
@@ -796,7 +811,20 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 kept.push(msg)
                             }
                         }
-                        session.pending_inputs = kept
+                        // Re-append transient-failure entries so the next
+                        // turn retries. Goes back through the same atomic
+                        // append path `/send` uses — interleaves cleanly
+                        // with any concurrent mid-turn writes.
+                        for (const msg of kept) {
+                            try {
+                                await deps.inputs.appendPendingInput(session.id, msg)
+                            } catch (err) {
+                                runLog.warn(
+                                    { err: (err as Error).message },
+                                    'pending_inputs.requeue_failed — entry lost'
+                                )
+                            }
+                        }
                         return out as unknown as AgentMessage[]
                     },
                     shouldStopAfterTurn: async (): Promise<boolean> => {

@@ -76,18 +76,7 @@ describe('queued follow-ups: real e2e', () => {
         expect(userTexts).toEqual(['first', 'second', 'third', 'fourth'])
     })
 
-    // SKIPPED — surfaces a real platform race that is not yet fixed and
-    // also not deterministic enough to assert on in CI. A /send issued
-    // WHILE a turn is in flight appends to pending_inputs in PG, then
-    // the worker's end-of-turn `update()` overwrites pending_inputs
-    // with the runner's in-memory copy (which never saw the /send) —
-    // the user's follow-up can be silently dropped (200 OK returned,
-    // message never lands in conversation). Whether the race manifests
-    // depends on whether /send's appendPendingInput commits before or
-    // after the worker's final update. Fix: read+clear pending_inputs
-    // atomically at turn start, or merge with live PG pending_inputs
-    // at turn end. Unskip once that lands.
-    it.skip('a /send issued while the worker is mid-turn is drained at the next turn', async () => {
+    it('a /send issued while the worker is mid-turn is drained at the next turn', async () => {
         await c.deployAgent({ slug: 'q-mid' })
         const run = await request(c.ingress).post('/agents/q-mid/run').send({ message: 'first' })
         const sid = run.body.session_id
@@ -131,7 +120,7 @@ describe('queued follow-ups: real e2e', () => {
         expect(userTexts).toEqual(['first', 'mid-turn-followup'])
     })
 
-    it.skip('emits user_message via SSE when a mid-turn /send is drained at the next turn', async () => {
+    it('emits user_message via SSE when a mid-turn /send is drained at the next turn', async () => {
         // Mirrors the previous test but asserts the live-stream side:
         // the SSE bus carries `user_message` for the drained follow-up
         // so connected chat UIs can swap their pending optimistic

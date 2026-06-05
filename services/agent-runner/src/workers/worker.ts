@@ -447,13 +447,17 @@ export class Worker {
                 mcpFailures,
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                inputs: this.deps.queue,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs
-                    // is also flushed in case the runSession drained any.
+                    // is intentionally NOT included — the runner manages it
+                    // directly via `inputs.drainPendingInputs` /
+                    // `appendPendingInput` against PG so a concurrent
+                    // mid-turn `/send` can't be clobbered by writing back
+                    // the runner's stale in-memory copy.
                     await this.deps.queue.update(s.id, {
                         conversation: s.conversation,
-                        pending_inputs: s.pending_inputs,
                         usage_total: s.usage_total,
                     })
                 },
@@ -473,10 +477,10 @@ export class Worker {
                 }
             })()
             sLog.debug({ outcome: outcome.state, turns: outcome.turns, newState }, 'session.done')
+            // pending_inputs intentionally omitted — see onTurnPersist above.
             await this.deps.queue.update(session.id, {
                 state: newState,
                 conversation: session.conversation,
-                pending_inputs: session.pending_inputs,
                 usage_total: session.usage_total,
             })
         } catch (err) {
@@ -557,10 +561,13 @@ export class Worker {
                     )
             }
 
+            // pending_inputs intentionally omitted — pre-runSession failures
+            // happen before any drain runs, so writing the in-memory copy
+            // back is a no-op at best and a clobber of a concurrent /send
+            // at worst.
             await this.deps.queue.update(session.id, {
                 state: 'failed',
                 conversation: session.conversation,
-                pending_inputs: session.pending_inputs,
                 usage_total: session.usage_total,
             })
         } finally {

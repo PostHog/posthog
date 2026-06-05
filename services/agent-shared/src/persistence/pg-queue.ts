@@ -158,6 +158,47 @@ export class PgSessionQueue implements SessionQueue {
         )
     }
 
+    async drainPendingInputs(sessionId: string): Promise<ConversationMessage[]> {
+        // Lock the row, read pending_inputs, clear them, commit. Anything
+        // a concurrent `/send` writes during this window will queue on the
+        // row lock and land cleanly in the post-clear `[]` — never the
+        // pre-clear list we're about to return.
+        const client: PoolClient = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+            const sel = await client.query<{ pending_inputs: unknown }>(
+                `SELECT pending_inputs FROM agent_session WHERE id = $1 FOR UPDATE`,
+                [sessionId]
+            )
+            if (sel.rowCount === 0) {
+                await client.query('ROLLBACK')
+                return []
+            }
+            const raw = sel.rows[0].pending_inputs
+            const drained: ConversationMessage[] = Array.isArray(raw) ? (raw as ConversationMessage[]) : []
+            if (drained.length === 0) {
+                // Nothing to clear — skip the write so we don't bump
+                // updated_at for a no-op (the janitor's reaper reads it).
+                await client.query('COMMIT')
+                return []
+            }
+            await client.query(
+                `UPDATE agent_session
+                 SET pending_inputs = '[]'::jsonb,
+                     updated_at = NOW()
+                 WHERE id = $1`,
+                [sessionId]
+            )
+            await client.query('COMMIT')
+            return drained
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw err
+        } finally {
+            client.release()
+        }
+    }
+
     async appendConversation(sessionId: string, msg: ConversationMessage): Promise<void> {
         await this.pool.query(
             `UPDATE agent_session

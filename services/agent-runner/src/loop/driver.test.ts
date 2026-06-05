@@ -157,7 +157,12 @@ async function run(
 ): ReturnType<typeof runSession> {
     const bundle = bundleStore
     await bundle.write(rev.id, 'agent.md', 'you are a bot')
-    if (over.approvals) {
+    // Seed PG whenever the test needs the session to exist there: the
+    // approval store requires the FK target, AND the runner now drains
+    // pending_inputs through the PG queue rather than the in-memory copy
+    // — so any test that seeds `pending_inputs` upfront needs the row
+    // to be persisted too.
+    if (over.approvals || session.pending_inputs.length > 0) {
         await seedSessionRow(session)
     }
     return runSession(rev, session, {
@@ -166,6 +171,7 @@ async function run(
         sandbox: null,
         integrations: {},
         secrets: {},
+        inputs: new PgSessionQueue(pool),
         bus: driverTestBus,
         logs: driverTestLogs,
         http: new HttpClient(),
@@ -239,7 +245,10 @@ describe('driver runSession', () => {
             })
             const out = await run(makeRev(), session, { script: [stop('ok')] })
             expect(out.state).toBe('completed')
-            expect(session.pending_inputs).toHaveLength(0)
+            // pending_inputs lives in PG now (the runner drains via
+            // `inputs.drainPendingInputs`); the in-memory copy is stale.
+            const refreshed = await new PgSessionQueue(pool).get(session.id)
+            expect(refreshed?.pending_inputs).toHaveLength(0)
             // original user + drained user + assistant
             expect(session.conversation).toHaveLength(3)
         })
@@ -314,8 +323,11 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             // The cross-session approved tool must NOT have run.
             expect(hogqlCalls).toBe(0)
-            // Marker consumed (dropped), not left dangling.
-            expect(session.pending_inputs).toHaveLength(0)
+            // Marker consumed (dropped), not left dangling — verified
+            // against PG since the runner no longer mutates the
+            // in-memory session.pending_inputs.
+            const refreshed = await new PgSessionQueue(pool).get(session.id)
+            expect(refreshed?.pending_inputs).toHaveLength(0)
         })
 
         it('drops a marker whose row is not in the approving state', async () => {
@@ -342,7 +354,8 @@ describe('driver runSession', () => {
             )
             expect(out.state).toBe('completed')
             expect(hogqlCalls).toBe(0)
-            expect(session.pending_inputs).toHaveLength(0)
+            const refreshed = await new PgSessionQueue(pool).get(session.id)
+            expect(refreshed?.pending_inputs).toHaveLength(0)
         })
     })
 

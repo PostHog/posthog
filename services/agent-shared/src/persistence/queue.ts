@@ -37,17 +37,28 @@ export interface ListSessionsOpts {
     createdBefore?: string
 }
 
-export interface SessionQueue {
+/**
+ * Narrow capability the runner needs to read + grow `pending_inputs` mid-loop
+ * without taking the whole `SessionQueue` dependency (and without the runner
+ * caching a stale in-memory copy of the column). `PgSessionQueue` satisfies
+ * this structurally — pass the queue directly.
+ */
+export interface SessionInputsStore {
+    drainPendingInputs(sessionId: string): Promise<ConversationMessage[]>
+    appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void>
+}
+
+/**
+ * Full session-persistence surface. Extends `SessionInputsStore` so the
+ * narrow per-input methods (`appendPendingInput`, `drainPendingInputs`)
+ * are documented there; consumers that only need those two should depend
+ * on `SessionInputsStore` instead of pulling the whole queue.
+ */
+export interface SessionQueue extends SessionInputsStore {
     enqueue(session: AgentSession): Promise<void>
     /** Block-claim the next session, returning null if none available within timeoutMs. */
     claim(timeoutMs: number): Promise<AgentSession | null>
     update(sessionId: string, patch: Partial<AgentSession>): Promise<void>
-    /**
-     * Append a message into a session. By default routes into `pending_inputs`
-     * so it doesn't contend with an in-flight turn. The runner drains
-     * pending_inputs into `conversation` at the start of each turn.
-     */
-    appendPendingInput(sessionId: string, msg: ConversationMessage): Promise<void>
     /** Append directly into `conversation` (runner-side use only). */
     appendConversation(sessionId: string, msg: ConversationMessage): Promise<void>
     /**
