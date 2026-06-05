@@ -6,7 +6,7 @@ import pytest
 from posthog.temporal.common.test_utils import ThreadedWorker
 
 
-class _WorkerDiesOnStartup(ThreadedWorker):
+class _FakeWorker(ThreadedWorker):
     def __init__(self) -> None:
         self._shutdown_event = threading.Event()
 
@@ -14,18 +14,13 @@ class _WorkerDiesOnStartup(ThreadedWorker):
     def is_running(self) -> bool:
         return False
 
+
+class _WorkerDiesOnStartup(_FakeWorker):
     def run_using_loop(self, loop) -> None:
         raise RuntimeError("simulated worker boot failure")
 
 
-class _WorkerNeverReady(ThreadedWorker):
-    def __init__(self) -> None:
-        self._shutdown_event = threading.Event()
-
-    @property
-    def is_running(self) -> bool:
-        return False
-
+class _WorkerNeverReady(_FakeWorker):
     def run_using_loop(self, loop) -> None:
         self._shutdown_event.wait(30)
 

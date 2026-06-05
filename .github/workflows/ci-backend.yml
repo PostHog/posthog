@@ -586,12 +586,10 @@ jobs:
               env:
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
-                  # --timeout: per-test safety net so a single hung test fails fast with a stack
-                  # dump (naming the test) instead of silently eating this shared product batch's
-                  # 30-min cap. Slowest legit product test is ~60s; genuinely-long tests opt in via
-                  # @pytest.mark.timeout, which overrides this default. signal method fails just the
-                  # hung test rather than killing the whole pytest process; the job-level
-                  # timeout-minutes stays as the final backstop.
+                  # --timeout: a hung test fails fast with a stack dump instead of silently eating
+                  # this shared batch's 30-min cap. Slowest legit product test is ~60s; longer ones
+                  # opt in via @pytest.mark.timeout (overrides this). signal fails just the hung test,
+                  # not the whole process; job-level timeout-minutes is the final backstop.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
