@@ -26,6 +26,7 @@ import {
     CaptureAnalyticsSink,
     createAgentPool,
     createLogger,
+    DirectHttpClient,
     EncryptedFields,
     HttpClient,
     HttpGatewayClient,
@@ -199,7 +200,13 @@ async function main(): Promise<void> {
     // See docs/agent-platform/plans/ai-gateway-integration.md §3 (W1).
     const teamApiKeys = config.useAiGateway ? new PgTeamApiKeyResolver(posthogDb) : null
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
-    const gatewayClient = config.useAiGateway ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http }) : null
+    // ai-gateway is a cluster-internal service — use the direct client so the
+    // call doesn't hit smokescreen (which would refuse it as RFC1918). The
+    // proxy-bound `http` stays reserved for everything an agent author can
+    // influence the URL of (tools, MCP, sandbox guest).
+    const gatewayClient = config.useAiGateway
+        ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http: new DirectHttpClient() })
+        : null
 
     // Agent memory: S3-backed file store. Disabled (memory tools surface
     // `memory_store_unavailable` to the model) when the bucket isn't

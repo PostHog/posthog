@@ -16,6 +16,7 @@ import {
     AgentApplication,
     createAgentPool,
     createLogger,
+    DirectHttpClient,
     EncryptedFields,
     HttpClient,
     installProcessHandlers,
@@ -77,7 +78,14 @@ async function main(): Promise<void> {
     // types). JWT verification needs an `issuer_secret_ref` resolver to
     // pull the embedding party's secret from the agent's encrypted env —
     // wired below.
-    const introspector = defaultPosthogIntrospector({ baseUrl: config.posthogApiBaseUrl, http })
+    // PostHog's `/api/users/@me/` is cluster-internal — use the direct client
+    // so the introspect doesn't hit smokescreen (which would refuse RFC1918).
+    // The proxy-bound `http` stays reserved for everything an agent author can
+    // influence the URL of (Slack identity bridge → slack.com).
+    const introspector = defaultPosthogIntrospector({
+        baseUrl: config.posthogApiBaseUrl,
+        http: new DirectHttpClient(),
+    })
     const authProvider = {
         verifiers: buildDefaultVerifiers({ introspector }),
     }

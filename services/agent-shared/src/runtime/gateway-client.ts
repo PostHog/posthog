@@ -63,16 +63,11 @@ export interface HttpGatewayClientOpts {
     /** Initial backoff for the retry loop in ms. Default 25. Doubles each retry. */
     initialBackoffMs?: number
     /**
-     * Outbound HTTP client. Wired at the service entrypoint so gateway
-     * calls go through the same dispatcher (smokescreen in prod, direct
-     * in dev) as tool fetches.
-     *
-     * NOTE: ai-gateway is an internal service, so routing this through
-     * smokescreen pays a hop for no SSRF benefit (the gateway URL is
-     * runner-controlled, not author-controlled). For now we eat the hop
-     * to keep "all outbound fetch uses one HttpClient" as the invariant —
-     * worth adding an explicit `bypassProxy: true` knob on `HttpClient`
-     * if the latency shows up in profiling.
+     * Outbound HTTP. Wired at the runner entrypoint with a
+     * `DirectHttpClient` instance — ai-gateway is cluster-internal and
+     * smokescreen would deny the call as RFC1918. **Never pass the
+     * proxy-bound `HttpClient` here**: a smokescreen rejection would
+     * silently drop cost-capture data with only a warn in the logs.
      */
     http: HttpFetcher
 }

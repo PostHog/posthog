@@ -22,7 +22,7 @@ import {
     AgentApplication,
     AuthMode,
     CredentialMap,
-    HttpClient,
+    DirectHttpClient,
     HttpFetcher,
     SessionPrincipal,
 } from '@posthog/agent-shared'
@@ -55,16 +55,18 @@ export interface DefaultIntrospectorOpts {
     /** Base URL for the PostHog API. Default: `http://localhost:8010`. */
     baseUrl?: string
     /**
-     * Outbound HTTP. Defaults to a direct HttpClient when omitted —
-     * production wires the ingress-shared HttpClient so the introspect
-     * call routes through smokescreen alongside every other fetch.
+     * Outbound HTTP. Production wires a `DirectHttpClient` so the call
+     * to PostHog's in-cluster `/api/users/@me/` doesn't get refused by
+     * smokescreen as RFC1918. **Never pass the proxy-bound `HttpClient`
+     * here** — every authenticated request would 401. Defaults to a
+     * fresh `DirectHttpClient` for tests.
      */
     http?: HttpFetcher
 }
 
 export function defaultPosthogIntrospector(opts: DefaultIntrospectorOpts = {}): PosthogIdentityIntrospector {
     const baseUrl = (opts.baseUrl ?? 'http://localhost:8010').replace(/\/+$/, '')
-    const http = opts.http ?? new HttpClient()
+    const http = opts.http ?? new DirectHttpClient()
     return {
         async introspect(bearer: string): Promise<PosthogMeResponse | null> {
             const res = await http.fetch(`${baseUrl}/api/users/@me/`, {

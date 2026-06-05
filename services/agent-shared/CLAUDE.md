@@ -89,17 +89,30 @@ TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
    schema. Also forbidden in tests: pass an explicit `env` object to
    `loadConfigFromEnv` instead of mutating `process.env`.
 
-8. **One `HttpClient` for every outbound fetch.** `HttpClient` (here)
-   wraps `undici.fetch` with a smokescreen `ProxyAgent` dispatcher
-   when `config.httpsProxy` is set, plus a default timeout. Every
-   tool, gateway client, MCP transport, and identity bridge dispatches
-   through it — bare global `fetch` does **not** read `HTTPS_PROXY`,
-   so a forgotten `fetch(...)` silently bypasses smokescreen in prod.
-   The lint rule in `.oxlintrc.json` flags bare `fetch` across
-   `services/agent-*/src/**/*.ts` (test files exempt). Wire it once
-   in each service's `index.ts`, pass it through `WorkerDeps` /
-   `BridgeSlackUserDeps` / `HttpGatewayClientOpts`, and surface it on
-   `ToolContext.http` for native tools.
+8. **Two HTTP clients, deliberately separate.** Every outbound fetch
+   goes through one of two classes in
+   `agent-shared/src/runtime/http-client.ts`:
+   - **`HttpClient`** (proxy-bound) — default. Wraps `undici.fetch`
+     with a smokescreen `ProxyAgent` when `config.httpsProxy` is set.
+     Wire it everywhere an agent author can influence the target URL:
+     native tools, MCP transport, sandbox guest, the Slack identity
+     bridge (slack.com). `ToolContext.http` only ever holds this one.
+   - **`DirectHttpClient`** (no proxy, ever) — reserved for cluster-
+     internal services the platform owns and calls itself (ai-gateway,
+     in-cluster PostHog API). Constructed at the service entrypoint
+     and passed directly to `HttpGatewayClient` /
+     `defaultPosthogIntrospector`. **Never thread this onto
+     `ToolContext` / `WorkerDeps` / anywhere agent code can reach it.**
+     A NO_PROXY-style allowlist would defeat the divide — an
+     `@posthog/http-request` against `posthog-web-django.posthog.svc.
+  cluster.local` would match the suffix and bypass smokescreen
+     entirely. The class identity is the capability.
+     Bare global `fetch` is flagged by the lint rule in
+     `.oxlintrc.json` across `services/agent-*/src/**/*.ts` (tests +
+     `http-client.ts` itself exempt). Wire `HttpClient` once in each
+     service `index.ts`, pass it through `WorkerDeps` /
+     `BridgeSlackUserDeps` / `HttpGatewayClientOpts`, and surface it
+     on `ToolContext.http`.
 
 ## Pointers
 

@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http'
 import { AddressInfo } from 'node:net'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { HttpClient } from './http-client'
+import { DirectHttpClient, HttpClient } from './http-client'
 
 /**
  * Real fetch against a real HTTP server — same posture as the agent-shared
@@ -129,5 +129,52 @@ describe('HttpClient', () => {
         // proving the dispatcher is actually wired, not ignored).
         const client = new HttpClient({ proxyUrl: 'http://127.0.0.1:1', defaultTimeoutMs: 1_000 })
         await expect(client.fetch(`${baseUrl}/echo`)).rejects.toThrow()
+    })
+})
+
+describe('DirectHttpClient', () => {
+    let server: Server
+    let baseUrl: string
+
+    beforeAll(async () => {
+        server = createServer((_req, res) => {
+            res.setHeader('content-type', 'text/plain')
+            res.end('ok')
+        })
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    })
+
+    afterAll(async () => {
+        await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())))
+    })
+
+    it('makes a direct fetch with no dispatcher', async () => {
+        const client = new DirectHttpClient()
+        const res = await client.fetch(`${baseUrl}/echo`)
+        expect(res.status).toBe(200)
+        expect(await res.text()).toBe('ok')
+    })
+
+    it('does NOT accept a proxyUrl in its options — internal-only by construction', () => {
+        // Capability check: the class has no constructor knob to wire a
+        // proxy. Anyone trying to route author-influenced URLs through
+        // here would have to swap to `HttpClient`, which is the seam the
+        // proxy guard sits behind. This test is structural — if the
+        // option were ever added back, the type signature would change
+        // and this assertion would fail to compile.
+        const opts: ConstructorParameters<typeof DirectHttpClient>[0] = {}
+        // @ts-expect-error proxyUrl is intentionally not part of DirectHttpClient's options
+        opts.proxyUrl = 'http://smokescreen:4750'
+        expect(opts).toBeTruthy()
+    })
+
+    it('default timeout still applies — long-running internal calls do not hang the worker', async () => {
+        // Hit a port nothing is listening on so the socket sits open until
+        // the abort signal fires. 50ms cap → reject inside 1s.
+        const client = new DirectHttpClient({ defaultTimeoutMs: 50 })
+        const start = Date.now()
+        await expect(client.fetch('http://127.0.0.1:1/never')).rejects.toThrow()
+        expect(Date.now() - start).toBeLessThan(1_000)
     })
 })

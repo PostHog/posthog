@@ -91,7 +91,7 @@ export const PlatformConfigSchema = z.object({
         .url()
         .optional()
         .describe(
-            'Outbound HTTP proxy URL — in prod this points at smokescreen (see charts/shared/agent-platform/common.yaml `httpProxy.enabled`). Every agent service wires this into a shared HttpClient so tool fetches, MCP transport, and ai-gateway calls dispatch through one dispatcher. Unset in dev — fetches go direct. Service entrypoints fail closed in prod when this is unset.'
+            'Outbound HTTP proxy URL — in prod this points at smokescreen (see charts/shared/agent-platform/common.yaml `httpProxy.enabled`). Every agent service wires this into a shared HttpClient so tool fetches, MCP transport, and external service calls dispatch through one dispatcher. Unset in dev — fetches go direct. Service entrypoints fail closed in prod when this is unset. Cluster-internal calls (ai-gateway, in-cluster PostHog API) construct a `DirectHttpClient` instead — explicit class divide, no shared NO_PROXY env, so an agent author can never bypass smokescreen by guessing an internal hostname.'
         ),
     kafkaHosts: z
         .string()
