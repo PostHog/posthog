@@ -219,33 +219,87 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "mcps": {
             "default": [],
             "type": "array",
+            # Single flat shape — third-party MCP server reachable over HTTP.
+            # The `kind: 'agent'` agent-to-agent variant was removed; see
+            # `docs/agent-platform/plans/agent-as-mcp-server.md` for re-add.
             "items": {
-                "oneOf": [
-                    {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "minLength": 1},
+                    "url": {"type": "string", "format": "uri"},
+                    "auth": {
                         "type": "object",
-                        "properties": {
-                            "kind": {"type": "string", "const": "agent"},
-                            "slug": {"type": "string"},
-                        },
-                        "required": ["kind", "slug"],
+                        "properties": {"integration": {"type": "string"}},
                         "additionalProperties": False,
                     },
-                    {
-                        "type": "object",
-                        "properties": {
-                            "kind": {"type": "string", "const": "external"},
-                            "url": {"type": "string", "format": "uri"},
-                            "auth": {
-                                "type": "object",
-                                "properties": {"integration": {"type": "string"}},
-                                "additionalProperties": False,
-                            },
-                            "allowlist": {"type": "array", "items": {"type": "string"}},
-                        },
-                        "required": ["kind", "url"],
-                        "additionalProperties": False,
+                    "secrets": {
+                        "default": [],
+                        "type": "array",
+                        "items": {"type": "string"},
                     },
-                ]
+                    # Author-supplied request headers stamped on every outgoing
+                    # MCP request. Values may reference `${NAME}` from
+                    # `secrets[]`; the runner substitutes the plaintext value
+                    # before opening the MCP client. Same substitution shape as
+                    # `@posthog/http-request`'s `headers` — the parallel is
+                    # intentional. Use for the bring-your-own-token case
+                    # (paste a PAT once, reference it as `${TOKEN}` in
+                    # `Authorization: 'Bearer ${TOKEN}'`).
+                    "headers": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    # Per-tool selection + approval gating. Bare string
+                    # = inclusion only (was allowlist[] pre-PR-7);
+                    # object form adds requires_approval +
+                    # approval_policy. See `McpToolEntrySchema` in
+                    # services/agent-shared/src/spec/spec.ts.
+                    "tools": {
+                        "type": "array",
+                        "items": {
+                            "oneOf": [
+                                {"type": "string", "minLength": 1},
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {"type": "string", "minLength": 1},
+                                        "requires_approval": {"type": "boolean", "default": False},
+                                        "approval_policy": {
+                                            "type": "object",
+                                            "properties": {
+                                                "approvers": {
+                                                    "type": "array",
+                                                    "minItems": 1,
+                                                    "items": {
+                                                        "type": "string",
+                                                        "enum": ["team_admins", "session_principal"],
+                                                    },
+                                                    "default": ["team_admins"],
+                                                },
+                                                "allow_edit": {"type": "boolean", "default": False},
+                                                "ttl_ms": {
+                                                    "type": "integer",
+                                                    "minimum": 60000,
+                                                    "maximum": 7 * 24 * 60 * 60 * 1000,
+                                                    "default": 24 * 60 * 60 * 1000,
+                                                },
+                                                "allow_agent_approver": {
+                                                    "type": "boolean",
+                                                    "default": False,
+                                                },
+                                            },
+                                            "additionalProperties": False,
+                                        },
+                                    },
+                                    "required": ["name"],
+                                    "additionalProperties": False,
+                                },
+                            ],
+                        },
+                    },
+                },
+                "required": ["id", "url"],
+                "additionalProperties": False,
             },
         },
         "skills": {

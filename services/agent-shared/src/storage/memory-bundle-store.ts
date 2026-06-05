@@ -26,6 +26,10 @@ export class MemoryBundleStore implements BundleStore {
         }
     }
 
+    async isFrozen(revisionId: string): Promise<boolean> {
+        return this.frozen.has(revisionId)
+    }
+
     async list(revisionId: string, prefix?: string): Promise<BundleEntry[]> {
         const b = this.bundle(revisionId)
         const entries: BundleEntry[] = []

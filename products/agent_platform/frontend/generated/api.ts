@@ -43,6 +43,7 @@ import type {
     AgentMemoryGetFileParams,
     AgentMemoryListFilesParams,
     AgentMemoryListResponseApi,
+    AgentMemoryReadTableParams,
     AgentMemorySearchParams,
     AgentMemorySearchResponseApi,
     AgentMemoryTreeResponseApi,
@@ -57,6 +58,8 @@ import type {
     AgentSkillTemplatesListParams,
     AgentSkillTemplatesNameRetrieveParams,
     AgentSkillTemplatesNameUsagesListParams,
+    AgentTableRowsResponseApi,
+    AgentTablesListResponseApi,
     CloneFromRequestApi,
     CustomToolTemplateCreateApi,
     CustomToolTemplateDetailApi,
@@ -368,6 +371,61 @@ export const agentMemorySearch = async (
     options?: RequestInit
 ): Promise<AgentMemorySearchResponseApi> => {
     return apiMutator<AgentMemorySearchResponseApi>(getAgentMemorySearchUrl(projectId, applicationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentMemoryListTablesUrl = (projectId: string, applicationId: string) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/memory/tables/`
+}
+
+/**
+ * List the agent's tabular-reference tables (the @posthog/table-* JSONL tables): name + byte size.
+ */
+export const agentMemoryListTables = async (
+    projectId: string,
+    applicationId: string,
+    options?: RequestInit
+): Promise<AgentTablesListResponseApi> => {
+    return apiMutator<AgentTablesListResponseApi>(getAgentMemoryListTablesUrl(projectId, applicationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentMemoryReadTableUrl = (
+    projectId: string,
+    applicationId: string,
+    name: string,
+    params?: AgentMemoryReadTableParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/agent_applications/${applicationId}/memory/tables/${name}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/agent_applications/${applicationId}/memory/tables/${name}/`
+}
+
+/**
+ * Read rows from one tabular-reference table (capped via ?limit).
+ */
+export const agentMemoryReadTable = async (
+    projectId: string,
+    applicationId: string,
+    name: string,
+    params?: AgentMemoryReadTableParams,
+    options?: RequestInit
+): Promise<AgentTableRowsResponseApi> => {
+    return apiMutator<AgentTableRowsResponseApi>(getAgentMemoryReadTableUrl(projectId, applicationId, name, params), {
         ...options,
         method: 'GET',
     })
@@ -910,11 +968,17 @@ export const getAgentApplicationsRevisionsFreezeCreateUrl = (projectId: string, 
 /**
  * Freeze the bundle: draft → ready, stamps sha256 on the row.
 
-Resolves `spec.skills[].from_template` / `spec.tools[].from_template`
-refs into the bundle (copies content, stamps versions, inserts
-join rows) before delegating to the janitor for the sha + state
-flip. The Django resolution runs in one `transaction.atomic()` so
-a partial freeze leaves the revision in `draft`.
+Single atomic block now that the janitor's freeze endpoint is
+side-effect-free w.r.t. `agent_revision`: (1) resolve
+`spec.skills[].from_template` / `spec.tools[].from_template` refs
+into the bundle (copies content, stamps versions, inserts join
+rows); (2) call the janitor to compute the bundle sha (writes the
+S3 `.frozen` marker, returns the sha); (3) stamp `state='ready'`
++ `bundle_sha256` on the revision row from Django. Django is the
+sole writer to `agent_revision.state`, so there's no cross-process
+row contention on the same row to deadlock against. Any failure
+leaves the revision in `draft`; the next freeze re-runs all three
+phases idempotently.
  */
 export const agentApplicationsRevisionsFreezeCreate = async (
     projectId: string,

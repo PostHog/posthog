@@ -7714,16 +7714,37 @@ export namespace Schemas {
       timeout_ms?: number;
     };
 
-    export type AgentRevisionSpecMcpsItem = {
-      kind: 'agent';
-      slug: string;
-    } | {
-      kind: 'external';
-      url: string;
-      auth?: {
+    export type AgentRevisionSpecMcpsItemAuth = {
       integration?: string;
     };
-      allowlist?: string[];
+
+    export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
+    export type AgentRevisionSpecMcpsItemToolsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    };
+
+    export type AgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: AgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      headers?: AgentRevisionSpecMcpsItemHeaders;
+      tools?: AgentRevisionSpecMcpsItemToolsItem[];
     };
 
     export type AgentRevisionSpecSkillsItem = {
@@ -7880,6 +7901,33 @@ export namespace Schemas {
       revision_state: string;
       errors: AgentRevisionValidationError[];
       resolved_natives: string[];
+    }
+
+    export interface AgentTableHeader {
+      /** Table name. */
+      name: string;
+      /** Object size in bytes. */
+      size: number;
+    }
+
+    export type AgentTableRowsResponseRowsItem = { [key: string]: unknown };
+
+    export interface AgentTableRowsResponse {
+      name: string;
+      /** Total rows in the table. */
+      total: number;
+      /** Rows in this response (capped by limit). */
+      returned: number;
+      limit: number;
+      /** The rows (arbitrary JSON objects). */
+      rows: AgentTableRowsResponseRowsItem[];
+    }
+
+    export interface AgentTablesListResponse {
+      /** Number of tables. */
+      count: number;
+      /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
+      tables: AgentTableHeader[];
     }
 
     export interface AggregatedSpanRow {
@@ -27992,16 +28040,37 @@ export namespace Schemas {
       timeout_ms?: number;
     };
 
-    export type PatchedAgentRevisionSpecMcpsItem = {
-      kind: 'agent';
-      slug: string;
-    } | {
-      kind: 'external';
-      url: string;
-      auth?: {
+    export type PatchedAgentRevisionSpecMcpsItemAuth = {
       integration?: string;
     };
-      allowlist?: string[];
+
+    export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
+
+    export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
+      /** @minLength 1 */
+      name: string;
+      requires_approval?: boolean;
+      approval_policy?: {
+      /** @minItems 1 */
+      approvers?: ('team_admins' | 'session_principal')[];
+      allow_edit?: boolean;
+      /**
+         * @minimum 60000
+         * @maximum 604800000
+         */
+      ttl_ms?: number;
+      allow_agent_approver?: boolean;
+    };
+    };
+
+    export type PatchedAgentRevisionSpecMcpsItem = {
+      /** @minLength 1 */
+      id: string;
+      url: string;
+      auth?: PatchedAgentRevisionSpecMcpsItemAuth;
+      secrets?: string[];
+      headers?: PatchedAgentRevisionSpecMcpsItemHeaders;
+      tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
     };
 
     export type PatchedAgentRevisionSpecSkillsItem = {
@@ -46435,6 +46504,13 @@ export namespace Schemas {
      * Search cue — plain natural language is fine.
      */
     q: string;
+    };
+
+    export type AgentMemoryReadTableParams = {
+    /**
+     * Max rows to return (default 500, max 5000).
+     */
+    limit?: number;
     };
 
     export type AgentApplicationsRevisionsListParams = {

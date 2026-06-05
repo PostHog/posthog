@@ -137,6 +137,17 @@ v1 adds the session-detail approvals tab + team-level inbox UI,
 notification fan-out, and richer approver scopes (depends on B.1's
 principal model).
 
+**Cross-cut with C.2 — gating MCP tools is unresolved.** The v0
+dispatcher only gates entries in `spec.tools`; MCP tools materialise
+at runtime from `client.listTools()` and bypass the gate. The
+concierge bundle's destructive tools (`*-destroy`,
+`*-promote-create`, `set-env-create`) are the blocking customer.
+Two designs (Option A: extend `McpRefExternal.tools[]`; Option C:
+top-level `spec.approvals.rules[]`) — see C.2 entry above and
+[`_TODO.md`](_TODO.md) "MCP tool approval gating" for the synthesis.
+v1's richer approver scopes (`session_principal`) need to land
+alongside whichever MCP-gating shape ships.
+
 ### B.3 [`rate-limiting-sessions.md`](rate-limiting-sessions.md) — **Dylan**
 
 Per-agent caps in spec; per-team platform safety net; two-stage
@@ -206,6 +217,13 @@ agents need strict principal enforcement).
 
 `spec.mcps[]` runtime support for agents that consume third-party
 MCP servers (TODO C6). Independent of **C.1**; can ship in parallel.
+**✅ shipped** — flat `McpRefSchema` (`{ id, url, auth, secrets, tools }`),
+MCP client wrapper, `buildAgentTools` integration, worker lifecycle,
+e2e harness coverage, per-MCP-tool approval gating via `tools[]`
+object form, prod-ready dispatcher + integration-host validator. The
+old `kind: 'agent'` agent-to-agent variant was ripped out as orphan
+code; re-adds when [`agent-as-mcp-server.md`](agent-as-mcp-server.md)
+has a concrete consumer.
 
 ### C.3 [`skill-templates.md`](skill-templates.md) — **Danilo** (library UI **Ben**)
 
@@ -341,11 +359,12 @@ The agent-platform authoring AI. Sits at the seam between **D.1**
 (authoring flow) and **E.1** (console): the concierge is the chat
 dock's default agent and is itself authored as a deployed bundle in
 `services/agent-tests/src/examples/agent-concierge/`. Its
-forward-looking spec depends on the runtime-mcps work tracked in
-**C.2** (per-MCP-tool approval gating + the `session_principal`
-approver scope from **B.2** v1) — until those land, `scripts/seed.py`
-mechanically strips `mcps[]` before push. **Status:** bundle authored,
-skills + client-tool surface live; full deploy pending C.2 + B.2 v1.
+forward-looking spec depends on **C.2** runtime-mcps PR 7 (per-MCP-
+tool approval gating) + the `session_principal` approver scope from
+**B.2** v1 — until those land, `scripts/seed.py` mechanically strips
+`mcps[]` before push. **Status:** bundle authored, skills + client-
+tool surface live; full deploy pending the C.2 + B.2 work tracked in
+[`_TODO.md`](_TODO.md) "MCP tool approval gating."
 
 **Shared cross-cut introduced by this layer:**
 
@@ -425,6 +444,7 @@ each one three times.
 | ai_events trace emission     | D.2 self-healing-agents §3.1        | D.1 authoring flow (test results), all observability surfaces              |
 | `agent_test_session` + judge | D.1 agent-authoring-flow §test-runs | D.2 self-healing-agents §5 replay-and-grade                                |
 | Client-tool protocol         | E.1 agent-console-website §8        | Any future chat-trigger client surface (Slack viewers, MCP hosts, SDKs)    |
+| Approval gating surface ⚠️   | B.2 approval-gated-tools §3 (v0)    | C.2 runtime-mcps (unresolved — see \_TODO.md "MCP tool approval gating")   |
 
 ## A walk-through of how to ship this
 

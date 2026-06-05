@@ -155,49 +155,95 @@
                 "mcps": {
                     "default": [],
                     "items": {
-                        "anyOf": [
-                            {
+                        "properties": {
+                            "auth": {
                                 "properties": {
-                                    "kind": {
-                                        "const": "agent",
-                                        "type": "string"
-                                    },
-                                    "slug": {
+                                    "integration": {
                                         "type": "string"
                                     }
                                 },
-                                "required": ["kind", "slug"],
                                 "type": "object"
                             },
-                            {
-                                "properties": {
-                                    "allowlist": {
-                                        "items": {
+                            "headers": {
+                                "additionalProperties": {
+                                    "type": "string"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "id": {
+                                "minLength": 1,
+                                "type": "string"
+                            },
+                            "secrets": {
+                                "default": [],
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "tools": {
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "minLength": 1,
                                             "type": "string"
                                         },
-                                        "type": "array"
-                                    },
-                                    "auth": {
-                                        "properties": {
-                                            "integration": {
-                                                "type": "string"
-                                            }
-                                        },
-                                        "type": "object"
-                                    },
-                                    "kind": {
-                                        "const": "external",
-                                        "type": "string"
-                                    },
-                                    "url": {
-                                        "format": "uri",
-                                        "type": "string"
-                                    }
+                                        {
+                                            "properties": {
+                                                "approval_policy": {
+                                                    "properties": {
+                                                        "allow_agent_approver": {
+                                                            "default": false,
+                                                            "type": "boolean"
+                                                        },
+                                                        "allow_edit": {
+                                                            "default": false,
+                                                            "type": "boolean"
+                                                        },
+                                                        "approvers": {
+                                                            "default": ["team_admins"],
+                                                            "items": {
+                                                                "enum": ["team_admins", "session_principal"],
+                                                                "type": "string"
+                                                            },
+                                                            "minItems": 1,
+                                                            "type": "array"
+                                                        },
+                                                        "ttl_ms": {
+                                                            "default": 86400000,
+                                                            "maximum": 604800000,
+                                                            "minimum": 60000,
+                                                            "type": "number"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "name": {
+                                                    "minLength": 1,
+                                                    "type": "string"
+                                                },
+                                                "requires_approval": {
+                                                    "default": false,
+                                                    "type": "boolean"
+                                                }
+                                            },
+                                            "required": ["name"],
+                                            "type": "object"
+                                        }
+                                    ]
                                 },
-                                "required": ["kind", "url"],
-                                "type": "object"
+                                "type": "array"
+                            },
+                            "url": {
+                                "format": "uri",
+                                "type": "string"
                             }
-                        ]
+                        },
+                        "required": ["id", "url"],
+                        "type": "object"
                     },
                     "type": "array"
                 },

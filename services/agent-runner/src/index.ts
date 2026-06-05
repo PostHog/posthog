@@ -29,8 +29,11 @@ import {
     EncryptedFields,
     HttpGatewayClient,
     installProcessHandlers,
+    isDev,
     KafkaLogSink,
     MemoryStore,
+    S3JsonlTabularStore,
+    TabularStore,
     NoopAnalyticsSink,
     PgApprovalStore,
     PgCredentialBroker,
@@ -52,6 +55,7 @@ import { makePerAskerAuth } from './loop/per-asker-auth'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
+import { makeIntegrationHostValidator } from './resolvers/integration-host-registry'
 import { Worker } from './workers/worker'
 
 const log = createLogger('agent-runner')
@@ -59,6 +63,15 @@ const log = createLogger('agent-runner')
 async function main(): Promise<void> {
     installProcessHandlers(log)
     const config = loadAgentRunnerConfig()
+
+    // Fail-fast prod guard for the dev-only bearer attached to auth-less
+    // external MCP refs. Prod must route auth via integrations or the
+    // resolver-minted `kind: agent` path, not via a global bearer.
+    if (config.devMcpBearerToken && !isDev()) {
+        throw new Error(
+            'AGENT_DEV_MCP_BEARER_TOKEN is a dev-only escape hatch for external-MCP auth and must not be set when NODE_ENV=production.'
+        )
+    }
 
     // S3 bundle storage is required — sessions need to load the revision's
     // compiled code + spec + skills at start. Fail-fast at boot rather than
@@ -179,6 +192,9 @@ async function main(): Promise<void> {
     // `memory_store_unavailable` to the model) when the bucket isn't
     // configured — dev/CI without object storage still boots cleanly.
     let memoryStore: MemoryStore | undefined
+    // Tabular reference store - shares the memory S3 client + bucket (agent_tables
+    // prefix); same enable condition as memory.
+    let tabularStore: TabularStore | undefined
     if (config.memoryS3Bucket && config.memoryS3Endpoint) {
         const s3 = new S3Client({
             endpoint: config.memoryS3Endpoint,
@@ -196,6 +212,11 @@ async function main(): Promise<void> {
             client: s3,
             bucket: config.memoryS3Bucket,
             bucketPrefix: config.memoryS3Prefix,
+        })
+        tabularStore = new S3JsonlTabularStore({
+            client: s3,
+            bucket: config.memoryS3Bucket,
+            bucketPrefix: 'agent_tables',
         })
         log.info(
             { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
@@ -264,7 +285,14 @@ async function main(): Promise<void> {
         analytics,
         maxConcurrency: config.maxConcurrency,
         memoryStore,
+        tabularStore,
         isAskerInApproverScope,
+        devMcpBearerToken: config.devMcpBearerToken,
+        // Per-integration-kind host allowlist. Without this, any external MCP
+        // ref with `auth.integration` fails closed at open with
+        // `mcp_integration_host_validator_not_wired`. Registry seeded with
+        // slack; extend in integration-host-registry.ts as kinds are added.
+        integrationHostValidator: makeIntegrationHostValidator(),
     })
 
     const shutdown = (sig: string): void => {

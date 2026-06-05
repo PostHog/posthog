@@ -20,6 +20,8 @@ Env vars:
     DRY_RUN        If '1', print what would happen without mutating
     SPEC_FILE      Override path to spec.json (default sibling spec.json)
     BUNDLE_ROOT    Override bundle directory (default this script's parent)
+    MCP_URL        Rewrite every mcps[].url (local-dev override)
+    MCP_URL_<id>   Rewrite only the mcps entry whose id matches; wins over MCP_URL
 
 Exit codes:
     0  success (deployed, re-promoted, or no-op)
@@ -90,8 +92,10 @@ def log(msg: str) -> None:
 
 def load_v0_spec() -> dict:
     """Load the forward-looking spec.json and strip features the platform
-    doesn't accept yet (approval_policies on mcps, resume block). Auth
-    is now multi-mode natively; we pass spec.auth.modes through verbatim.
+    doesn't accept yet (resume block). Auth is multi-mode natively;
+    we pass spec.auth.modes through verbatim. `mcps[]` uses the flat
+    `{ id, url, tools[] }` shape — destructive remote tools carry inline
+    approval gating via `tools[].approval_policy`.
     """
     spec = json.loads(SPEC_FILE.read_text())
 
@@ -110,12 +114,6 @@ def load_v0_spec() -> dict:
     elif "modes" not in spec.get("auth", {}):
         # Backstop for older bundles that still use single-mode shape.
         spec["auth"] = {"modes": [{"type": "public"}]}
-
-    # Today's McpRefSchema only accepts { kind: "agent", slug } or
-    # { kind: "external", url, auth?, allowlist? }. The forward-looking
-    # bundle uses an ad-hoc { id, endpoint, tools, approval_policies }
-    # shape (see plan §8.2 + §8.11). Until those land, drop mcps[] entirely.
-    spec["mcps"] = []
 
     spec.pop("resume", None)
 
@@ -136,6 +134,18 @@ def load_v0_spec() -> dict:
                 cfg.pop(k)
         if t.get("type") == "chat":
             cfg.setdefault("require_auth", False)
+
+    # MCP URL overrides — let a local seed point at localhost:8787/mcp without
+    # editing the canonical bundle. Two forms:
+    #   MCP_URL=...                → rewrites every mcp's `url`
+    #   MCP_URL_<mcp_id>=...       → rewrites only the entry whose id matches
+    # Per-id wins over the bare form.
+    bare_override = os.environ.get("MCP_URL")
+    for m in spec.get("mcps", []):
+        per_id = os.environ.get(f"MCP_URL_{m.get('id', '')}")
+        override = per_id or bare_override
+        if override:
+            m["url"] = override
 
     return spec
 

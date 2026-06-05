@@ -35,11 +35,13 @@ import {
     CredentialBroker,
     IntegrationCredentials,
     MemoryStore,
+    TabularStore,
     Sandbox,
     ToolContext,
 } from '@posthog/agent-shared'
 import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
 
+import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
 
 /**
@@ -105,6 +107,8 @@ export interface AgentToolDeps {
      * `memory_store_unavailable` to the model.
      */
     memoryStore?: MemoryStore
+    /** Deterministic tabular store for @posthog/table-* tools. */
+    tabularStore?: TabularStore
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -123,6 +127,17 @@ export interface AgentToolDeps {
      * decides how to degrade.
      */
     credentialBroker?: CredentialBroker
+    /**
+     * Opened MCP clients from `loop/mcp-clients.ts` — one per entry in
+     * `spec.mcps[]`. `buildAgentTools` walks `client.listTools()` on each
+     * and emits one `AgentTool` per remote tool, name-prefixed
+     * `<prefix>__<remoteToolName>`. Lifetime is owned by the worker
+     * (`acquire` at session start → `release` in the worker's `finally`).
+     * Absent or empty → no MCP tools are added; the model sees only the
+     * native/custom/client surface. See
+     * `docs/agent-platform/plans/runtime-mcps.md` for the wider design.
+     */
+    mcpClients?: OpenedMcp[]
 }
 
 export interface BuiltAgentTools {
@@ -180,6 +195,62 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
         // custom — schema + description from the bundle, dispatched via sandbox.
         const { description, parameters } = await loadCustomSchema(rev, t.id, t.path, deps.bundle)
         tools.push(makeCustomTool(t.id, description, parameters, deps))
+    }
+
+    // MCP-sourced tools — one per remote tool per opened client. `listTools()`
+    // is fan-out across N MCPs; parallelise so session-start latency is bounded
+    // by the slowest MCP, not the sum. Each opened client carries its own
+    // `ref` (used here to filter against `allowlist` for the external variant).
+    if (deps.mcpClients && deps.mcpClients.length > 0) {
+        const listings = await Promise.all(
+            deps.mcpClients.map(async (client) => {
+                try {
+                    return { client, tools: await client.listTools() }
+                } catch (err) {
+                    // Wrap raw SDK errors with a `mcp_list_tools_failed:<prefix>`
+                    // code so the session-failure reason is attributable to a
+                    // specific MCP at triage time. Matches the convention used
+                    // by `mcp-clients.ts` for the other error paths
+                    // (`mcp_secret_not_resolved`, `mcp_integration_not_resolved`,
+                    // `duplicate_mcp_prefix`).
+                    throw new Error(`mcp_list_tools_failed:${client.prefix}: ${(err as Error).message}`)
+                }
+            })
+        )
+        for (const { client, tools: remoteTools } of listings) {
+            // PR 7: inclusion filter migrated from `allowlist[]` to `tools[]`,
+            // which carries both bare-string entries (passthrough — was
+            // allowlist) and object entries `{ name, requires_approval?, ... }`.
+            // We only need the entry NAMES here; the approval-wrap fallback
+            // lives in `driver.ts` and pulls the per-tool policy via
+            // `mcp-tool-lookup.ts` (added in commit B). Omitted/empty `tools`
+            // still means "expose every tool the server lists."
+            const includedNames =
+                client.ref.tools && client.ref.tools.length > 0
+                    ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
+                    : null
+            for (const remote of remoteTools) {
+                if (includedNames && !includedNames.has(remote.name)) {
+                    continue
+                }
+                // `<prefix>__<remoteName>` is the model-visible identifier; the
+                // model sees the prefix so it can disambiguate (`linear__create_issue`
+                // vs `github__create_issue`). All chars are already
+                // provider-safe — `__` is in the safe set.
+                const exposedName = `${client.prefix}__${remote.name}`
+                if (seen.has(exposedName)) {
+                    // Collisions can happen when a remote tool name accidentally
+                    // matches a native/custom id, or two MCPs export the same
+                    // post-prefix string. Same silent-skip behaviour as
+                    // duplicate spec.tools entries — keeps the model surface
+                    // stable across deploys instead of failing loudly on a
+                    // remote-side rename.
+                    continue
+                }
+                seen.add(exposedName)
+                tools.push(makeMcpTool(exposedName, client, remote))
+            }
+        }
     }
 
     // Tools are named with their original ids (the loop matches calls by name).
@@ -280,6 +351,47 @@ function makeClientTool(
     }
 }
 
+/**
+ * Adapt one remote MCP tool into an `AgentTool`. The `execute` closure routes
+ * back through the open client's `callTool`; the SDK shapes thrown
+ * remote-handler errors as `result.isError === true` (NOT as a rejection), so
+ * we translate that back to a thrown error to match the custom-tool path —
+ * the loop renders thrown errors as `isError: true` tool_result content.
+ *
+ * Successful results stringify the entire SDK envelope (content + structured
+ * content + meta), keeping the on-the-wire shape byte-identical to the
+ * native/custom/client paths. The raw envelope also lands on
+ * `details.output` so the analytics span can keep the structured form.
+ */
+function makeMcpTool(
+    exposedName: string,
+    client: OpenedMcp,
+    remote: RemoteMcpTool
+): AgentTool<TSchema, ToolResultDetails> {
+    return {
+        name: exposedName,
+        label: exposedName,
+        description: remote.description,
+        parameters: remote.inputSchema as TSchema,
+        execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            const result = await client.callTool(remote.name, (args ?? {}) as Record<string, unknown>)
+            if (result.isError) {
+                // Surface the first text content as the error message — same
+                // shape as `resultText()` in the driver. Keeps the model's
+                // tool_result error text useful instead of a generic string.
+                const firstText = (result.content as Array<{ type: string; text?: string }>).find(
+                    (c) => c.type === 'text' && typeof c.text === 'string'
+                )
+                throw new Error(firstText?.text ?? `mcp_tool_error: ${exposedName}`)
+            }
+            return {
+                content: [{ type: 'text', text: JSON.stringify(result) }],
+                details: { output: result },
+            }
+        },
+    }
+}
+
 /** Replicates the `ToolContext` the old `dispatchTool` built for native tools. */
 function buildToolContext(deps: AgentToolDeps): ToolContext {
     const credentialBroker = deps.credentialBroker
@@ -300,6 +412,7 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
             }
         },
         memoryStore: deps.memoryStore,
+        tabularStore: deps.tabularStore,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),

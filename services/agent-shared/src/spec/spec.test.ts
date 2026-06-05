@@ -21,7 +21,7 @@ describe('AgentSpecSchema', () => {
                 { kind: 'native', id: '@posthog/query' },
                 { kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' },
             ],
-            mcps: [{ kind: 'agent', slug: 'weekly-digest' }],
+            mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
             integrations: ['slack:T01'],
             secrets: ['ACME_KEY'],
@@ -30,7 +30,7 @@ describe('AgentSpecSchema', () => {
         })
         expect(spec.triggers).toHaveLength(2)
         expect(spec.tools).toHaveLength(2)
-        expect(spec.mcps[0]).toEqual({ kind: 'agent', slug: 'weekly-digest' })
+        expect(spec.mcps[0]).toMatchObject({ id: 'posthog', url: 'https://app.posthog.com/api/mcp' })
     })
 
     it('rejects unknown trigger type', () => {
@@ -302,6 +302,28 @@ describe('AgentSpecSchema', () => {
             ).toThrow()
         })
 
+        it('parses session_principal as an approver scope', () => {
+            // PR 7 widened the v0 enum from `['team_admins']` to add
+            // `['session_principal']` so the concierge can route gated
+            // calls back to the session owner via the per-asker fast path.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/team-delete',
+                        requires_approval: true,
+                        approval_policy: { approvers: ['session_principal'] },
+                    },
+                ],
+            })
+            const t = spec.tools[0]
+            if (t.kind === 'client') {
+                throw new Error('expected native tool')
+            }
+            expect(t.approval_policy.approvers).toEqual(['session_principal'])
+        })
+
         it('rejects approver scopes not yet supported in v0', () => {
             expect(() =>
                 AgentSpecSchema.parse({
@@ -316,6 +338,182 @@ describe('AgentSpecSchema', () => {
                     ],
                 })
             ).toThrow()
+        })
+    })
+
+    describe('mcps[] runtime refs', () => {
+        it('parses an external MCP with bare-string tools[] (passthrough, no gating)', () => {
+            // Bare strings in tools[] are the post-PR-7 equivalent of the
+            // old allowlist[]: gates inclusion, no approval policy.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        id: 'linear',
+                        url: 'https://mcp.linear.app/sse',
+                        auth: { integration: 'linear:T01' },
+                        secrets: ['LINEAR_TOKEN'],
+                        tools: ['create-issue', 'list-issues'],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.id).toBe('linear')
+            expect(m.url).toBe('https://mcp.linear.app/sse')
+            expect(m.auth?.integration).toBe('linear:T01')
+            expect(m.secrets).toEqual(['LINEAR_TOKEN'])
+            expect(m.tools).toEqual(['create-issue', 'list-issues'])
+        })
+
+        it('parses object-form tools[] entries with approval gating', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        id: 'posthog',
+                        url: 'https://app.posthog.com/api/mcp',
+                        tools: [
+                            'agent-applications-list',
+                            {
+                                name: 'agent-applications-revisions-promote-create',
+                                requires_approval: true,
+                                approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.tools?.[0]).toBe('agent-applications-list')
+            const gated = m.tools?.[1]
+            if (typeof gated === 'string' || gated === undefined) {
+                throw new Error('expected object-form tool entry')
+            }
+            expect(gated.name).toBe('agent-applications-revisions-promote-create')
+            expect(gated.requires_approval).toBe(true)
+            expect(gated.approval_policy.approvers).toEqual(['session_principal'])
+            expect(gated.approval_policy.ttl_ms).toBe(900_000)
+            // Unspecified fields fall through to the approval-policy defaults.
+            expect(gated.approval_policy.allow_edit).toBe(false)
+        })
+
+        it('object-form tools[] entries default requires_approval to false', () => {
+            // Object form without explicit gating means "include this tool
+            // with no approval gate" — same effective behaviour as the
+            // bare-string form, just expressed as an object. Useful when an
+            // author wants the object slot reserved for a future config knob
+            // (e.g. description override) without flipping the gate on.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        id: 'linear',
+                        url: 'https://mcp.linear.app/sse',
+                        tools: [{ name: 'create-issue' }],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            const entry = m.tools?.[0]
+            if (typeof entry === 'string' || entry === undefined) {
+                throw new Error('expected object-form tool entry')
+            }
+            expect(entry.requires_approval).toBe(false)
+        })
+
+        it('defaults secrets to [] and tools to undefined when omitted on external', () => {
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse' }],
+            })
+            const m = spec.mcps[0]
+            expect(m.secrets).toEqual([])
+            expect(m.tools).toBeUndefined()
+            expect(m.headers).toBeUndefined()
+        })
+
+        it('parses author-supplied headers with secret references for BYO bearer tokens', () => {
+            // Unblocks GitHub MCP / Linear MCP / any HTTP-API'd MCP with a
+            // bearer-token auth model. Same substitution semantics as
+            // @posthog/http-request — the runner walks headers + substitutes
+            // ${NAME} from `secrets[]` before opening the client.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        id: 'github',
+                        url: 'https://api.githubcopilot.com/mcp',
+                        secrets: ['GITHUB_TOKEN'],
+                        headers: {
+                            Authorization: 'Bearer ${GITHUB_TOKEN}',
+                            'X-GitHub-Api-Version': '2022-11-28',
+                        },
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.headers).toEqual({
+                Authorization: 'Bearer ${GITHUB_TOKEN}',
+                'X-GitHub-Api-Version': '2022-11-28',
+            })
+        })
+
+        it.each([
+            { label: 'missing id', mcp: { url: 'https://mcp.linear.app/sse' } },
+            { label: 'empty id', mcp: { id: '', url: 'https://mcp.linear.app/sse' } },
+            { label: 'non-URL endpoint', mcp: { id: 'linear', url: 'not-a-url' } },
+            {
+                label: 'tools entry with empty name string',
+                mcp: { id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
+            },
+            {
+                label: 'tools object with empty name',
+                mcp: {
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: [{ name: '' }],
+                },
+            },
+            {
+                label: 'duplicate bare-string entries',
+                mcp: {
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: ['create-issue', 'create-issue'],
+                },
+            },
+            {
+                label: 'a bare-string entry duplicating an object entry name',
+                mcp: {
+                    id: 'linear',
+                    url: 'https://mcp.linear.app/sse',
+                    tools: ['create-issue', { name: 'create-issue', requires_approval: true }],
+                },
+            },
+        ])('rejects an external entry with $label', ({ mcp }) => {
+            expect(() => AgentSpecSchema.parse({ model: 'x', mcps: [mcp] })).toThrow()
+        })
+
+        it('silently drops a legacy `allowlist[]` field (zod default + PR 7 hard-break)', () => {
+            // Documents the post-PR-7 break: zod tolerates unknown fields by
+            // default, so `allowlist` parses through as no-op — the runtime
+            // behaviour changes hard (the filter is gone). Authors rebasing
+            // from pre-PR-7 see every tool surface to the model instead of
+            // their old narrowed set. This test pins the no-op so a future
+            // `.strict()` add (which would reject) is a conscious choice.
+            const spec = AgentSpecSchema.parse({
+                model: 'x',
+                mcps: [
+                    {
+                        id: 'linear',
+                        url: 'https://mcp.linear.app/sse',
+                        allowlist: ['create-issue'],
+                    },
+                ],
+            })
+            const m = spec.mcps[0]
+            expect(m.tools).toBeUndefined()
+            expect((m as unknown as { allowlist?: string[] }).allowlist).toBeUndefined()
         })
     })
 

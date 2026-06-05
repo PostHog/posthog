@@ -27,7 +27,7 @@ export class FsBundleStore implements BundleStore {
         return path.join(this.revDir(rev), p)
     }
 
-    private async isFrozen(rev: string): Promise<boolean> {
+    async isFrozen(rev: string): Promise<boolean> {
         try {
             await fs.access(path.join(this.revDir(rev), '.frozen'))
             return true

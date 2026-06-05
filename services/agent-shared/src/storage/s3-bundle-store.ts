@@ -55,7 +55,7 @@ export class S3BundleStore implements BundleStore {
         return `${this.revPrefix(rev)}${p}`
     }
 
-    private async isFrozen(rev: string): Promise<boolean> {
+    async isFrozen(rev: string): Promise<boolean> {
         return this.headObject(this.keyFor(rev, FROZEN_MARKER))
     }
 

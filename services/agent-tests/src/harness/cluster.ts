@@ -26,7 +26,7 @@ import { Pool } from 'pg'
 import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
-import { IsAskerInApproverScope, Worker } from '@posthog/agent-runner'
+import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { IdentityStore } from '@posthog/agent-shared'
 import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
 import {
@@ -43,8 +43,10 @@ import {
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
+    S3JsonlTabularStore,
     S3MemoryStore,
     SecretBroker,
+    TEST_S3_BUCKET,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
@@ -83,6 +85,12 @@ export interface Cluster {
      * tests; teardown wipes the prefix.
      */
     memoryStore: S3MemoryStore
+    /**
+     * Real S3JsonlTabularStore (SeaweedFS in dev) wired through to ToolContext
+     * for the `@posthog/table-*` tools. Shares the memory store's bucket prefix
+     * so teardown wipes both at once.
+     */
+    tabularStore: S3JsonlTabularStore
     /** The faux pi-ai Model the runner is wired with. */
     model: Model<string>
     ingress: Express
@@ -128,6 +136,21 @@ export interface BuildClusterOpts {
      * queues regardless of asker).
      */
     isAskerInApproverScope?: IsAskerInApproverScope
+    /**
+     * Override the MCP transport factory. Defaults to the runner's own
+     * `StreamableHTTPClientTransport`. Pair an in-process `McpServer` via
+     * `InMemoryTransport.createLinkedPair()` here to drive `spec.mcps[]`
+     * round-trips without binding a localhost port — see
+     * `cases/mcp-tools.test.ts`.
+     */
+    mcpTransportFactory?: McpTransportFactory
+    /**
+     * Gates the `auth.integration` bearer attachment on `external` MCP refs.
+     * Defaults to a permissive `() => true` so the common e2e cases don't
+     * have to think about it; security-flavoured tests pass a stricter
+     * implementation to exercise the rejection paths.
+     */
+    integrationHostValidator?: IntegrationHostValidator
 }
 
 let _pool: Pool | null = null
@@ -186,6 +209,13 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // stack rather than mocking around it.
     const memoryStorePrefix = newMemoryTestPrefix('agent_memory_harness')
     const { client: memoryStoreClient, store: memoryStore } = buildMemoryTestStore(memoryStorePrefix)
+    // Tabular store shares the bucket + S3 client; the prefix scopes it under
+    // the same harness root so teardown wipes both stores in one sweep.
+    const tabularStore = new S3JsonlTabularStore({
+        client: memoryStoreClient,
+        bucket: TEST_S3_BUCKET,
+        bucketPrefix: `${memoryStorePrefix}/tables`,
+    })
 
     const model = opts.model ?? buildFauxModel(opts.initialScript ?? [])
     // resolveModel ignores spec.model and always returns the harness's Model —
@@ -220,6 +250,12 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         buildApprovalUrl: (requestId) => `/approvals/${requestId}`,
         isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
+        tabularStore,
+        mcpTransportFactory: opts.mcpTransportFactory,
+        // Permissive default so the common e2e suite doesn't have to know
+        // about the security gate; the runtime-mcps cases that specifically
+        // exercise integration auth (none in the suite yet) can override.
+        integrationHostValidator: opts.integrationHostValidator ?? (() => true),
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
@@ -263,6 +299,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         broker,
         credentialBroker,
         memoryStore,
+        tabularStore,
         model,
         ingress,
         janitor,

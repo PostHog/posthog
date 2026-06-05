@@ -176,8 +176,29 @@ breaking it — see §9 open question #2.
 existing shape of `tools[]` and keeps the approval policy adjacent to
 the tool wiring. The downside is MCP-provided tools (`spec.mcps[]`) get
 their tool list at runtime, so per-tool approval gating for MCP tools
-needs a different shape — likely a top-level `mcp_approvals` policy
-keyed by `mcp_id + tool_name_glob`. Punted to v1; see §9 #3.
+needs a different shape. Punted to v1; see §9 #3.
+
+**Status of the MCP-tool gating gap (added after the runtime-mcps work):**
+[`runtime-mcps.md`](runtime-mcps.md) PRs 1-6 shipped the runtime
+substrate (MCP clients open at session start, tools surface as
+`<prefix>__<remoteName>`), but the dispatcher's gating override at
+`services/agent-runner/src/loop/driver.ts:313-365` still keys off
+`rev.spec.tools` — MCP tools aren't in that array, so they bypass the
+gate. Two unresolved design options:
+
+- **Option A** — extend `McpRefExternal` with `tools: Array<string |
+{ name, requires_approval, approval_policy }>` (concierge-shaped, minimum
+  disruption). Reuses `ApprovalPolicySchema` verbatim.
+- **Option C** — promote approvals to a top-level `spec.approvals.rules[]`
+  block with glob matching against the fully-qualified tool name. Unifies
+  native, custom, client, MCP under one surface; `requires_approval` on
+  `ToolRef` becomes desugaring sugar.
+
+Option A is the planned PR 7 path (single customer = concierge; defers
+the unification until a second MCP-heavy customer forces it). Full
+tradeoff writeup lives in
+[`runtime-mcps.md`](runtime-mcps.md) "Open design — per-MCP-tool approval
+gating". Tracked from [`_TODO.md`](_TODO.md).
 
 Spec validation runs at freeze time (per `agent-authoring-flow.md` §3).
 Invalid: `requires_approval: true` on a tool the agent doesn't actually

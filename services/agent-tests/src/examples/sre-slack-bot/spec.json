@@ -24,11 +24,12 @@
     "tools": [
         { "kind": "native", "id": "@posthog/query" },
         { "kind": "native", "id": "@posthog/web-fetch" },
-        { "kind": "native", "id": "@posthog/slack-post-message" },
-        { "kind": "native", "id": "@posthog/slack-read-channel" },
-        { "kind": "native", "id": "@posthog/slack-read-thread" },
-        { "kind": "native", "id": "@posthog/slack-react" }
+        { "kind": "native", "id": "@posthog/http-request" },
+        { "kind": "native", "id": "@posthog/table-membership" },
+        { "kind": "native", "id": "@posthog/table-append" },
+        { "kind": "native", "id": "@posthog/table-query" }
     ],
+    "secrets": ["SLACK_BOT_TOKEN"],
     "skills": [
         {
             "id": "triage-playbook",
@@ -41,7 +42,7 @@
             "description": "Conventions for replying in Slack — TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
         }
     ],
-    "integrations": ["slack"],
+    "integrations": [],
     "limits": {
         "max_turns": 30,
         "max_tool_calls": 100,

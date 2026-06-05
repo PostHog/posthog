@@ -11,6 +11,7 @@
 
 import { NativeTool, NativeToolSchema } from '@posthog/agent-shared'
 
+import { httpRequestV1 } from './tools/http-request.v1'
 import { loadSkill } from './tools/load-skill'
 import {
     memoryDeleteV1,
@@ -42,6 +43,14 @@ import {
     slackReadThreadV1,
     slackUpdateMessageV1,
 } from './tools/slack.v1'
+import {
+    tableAppendV1,
+    tableCountV1,
+    tableDeleteV1,
+    tableMembershipV1,
+    tableQueryV1,
+    tableTruncateV1,
+} from './tools/table'
 import { webFetchV1 } from './tools/web-fetch.v1'
 import { webSearchV1 } from './tools/web-search.v1'
 
@@ -63,6 +72,7 @@ export const ALL_TOOLS: NativeTool[] = [
     slackReadChannelV1,
     slackReadThreadV1,
     slackReactV1,
+    httpRequestV1,
     webFetchV1,
     webSearchV1,
     endTurnTool,
@@ -75,6 +85,12 @@ export const ALL_TOOLS: NativeTool[] = [
     memoryWriteV1,
     memoryUpdateV1,
     memoryDeleteV1,
+    tableMembershipV1,
+    tableAppendV1,
+    tableQueryV1,
+    tableCountV1,
+    tableDeleteV1,
+    tableTruncateV1,
 ]
 
 const BY_ID = new Map<string, NativeTool>(ALL_TOOLS.map((t) => [t.id, t]))

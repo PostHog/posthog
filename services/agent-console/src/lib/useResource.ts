@@ -32,7 +32,24 @@ export interface ResourceState<T> {
     lastFetchedAt: number | null
 }
 
-export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []): ResourceState<T> {
+export interface UseResourceOptions {
+    /**
+     * If set, refetch every `pollMs` milliseconds while the tab is
+     * visible. Ticks are skipped while `document.hidden` (background
+     * tab), and one catch-up reload fires on `visibilitychange` back to
+     * visible — so a backgrounded view shows fresh data the moment it's
+     * looked at again without hammering the API while hidden. Leave
+     * unset for one-shot reads (the default).
+     */
+    pollMs?: number
+}
+
+export function useResource<T>(
+    factory: () => Promise<T>,
+    deps: unknown[] = [],
+    options: UseResourceOptions = {}
+): ResourceState<T> {
+    const { pollMs } = options
     const reloadKey = useReloadKey()
     const [data, setData] = useState<T | null>(null)
     const [error, setError] = useState<Error | null>(null)
@@ -83,6 +100,31 @@ export function useResource<T>(factory: () => Promise<T>, deps: unknown[] = []):
     }, [...deps, reloadKey, manualReloadKey])
 
     const reload = useCallback(() => setManualReloadKey((k) => k + 1), [])
+
+    // Visibility-aware polling. The interval only fires `reload` when the
+    // tab is foreground; switching back to a visible tab triggers one
+    // immediate catch-up so stale background data refreshes on focus.
+    useEffect(() => {
+        if (!pollMs) {
+            return
+        }
+        const tick = (): void => {
+            if (!document.hidden) {
+                reload()
+            }
+        }
+        const onVisible = (): void => {
+            if (!document.hidden) {
+                reload()
+            }
+        }
+        const id = setInterval(tick, pollMs)
+        document.addEventListener('visibilitychange', onVisible)
+        return () => {
+            clearInterval(id)
+            document.removeEventListener('visibilitychange', onVisible)
+        }
+    }, [pollMs, reload])
 
     return { data, error, loading, reload, lastFetchedAt }
 }

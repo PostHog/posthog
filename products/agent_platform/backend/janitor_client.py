@@ -252,6 +252,17 @@ class JanitorClient:
     def get_memory_tree(self, team_id: int, application_id: str) -> dict:
         return self._call("GET", f"/memory/team/{team_id}/agent/{application_id}/tree")
 
+    # Tabular reference (the @posthog/table-* tools' JSONL tables) — read-only,
+    # surfaced in the console's memory tab alongside the markdown files.
+    def list_tables(self, team_id: int, application_id: str) -> dict:
+        return self._call("GET", f"/tables/team/{team_id}/agent/{application_id}")
+
+    def read_table(self, team_id: int, application_id: str, name: str, *, limit: int | None = None) -> dict:
+        params: dict[str, Any] = {}
+        if limit:
+            params["limit"] = limit
+        return self._call("GET", f"/tables/team/{team_id}/agent/{application_id}/{name}", params=params)
+
     def read_memory_file(self, team_id: int, application_id: str, path: str) -> dict:
         # The janitor uses the URL tail (Express `:path(.*)`) for the file path,
         # so `incidents/db.md` becomes `/files/incidents/db.md`. We don't

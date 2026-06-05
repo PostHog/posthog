@@ -20,11 +20,10 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-the-infant-version) below.
 | Triggered by Grafana alerts               | `webhook` trigger at `/agents/<slug>/webhook` (request body is the alertmanager payload) |
 | Triggered by Slack `@mention`             | `slack` trigger, `mention_only: true`                                                    |
 | Chattable from the agent console          | `chat` trigger — open the agent in the console and use the playground dock               |
-| Reads recent channel / thread context     | `@posthog/slack-read-channel`, `@posthog/slack-read-thread`                              |
+| Calls the Slack Web API directly          | `@posthog/http-request` + `SLACK_BOT_TOKEN` secret (bring-your-own bot, no integration)  |
 | Queries PostHog event data + logs         | `@posthog/query`                                                                         |
 | Fetches runbook URLs                      | `@posthog/web-fetch`                                                                     |
-| Posts in-thread analysis                  | `@posthog/slack-post-message`                                                            |
-| Quick acknowledgement                     | `@posthog/slack-react`                                                                   |
+| Remembers prior incident outcomes         | `@posthog/table-query`, `@posthog/table-append` on the `incidents` table                 |
 | Follows a structured triage flow          | `skills/triage-playbook/SKILL.md`                                                        |
 | Follows a consistent Slack message format | `skills/slack-thread-protocol/SKILL.md`                                                  |
 
@@ -32,8 +31,6 @@ doesn't exist yet; see [Gaps](#gaps-that-constrain-the-infant-version) below.
 
 - Take **any** remediation action. No restarts, no scaling, no
   rollbacks. Output is information only.
-- Remember outcomes across investigations (no platform memory yet —
-  see [Gaps](#gaps-that-constrain-the-infant-version)). Uses Slack thread history as a soft substitute.
 - Query Grafana dashboards or run `kubectl` directly. Asks a human
   for screenshots / `kubectl` output when needed.
 - Page anyone. Surfaces who to `cc` and lets a human decide.
@@ -52,9 +49,10 @@ sre-slack-bot/
 
 ## Prerequisites for deploying
 
-1. **Slack integration** connected to your PostHog team. The bot
-   posts and reads via the team's `slack` integration credentials
-   resolved at session start.
+1. **Your own Slack app** registered at api.slack.com — see "Slack
+   setup" below. The bot calls Slack's Web API directly with the
+   `xoxb-…` token you generate, which lives in `spec.secrets` as
+   `SLACK_BOT_TOKEN`. No platform-managed Slack integration is needed.
 2. **`spec.triggers[].slack.trusted_workspaces`** updated from the
    placeholder `T0XXXXXXX` to your actual Slack team id.
 3. **Grafana alertmanager** configured to POST alert payloads to
@@ -119,17 +117,17 @@ These come from
 Each one is a follow-up that would make the bot meaningfully more
 useful:
 
-- **Persistent agent memory** — would let the bot remember "alert
-  signature X → last time it was caused by Y" across sessions.
-  Today it re-investigates every alert from scratch. Planned in
-  [`agent-memory.md`](../../../../../docs/agent-platform/plans/agent-memory.md).
-- **Runtime MCP support** — would let the bot call Grafana, k8s,
-  and Sentry MCP servers directly instead of asking a human for
-  screenshots. Planned in
-  [`runtime-mcps.md`](../../../../../docs/agent-platform/plans/runtime-mcps.md).
+- **Private-network MCP support (Grafana / k8s).** Public MCPs work
+  today via the `kind: 'external'` McpRef
+  ([`runtime-mcps.md`](../../../../../docs/agent-platform/plans/runtime-mcps.md));
+  Grafana and Kubernetes typically aren't publicly reachable.
+  Cloudflare Tunnel is the planned v1 path; `kind: 'tailscale'`
+  is parked
+  ([`tailscale-mcps.md`](../../../../../docs/agent-platform/plans/tailscale-mcps.md)).
 - **Runbook corpus retrieval** — `@posthog/web-fetch` works for a
   single URL but the bot needs an index over the whole runbook
-  tree. Tracked as a cross-cutting gap in `_APP_IDEAS.md`.
+  tree. Could mirror periodically into the `memory-*` store via a
+  loader job; not yet built.
 
 ## Tuning notes
 

@@ -721,16 +721,20 @@ describe('janitor HTTP', () => {
         expect(paths).toEqual(['added.md', 'keep.md'])
     })
 
-    it('POST /revisions/:id/freeze flips state to ready and stamps sha256', async () => {
+    it('POST /revisions/:id/freeze returns the sha + state hint, writes the S3 frozen marker, and does NOT mutate agent_revision', async () => {
         const { app, bundles, revisions, revisionId } = await mkRevisionApp()
         await bundles.write(revisionId, 'agent.md', 'final')
         const res = await request(app).post(`/revisions/${revisionId}/freeze`)
         expect(res.status).toBe(200)
         expect(res.body.state).toBe('ready')
         expect(res.body.bundle_sha256).toMatch(/^[0-9a-f]{64}$/)
+        // Janitor is no longer a writer to `agent_revision.state` /
+        // `bundle_sha256` — Django stamps those inside its own freeze
+        // transaction using the returned sha. The bundle store's .frozen
+        // marker is still written here; subsequent writes refuse.
         const after = await revisions.getRevision(revisionId)
-        expect(after!.state).toBe('ready')
-        expect(after!.bundle_sha256).toBe(res.body.bundle_sha256)
+        expect(after!.state).toBe('draft')
+        expect(after!.bundle_sha256).toBeNull()
     })
 
     it('refuses writes once the revision is frozen', async () => {

@@ -184,6 +184,49 @@ before archiving. Writes go through the same approval gate as agent
 mutations — `archive-create` and `files-destroy` require explicit
 user consent.
 
+### Tabular reference — deterministic structured state for agents
+
+When you help someone design an agent that needs to remember a *set* or keep a
+*log* — "skip messages I've already processed", "dedupe alerts", "append an
+audit row each run", "look up a value by key" — point them at the
+`@posthog/table-*` native tools instead of cramming it into markdown memory.
+They give an agent deterministic structured state in S3-backed JSONL tables,
+manipulated by tool (never by re-reading a list into the model's context):
+
+| Tool                                  | Use it for                                                                  |
+| ------------------------------------- | --------------------------------------------------------------------------- |
+| `@posthog/table-membership`           | partition ids into already-seen vs new — the seen-set / skip-set workhorse  |
+| `@posthog/table-append`               | append rows (optional `dedupe_on` a key column)                             |
+| `@posthog/table-query`                | filter (`eq` / `in` / range) + project + order + limit                      |
+| `@posthog/table-count`                | count rows matching a filter                                                |
+| `@posthog/table-delete` / `-truncate` | remove matching rows / reset a table                                        |
+
+The win over prose memory: membership + append are O(1) on the model's context
+regardless of table size, and the bytes never round-trip through inference (no
+lossy read-rewrite of a growing list). Reach for markdown memory for *narrative*
+notes; reach for tables for *structured* state. The console's memory tab
+surfaces these tables read-only under a Tables view.
+
+**Wiring it into an agent you author.** Two steps when you create or edit an
+agent (via the agent-applications revision + bundle tools):
+
+1. Add the tools it needs to `spec.tools[]` as native refs:
+   ```json
+   { "kind": "native", "id": "@posthog/table-membership" },
+   { "kind": "native", "id": "@posthog/table-append" },
+   { "kind": "native", "id": "@posthog/table-query" }
+   ```
+2. Teach the pattern in its `agent.md` / a skill. The three that recur:
+   - **Skip-set (don't reprocess):** list candidates → `table-membership(table, key_column, ids)` → act only on `.new` → `table-append(table, rows, dedupe_on: key_column)` to record what was handled.
+   - **Append-log + digest:** `table-append` one row per event (`{ id, reason, ts, date }`); later `table-query(table, where: { date })` to summarize. Add a `date`/`ts` column up front so the digest filter is cheap.
+   - **Dedupe before a side effect:** before sending/escalating, `table-membership(table, "id", [id])` — if it's in `.known`, skip; else do it and `table-append`.
+
+Guidance to pass on: tables are created on first append (no setup); names are
+lowercase / digits / `_` / `-`; reads are capped (`limit`, default 500) so don't
+expect a full dump; keep one table to one purpose (a `seen` set, an
+`archive_log`) rather than overloading columns; and on a write that returns
+`code: "conflict"`, retry — it's an optimistic-concurrency miss, not a hard error.
+
 ### The client tools
 
 These run in the connecting client, not on the runner. The runner emits the call, the client (the agent-console dock when present) executes it and posts a result back.

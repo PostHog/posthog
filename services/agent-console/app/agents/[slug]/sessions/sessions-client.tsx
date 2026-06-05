@@ -33,12 +33,18 @@ export function SessionsSegment(): React.ReactElement {
             : { kind: 'agent-sessions', agent: { id: agent.id, name: agent.name, slug: agent.slug } }
     )
 
+    // Sessions and their logs change while an agent is running, so these
+    // reads poll on a short interval (visibility-aware — quiet in a
+    // background tab, catches up on focus).
+    const POLL_MS = 10_000
+
     const sessions = useResource(
         () =>
             listSessionsForAgent(teamId, agent.slug, { id: agent.id, name: agent.name, slug: agent.slug }).catch(
                 () => [] as ChatSession[]
             ),
-        [teamId, agent.slug, agent.id]
+        [teamId, agent.slug, agent.id],
+        { pollMs: POLL_MS }
     )
 
     const selectedSession = useResource(
@@ -50,7 +56,8 @@ export function SessionsSegment(): React.ReactElement {
                       slug: agent.slug,
                   }).catch(() => null)
                 : Promise.resolve(null),
-        [teamId, agent.slug, selectedSessionId, agent.id]
+        [teamId, agent.slug, selectedSessionId, agent.id],
+        { pollMs: POLL_MS }
     )
 
     const selectedLogs = useResource(
@@ -58,7 +65,8 @@ export function SessionsSegment(): React.ReactElement {
             selectedSessionId
                 ? listLogsForSession(teamId, agent.slug, selectedSessionId).catch(() => [] as LogEntry[])
                 : Promise.resolve([] as LogEntry[]),
-        [teamId, agent.slug, selectedSessionId]
+        [teamId, agent.slug, selectedSessionId],
+        { pollMs: POLL_MS }
     )
 
     const select = useCallback(

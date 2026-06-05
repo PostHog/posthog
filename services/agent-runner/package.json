@@ -24,6 +24,7 @@
         "@aws-sdk/client-s3": "^3.723.0",
         "@earendil-works/pi-agent-core": "^0.75.5",
         "@earendil-works/pi-ai": "^0.75.5",
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "@posthog/agent-migrations": "workspace:*",
         "@posthog/agent-shared": "workspace:*",
         "@posthog/agent-tools": "workspace:*",

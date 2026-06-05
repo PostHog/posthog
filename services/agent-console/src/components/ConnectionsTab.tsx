@@ -54,16 +54,7 @@ interface ConnectionsTabProps {
     onChangeEditingSecret: (key: string | null) => void
 }
 
-interface McpRefAgent {
-    kind: 'agent'
-    slug: string
-}
-interface McpRefExternal {
-    kind: 'external'
-    url: string
-    auth?: { integration?: string }
-}
-type McpRef = McpRefAgent | McpRefExternal
+import type { McpRef } from '@/types/mcp'
 
 export function ConnectionsTab({
     agent,
@@ -382,28 +373,16 @@ function McpsCard({ mcps }: { mcps: McpRef[] }): React.ReactElement {
                 <ul className="divide-y divide-border">
                     {mcps.map((m, i) => (
                         <li key={i} className="space-y-1 px-3 py-2 text-xs">
-                            {m.kind === 'agent' ? (
-                                <>
-                                    <div className="flex items-center justify-between">
-                                        <span className="font-medium">Agent</span>
-                                        <StatusBadge tone="info">in-platform</StatusBadge>
-                                    </div>
-                                    <code className="block font-mono text-muted-foreground">{m.slug}</code>
-                                </>
-                            ) : (
-                                <>
-                                    <div className="flex items-center justify-between">
-                                        <span className="font-medium">External</span>
-                                        <StatusBadge tone="muted">unknown</StatusBadge>
-                                    </div>
-                                    <code className="block truncate font-mono text-muted-foreground">{m.url}</code>
-                                    {m.auth?.integration ? (
-                                        <span className="text-muted-foreground">
-                                            via integration <code className="font-mono">{m.auth.integration}</code>
-                                        </span>
-                                    ) : null}
-                                </>
-                            )}
+                            <div className="flex items-center justify-between">
+                                <span className="font-medium">{m.id}</span>
+                                <StatusBadge tone="muted">unknown</StatusBadge>
+                            </div>
+                            <code className="block truncate font-mono text-muted-foreground">{m.url}</code>
+                            {m.auth?.integration ? (
+                                <span className="text-muted-foreground">
+                                    via integration <code className="font-mono">{m.auth.integration}</code>
+                                </span>
+                            ) : null}
                         </li>
                     ))}
                 </ul>

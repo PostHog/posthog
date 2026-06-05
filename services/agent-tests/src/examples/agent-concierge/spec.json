@@ -162,13 +162,18 @@
     "mcps": [
         {
             "id": "posthog",
-            "endpoint": "https://app.posthog.com/api/mcp",
+            "url": "https://app.posthog.com/api/mcp",
+            "secrets": [],
             "tools": [
                 "agent-applications-list",
                 "agent-applications-retrieve",
                 "agent-applications-create",
                 "agent-applications-partial-update",
-                "agent-applications-destroy",
+                {
+                    "name": "agent-applications-destroy",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-applications-sessions-list",
                 "agent-applications-sessions-retrieve",
                 "agent-applications-session-logs",
@@ -178,88 +183,81 @@
                 "agent-applications-revisions-new-draft-create",
                 "agent-applications-revisions-clone-from-create",
                 "agent-applications-revisions-bundle-retrieve",
-                "agent-applications-revisions-bundle-update",
+                {
+                    "name": "agent-applications-revisions-bundle-update",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-applications-revisions-manifest-retrieve",
                 "agent-applications-revisions-file-retrieve",
                 "agent-applications-revisions-file-update",
-                "agent-applications-revisions-file-destroy",
+                {
+                    "name": "agent-applications-revisions-file-destroy",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-applications-revisions-partial-update",
                 "agent-applications-revisions-validate-create",
                 "agent-applications-revisions-freeze-create",
-                "agent-applications-revisions-promote-create",
-                "agent-applications-revisions-archive-create",
+                {
+                    "name": "agent-applications-revisions-promote-create",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
+                {
+                    "name": "agent-applications-revisions-archive-create",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-applications-revisions-system-prompt",
                 "agent-applications-approvals-list",
                 "agent-applications-approvals-retrieve",
                 "agent-applications-approvals-decide",
-                "agent-applications-set-env-create",
+                {
+                    "name": "agent-applications-set-env-create",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-applications-env-keys-list",
                 "agent-applications-env-keys-get",
-                "agent-applications-env-keys-clear",
+                {
+                    "name": "agent-applications-env-keys-clear",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-native-tools-list",
                 "agent-skill-templates-list",
                 "agent-skill-templates-create",
                 "agent-skill-templates-name-retrieve",
                 "agent-skill-templates-name-publish-create",
-                "agent-skill-templates-name-archive-create",
+                {
+                    "name": "agent-skill-templates-name-archive-create",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-skill-templates-name-duplicate-create",
                 "agent-skill-templates-name-versions-list",
                 "agent-skill-templates-name-usages-list",
                 "agent-skill-templates-name-files-create",
-                "agent-skill-templates-name-files-destroy",
+                {
+                    "name": "agent-skill-templates-name-files-destroy",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-skill-templates-name-files-rename-create",
                 "agent-custom-tool-templates-list",
                 "agent-custom-tool-templates-create",
                 "agent-custom-tool-templates-name-retrieve",
                 "agent-custom-tool-templates-name-publish-create",
-                "agent-custom-tool-templates-name-archive-create",
+                {
+                    "name": "agent-custom-tool-templates-name-archive-create",
+                    "requires_approval": true,
+                    "approval_policy": { "approvers": ["session_principal"], "ttl_ms": 900000 }
+                },
                 "agent-custom-tool-templates-name-duplicate-create",
                 "agent-custom-tool-templates-name-versions-list",
                 "agent-custom-tool-templates-name-usages-list"
-            ],
-            "secrets": [],
-            "approval_policies": {
-                "agent-applications-revisions-promote-create": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-applications-revisions-archive-create": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-applications-set-env-create": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-applications-env-keys-clear": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-applications-destroy": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-applications-revisions-bundle-update": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-applications-revisions-file-destroy": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-skill-templates-name-archive-create": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-skill-templates-name-files-destroy": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                },
-                "agent-custom-tool-templates-name-archive-create": {
-                    "approvers": ["session_principal"],
-                    "ttl_ms": 900000
-                }
-            }
+            ]
         }
     ],
     "skills": [

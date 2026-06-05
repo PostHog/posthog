@@ -22,6 +22,7 @@
         "pg": "^8.6.0"
     },
     "devDependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
         "@types/express": "^4.17.21",
         "@types/node": "catalog:",
         "@types/pg": "^8.6.0",
@@ -29,7 +30,8 @@
         "express": "^4.21.1",
         "supertest": "^7.0.0",
         "typescript": "catalog:",
-        "vitest": "^2.1.9"
+        "vitest": "^2.1.9",
+        "zod": "^4.3.6"
     },
     "engines": {
         "node": ">=24 <25"

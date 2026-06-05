@@ -126,6 +126,33 @@ export interface AgentMemorySearchResponseApi {
     results: AgentMemorySearchResultApi[]
 }
 
+export interface AgentTableHeaderApi {
+    /** Table name. */
+    name: string
+    /** Object size in bytes. */
+    size: number
+}
+
+export interface AgentTablesListResponseApi {
+    /** Number of tables. */
+    count: number
+    /** Tabular-reference tables for this agent (the @posthog/table-* JSONL tables). */
+    tables: AgentTableHeaderApi[]
+}
+
+export type AgentTableRowsResponseApiRowsItem = { [key: string]: unknown }
+
+export interface AgentTableRowsResponseApi {
+    name: string
+    /** Total rows in the table. */
+    total: number
+    /** Rows in this response (capped by limit). */
+    returned: number
+    limit: number
+    /** The rows (arbitrary JSON objects). */
+    rows: AgentTableRowsResponseApiRowsItem[]
+}
+
 /**
  * Folder tree rooted at the agent's memory prefix. Each node is {name, type: 'folder'|'file', path?, description?, tags?, children?}.
  */
@@ -243,19 +270,40 @@ export type AgentRevisionApiSpecToolsItem =
           timeout_ms?: number
       }
 
-export type AgentRevisionApiSpecMcpsItem =
+export type AgentRevisionApiSpecMcpsItemAuth = {
+    integration?: string
+}
+
+export type AgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
+
+export type AgentRevisionApiSpecMcpsItemToolsItem =
+    | string
     | {
-          kind: 'agent'
-          slug: string
-      }
-    | {
-          kind: 'external'
-          url: string
-          auth?: {
-              integration?: string
+          /** @minLength 1 */
+          name: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
           }
-          allowlist?: string[]
       }
+
+export type AgentRevisionApiSpecMcpsItem = {
+    /** @minLength 1 */
+    id: string
+    url: string
+    auth?: AgentRevisionApiSpecMcpsItemAuth
+    secrets?: string[]
+    headers?: AgentRevisionApiSpecMcpsItemHeaders
+    tools?: AgentRevisionApiSpecMcpsItemToolsItem[]
+}
 
 export type AgentRevisionApiSpecSkillsItem = {
     id: string
@@ -437,19 +485,40 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           timeout_ms?: number
       }
 
-export type PatchedAgentRevisionApiSpecMcpsItem =
+export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
+    integration?: string
+}
+
+export type PatchedAgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
+
+export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
+    | string
     | {
-          kind: 'agent'
-          slug: string
-      }
-    | {
-          kind: 'external'
-          url: string
-          auth?: {
-              integration?: string
+          /** @minLength 1 */
+          name: string
+          requires_approval?: boolean
+          approval_policy?: {
+              /** @minItems 1 */
+              approvers?: ('team_admins' | 'session_principal')[]
+              allow_edit?: boolean
+              /**
+               * @minimum 60000
+               * @maximum 604800000
+               */
+              ttl_ms?: number
+              allow_agent_approver?: boolean
           }
-          allowlist?: string[]
       }
+
+export type PatchedAgentRevisionApiSpecMcpsItem = {
+    /** @minLength 1 */
+    id: string
+    url: string
+    auth?: PatchedAgentRevisionApiSpecMcpsItemAuth
+    secrets?: string[]
+    headers?: PatchedAgentRevisionApiSpecMcpsItemHeaders
+    tools?: PatchedAgentRevisionApiSpecMcpsItemToolsItem[]
+}
 
 export type PatchedAgentRevisionApiSpecSkillsItem = {
     id: string
@@ -1628,6 +1697,13 @@ export type AgentMemorySearchParams = {
      * Search cue — plain natural language is fine.
      */
     q: string
+}
+
+export type AgentMemoryReadTableParams = {
+    /**
+     * Max rows to return (default 500, max 5000).
+     */
+    limit?: number
 }
 
 export type AgentApplicationsRevisionsListParams = {

@@ -18,6 +18,33 @@ from .models import AgentApplication, AgentRevision
 from .spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
 
 
+def _validate_mcp_tool_names_unique(spec: Any) -> None:
+    # JSON Schema's `uniqueItems` only compares whole-value equality, so it
+    # can't catch a bare string colliding with an object of the same `name`
+    # in `mcps[].external.tools[]`. Mirror the zod `.refine()` (same message)
+    # so the API rejects duplicates here instead of letting the runner blow up
+    # with a confusing Zod error at session open.
+    if not isinstance(spec, dict):
+        return
+    mcps = spec.get("mcps")
+    if not isinstance(mcps, list):
+        return
+    for i, mcp in enumerate(mcps):
+        if not isinstance(mcp, dict):
+            continue
+        tools = mcp.get("tools")
+        if not isinstance(tools, list):
+            continue
+        seen: set[str] = set()
+        for entry in tools:
+            name = entry if isinstance(entry, str) else entry.get("name") if isinstance(entry, dict) else None
+            if not isinstance(name, str):
+                continue
+            if name in seen:
+                raise serializers.ValidationError(f"spec.mcps.{i}.tools: mcps[].tools[] entries must have unique names")
+            seen.add(name)
+
+
 class AgentApplicationSerializer(serializers.ModelSerializer):
     class Meta:
         model = AgentApplication
@@ -59,6 +86,7 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         except jsonschema.ValidationError as e:
             path = ".".join(str(p) for p in e.absolute_path) or "<root>"
             raise serializers.ValidationError(f"spec.{path}: {e.message}") from e
+        _validate_mcp_tool_names_unique(value)
         return value
 
     class Meta:

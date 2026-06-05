@@ -56,12 +56,14 @@ import {
     FRAMEWORK_PROMPT_VERSION,
     lastAssistantTextPreview,
     MemoryStore,
+    TabularStore,
     RevisionStore,
     SessionQueue,
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
 import { mountMemoryRoutes } from './api/memory'
+import { mountTableRoutes } from './api/tables'
 import { buildApprovalDecidedMarker } from './approval-marker'
 import { fireCronManually } from './cron-tick'
 import { asyncHandler, errorHandler } from './http-utils'
@@ -89,6 +91,8 @@ export interface JanitorServerOpts {
      * `InMemoryMemoryStore` directly.
      */
     memoryStore?: MemoryStore
+    /** Read-only tabular store for the console Tables view. */
+    tabularStore?: TabularStore
     internalSecret?: string
 }
 
@@ -631,6 +635,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             res.status(409).json({ error: 'revision_not_editable', state: rev.state })
             return null
         }
+        // Bundle-store `.frozen` marker is authoritative — Django stamps
+        // `state='ready'` after the janitor returns, but the marker is
+        // written first and is consistent across processes. Catches the
+        // narrow window between janitor.freeze and Django's state write,
+        // and any operator who poked the marker directly.
+        if (opts.bundles && (await opts.bundles.isFrozen(revisionId))) {
+            res.status(409).json({ error: 'revision_not_editable', state: 'ready' })
+            return null
+        }
         return { rev }
     }
 
@@ -776,10 +789,10 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 return
             }
             const sha = await opts.bundles!.freeze(req.params.id)
-            // Stamp the sha + flip the row to `ready` so the runner can pick it
-            // up via `setLiveRevision` later. Two writes; the second is the
-            // user-visible state change.
-            await opts.revisions!.setRevisionState(req.params.id, 'ready', sha)
+            // Django owns the `agent_revision.state` + `bundle_sha256` write.
+            // Returning sha lets the caller stamp the row inside its own
+            // transaction; the janitor stays out of that table to avoid
+            // cross-process row contention with the Django freeze atomic.
             res.json({ ok: true, state: 'ready', bundle_sha256: sha })
         })
     )
@@ -902,6 +915,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // pattern applies when they get extracted: one file per logical group,
     // each exporting `mount*Routes(app, opts, log)` called here.
     mountMemoryRoutes(app, { memoryStore: opts.memoryStore, log })
+    mountTableRoutes(app, { tabularStore: opts.tabularStore, log })
 
     // Last in the chain. Catches anything the route handlers threw (via
     // asyncHandler), translates ZodError → 400, everything else → 500.

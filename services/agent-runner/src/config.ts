@@ -143,6 +143,12 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'forcePathStyle for the S3 client. Default true (SeaweedFS + MinIO both need it; real S3 accepts it).'
         ),
+    devMcpBearerToken: z
+        .string()
+        .optional()
+        .describe(
+            "Dev-only bearer attached to `kind: external` MCP requests when the ref has no `auth.integration` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via integrations or `kind: agent`."
+        ),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -171,6 +177,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'bundleS3AccessKeyId',
     AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'bundleS3SecretAccessKey',
     AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
+    AGENT_DEV_MCP_BEARER_TOKEN: 'devMcpBearerToken',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

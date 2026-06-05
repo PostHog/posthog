@@ -52,13 +52,24 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 res.status(401).json({ error: 'invalid_signature' })
                 return
             }
-            const body = req.body as { type?: string; challenge?: string; event?: SlackEvent }
+            const body = req.body as {
+                type?: string
+                challenge?: string
+                event?: SlackEvent
+                event_id?: string
+            }
             if (body.type === 'url_verification') {
                 res.json({ challenge: body.challenge })
                 return
             }
             const event = body.event
-            if (!event || event.type !== 'message' || event.bot_id) {
+            // Accept both `message` (channel messages the bot is a member of)
+            // and `app_mention` (someone @-mentioned the bot). Slack delivers
+            // the latter even when a workspace only subscribed to mentions,
+            // and the spec's `slack.config.mention_only` flag implies the
+            // ingress was always meant to handle it — drop the original
+            // message-only gate that silently 200'd every mention with no-op.
+            if (!event || (event.type !== 'message' && event.type !== 'app_mention') || event.bot_id) {
                 res.json({ ok: true })
                 return
             }
@@ -120,15 +131,40 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 slack_user_id: event.user,
                 agent_user_id: agentUserId,
             }
+            // Embed the Slack envelope context in the seed message so the model
+            // knows which channel/ts/thread_ts to use when calling Slack APIs.
+            // Without this, the model only sees the raw text and has no way to
+            // route replies back to the originating channel/thread. The header
+            // is parseable + greppable; agent.md tells the model to use the
+            // values verbatim for any reactions.add / chat.postMessage call.
+            const slackContext = [
+                `[slack]`,
+                `channel: ${event.channel}`,
+                `ts: ${event.ts}`,
+                `thread_ts: ${event.thread_ts ?? event.ts}`,
+                `workspace: ${workspaceId}`,
+                `user: ${event.user}`,
+                ``,
+                event.text ?? '',
+            ].join('\n')
             const outcome = await enqueueOrResume(
                 { queue: deps.queue, teamId: deps.teamId },
                 {
                     application: resolved.application,
                     revision: resolved.revision,
                     externalKey,
+                    // Slack retries the events callback up to 3 times if it
+                    // doesn't see a 200 within 3 seconds. Without an
+                    // idempotency key, every retry appends a duplicate seed
+                    // to `pending_inputs` and the runner replies N times to
+                    // the same mention. `event_id` is Slack's per-event uuid
+                    // — identical across retries, unique per real event —
+                    // so it's the right key. Falls back to ts when an older
+                    // payload shape doesn't carry event_id.
+                    idempotencyKey: body.event_id ? `slack:event:${body.event_id}` : `slack:ts:${event.ts}`,
                     seed: {
                         role: 'user',
-                        content: event.text ?? '',
+                        content: slackContext,
                         timestamp: Date.now(),
                         sender: slackPrincipal,
                     },
