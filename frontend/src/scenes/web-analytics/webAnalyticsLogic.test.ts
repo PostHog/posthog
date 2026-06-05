@@ -20,7 +20,7 @@ describe('webAnalyticsLogic focus mode', () => {
 
     const enableFocusMode = (): void => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE]: true,
+            [FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE]: 'test',
         })
     }
 
@@ -146,6 +146,16 @@ describe('webAnalyticsLogic focus mode', () => {
     })
 
     it('hides focus mode when the feature flag is off', async () => {
+        await expectLogic(logic).toMatchValues({
+            productTab: ProductTab.ANALYTICS,
+            showFocusMode: false,
+        })
+    })
+
+    it('hides focus mode for the control variant', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_FOCUS_MODE]: 'control',
+        })
         await expectLogic(logic).toMatchValues({
             productTab: ProductTab.ANALYTICS,
             showFocusMode: false,
