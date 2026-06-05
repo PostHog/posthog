@@ -105,9 +105,18 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         resyncSchema,
         cancelSchema,
         deleteTable,
+        loadJobs,
     } = useActions(sourceSettingsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
+    // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
+    useEffect(() => {
+        if (source && source.access_method !== 'direct') {
+            loadJobs()
+        }
+    }, [loadJobs, source])
 
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
@@ -283,6 +292,7 @@ function ManagedSchemaTable({
     showMetrics,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
+    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
@@ -404,6 +414,19 @@ function ManagedSchemaTable({
                     render: (_, schema) => {
                         if (schema.table) {
                             return schema.table.row_count?.toLocaleString() ?? 0
+                        }
+                        // First sync: the warehouse table doesn't exist yet, so fall back to the
+                        // running job's rows_synced (updates live as batches flush). Show a spinner
+                        // so a schema still buffering below the flush threshold reads as "syncing",
+                        // not as if nothing is happening.
+                        if (schema.status === 'Running') {
+                            const rows = inProgressRowsBySchema[schema.id] ?? 0
+                            return (
+                                <span className="flex items-center justify-end gap-1">
+                                    <Spinner textColored className="text-sm" />
+                                    {rows.toLocaleString()}
+                                </span>
+                            )
                         }
                         if (schema.status === 'Completed') {
                             return 0
