@@ -111,7 +111,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
@@ -2200,10 +2200,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        # Build the UserAccessControl here and pass it to create_for so schema filtering and
-        # the cache fingerprint share one instance
-        user_access_control = UserAccessControl(user=user, team=self.team) if user is not None else None
-        self.database = Database.create_for(team=self.team, user=user, user_access_control=user_access_control)
+        self.database = Database.create_for(team=self.team, user=user)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:

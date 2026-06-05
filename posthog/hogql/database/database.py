@@ -592,14 +592,10 @@ class Database(BaseModel):
             name for name in self._warehouse_table_names if name not in hidden_direct_name_collisions
         ]
 
-    def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
+    def _filter_system_tables_for_user(self) -> None:
         """Remove system tables user doesn't have resource access to."""
-        from posthog.rbac.user_access_control import UserAccessControl
-
-        # Reuse the UserAccessControl instance (shared with the cache fingerprint)
-        # so the preload happens once; only build a fresh UserAccessControl if none was supplied.
-        if self.user_access_control is None:
-            self.user_access_control = UserAccessControl(user=user, team=team)
+        # Always set by create_for on the user-present path (the only caller of this method).
+        assert self.user_access_control is not None
 
         if self.user_access_control.is_organization_admin:
             return
@@ -879,7 +875,6 @@ class Database(BaseModel):
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
-        user_access_control: Optional["UserAccessControl"] = None,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -887,6 +882,7 @@ class Database(BaseModel):
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
+        from posthog.rbac.user_access_control import UserAccessControl
 
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
         from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -948,10 +944,11 @@ class Database(BaseModel):
                 if direct_source is not None:
                     database._direct_connection_metadata = direct_source.connection_metadata
 
-        # Share the UserAccessControl so schema filtering and query cache fingerprint
-        # resolve access against one preloaded instance
-        if user_access_control is not None:
-            database.user_access_control = user_access_control
+        # Build the UserAccessControl once here so schema filtering and the query cache
+        # fingerprint resolve access against one shared, preloaded instance.
+        # Anonymous contexts (no user) have no access control.
+        if user is not None:
+            database.user_access_control = UserAccessControl(user=user, team=team)
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             if team is not None:
@@ -967,7 +964,7 @@ class Database(BaseModel):
                 )
                 if is_hogql_access_control_enabled:
                     if user is not None:
-                        database._filter_system_tables_for_user(user, team)
+                        database._filter_system_tables_for_user()
                     else:
                         database._filter_all_scoped_system_tables()
 
