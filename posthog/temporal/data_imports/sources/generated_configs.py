@@ -361,7 +361,8 @@ class FreshdeskSourceConfig(config.Config):
 
 @config.config
 class FreshsalesSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config

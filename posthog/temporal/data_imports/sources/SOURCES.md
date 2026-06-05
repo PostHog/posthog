@@ -68,6 +68,7 @@ the row lists both.
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
+| freshsales       | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
@@ -178,7 +179,6 @@ doesn't conflict with concurrent PRs.
 - elasticsearch
 - facebook_pages
 - firebase
-- freshsales
 - front
 - fullstory
 - gitlab
