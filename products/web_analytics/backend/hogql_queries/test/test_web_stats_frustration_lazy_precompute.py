@@ -17,6 +17,7 @@ from posthog.schema import (
     SessionsV2JoinMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -267,8 +268,7 @@ class TestWebStatsFrustrationLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, "expected at least one READY precompute job"
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         lazy_by_path = self._collect_metrics(lazy_response.results)
         assert lazy_by_path == live_by_path, f"lazy/live mismatch: lazy={lazy_by_path}, live={live_by_path}"
