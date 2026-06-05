@@ -4,8 +4,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
-
-import { lemonToast } from '@posthog/lemon-ui'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -117,7 +116,9 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                     try {
                         return await api.get(`api/billing/spend/?${toParams(params)}`)
                     } catch (error) {
-                        lemonToast.error('Failed to load billing spend, please try again or contact support.')
+                        // The user didn't initiate this request, so don't surface a toast they can't act on.
+                        // Capture for monitoring instead.
+                        posthog.captureException(new Error('Failed to load billing spend', { cause: error }))
                         throw error
                     }
                 },
