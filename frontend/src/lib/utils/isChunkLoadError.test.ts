@@ -20,8 +20,13 @@ describe('isChunkLoadError', () => {
             true,
         ],
         [
-            'WebKit module-script load failure',
+            'WebKit module-script load failure (TypeError)',
             { name: 'TypeError', message: 'Importing a module script failed.' },
+            true,
+        ],
+        [
+            'WebKit module-script load failure (plain Error, not TypeError)',
+            { name: 'Error', message: 'Importing a module script failed.' },
             true,
         ],
         ['generic TypeError', { name: 'TypeError', message: 'undefined is not a function' }, false],
