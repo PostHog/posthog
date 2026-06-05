@@ -971,6 +971,11 @@ class Lambda(Expr):
 @dataclass(kw_only=True, slots=True)
 class Constant(Expr):
     value: Any
+    # Unset (None) by default, like `type`: a ClickHouse-printer rendering hint, not part of the logical AST, so the
+    # "skip None" AST serializers (Hog compilers, `pretty_dataclasses` snapshots) leave it out. Set to True only for the
+    # fixed sentinels the ClickHouse physical passes emit (the nullIf ''/'null' scrub literals and the quote-trim regex),
+    # so the lowered SQL matches the printer's hand-built inline strings (§8.7).
+    inline: bool | None = None
 
 
 # Allowlist for `Keyword.name`; the SQL printer interpolates it verbatim (CH returns `name` directly, Postgres uppercases). Restricted to the Postgres-family time pseudo-functions from `resolver.POSTGRES_KEYWORD_TYPES` — a broader `str.isidentifier()` check would still admit arbitrary Python identifiers and let them emit as unquoted ClickHouse tokens.
