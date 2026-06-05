@@ -29,9 +29,8 @@ describe('getToolRecoveryHint', () => {
         expect(getToolRecoveryHint({ url, status: 503 })).not.toBeUndefined()
     })
 
-    it('does not fire for 4xx — those carry an actionable detail already', () => {
-        expect(getToolRecoveryHint({ url: LOGS_QUERY_URL, status: 400 })).toBeUndefined()
-        expect(getToolRecoveryHint({ url: LOGS_QUERY_URL, status: 404 })).toBeUndefined()
+    it.each([400, 404])('does not fire for %i — those carry an actionable detail already', (status) => {
+        expect(getToolRecoveryHint({ url: LOGS_QUERY_URL, status })).toBeUndefined()
     })
 
     it('does not fire for unrelated endpoints', () => {
