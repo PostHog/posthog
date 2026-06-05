@@ -6,6 +6,7 @@ use affected_services::images::{
     build_binary_to_crate_map, parse_images_yaml, ImageConfig, NON_CRATE_IMAGE_TRIGGERS,
 };
 use guppy::graph::PackageGraph;
+use rstest::rstest;
 
 fn load_test_fixtures() -> (PackageGraph, Vec<ImageConfig>) {
     let repo_root = find_repo_root().expect("must be in a git repo");
@@ -287,6 +288,50 @@ fn multi_binary_crate_produces_all_images() {
     assert!(!result.rebuild_all);
     assert!(result.images.contains(&"feature-flags".into()));
     assert!(result.images.contains(&"flags-cache-warmer".into()));
+}
+
+// ── Path-rule ordering tests ─────────────────────────────────────
+
+#[rstest]
+#[case::hypercache_rule_fires_before_catch_all(
+    "posthog/api/feature_flag.py",
+    false,
+    &["feature-flags", "hypercache-server", "common-hypercache"],
+)]
+#[case::catch_all_ignores_unrelated_non_rust_files(
+    "frontend/src/foo.tsx",
+    false,
+    &[],
+)]
+#[case::ci_harness_change_triggers_rebuild_all(
+    ".github/workflows/ci-rust.yml",
+    true,
+    &[],
+)]
+fn path_rule_ordering(
+    #[case] file: &str,
+    #[case] expect_rebuild_all: bool,
+    #[case] expect_crates: &[&str],
+) {
+    let (graph, images) = load_test_fixtures();
+    let result = compute_affected(&[file.into()], None, &graph, &images).unwrap();
+    assert_eq!(
+        result.rebuild_all, expect_rebuild_all,
+        "rebuild_all mismatch for {file}"
+    );
+    if !expect_rebuild_all {
+        let crates: HashSet<&str> = result.crates.iter().map(|s| s.as_str()).collect();
+        if expect_crates.is_empty() {
+            assert!(
+                crates.is_empty(),
+                "expected no crates for {file}, got {crates:?}"
+            );
+        } else {
+            for name in expect_crates {
+                assert!(crates.contains(name), "{file} should mark {name} affected");
+            }
+        }
+    }
 }
 
 // ── Determinator two-graph tests ─────────────────────────────────

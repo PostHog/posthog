@@ -2249,7 +2249,7 @@
                 "completion_token": 1.3e-7
             },
             "sambanova": {
-                "prompt_token": 2.2e-7,
+                "prompt_token": 3.5e-7,
                 "completion_token": 5.9e-7
             }
         }
@@ -2733,7 +2733,7 @@
         "cost": {
             "default": {
                 "prompt_token": 2e-8,
-                "completion_token": 5e-8
+                "completion_token": 3e-8
             },
             "cloudflare-fp8": {
                 "prompt_token": 1.52e-7,
@@ -2742,6 +2742,10 @@
             "deepinfra-bf16": {
                 "prompt_token": 2e-8,
                 "completion_token": 5e-8
+            },
+            "deepinfra-fp8": {
+                "prompt_token": 2e-8,
+                "completion_token": 3e-8
             },
             "groq": {
                 "prompt_token": 5e-8,
@@ -3199,9 +3203,9 @@
                 "cache_read_token": 3e-8
             },
             "streamlake": {
-                "prompt_token": 3e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 3.75e-7
+                "prompt_token": 2.7e-7,
+                "completion_token": 0.00000108,
+                "cache_read_token": 3.375e-7
             },
             "venice": {
                 "prompt_token": 3.4e-7,
@@ -5899,10 +5903,6 @@
             "nextbit-fp8": {
                 "prompt_token": 1.4e-7,
                 "completion_token": 5.5e-7
-            },
-            "novita-fp8": {
-                "prompt_token": 9e-8,
-                "completion_token": 4.5e-7
             }
         }
     },
@@ -6577,9 +6577,9 @@
                 "cache_read_token": 2.25e-7
             },
             "deepinfra-fp8": {
-                "prompt_token": 4.9e-7,
-                "completion_token": 0.0000036,
-                "cache_read_token": 3e-7
+                "prompt_token": 4.5e-7,
+                "completion_token": 0.000003,
+                "cache_read_token": 2.2e-7
             },
             "gmicloud-fp8": {
                 "prompt_token": 6e-7,
@@ -7232,11 +7232,6 @@
                 "prompt_token": 1e-7,
                 "completion_token": 3e-7,
                 "cache_read_token": 1e-8
-            },
-            "novita": {
-                "prompt_token": 1.1e-7,
-                "completion_token": 3.3e-7,
-                "cache_read_token": 2.4e-8
             },
             "xiaomi-fp8": {
                 "prompt_token": 1e-7,
