@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
@@ -6,6 +7,7 @@ import { fullName } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
+import { AccountsEvents } from './constants'
 
 export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
@@ -19,7 +21,11 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
             render: (_, member) => {
                 const name = fullName(member.user) || member.user.email
                 return member.user.distinct_id ? (
-                    <Link to={urls.personByDistinctId(member.user.distinct_id)} className="font-medium">
+                    <Link
+                        to={urls.personByDistinctId(member.user.distinct_id)}
+                        className="font-medium"
+                        onClick={() => posthog.capture(AccountsEvents.RelatedUserClicked)}
+                    >
                         {name}
                     </Link>
                 ) : (

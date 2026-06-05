@@ -21,29 +21,29 @@ class StubRule extends Rule {
     }
 }
 
-const recipe = (id: string, priority: number, rule: Rule): Recipe => ({ id, priority, rules: [rule] })
+const recipe = (id: string, rule: Rule): Recipe => ({ id, rules: [rule] })
 
 describe('RecipePipeline', () => {
     it('dispatches to the matching rule and returns its messages', () => {
         const messages: CompatMessage[] = [{ role: 'user', content: 'hi' }]
-        const pipeline = new RecipePipeline([recipe('only', 100, new StubRule(MATCH_ALL, messages))])
+        const pipeline = new RecipePipeline([recipe('only', new StubRule(MATCH_ALL, messages))])
         expect(pipeline.run({ role: 'user' }, 'user')).toEqual(messages)
     })
 
-    it('when several recipes match, the lowest priority number wins', () => {
-        const high = recipe('high', 200, new StubRule(MATCH_ALL, [{ role: 'user', content: 'low-priority' }]))
-        const low = recipe('low', 1, new StubRule(MATCH_ALL, [{ role: 'user', content: 'high-priority' }]))
-        const pipeline = new RecipePipeline([high, low])
-        expect(pipeline.run({ role: 'user' }, 'user')).toEqual([{ role: 'user', content: 'high-priority' }])
+    it('when several recipes match, the first in order wins', () => {
+        const first = recipe('first', new StubRule(MATCH_ALL, [{ role: 'user', content: 'first-wins' }]))
+        const second = recipe('second', new StubRule(MATCH_ALL, [{ role: 'user', content: 'second' }]))
+        const pipeline = new RecipePipeline([first, second])
+        expect(pipeline.run({ role: 'user' }, 'user')).toEqual([{ role: 'user', content: 'first-wins' }])
     })
 
     it('returns NO_MATCH when no rule matches', () => {
-        const pipeline = new RecipePipeline([recipe('none', 100, new StubRule(MATCH_NONE, []))])
+        const pipeline = new RecipePipeline([recipe('none', new StubRule(MATCH_NONE, []))])
         expect(pipeline.run({ role: 'user' }, 'user')).toBe(NO_MATCH)
     })
 
     it('throws when recursion exceeds the max delegation depth', () => {
-        const pipeline = new RecipePipeline([recipe('only', 100, new StubRule(MATCH_ALL, []))])
+        const pipeline = new RecipePipeline([recipe('only', new StubRule(MATCH_ALL, []))])
         expect(() => pipeline.dispatch({ role: 'user' }, 'user', 11)).toThrow(/max depth/)
     })
 })
