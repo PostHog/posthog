@@ -2670,7 +2670,7 @@
         }
     },
     "inbox-source-configs-update": {
-        "description": "Replace an existing signal source config by ID (full update — all writable fields are required: `source_product`, `source_type`, `enabled`, and `config`). Prefer `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
+        "description": "Replace an existing signal source config by ID (full update — `source_product` and `source_type` are required; `enabled` and `config` are optional and keep their current values if omitted). Prefer `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Replace signal source config",
