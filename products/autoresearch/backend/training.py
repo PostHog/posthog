@@ -393,14 +393,27 @@ def build_agent_description(
            - **How it was built** — the winning approach and the notable dead-ends, briefly.
            - **Caveats & recommended use** — when to rely on it and when not to.
 
-           Prefer charts as ```mermaid``` code fences — they render as text and stay portable.
-           Include at least a `xychart-beta` **bar** chart of the top feature importances and a
-           `xychart-beta` **line** chart of holdout AUC across your iterations; add a calibration
-           line (predicted vs realized rate) or an iteration-ladder `flowchart` if they aid the
-           story. Where a full chart would be overkill (or mermaid can't express it), fall back to
-           compact ASCII/unicode bar charts inline — they render in any Markdown surface. Use plain
-           GFM tables for the metrics block. If a user suggestion asks for a particular audience or
-           emphasis, honor it in the report.
+           Charts: use ```mermaid``` code fences — they render inline and stay portable. Colors are
+           themed to PostHog automatically, so do NOT set colors or add `%%{{init}}%%` directives
+           (they are stripped in strict render mode); your only job is to supply real data.
+           **Never emit an empty chart fence** — every chart MUST contain actual values (with a
+           title and axis labels), or omit it entirely. An empty `xychart-beta`/`flowchart` renders
+           as a broken error box, which is worse than no chart. Include at minimum a `xychart-beta`
+           **bar** chart of the top feature importances and a `xychart-beta` **line** chart of
+           holdout AUC across your iterations, populated like this (real numbers from your run):
+
+           ```mermaid
+           xychart-beta
+               title "Holdout AUC by iteration"
+               x-axis [iter0, iter1, iter2]
+               y-axis "AUC" 0.5 --> 1.0
+               line [0.992, 0.96, 0.992]
+           ```
+
+           Add a calibration line (predicted vs realized rate) if it aids the story. Where a chart
+           would be overkill (or mermaid can't express it), fall back to compact ASCII/unicode bar
+           charts inline — they render in any Markdown surface. Use plain GFM tables for the metrics
+           block. If a user suggestion asks for a particular audience or emphasis, honor it.
         3. Call `autoresearch-training-runs-complete-create` with `pipeline_id = "{pipeline.pk}"`
            and `id = "{training_run_id}"`. The backend picks the best iteration, decides
            champion vs challenger, and attaches your uploaded bundle as the model's artifact.
