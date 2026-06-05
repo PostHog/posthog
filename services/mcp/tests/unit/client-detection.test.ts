@@ -25,6 +25,8 @@ describe('isCodingAgentClient', () => {
             ['zed'],
             ['aider'],
             ['copilot'],
+            ['librechat'],
+            ['notion'],
         ])('returns true for %s', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
         })
@@ -42,6 +44,11 @@ describe('isCodingAgentClient', () => {
             ['GitHub Copilot Chat'],
             ['zed-editor'],
             ['Codex CLI'],
+            ['LibreChat'],
+            ['libre-chat'],
+            ['LibreChat/1.2.3'],
+            ['notion-mcp-client'],
+            ['Notion'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCodingAgentClient(clientName)).toBe(true)
         })
@@ -123,6 +130,8 @@ describe('isVibeCodingClient', () => {
         ['replit'],
         ['Replit Agent'],
         ['replit-ai'],
+        ['Notion'],
+        ['notion'],
     ])('returns true for OAuth client name %s', (oauthClientName) => {
         expect(isVibeCodingClient(oauthClientName)).toBe(true)
     })
@@ -149,14 +158,30 @@ describe('isVibeCodingClient', () => {
 
 describe('MCPClientProfile', () => {
     describe('isCodingAgent()', () => {
-        it.each([['claude-code'], ['Codex CLI'], ['cline'], ['zed-editor'], ['GitHub Copilot Chat']])(
-            'returns true for %s',
-            (clientName) => {
-                expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
-            }
-        )
+        it.each([
+            ['claude-code'],
+            ['Claude Code'],
+            ['claude-code-cli'],
+            ['claude-code/1.2.3'],
+            ['cline'],
+            ['cline-bot'],
+            ['continue'],
+            ['codex'],
+            ['Codex CLI'],
+            ['windsurf'],
+            ['zed'],
+            ['zed-editor'],
+            ['aider'],
+            ['github.copilot'],
+            ['GitHub Copilot Chat'],
+            ['LibreChat'],
+            ['libre-chat'],
+            ['notion-mcp-client'],
+        ])('returns true for %s', (clientName) => {
+            expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(true)
+        })
 
-        it.each([['Claude Desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
+        it.each([['Claude Desktop'], ['claude-desktop'], ['cursor'], ['mcp-inspector'], [''], ['   ']])(
             'returns false for %s',
             (clientName) => {
                 expect(new MCPClientProfile({ clientName }).isCodingAgent()).toBe(false)
@@ -165,6 +190,32 @@ describe('MCPClientProfile', () => {
 
         it('returns false when clientName is undefined', () => {
             expect(new MCPClientProfile({}).isCodingAgent()).toBe(false)
+        })
+
+        describe('vendorClient precedence', () => {
+            it('prefers vendorClient over clientName for detection', () => {
+                // Claude pools MCP transports: the initialize body says
+                // `Anthropic/ClaudeAI` (the pool owner) but the live inner
+                // client is `ClaudeCode` (a coding agent). The header wins.
+                expect(
+                    new MCPClientProfile({
+                        clientName: 'Anthropic/ClaudeAI',
+                        vendorClient: 'ClaudeCode',
+                    }).isCodingAgent()
+                ).toBe(true)
+            })
+
+            it('falls back to clientName when vendorClient is missing', () => {
+                expect(new MCPClientProfile({ clientName: 'claude-code' }).isCodingAgent()).toBe(true)
+            })
+
+            it('treats coding-agent clientName as non-coding when vendorClient says otherwise', () => {
+                // Inverse case: if a pool of coding-agent clients somehow
+                // carries a non-coding request, the live header rules.
+                expect(
+                    new MCPClientProfile({ clientName: 'claude-code', vendorClient: 'ClaudeAI' }).isCodingAgent()
+                ).toBe(false)
+            })
         })
     })
 
@@ -183,7 +234,7 @@ describe('MCPClientProfile', () => {
     })
 
     describe('isVibeCodingClient()', () => {
-        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent']])(
+        it.each([['Lovable'], ['lovable.dev'], ['Replit'], ['Replit Agent'], ['Notion']])(
             'returns true for OAuth client name %s',
             (oauthClientName) => {
                 expect(new MCPClientProfile({ oauthClientName }).isVibeCodingClient()).toBe(true)
@@ -251,11 +302,13 @@ describe('MCPClientProfile', () => {
             clientVersion: '1.2.3',
             consumer: POSTHOG_CODE_CONSUMER,
             oauthClientName: 'Lovable',
+            vendorClient: 'ClaudeCode',
         })
         expect(profile.clientName).toBe('claude-code')
         expect(profile.clientVersion).toBe('1.2.3')
         expect(profile.consumer).toBe(POSTHOG_CODE_CONSUMER)
         expect(profile.oauthClientName).toBe('Lovable')
+        expect(profile.vendorClient).toBe('ClaudeCode')
     })
 })
 

@@ -302,17 +302,25 @@ export interface AddSnapshotsResultApi {
 }
 
 export interface ApproveSnapshotInputApi {
+    /** The snapshot identifier to approve (e.g. Storybook story id plus theme). */
     identifier: string
+    /** The content hash of the new baseline image to record for this identifier. */
     new_hash: string
 }
 
 export interface ApproveRunRequestInputApi {
-    snapshots?: ApproveSnapshotInputApi[]
+    /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
+    snapshots: ApproveSnapshotInputApi[]
+}
+
+export interface FinalizeRunRequestInputApi {
+    /** Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed/new snapshot is still unreviewed. */
     approve_all?: boolean
+    /** Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent. */
     commit_to_github?: boolean
 }
 
-export interface AutoApproveResultApi {
+export interface FinalizeResultApi {
     run: RunApi
     baseline_content: string
 }
@@ -351,6 +359,7 @@ export interface SnapshotApi {
     reviewed_by?: UserBasicInfoApi | null
     cluster_summary?: ClusterSummaryApi | null
     id: string
+    run_id: string
     identifier: string
     result: string
     classification_reason: string
@@ -382,6 +391,7 @@ export interface PaginatedSnapshotListApi {
 }
 
 export interface MarkToleratedInputApi {
+    /** UUID of the changed snapshot to mark as a known tolerated alternate. Future runs that produce the same alternate hash for this identifier will not be flagged as changes. */
     snapshot_id: string
 }
 

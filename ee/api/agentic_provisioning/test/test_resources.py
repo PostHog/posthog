@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -25,6 +27,24 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert data["id"] == str(self.team.id)
         assert "api_key" in data["complete"]["access_configuration"]
         assert "host" in data["complete"]["access_configuration"]
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_create_resource_capture_attributes_client(self, mock_capture_event):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+
+        success_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("resource_created", "success")
+        ]
+        assert len(success_calls) == 1
+        partner = success_calls[0].kwargs["partner"]
+        assert partner is not None
+        assert partner.name == "PostHog Stripe App"
 
     def test_get_resource_returns_complete(self):
         token = self._get_bearer_token()

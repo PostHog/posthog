@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 import structlog
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import capture_internal
 from posthog.models.team import Team
@@ -12,6 +11,8 @@ from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
+from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.errors import FailureKind, ScannerFailureError
 from products.replay_vision.backend.temporal.types import EmitObservationEventInputs, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -21,6 +22,7 @@ _EVENT_SOURCE = "replay_vision"
 
 
 @activity.defn
+@track_activity()
 async def emit_observation_event_activity(inputs: EmitObservationEventInputs) -> None:
     """Capture the `$recording_observed` event into the customer's events table; dedup-keyed by observation_id."""
     await database_sync_to_async(_emit_event, thread_sensitive=False)(inputs)
@@ -29,12 +31,16 @@ async def emit_observation_event_activity(inputs: EmitObservationEventInputs) ->
 def _emit_event(inputs: EmitObservationEventInputs) -> None:
     observation = ReplayObservation.objects.select_related("team").filter(pk=inputs.observation_id).first()
     if observation is None:
-        raise ApplicationError(f"ReplayObservation {inputs.observation_id} not found", non_retryable=True)
+        raise ScannerFailureError(
+            f"ReplayObservation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
+        )
 
     try:
         team: Team = observation.team
     except Team.DoesNotExist:
-        raise ApplicationError(f"Team for observation {inputs.observation_id} not found", non_retryable=True)
+        raise ScannerFailureError(
+            f"Team for observation {inputs.observation_id} not found", kind=FailureKind.INTERNAL_ERROR
+        )
 
     snapshot = ScannerSnapshot.load_for(inputs.observation_id, observation.scanner_snapshot)
     properties: dict = {
@@ -67,5 +73,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         timestamp=datetime.now(UTC),
         properties=properties,
         process_person_profile=False,
+        # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
+        event_uuid=str(observation.id),
     )
     response.raise_for_status()

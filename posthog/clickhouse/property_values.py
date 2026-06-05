@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     `property_value` String,
     `property_count` UInt64
 ) ENGINE = {engine}
+SETTINGS kafka_num_consumers = 8, kafka_thread_per_consumer = 1
 """
 
 PROPERTY_VALUES_TABLE_BASE_SQL = """
@@ -44,14 +45,13 @@ def PROPERTY_VALUES_TABLE_SQL() -> str:
 ORDER BY (team_id, property_type, property_key, property_value)
 TTL last_seen + INTERVAL 30 DAY DELETE
 SETTINGS
-    index_granularity = 8192,
-    enable_full_text_index = 1
+    index_granularity = 8192
 """
     ).format(
         table_name=TABLE_NAME,
         engine=AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
         extra_fields=""",
-    INDEX idx_property_value property_value TYPE text(tokenizer = ngrams(3), preprocessor = lower(property_value)) GRANULARITY 1""",
+    INDEX idx_property_value_ngrambf lower(property_value) TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1""",
     )
 
 
@@ -86,10 +86,6 @@ AS SELECT
     property_count,
     coalesce(_timestamp, now()) as last_seen
 FROM {database}.{kafka_table}
-WHERE lengthUTF8(property_key) > 0
-  AND lengthUTF8(property_key) <= 400  -- matches Django PropertyDefinition.name max_length
-  AND lengthUTF8(property_value) > 0
-  AND lengthUTF8(property_value) < 256
 """.format(
         mv_name=MV_NAME,
         table_name=TABLE_NAME,

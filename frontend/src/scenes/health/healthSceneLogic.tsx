@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
-import { unifiedHealthMenuLogic } from 'lib/components/HealthMenu/unifiedHealthMenuLogic'
+import { healthSummaryLogic } from 'lib/components/HelpMenu/healthSummaryLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,7 +16,7 @@ import { Breadcrumb } from '~/types'
 import { CATEGORY_ORDER, HEALTH_CATEGORY_CONFIG, categoryForKind } from './healthCategories'
 import type { healthSceneLogicType } from './healthSceneLogicType'
 import type { CategoryHealthSummary, HealthIssue, HealthIssueSeverity } from './types'
-import { SEVERITY_ORDER } from './types'
+import { REFRESH_COOLDOWN_MS, REFRESH_POLL_COUNT, REFRESH_POLL_INTERVAL_MS, SEVERITY_ORDER } from './types'
 
 export interface HealthIssuesResponse {
     results: HealthIssue[]
@@ -24,10 +24,6 @@ export interface HealthIssuesResponse {
     next?: string | null
     previous?: string | null
 }
-
-const REFRESH_COOLDOWN_MS = 15 * 60 * 1000
-const REFRESH_POLL_INTERVAL_MS = 5000
-const REFRESH_POLL_COUNT = 12
 
 export const healthSceneLogic = kea<healthSceneLogicType>([
     path(['scenes', 'health', 'healthSceneLogic']),
@@ -39,7 +35,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         setShowDismissed: (show: boolean) => ({ show }),
         dismissIssue: (id: string) => ({ id }),
         undismissIssue: (id: string) => ({ id }),
-        refreshHealthData: true,
+        refreshHealthData: (isManual: boolean = true) => ({ isManual }),
         resetManualRefresh: true,
         setNextRefreshAvailableAt: (timestamp: number | null) => ({ timestamp }),
         clearRefreshInFlight: true,
@@ -54,7 +50,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         isManualRefresh: [
             false,
             {
-                refreshHealthData: () => true,
+                refreshHealthData: (_, { isManual }) => isManual,
                 resetManualRefresh: () => false,
             },
         ],
@@ -68,7 +64,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         isRefreshInFlight: [
             false,
             {
-                refreshHealthData: () => true,
+                refreshHealthData: (state, { isManual }) => (isManual ? true : state),
                 clearRefreshInFlight: () => false,
             },
         ],
@@ -153,7 +149,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        refreshHealthData: async (_, breakpoint) => {
+        refreshHealthData: async ({ isManual }, breakpoint) => {
             const url = `api/environments/${values.currentTeamIdStrict}/health_issues/refresh/`
             try {
                 const response = await api.create<{
@@ -168,11 +164,15 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                 if ((response?.scheduled_kinds ?? []).length === 0) {
                     actions.clearRefreshInFlight()
                     actions.resetManualRefresh()
-                    lemonToast.info('No health checks are registered for this project.')
+                    if (isManual) {
+                        lemonToast.info('No health checks are registered for this project.')
+                    }
                     return
                 }
 
-                lemonToast.success('Refreshing health checks...', { autoClose: 2000 })
+                if (isManual) {
+                    lemonToast.success('Refreshing health checks...', { autoClose: 2000 })
+                }
 
                 for (let i = 0; i < REFRESH_POLL_COUNT; i++) {
                     await breakpoint(REFRESH_POLL_INTERVAL_MS)
@@ -187,8 +187,10 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     if (!isNaN(retryAfterSeconds) && retryAfterSeconds > 0) {
                         actions.setNextRefreshAvailableAt(Date.now() + retryAfterSeconds * 1000)
                     }
-                    lemonToast.warning(`Refresh available again ${error.formattedRetryAfter ?? 'in a few minutes'}`)
-                } else {
+                    if (isManual) {
+                        lemonToast.warning(`Refresh available again ${error.formattedRetryAfter ?? 'in a few minutes'}`)
+                    }
+                } else if (isManual) {
                     lemonToast.error('Failed to refresh health checks')
                 }
             }
@@ -220,7 +222,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     dismissed: true,
                 })
                 actions.loadHealthIssues()
-                unifiedHealthMenuLogic.actions.loadHealthSummary()
+                healthSummaryLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to dismiss issue')
             }
@@ -231,7 +233,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     dismissed: false,
                 })
                 actions.loadHealthIssues()
-                unifiedHealthMenuLogic.actions.loadHealthSummary()
+                healthSummaryLogic.actions.loadHealthSummary()
             } catch {
                 lemonToast.error('Failed to undismiss issue')
             }
@@ -240,6 +242,11 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
     afterMount(({ actions, values }) => {
         if (values.unifiedHealthPageEnabled) {
             actions.loadHealthIssues()
+
+            const { nextRefreshAvailableAt } = values
+            if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
+                actions.refreshHealthData(false)
+            }
         }
 
         if (values.nextRefreshAvailableAt !== null) {

@@ -37,6 +37,7 @@ PARITY_BREAKDOWNS = [
     ("region", WebStatsBreakdown.REGION),
     ("channel_type", WebStatsBreakdown.INITIAL_CHANNEL_TYPE),
     ("initial_referring_domain", WebStatsBreakdown.INITIAL_REFERRING_DOMAIN),
+    ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
 ]
 
 
@@ -302,24 +303,15 @@ class TestWebStatsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("page", WebStatsBreakdown.PAGE),
             ("initial_page", WebStatsBreakdown.INITIAL_PAGE),
             ("exit_click", WebStatsBreakdown.EXIT_CLICK),
-            ("initial_referring_url", WebStatsBreakdown.INITIAL_REFERRING_URL),
         ]
     )
     @freeze_time("2024-01-15T12:00:00Z")
     def test_high_cardinality_breakdown_falls_through(self, _name: str, breakdown_by: WebStatsBreakdown):
-        # Page/path/referring-URL breakdowns are intentionally excluded — too
-        # high cardinality for the in-Python read. They fall through to raw.
+        # Page/path breakdowns are intentionally excluded — handled by the
+        # dedicated paths lazy precompute. They fall through to raw here.
         self._seed()
         with self._enable_lazy():
             self._run(self._build_query(breakdown_by=breakdown_by))
-
-        assert self._job_count() == 0
-
-    @freeze_time("2024-01-15T12:00:00Z")
-    def test_frustration_metrics_breakdown_falls_through(self):
-        self._seed()
-        with self._enable_lazy():
-            self._run(self._build_query(breakdown_by=WebStatsBreakdown.FRUSTRATION_METRICS))
 
         assert self._job_count() == 0
 

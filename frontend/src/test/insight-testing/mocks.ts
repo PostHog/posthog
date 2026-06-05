@@ -27,7 +27,17 @@ export interface QueryBody {
         breakdowns?: Array<{ property?: string }>
         breakdown?: string
     }
+    trendsFilter?: {
+        formula?: string
+        formulas?: string[]
+        formulaNodes?: unknown[]
+    }
     [key: string]: unknown
+}
+
+function hasFormula(query: QueryBody): boolean {
+    const tf = query.trendsFilter
+    return !!(tf?.formula || tf?.formulas?.length || tf?.formulaNodes?.length)
 }
 
 interface FunnelsQueryResponseLike {
@@ -66,25 +76,35 @@ export function buildActorsResponse(
     } as ActorsQueryResponse
 }
 
-function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
+// `isFormula` only models the single-formula shape: the real runner combines series per
+// formula (`action: null`, `order` = formula index). This mock doesn't combine series, so
+// it stamps `order: 0` on every row, which works for a single formula. A future multi-formula
+// test would need this to derive the formula index per row (0 for A, 1 for B, …).
+function buildTrendsResponse(series: SeriesData[], opts: { isFormula?: boolean } = {}): TrendsQueryResponse {
     return {
-        results: series.map((s, i) => ({
-            action: {
-                id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
-                type: 'events',
-                name: s.label,
-                order: s.compare ? 0 : i,
-            },
-            label: s.label,
-            count: s.data.reduce((a, b) => a + b, 0),
-            aggregated_value: s.data.reduce((a, b) => a + b, 0),
-            data: s.data,
-            labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
-            days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
-            breakdown_value: s.breakdown_value,
-            compare: s.compare,
-            compare_label: s.compare_label,
-        })),
+        results: series.map((s, i) => {
+            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
+            return {
+                action: opts.isFormula
+                    ? null
+                    : {
+                          id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                          type: 'events',
+                          name: s.label,
+                          order: seriesOrder,
+                      },
+                order: opts.isFormula ? 0 : seriesOrder,
+                label: s.label,
+                count: s.data.reduce((a, b) => a + b, 0),
+                aggregated_value: s.data.reduce((a, b) => a + b, 0),
+                data: s.data,
+                labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
+                days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
+                breakdown_value: s.breakdown_value,
+                compare: s.compare,
+                compare_label: s.compare_label,
+            }
+        }),
     } as TrendsQueryResponse
 }
 
@@ -215,7 +235,7 @@ export function setupInsightMocks({
     const defaults: MockResponse[] = [
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
-            response: (query) => buildTrendsResponse(resolveSeriesData(query)),
+            response: (query) => buildTrendsResponse(resolveSeriesData(query), { isFormula: hasFormula(query) }),
         },
         {
             match: (query) => query.kind === NodeKind.StickinessQuery,

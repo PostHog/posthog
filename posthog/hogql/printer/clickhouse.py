@@ -11,7 +11,7 @@ from posthog.hogql import ast
 from posthog.hogql.ast import AST, Constant, StringType
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, SavedQuery, StructDatabaseField
 from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
@@ -29,14 +29,21 @@ from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
 
+def _table_filter_type(table_type: ast.TableOrSelectType) -> ast.TableOrSelectType:
+    if isinstance(table_type, ast.ColumnAliasedTableType):
+        return ast.TableAliasType(alias=table_type.alias, table_type=table_type.table_type)
+    return table_type
+
+
 def team_id_guard_for_table(table_type: ast.TableOrSelectType, context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.team_id:
         raise InternalHogQLError("context.team_id not found")
 
+    field_table_type = _table_filter_type(table_type)
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
-        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=table_type)),
+        left=ast.Field(chain=["team_id"], type=ast.FieldType(name="team_id", table_type=field_table_type)),
         right=ast.Constant(value=context.team_id),
         type=ast.BooleanType(),
     )
@@ -1277,6 +1284,14 @@ class ClickHousePrinter(BasePrinter):
         elif node.op == ast.CompareOperationOp.In:
             return op
         elif node.op == ast.CompareOperationOp.NotIn:
+            # With transform_null_in=1, ClickHouse rewrites notIn() to notNullIn().
+            # In Distributed aggregate plans this can make the coordinator expect
+            # a pre-rewrite aggregate column name while shards return the rewritten
+            # one, e.g. minIf(..., notIn(...)) vs minIf(..., notNullIn(...)).
+            # Wrapping nullable NOT IN matches the existing nullable materialized
+            # column path and preserves transform_null_in=1 semantics.
+            if nullable_left and not not_nullable and not in_join_constraint and not in_index_hint:
+                return f"ifNull({op}, 1)"
             return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             pass
@@ -1530,3 +1545,22 @@ class ClickHousePrinter(BasePrinter):
 
     def _get_table_name(self, table: ast.TableType) -> str:
         return table.table.to_printed_clickhouse(self.context)
+
+    def visit_property_type(self, type: ast.PropertyType) -> str:
+        # Respect the joined-subquery projection: if the property has already been
+        # projected through a subquery, defer to base which renders the subquery alias
+        # correctly, rather than re-resolving against the original struct column.
+        if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
+            return super().visit_property_type(type)
+
+        # Struct columns (e.g. Parquet structs from the data warehouse) are backed by a ClickHouse
+        # Tuple, not a JSON string. Emit chained tupleElement() calls instead of JSONExtractRaw(),
+        # which ClickHouse rejects on Tuple arguments. Closes #58480.
+        database_field = type.field_type.resolve_database_field(self.context)
+        if isinstance(database_field, StructDatabaseField):
+            expr = self.visit(type.field_type)
+            for link in type.chain:
+                expr = f"tupleElement({expr}, {self.context.add_value(str(link))})"
+            return expr
+
+        return super().visit_property_type(type)

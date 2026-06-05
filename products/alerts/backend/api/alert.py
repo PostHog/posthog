@@ -22,12 +22,11 @@ from posthog.schema import (
 )
 
 from posthog.api.documentation import extend_schema_field
-from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import get_request_analytics_properties
-from posthog.models import Insight, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -39,6 +38,8 @@ from posthog.utils import relative_date_parse
 
 from products.alerts.backend.api.alert_schedule_restriction import AlertScheduleRestriction
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
+from products.product_analytics.backend.api.insight import InsightBasicSerializer
+from products.product_analytics.backend.models.insight import Insight
 
 
 def _validate_every_15_minutes_interval(
@@ -690,7 +691,11 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "alert"
-    queryset = AlertConfiguration.objects.select_related("team", "insight").order_by("-created_at")
+    queryset = (
+        AlertConfiguration.objects.select_related("team", "insight", "threshold", "created_by")
+        .prefetch_related("subscribed_users")
+        .order_by("-created_at")
+    )
     serializer_class = AlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -960,7 +965,7 @@ def handle_alert_subscription_change(
 
 @receiver(pre_delete, sender=AlertConfiguration)
 def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
+    from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 
     for hog_function in HogFunction.objects.filter(
         team_id=instance.team_id,

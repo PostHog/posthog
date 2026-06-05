@@ -222,9 +222,11 @@
   SELECT uniqState(events.distinct_id) AS unique_users, countState() AS total_events, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', '') AS host 
   FROM events 
   WHERE and(equals(events.team_id, 420), greaterOrEquals(events.timestamp, toDateTime64(%(hogql_val_1)s, 6, %(hogql_val_2)s))) 
-  GROUP BY host ORDER BY total_events DESC 
+  GROUP BY host 
+  ORDER BY total_events DESC 
   LIMIT 10) 
-  GROUP BY host ORDER BY total_events DESC 
+  GROUP BY host 
+  ORDER BY total_events DESC 
   LIMIT 10
   '''
 # ---

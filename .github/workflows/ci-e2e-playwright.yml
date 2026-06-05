@@ -1,15 +1,18 @@
 #
 # This workflow runs CI E2E tests with Playwright.
 #
-# It relies on the container image built by 'container-images-ci.yml'.
+# It relies on the posthog-node image built by 'ci-nodejs-container.yml'.
 #
 name: E2E CI Playwright
 on:
     pull_request:
-        # `labeled` lets developers opt in via the `run-playwright` label.
-        # Unrelated label changes are filtered out in the `changes` job.
-        types: [opened, synchronize, reopened, labeled]
     workflow_dispatch:
+        inputs:
+            playwright_retries:
+                description: 'Override Playwright retries (leave empty for default of 3 on CI). Set to "0" to surface true per-test failure rate.'
+                required: false
+                type: string
+                default: ''
     push:
         branches:
             - master
@@ -18,6 +21,8 @@ permissions:
     contents: read
 
 env:
+    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -66,31 +71,34 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run on master push, manual dispatch, and on internal-repo PRs. Skip the
-        # entire workflow when the only thing that changed is some other label (avoids
-        # noisy runs on every label add/remove unrelated to Playwright).
+        # Run on master push, manual dispatch, and on internal-repo PRs.
         if: |
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            (
-              github.event.pull_request.head.repo.full_name == github.repository &&
-              (github.event.action != 'labeled' || github.event.label.name == 'run-playwright')
-            )
+            github.event.pull_request.head.repo.full_name == github.repository
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
-            shouldSuggest: ${{ steps.changes.outputs.shouldSuggest }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
             # cost of fetching blobs.
+            #
+            # sparse-checkout works around an actions/checkout@v6.0.2 flake: with
+            # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
+            # and the per-blob credential lookup intermittently fails with "could not
+            # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
+            # until the job was retried). Materializing only the one file this job
+            # reads collapses the lazy fetch to a single blob.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
+                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -101,24 +109,14 @@ jobs:
 
             - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
               id: changes
-              # Skip the path filter when the `run-playwright` label is set or on master push —
-              # both already imply we want to run.
-              if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'run-playwright')
+              if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      mustRun:
-                        # Real triggers — only this workflow runs Playwright tests, so changes
-                        # to the tests, page models, utils, snapshots, or this workflow itself
-                        # need to validate before merge.
+                      shouldRun:
+                        # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
                         - .github/workflows/ci-e2e-playwright.yml
-                      shouldSuggest:
-                        # Wider net — code that *could* affect E2E behavior. We don't auto-run
-                        # Playwright on these (most failures are flakes, real bugs are caught
-                        # elsewhere or fix-forward from master). Instead the `suggest-label` job
-                        # nudges the author to add the `run-playwright` label if they want a
-                        # full sweep before merging.
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
                         - 'bin/*'
@@ -135,10 +133,9 @@ jobs:
               env:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
-                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
-                  MUST_RUN: ${{ steps.changes.outputs.mustRun }}
+                  SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$HAS_LABEL" == "true" || "$MUST_RUN" == "true" ]]; then
+                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
@@ -179,76 +176,6 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                   fi
 
-    # Nudge the author to add the `run-playwright` label when their PR touches code
-    # that *could* affect E2E behavior but doesn't trigger a real run on its own.
-    # Also handles cleanup: if the PR later qualifies for a real run (label added,
-    # narrow paths matched), remove the suggestion comment so it doesn't linger.
-    suggest-label:
-        name: Suggest run-playwright label
-        needs: [changes]
-        if: |
-            github.event_name == 'pull_request' && (
-              needs.changes.outputs.shouldSuggest == 'true' ||
-              needs.changes.outputs.shouldRun == 'true'
-            )
-        runs-on: ubuntu-latest
-        timeout-minutes: 5
-        permissions:
-            pull-requests: write
-        steps:
-            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-              env:
-                  SHOULD_RUN: ${{ needs.changes.outputs.shouldRun }}
-                  SHOULD_SUGGEST: ${{ needs.changes.outputs.shouldSuggest }}
-                  HAS_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-playwright') }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const marker = '<!-- playwright-suggest-label -->';
-                      const shouldRun = process.env.SHOULD_RUN === 'true';
-                      const shouldSuggest = process.env.SHOULD_SUGGEST === 'true';
-                      const hasLabel = process.env.HAS_LABEL === 'true';
-                      const wantSuggestion = !shouldRun && shouldSuggest && !hasLabel;
-
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-
-                      if (wantSuggestion) {
-                          const body = [
-                              marker,
-                              "🎭 **Playwright didn't run on this PR** — your changes touch code that *could* affect E2E behavior, but Playwright is opt-in via label now to keep CI cost down.",
-                              "",
-                              "Add the **`run-playwright`** label if you want an E2E sweep before merging — CI will pick it up automatically.",
-                              "",
-                              "_Most PRs don't need this. Real regressions still get caught on master and fix-forward._",
-                          ].join('\n');
-                          if (existing) {
-                              await github.rest.issues.updateComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                                  body,
-                              });
-                          } else {
-                              await github.rest.issues.createComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  issue_number: context.issue.number,
-                                  body,
-                              });
-                          }
-                      } else if (existing) {
-                          await github.rest.issues.deleteComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                          });
-                      }
-
     playwright:
         name: Playwright E2E tests
         needs: [changes]
@@ -258,6 +185,9 @@ jobs:
         # Talk to #team-devex before changing.
         runs-on: depot-ubuntu-latest-8
         timeout-minutes: 45
+        permissions:
+            contents: read
+            pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
         steps:
@@ -266,6 +196,10 @@ jobs:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   clean: false
+                  # PR-controlled code runs in this job (pnpm installs, Playwright tests). Don't leave
+                  # GITHUB_TOKEN in .git/config where that code could read it — the comment step
+                  # below receives the token explicitly via its `github-token:` input instead.
+                  persist-credentials: false
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -311,16 +245,27 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -340,10 +285,7 @@ jobs:
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
             - name: Install pnpm
-              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -353,11 +295,10 @@ jobs:
                   cache-dependency-path: |
                       pnpm-lock.yaml
                       .github/workflows/ci-e2e-playwright.yml
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            # tests would intermittently fail in GH actions
-            # with exit code 134 _after passing_ all tests
-            # this appears to fix it
-            # absolute wild tbh https://stackoverflow.com/a/75503402
+            # Workaround for SIGABRT (exit 134) raised after all tests pass.
+            # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
@@ -411,6 +352,13 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
             - name: Start Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -430,10 +378,11 @@ jobs:
                   pnpm --filter=@posthog/frontend build
 
             - name: Collect static files
-              run: |
-                  # KLUDGE: to get the image-bitmap-data-url-worker-*.js.map files into the dist folder
-                  # KLUDGE: rrweb thinks they're alongside and the django's collectstatic fails
-                  cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.js.map frontend/dist/ && python manage.py collectstatic --noinput
+              # The image-bitmap-data-url-worker-*.js.map files are already mirrored
+              # into frontend/dist/ by copyRRWebWorkerFiles() in frontend/build.mjs
+              # (see common/esbuilder/utils.mjs), which runs as part of the
+              # `pnpm --filter=@posthog/frontend build` step above. No extra cp needed.
+              run: python manage.py collectstatic --noinput
             - name: Create test database
               shell: bash
               run: |
@@ -470,7 +419,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
               # Cache key is the merge-base SHA — produced by ci-backend on master push.
@@ -509,6 +458,13 @@ jobs:
                   PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
                   sqlx database create -D "$PERSONS_DATABASE_URL"
                   sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
+
+                  # Cyclotron node DB — the plugins container runs the CDP rerun worker
+                  # (default capabilities), which requires CYCLOTRON_NODE_DATABASE_URL to point
+                  # at a real, migrated database or it throws on startup and the server exits.
+                  CYCLOTRON_NODE_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron_node"
+                  sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
+                  sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
                   python manage.py setup_dev
@@ -575,6 +531,11 @@ jobs:
             - name: Run Playwright tests
               id: playwright-tests
               shell: bash
+              env:
+                  # The flake-audit workflow (.github/workflows/ci-e2e-playwright-audit.yml)
+                  # passes PLAYWRIGHT_RETRIES=0 to surface real per-test failure rates.
+                  # PR/master runs leave this unset and inherit the default (3 retries).
+                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries }}
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
@@ -860,10 +821,21 @@ jobs:
                       playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

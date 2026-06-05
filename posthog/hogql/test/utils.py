@@ -22,16 +22,23 @@ def execute_hogql_query_with_timings(*args, **kwargs):
 def pretty_print_in_tests(query: str | None, team_id: int) -> str:
     if query is None:
         return ""
-    query = (
-        query.replace("SELECT", "\nSELECT")
-        .replace("FROM", "\nFROM")
-        .replace("WHERE", "\nWHERE")
-        .replace("GROUP", "\nGROUP")
-        .replace("HAVING", "\nHAVING")
-        .replace("LIMIT", "\nLIMIT")
-        .replace("SETTINGS", "\nSETTINGS")
-        .replace(f"team_id, {team_id})", "team_id, 420)")
+
+    # Newline before each top-level clause keyword for readable snapshots, but skip keywords already at the
+    # start of a (possibly indented) line so we don't stack a blank line on top of pretty-printed input. The \b
+    # boundaries keep keywords that are substrings of longer tokens intact (e.g. the WHERE inside PREWHERE).
+    def _newline_before_clause(match: "re.Match[str]") -> str:
+        start = match.start()
+        if start > 0 and match.string[start - 1] == "\n":
+            return match.group(0)
+        whitespace, keyword = match.group(1), match.group(2)
+        return f"{whitespace}\n{keyword}"
+
+    query = re.sub(
+        r"([ \t]*)\b(SELECT|FROM|PREWHERE|WHERE|GROUP|HAVING|QUALIFY|WINDOW|ORDER|LIMIT|OFFSET|SETTINGS)\b",
+        _newline_before_clause,
+        query,
     )
+    query = query.replace(f"team_id, {team_id})", "team_id, 420)")
     query = re.sub(r"in_cohort__[0-9]+", "in_cohort__XX", query)
     query = re.sub(r"cohort_id, [0-9]+", "cohort_id, XX", query)
     query = re.sub(r"RANDOM_TEST_ID::[a-f0-9\-]+", "RANDOM_TEST_ID::UUID", query)
@@ -76,6 +83,14 @@ def pretty_dataclasses(obj, seen=None, indent=0):
             return "[]"
         elements = [pretty_dataclasses(item, seen, indent + 2) for item in obj]
         return "[\n" + ",\n".join(next_indent + element for element in elements) + "\n" + indent_space + "]"
+
+    elif isinstance(obj, tuple):
+        # AST fields typed `list[tuple[...]]` (Dict.items, TryCatchStatement.catches) — render
+        # tuple as `(...)` so snapshots distinguish it from list at the same level.
+        if len(obj) == 0:
+            return "()"
+        elements = [pretty_dataclasses(item, seen, indent + 2) for item in obj]
+        return "(\n" + ",\n".join(next_indent + element for element in elements) + "\n" + indent_space + ")"
 
     elif isinstance(obj, dict):
         if len(obj) == 0:

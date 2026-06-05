@@ -59,6 +59,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
+from posthog.security.url_validation import has_authority_bypass_chars
 
 tracer = trace.get_tracer(__name__)
 
@@ -75,10 +76,11 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import InsightVariable, Team, User
+    from posthog.models import Team, User
 
     from products.dashboards.backend.models.dashboard import Dashboard
     from products.dashboards.backend.models.dashboard_tile import DashboardTile
+    from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -118,6 +120,9 @@ def absolute_uri(url: Optional[str] = None) -> str:
     """
     if not url:
         return settings.SITE_URL
+
+    if has_authority_bypass_chars(url):
+        raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     provided_url = urlparse(url)
     if provided_url.hostname and provided_url.scheme:
@@ -576,6 +581,18 @@ def _build_template_context(
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
 
+                with tracer.start_as_current_span("template.promoted_product_intent"):
+                    from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
+
+                    # Best-effort — the promoted-product sidebar entry is experimental.
+                    # If the lookup fails for any reason, hide it for this request
+                    # rather than 500ing the page render.
+                    try:
+                        posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
+                    except Exception:
+                        capture_exception()
+                        posthog_app_context["promoted_product_intent"] = None
+
     # Merge caller-provided keys into posthog_app_context (e.g. oauth_application from the authorize view)
     if "oauth_application" in context:
         posthog_app_context["oauth_application"] = context.pop("oauth_application")
@@ -757,7 +774,7 @@ def get_default_event_name(team: "Team") -> str | None:
 
 @tracer.start_as_current_span("template.frontend_apps")
 def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from posthog.models import Plugin, PluginSourceFile
+    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile
 
     plugin_configs = (
         Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
@@ -1331,6 +1348,21 @@ def safe_cache_set(cache_key: str, value: Any, timeout: int | None = None) -> No
         logger.warning("safe_cache_set_failure", cache_key=cache_key, exc_info=True)
 
 
+def safe_cache_add(cache_key: str, value: Any, timeout: int | None = None) -> bool:
+    """Best-effort atomic set-if-absent. Returns True if this caller set the key
+    (i.e. won the race), False if it was already present — useful for cross-process
+    throttles where a wave of workers must act at most once per window.
+
+    On a cache failure, returns True so the caller still proceeds (e.g. captures the
+    error) rather than silently dropping the signal, matching the fail-visible
+    behaviour of the other safe_cache_* helpers."""
+    try:
+        return bool(cache.add(cache_key, value, timeout))
+    except Exception:
+        logger.warning("safe_cache_add_failure", cache_key=cache_key, exc_info=True)
+        return True
+
+
 def safe_cache_delete(cache_key: str) -> None:
     """Best-effort cache delete. Logs a warning on failure so Redis blips
     are visible during incidents without breaking the calling request."""
@@ -1338,6 +1370,19 @@ def safe_cache_delete(cache_key: str) -> None:
         cache.delete(cache_key)
     except Exception:
         logger.warning("safe_cache_delete_failure", cache_key=cache_key, exc_info=True)
+
+
+def capture_exception_throttled(throttle_key: str, exc: BaseException, ttl: int) -> bool:
+    """Capture an exception at most once per ``ttl`` window across processes (gated on
+    an atomic set-if-absent in the cache). Returns True if this caller captured, False
+    if it was throttled, so the caller can record which happened.
+
+    The atomic add means a wave of workers failing at once captures only once, instead
+    of each racing past a non-atomic get-then-set."""
+    captured = safe_cache_add(throttle_key, True, ttl)
+    if captured:
+        capture_exception(exc)
+    return captured
 
 
 def is_anonymous_id(distinct_id: str) -> bool:
@@ -1441,8 +1486,9 @@ def filters_override_requested_by_client(request: Request, dashboard: Optional["
 def variables_override_requested_by_client(
     request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
 ) -> Optional[dict[str, dict]]:
-    from posthog.api.insight_variable import map_stale_to_latest
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+    from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 
     dashboard_variables = (dashboard and dashboard.variables) or {}
     raw_override = request.query_params.get("variables_override") if request else None

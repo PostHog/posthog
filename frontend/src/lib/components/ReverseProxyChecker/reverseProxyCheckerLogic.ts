@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { ReadOnlyModeError } from 'lib/readOnlyGuard'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { hogql } from '~/queries/utils'
@@ -17,7 +16,9 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
     path(['components', 'ReverseProxyChecker', 'reverseProxyCheckerLogic']),
     loaders(({ values, cache }) => ({
         hasReverseProxy: [
-            false as boolean | null,
+            // null until the detection query resolves — consumers must distinguish "not yet
+            // checked" from a confirmed `false` so they don't act before the result is in.
+            null as boolean | null,
             {
                 loadHasReverseProxy: async () => {
                     if (cache.lastCheckedTimestamp > Date.now() - CHECK_INTERVAL_MS) {
@@ -43,21 +44,18 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         })
                         return !!res.results?.find((x) => !!x[0])
                     } catch (error) {
-                        // Read-only mode blocks every POST by design — afterMount fires on
-                        // every scene, so reporting these floods error tracking with expected
-                        // failures. Bail out without capturing.
-                        if (
-                            error instanceof ReadOnlyModeError ||
-                            (error as Error)?.cause instanceof ReadOnlyModeError
-                        ) {
-                            return values.hasReverseProxy
-                        }
                         // This check is advisory (used only to auto-complete a setup task).
                         // Swallow errors so kea-loaders does not surface a user-visible toast
                         // on every scene that mounts ProductSetupButton.
-                        posthog.captureException(
-                            new Error('reverseProxyCheckerLogic: loadHasReverseProxy query failed', { cause: error })
-                        )
+                        //
+                        // Capturing the original `error` directly (rather than wrapping it
+                        // in `new Error('...', { cause })`) keeps the error type at the top
+                        // of `$exception_list`, so the central `before_send` filter in
+                        // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
+                        // assuming posthog-js serialises the cause chain.
+                        posthog.captureException(error, {
+                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                        })
                         return values.hasReverseProxy
                     }
                 },

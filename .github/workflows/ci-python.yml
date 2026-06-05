@@ -69,6 +69,8 @@ jobs:
                         - '.github/scripts/**/*.py'
                         # PR approval agent
                         - 'tools/pr-approval-agent/**'
+                        # query-performance-ai dev tool
+                        - 'tools/query-performance-ai/**'
 
     code-quality:
         needs: changes
@@ -83,16 +85,27 @@ jobs:
               with:
                   fetch-depth: 1
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.12.12
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
-              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
@@ -187,6 +200,11 @@ jobs:
               run: |
                   pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
+            - name: Run query-performance-ai tests
+              shell: bash
+              run: |
+                  pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -195,6 +213,7 @@ jobs:
                   path: |
                       junit-hogli.xml
                       junit-hogli-commands.xml
+                      junit-query-performance-ai.xml
 
             - name: Run dependency detection script tests
               shell: bash

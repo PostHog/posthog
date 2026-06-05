@@ -508,7 +508,6 @@ services:
         environment:
             PLUGIN_SERVER_MODE: 'ingestion-errortracking'
             DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            PERSONS_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             CDP_REDIS_HOST: redis7

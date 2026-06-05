@@ -1,4 +1,5 @@
 import {
+    AndroidInstallation,
     GoInstallation,
     IOSInstallation,
     JavaInstallation,
@@ -48,6 +49,10 @@ const LogsReactNativeInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ReactNativeInstallation,
 })
 
+const LogsAndroidInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AndroidInstallation,
+})
+
 export const LogsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.NODE_JS]: LogsNodeJSInstructionsWrapper,
     [SDKKey.NEXT_JS]: LogsNextJSInstructionsWrapper,
@@ -57,4 +62,5 @@ export const LogsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.OPENTELEMETRY]: LogsOpenTelemetryInstructionsWrapper,
     [SDKKey.IOS]: LogsIOSInstructionsWrapper,
     [SDKKey.REACT_NATIVE]: LogsReactNativeInstructionsWrapper,
+    [SDKKey.ANDROID]: LogsAndroidInstructionsWrapper,
 }

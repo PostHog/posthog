@@ -180,69 +180,73 @@ class SlackThreadHandler:
         except Exception as e:
             logger.exception("slack_progress_update_failed", error=str(e))
 
-    def post_pr_opened_sandbox_cleaned(self, pr_url: str, task_url: str) -> None:
+    def post_pr_opened_sandbox_cleaned(self, pr_url: str, task_url: str | None) -> None:
         """Post final PR message after sandbox cleanup."""
         header = "*Pull request opened* :rocket:"
 
+        buttons: list[dict[str, Any]] = [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "View PR",
+                    "emoji": True,
+                },
+                "url": pr_url,
+            },
+        ]
+        if task_url:
+            buttons.append(
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Open in PostHog Code",
+                        "emoji": True,
+                    },
+                    "url": task_url,
+                }
+            )
+
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View PR",
-                            "emoji": True,
-                        },
-                        "url": pr_url,
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Open in PostHog",
-                            "emoji": True,
-                        },
-                        "url": task_url,
-                    },
-                ],
-            },
+            {"type": "actions", "elements": buttons},
         ]
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_pr_opened(self, pr_url: str, task_url: str) -> None:
+    def post_pr_opened(self, pr_url: str, task_url: str | None) -> None:
         """Post PR opened message with action buttons."""
         mention_prefix = f"<@{self.context.mentioning_slack_user_id}> " if self.context.mentioning_slack_user_id else ""
         header = f"{mention_prefix}Pull request opened."
 
+        buttons: list[dict[str, Any]] = [
+            {
+                "type": "button",
+                "text": {
+                    "type": "plain_text",
+                    "text": "View PR",
+                    "emoji": True,
+                },
+                "url": pr_url,
+            },
+        ]
+        if task_url:
+            buttons.append(
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Open in PostHog Code",
+                        "emoji": True,
+                    },
+                    "url": task_url,
+                }
+            )
+
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "View PR",
-                            "emoji": True,
-                        },
-                        "url": pr_url,
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Open in PostHog",
-                            "emoji": True,
-                        },
-                        "url": task_url,
-                    },
-                ],
-            },
+            {"type": "actions", "elements": buttons},
         ]
 
         try:
@@ -266,7 +270,7 @@ class SlackThreadHandler:
         except Exception as e:
             logger.warning("slack_post_thread_message_failed", error=str(e))
 
-    def post_completion(self, pr_url: str | None, task_url: str) -> None:
+    def post_completion(self, pr_url: str | None, task_url: str | None) -> None:
         """Post completion message with PR link."""
         if pr_url:
             header = "*Pull Request Created* :rocket:"
@@ -286,23 +290,25 @@ class SlackThreadHandler:
                     "url": pr_url,
                 }
             )
-        buttons.append(
-            {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": "Open in PostHog",
-                    "emoji": True,
-                },
-                "url": task_url,
-            }
-        )
+        if task_url:
+            buttons.append(
+                {
+                    "type": "button",
+                    "text": {
+                        "type": "plain_text",
+                        "text": "Open in PostHog Code",
+                        "emoji": True,
+                    },
+                    "url": task_url,
+                }
+            )
 
-        blocks.append({"type": "actions", "elements": buttons})
+        if buttons:
+            blocks.append({"type": "actions", "elements": buttons})
 
         self._delete_progress_and_post(header, blocks)
 
-    def post_error(self, error: str, task_url: str) -> None:
+    def post_error(self, error: str, task_url: str | None) -> None:
         """Post error message with link to PostHog for details."""
         header = "*Task Failed* :x:"
         error = _format_task_error(error)
@@ -311,45 +317,51 @@ class SlackThreadHandler:
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
             {"type": "section", "text": {"type": "mrkdwn", "text": truncated_error}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "See details in PostHog",
-                            "emoji": True,
-                        },
-                        "url": task_url,
-                    },
-                ],
-            },
         ]
+        if task_url:
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "See details in PostHog Code",
+                                "emoji": True,
+                            },
+                            "url": task_url,
+                        },
+                    ],
+                }
+            )
 
         self._delete_progress_and_post(f"{header}\n{truncated_error}", blocks)
 
-    def post_cancelled(self, task_url: str) -> None:
+    def post_cancelled(self, task_url: str | None) -> None:
         """Post cancelled message with link to PostHog for details."""
         header = "*Sandbox stopped* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "Open in PostHog",
-                            "emoji": True,
-                        },
-                        "url": task_url,
-                    },
-                ],
-            },
         ]
+        if task_url:
+            blocks.append(
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {
+                                "type": "plain_text",
+                                "text": "Open in PostHog Code",
+                                "emoji": True,
+                            },
+                            "url": task_url,
+                        },
+                    ],
+                }
+            )
 
         self._delete_progress_and_post(header, blocks)
 

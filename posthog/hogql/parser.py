@@ -2,6 +2,7 @@ import sys
 import copy
 import random
 import threading
+import importlib.metadata
 from collections.abc import Callable
 from enum import StrEnum
 from types import FrameType
@@ -188,11 +189,35 @@ RULE_TO_PARSE_FUNCTION: dict[HogQLParserBackend, dict[ParseRule, Callable]] = {
     },
 }
 
+
+def _parser_version(distribution: str) -> str:
+    """Installed version of a parser wheel, or "unknown" if it has no distribution metadata (editable/source build). Tagged on telemetry so old wheels can be filtered out."""
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+# Parser version per backend, resolved once at import. cpp/rust ship as wheels (`hogql-parser`, `hogql-parser-rs`);
+# the python ANTLR backend is vendored and has no standalone version.
+_BACKEND_VERSION: dict[HogQLParserBackend, str] = {
+    "cpp-json": _parser_version("hogql-parser"),
+    "rust-json": _parser_version("hogql-parser-rs"),
+    "rust-py": _parser_version("hogql-parser-rs"),
+    "python": "n/a",
+}
+
+# Parse durations span ~10μs (rust-py) to a few ms (cpp typical) to seconds (pathological queries). Default Prometheus
+# buckets bottom out at 5ms, so every sub-ms parse lands in the lowest bucket and histogram_quantile is useless at this
+# scale; the 1-2-5 progression below gives usable resolution from 5μs through 10s.
+_PARSE_DURATION_BUCKETS = (5e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3, 5e-3, 1e-2, 5e-2, 1e-1, 5e-1, 1, 5, 10)
+
 RULE_TO_HISTOGRAM: dict[ParseRule, Histogram] = {
     rule: Histogram(
         f"parse_{rule}_seconds",
         f"Time to parse {rule} expression",
-        labelnames=["backend"],
+        labelnames=["backend", "version"],
+        buckets=_PARSE_DURATION_BUCKETS,
     )
     for rule in (ParseRule.EXPR, ParseRule.ORDER_EXPR, ParseRule.SELECT, ParseRule.FULL_TEMPLATE_STRING)
 }
@@ -208,44 +233,63 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
     ParserMode.CPP_ONLY: ("cpp-json", None),
     ParserMode.RUST_ONLY: ("rust-json", None),
     ParserMode.CPP_WITH_RUST_SHADOW: ("cpp-json", "rust-json"),
+    ParserMode.CPP_WITH_RUST_PY_SHADOW: ("cpp-json", "rust-py"),
     ParserMode.RUST_WITH_CPP_SHADOW: ("rust-json", "cpp-json"),
     ParserMode.RUST_PY_ONLY: ("rust-py", None),
     ParserMode.RUST_PY_WITH_CPP_SHADOW: ("rust-py", "cpp-json"),
 }
 
-# Fraction of `*_shadow` parses that also run the secondary backend. Kept
-# low in production — the shadow parse is pure overhead on the request's
-# hot path. Tests run every parse through the shadow (see
-# `_shadow_sample_rate`).
-_SHADOW_SAMPLE_RATE = 0.01
+# Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
+# the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
+# surfaces and tighter coverage is needed. Tests always sample 100%.
+_SHADOW_SAMPLE_RATE = 0.001
 
 
 def _shadow_sample_rate() -> float:
-    """Tests force 100% shadow sampling to catch any divergence; production
-    keeps the 1% sample to bound per-request overhead."""
+    """Shadow sampling fraction: 100% in tests (every parse compared, regressions fail loud), `_SHADOW_SAMPLE_RATE` in
+    prod. Divergence behavior also differs by env (TEST raises, prod records) in `_run_shadow_comparison`."""
     return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
 
 
 def _resolve_parser_mode(
-    parser_mode: ParserMode | None, backend: HogQLParserBackend
+    parser_mode: ParserMode | None, backend: HogQLParserBackend | None
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    In TEST: an absent modifier defaults to `CPP_WITH_RUST_SHADOW` so the
-    test suite exercises both backends on every parse and raises on AST
-    divergence (see `_run_shadow_comparison`). Honour an explicit
-    `backend=` override (test factories / parity scripts) untouched.
+    With neither `parser_mode` nor an explicit `backend=` set, the default is
+    `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result is always
+    returned) and cpp runs as the shadow, sampled per `_shadow_sample_rate`
+    (100% in test, 0.1% in prod). The divergence behavior differs by
+    environment downstream (`_run_shadow_comparison`): TEST raises on any
+    mismatch, prod only reports it (never failing the request).
 
-    In prod: an absent modifier is treated as `cpp_only` — resolved here at
-    the call site, never written back onto the modifier, so the query
-    hash is unaffected. The explicitly-passed `backend` is honoured
-    (default `cpp-json`).
+    If the rust wheel failed to import (`_RUST_PARSER_AVAILABLE` is False)
+    the default falls back to cpp-only, so a broken wheel can't take the
+    parse path down; the unavailability is reported once at import time.
+
+    An explicit `backend=` override (test factories / parity scripts) is
+    honoured untouched and bypasses the shadow — this includes
+    `backend="cpp-json"`, which must NOT collapse into the default shadow
+    pair because tests rely on it to opt into cpp-only parsing.
+    Resolution happens here at the call site and is never written back
+    onto the modifier, so the query hash is unaffected.
+
+    `parser_mode` and `backend` are mutually exclusive: the first names a
+    primary+shadow pair, the second forces a single backend with no shadow.
+    Passing both is a caller error and raises, rather than silently letting
+    one win.
     """
-    if parser_mode is None:
-        if settings.TEST and backend == DEFAULT_BACKEND:
-            return _PARSER_MODE_BACKENDS[ParserMode.CPP_WITH_RUST_SHADOW]
+    if parser_mode is not None and backend is not None:
+        raise ValueError(
+            f"pass either parser_mode or backend, not both (got parser_mode={parser_mode}, backend={backend})"
+        )
+    if parser_mode is not None:
+        return _PARSER_MODE_BACKENDS[parser_mode]
+    if backend is not None:
         return backend, None
-    return _PARSER_MODE_BACKENDS[parser_mode]
+    if _RUST_PARSER_AVAILABLE:
+        return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
+    return DEFAULT_BACKEND, None
 
 
 class HogQLParserShadowMismatch(Exception):
@@ -254,11 +298,16 @@ class HogQLParserShadowMismatch(Exception):
     into a request — the primary backend's result is always returned."""
 
 
-_SHADOW_BACKEND_FAILURES = Counter(
-    "hogql_parser_shadow_backend_failures",
-    "Shadow-backend parses that threw an exception (packaging error, panic, etc.). "
-    "Captured but never propagated — primary backend's result is always returned.",
-    labelnames=["rule", "shadow"],
+# Shadowed-run telemetry (sampled; see `_run_shadow_comparison`). This counter adds the run count + agreement rate;
+# durations and their ratio come from the per-backend `parse_*_seconds` timer (the shadow runs on the already-done cpp
+# parse). `*_version` labels let results be filtered by parser wheel. The raw query behind a divergence can't be a
+# label, so it goes to error tracking via `capture_exception` (already a sink for query SQL on failures), not the logs.
+_SHADOW_COMPARISONS = Counter(
+    "hogql_parser_shadow_comparisons_total",
+    "Shadowed parser runs by outcome. Sum across results is the number of "
+    "shadowed runs; agreement rate is agree / that sum.",
+    # result: agree | disagree | shadow_rejected | shadow_error
+    labelnames=["rule", "result", "primary_version", "shadow_version"],
 )
 
 
@@ -270,70 +319,77 @@ def _run_shadow_comparison(
     primary_node: Any,
     start: int | None,
 ) -> None:
-    """Sample-rate-gated cross-backend parity check.
+    """Cross-backend parity check, gated by `_shadow_sample_rate`. Emits telemetry only for shadowed runs, and always
+    returns the primary result untouched.
 
-    In prod: a `_SHADOW_SAMPLE_RATE` (1%) sample of parses also runs the
-    shadow backend; a divergence or shadow-backend crash is captured to
-    error tracking and the primary result is returned untouched.
+    Increments `hogql_parser_shadow_comparisons_total` (run count + agreement rate, tagged by parser version). The
+    shadow runs on the already-done cpp parse (never parsed twice); durations and their ratio come from the per-backend
+    `parse_*_seconds` timer. The divergent query, which can't be a metric label, goes to error tracking via
+    `capture_exception`, not the logs.
 
-    In TEST: every parse runs through the shadow. Two failure classes
-    are distinguished:
-      - parser-class: shadow rejects (`BaseHogQLError`) input the primary
-        accepted, OR the two backends agree to parse but produce
-        different ASTs. Both raise in TEST so a regression fails loud.
-      - packaging-class: any other exception (`ImportError`,
-        `RuntimeError` from the stub, a PyO3 panic). NEVER propagates;
-        captured + counted only. A broken shadow wheel must not block
-        the primary parser's hot path or fail the test suite.
+    Prod records divergences and shadow crashes without raising. TEST raises on a divergence or a shadow that rejects
+    primary-accepted input; a packaging-class shadow failure (broken wheel, panic) is only counted. ASTs are compared
+    INCLUDING per-node `start` / `end` positions — divergent spans are flagged "position-only" for triage.
     """
     if random.random() >= _shadow_sample_rate():
         return
     test_mode = settings.TEST
+    rule_label = str(rule)
+    primary_version = _BACKEND_VERSION.get(primary_backend, "unknown")
+    shadow_version = _BACKEND_VERSION.get(shadow_backend, "unknown")
+
+    def _count(result: str) -> None:
+        _SHADOW_COMPARISONS.labels(
+            rule=rule_label, result=result, primary_version=primary_version, shadow_version=shadow_version
+        ).inc()
+
+    # Divergent query SQL rides error tracking (not the logs), the channel that already carries query SQL on failures.
+    divergence_properties = {
+        "hogql_parser_rule": rule_label,
+        "hogql_parser_primary": primary_backend,
+        "hogql_parser_shadow": shadow_backend,
+        "hogql_parser_primary_version": primary_version,
+        "hogql_parser_shadow_version": shadow_version,
+        "hogql_parser_statement": statement,
+    }
     try:
         shadow_node = _invoke_parser(shadow_backend, rule, statement, start)
     except BaseHogQLError as err:
-        # Parser-class failure: shadow rejects input that primary accepted.
-        # In TEST that's a regression we want to see.
-        _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
-        capture_exception(
-            err,
-            additional_properties={
-                "hogql_parser_rule": str(rule),
-                "hogql_parser_shadow": shadow_backend,
-                "hogql_parser_statement": statement,
-                "hogql_parser_shadow_throw": "true",
-            },
-        )
+        # Shadow rejects input the primary accepted: a divergence (raises in TEST).
+        _count("shadow_rejected")
+        capture_exception(err, additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"})
         if test_mode:
             raise
         return
     except Exception as err:
-        # Packaging-class failure (ImportError, stub RuntimeError, panic).
-        # Capture + count, never propagate, even in TEST.
-        _SHADOW_BACKEND_FAILURES.labels(rule=str(rule), shadow=shadow_backend).inc()
-        capture_exception(
-            err,
-            additional_properties={
-                "hogql_parser_rule": str(rule),
-                "hogql_parser_shadow": shadow_backend,
-                "hogql_parser_statement": statement,
-                "hogql_parser_shadow_throw": "true",
-            },
-        )
+        # Packaging-class failure (broken wheel / panic). Counted, never raised.
+        _count("shadow_error")
+        capture_exception(err, additional_properties={**divergence_properties, "hogql_parser_shadow_throw": "true"})
         return
-    if clear_locations(primary_node) == clear_locations(shadow_node):
+    # Positions are part of the contract — the printer and planner consume cpp's per-node `start` / `end` spans, so a
+    # span divergence is a real divergence. Compare full nodes; `clear_locations` is only used to classify a mismatch
+    # as position-only vs structural for triage. Dataclass `==` reports a false mismatch for NaN-bearing ASTs
+    # (`float("nan") != float("nan")`); repr is stable for NaN, so treat repr-equal as agreement too.
+    if primary_node == shadow_node or repr(primary_node) == repr(shadow_node):
+        _count("agree")
         return
-    mismatch = HogQLParserShadowMismatch(f"{rule} parser AST mismatch: {primary_backend} vs {shadow_backend}")
+    primary_cleared = clear_locations(primary_node)
+    shadow_cleared = clear_locations(shadow_node)
+    position_only = primary_cleared == shadow_cleared or repr(primary_cleared) == repr(shadow_cleared)
+    kind = "position-only" if position_only else "structural"
+    _count("disagree")
+    # Include the offending statement so a failing test (or 1%-sample capture) is self-describing — the raised
+    # exception is otherwise just "rule + backends". Truncate to keep the message bounded; the full statement is
+    # also attached as a capture property via `divergence_properties`.
+    excerpt = statement if len(statement) <= 2000 else statement[:2000] + "…(truncated)"
+    mismatch = HogQLParserShadowMismatch(
+        f"{rule} parser AST mismatch ({kind}): {primary_backend} vs {shadow_backend}\nstatement: {excerpt!r}"
+    )
     if test_mode:
         raise mismatch
     capture_exception(
         mismatch,
-        additional_properties={
-            "hogql_parser_rule": str(rule),
-            "hogql_parser_primary": primary_backend,
-            "hogql_parser_shadow": shadow_backend,
-            "hogql_parser_statement": statement,
-        },
+        additional_properties={**divergence_properties, "hogql_parser_position_only_mismatch": position_only},
     )
 
 
@@ -432,7 +488,7 @@ def _invoke_parser(backend: HogQLParserBackend, rule: ParseRule, statement: str,
     histogram = RULE_TO_HISTOGRAM.get(rule)
     if histogram is None:
         return fn(statement)
-    with histogram.labels(backend=backend).time():
+    with histogram.labels(backend=backend, version=_BACKEND_VERSION.get(backend, "unknown")).time():
         return fn(statement, start) if rule == ParseRule.EXPR else fn(statement)
 
 
@@ -522,7 +578,7 @@ def parse_string_template(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Call:
@@ -555,7 +611,7 @@ def parse_expr(
     start: int | None = 0,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Expr:
@@ -579,7 +635,7 @@ def parse_order_expr(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.OrderExpr:
@@ -601,7 +657,7 @@ def parse_select(
     placeholders: dict[str, ast.Expr] | None = None,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -623,7 +679,7 @@ def parse_program(
     source: str,
     timings: HogQLTimings | None = None,
     *,
-    backend: HogQLParserBackend = DEFAULT_BACKEND,
+    backend: HogQLParserBackend | None = None,
     parser_mode: ParserMode | None = None,
     cache_origin: CacheOrigin = CacheOrigin.AUTO,
 ) -> ast.Program:
@@ -1037,6 +1093,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
         if ctx.settingsClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.settingsClause()")
+        # `selectStmt`-level `(USING? sampleClause)?` is DuckDB's `USING SAMPLE`, which HogQL has no AST home for (only table-level `JoinExprTable` SAMPLE lands on `JoinExpr.sample`); reject rather than silently drop.
+        if ctx.sampleClause():
+            raise NotImplementedError(f"Unsupported: SelectStmt.sampleClause()")
 
         return select_query
 
