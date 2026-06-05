@@ -322,17 +322,17 @@ class TestCalculateActivity(BaseTest):
 
     def test_bad_metric_type_fails_at_calculation(self):
         # Legacy metrics never reach this workflow, so there's no discovery-time type guard; an unexpected
-        # metric_type raises while building the metric and surfaces as a calculation-step failure.
+        # metric_type raises while building the metric. The activity records the failure to metric_errors
+        # and re-raises so Temporal's retry policy can handle potentially transient errors.
         exp = self._experiment(
             flag_key="calc-badtype",
             metrics=[{"uuid": "m-bad", "metric_type": "nonsense", "kind": "ExperimentMetric"}],
         )
         recalc = self._recalc(exp, metric_uuids=["m-bad"])
 
-        result = _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
+        with pytest.raises(KeyError):
+            _calculate(exp.id, "m-bad", str(recalc.id), _QUERY_TO)
 
-        assert result.success is False
-        assert result.error_step == "calculation"
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
         assert "m-bad" in recalc.metric_errors
@@ -350,7 +350,8 @@ class TestCalculateActivity(BaseTest):
     def test_saved_metric_is_resolvable(self):
         # A saved/shared metric (uuid only on saved_metric.query) must be found by the calc lookup; otherwise it
         # would wrongly fail at the discovery step. We force a calculation error so the run reaches the metric via
-        # the saved-metric branch but fails for a non-lookup reason.
+        # the saved-metric branch but fails for a non-lookup reason. The runtime error is re-raised so Temporal
+        # can retry; the failure is recorded to metric_errors first.
         exp = self._experiment(flag_key="calc-saved")
         saved = ExperimentSavedMetric.objects.create(
             team=self.team,
@@ -362,11 +363,10 @@ class TestCalculateActivity(BaseTest):
 
         with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-            result = _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
+            with pytest.raises(RuntimeError, match="kaboom"):
+                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
 
-        # Found the saved metric (did not fail at discovery) but failed during calculation.
-        assert result.success is False
-        assert result.error_step == "calculation"
+        # Found the saved metric (did not fail at discovery), failure was recorded before re-raise.
         recalc.refresh_from_db()
         assert "s1" in recalc.metric_errors
 
@@ -448,7 +448,10 @@ class TestCalculateActivity(BaseTest):
                     "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
                 ) as mock_runner:
                     mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
-                    _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
+                    # Calc-step failures now re-raise so Temporal can retry transient errors. The record is
+                    # written before the re-raise, so the assertions below still hold across attempts.
+                    with pytest.raises(RuntimeError, match="kaboom"):
+                        _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
             else:
                 _calculate(exp.id, metric_uuid, str(recalc.id), _QUERY_TO)
 
@@ -517,6 +520,8 @@ class TestCalculateActivity(BaseTest):
         assert exc_info.value.non_retryable is True
 
     def test_unexpected_error_calls_capture_exception_and_caps_message(self):
+        # Unexpected exceptions get captured to Sentry and re-raised for Temporal retry. The stored result row
+        # carries the capped error message so the UI sees what happened even though the activity re-raised.
         exp = self._experiment(flag_key="calc-capture", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -525,12 +530,10 @@ class TestCalculateActivity(BaseTest):
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
         ):
             mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
-            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            with pytest.raises(RuntimeError):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
-        assert result.success is False
         assert mock_capture.called
-        assert result.error_message is not None
-        assert len(result.error_message) <= 2000
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.status == ExperimentMetricResult.Status.FAILED
         assert row.error_message is not None

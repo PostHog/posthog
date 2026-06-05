@@ -206,7 +206,17 @@ def _find_metric_dict(experiment: Experiment, metric_uuid: str) -> dict | None:
     for link in experiment.experimenttosavedmetric_set.select_related("saved_metric").all():
         saved_query = link.saved_metric.query
         if saved_query and saved_query.get("uuid") == metric_uuid:
-            return saved_query
+            # Merge per-experiment breakdowns from link.metadata into the saved query, mirroring the
+            # daily-warming activity. Without this, recalc would compute the unbroken-down version of a
+            # saved metric the experiment has configured with breakdowns.
+            metadata = link.metadata or {}
+            return {
+                **saved_query,
+                "breakdownFilter": {
+                    **(saved_query.get("breakdownFilter") or {}),
+                    "breakdowns": metadata.get("breakdowns") or [],
+                },
+            }
 
     return None
 
@@ -397,6 +407,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
             return _fail(recalculation_id, metric_uuid, "calculation", message)
 
         except Exception as e:
+            # Could be transient (ClickHouse connection blip, network glitch, or other infrastructure issue).
+            # Record the failure so the UI sees it, then re-raise so Temporal's retry policy gets a chance.
+            # If all attempts fail, the workflow's gather(return_exceptions=True) counts this metric as failed.
+            # StatisticError and ZeroDivisionError are handled above as permanent and return success=False.
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             capture_exception(
                 e,
@@ -416,9 +430,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 result=None,
                 error_message=message,
             )
+            _record_failure(recalculation_id, metric_uuid, "calculation", message)
             logger.exception(
                 "Experiment metric recalculation failed",
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
             )
-            return _fail(recalculation_id, metric_uuid, "calculation", message)
+            raise
