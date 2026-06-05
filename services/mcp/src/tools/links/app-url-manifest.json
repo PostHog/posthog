@@ -20,8 +20,8 @@
         "scope": "project"
     },
     "activity": {
-        "template": "/activity/explore",
-        "params": [],
+        "template": "/activity/{tab}",
+        "params": ["tab"],
         "scope": "project"
     },
     "advancedActivityLogs": {
@@ -695,7 +695,7 @@
         "scope": "project"
     },
     "insightNewHogQL": {
-        "template": "/sql",
+        "template": "/insights/new",
         "params": [],
         "scope": "project"
     },
