@@ -50,6 +50,13 @@ for the wider dev flow.
    `validate-spec.ts`, otherwise the runner will reject sessions for
    revisions the janitor already froze.
 
+5. **No `process.env` reads + one HttpClient.** Env access goes
+   through `loadAgentJanitorConfig` at boot; the typed `Config` flows
+   from there. Any outbound HTTP added later must go through the
+   shared `HttpClient` (none today since reaper uses the Modal SDK).
+   See agent-shared/CLAUDE.md rules 7-8 for the full story + the
+   lint rule that enforces it.
+
 ## When you change something here
 
 Authoring + sweep e2e behavior is covered in

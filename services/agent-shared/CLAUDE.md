@@ -74,6 +74,33 @@ TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
    markdown, regex-glob, etc. — if it's load-bearing in prod, swap
    in the off-the-shelf option even when the hand-rolled version "works."
 
+7. **No `process.env` reads outside the typed config loader.** Every
+   env var the agent services depend on goes through
+   `PlatformConfigSchema` (here) or the service's
+   `extend(...)` schema (in each service's `src/config.ts`), with an
+   entry in `PLATFORM_ENV_KEY_MAP` / the service's `ENV_KEY_MAP`.
+   Service `index.ts` reads `loadConfigFromEnv(...)` once at boot and
+   passes the typed object onwards. Don't reach for `process.env.X`
+   inline — it bypasses the schema (no default, no validation, no
+   prod fail-fast) and the value disappears from the deploy-runbook
+   list. The platform-shared fields (DB URLs, REDIS_URL,
+   ENCRYPTION_SALT_KEYS, HTTPS_PROXY, …) belong here so every service
+   gets them for free; service-specific knobs go on the service's own
+   schema. Also forbidden in tests: pass an explicit `env` object to
+   `loadConfigFromEnv` instead of mutating `process.env`.
+
+8. **One `HttpClient` for every outbound fetch.** `HttpClient` (here)
+   wraps `undici.fetch` with a smokescreen `ProxyAgent` dispatcher
+   when `config.httpsProxy` is set, plus a default timeout. Every
+   tool, gateway client, MCP transport, and identity bridge dispatches
+   through it — bare global `fetch` does **not** read `HTTPS_PROXY`,
+   so a forgotten `fetch(...)` silently bypasses smokescreen in prod.
+   The lint rule in `.oxlintrc.json` flags bare `fetch` across
+   `services/agent-*/src/**/*.ts` (test files exempt). Wire it once
+   in each service's `index.ts`, pass it through `WorkerDeps` /
+   `BridgeSlackUserDeps` / `HttpGatewayClientOpts`, and surface it on
+   `ToolContext.http` for native tools.
+
 ## Pointers
 
 - **Local dev + MCP local + e2e overview** —

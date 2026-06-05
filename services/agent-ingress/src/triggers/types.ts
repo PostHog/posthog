@@ -21,7 +21,7 @@
 
 import { Router } from 'express'
 
-import type { IdentityStore, SessionEventBus, SessionQueue, Trigger } from '@posthog/agent-shared'
+import type { HttpFetcher, IdentityStore, SessionEventBus, SessionQueue, Trigger } from '@posthog/agent-shared'
 
 import type { AuthProvider } from '../enqueue/auth'
 import type { RevisionResolver } from '../routing/resolver'
@@ -37,6 +37,13 @@ export interface TriggerDeps {
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
     signingSecretResolver: SlackSigningSecretResolver
     identities?: IdentityStore
+    /**
+     * Outbound HTTP — currently only the slack trigger consumes it (for
+     * the identity bridge's Slack `users.info` call). Wired at the
+     * ingress entrypoint so the call dispatches through smokescreen in
+     * prod alongside every other fetch.
+     */
+    http?: HttpFetcher
 }
 
 /** Pulled from the `Trigger` discriminator in `@posthog/agent-shared` so this

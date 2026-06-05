@@ -5,6 +5,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
+    HttpClient,
     InProcessSandboxPool,
     McpRef,
     MemoryBundleStore,
@@ -118,6 +119,8 @@ function makeDeps(rev: AgentRevision, over: Partial<AgentToolDeps> = {}): AgentT
         secrets: {},
         bundle: new MemoryBundleStore(),
         log: () => undefined,
+        http: new HttpClient(),
+        posthogApiBaseUrl: 'http://localhost:8010',
         ...over,
     }
 }

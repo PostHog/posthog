@@ -33,6 +33,7 @@ import {
     AgentSession,
     BundleStore,
     CredentialBroker,
+    HttpFetcher,
     IntegrationCredentials,
     MemoryStore,
     TabularStore,
@@ -138,6 +139,17 @@ export interface AgentToolDeps {
      * `docs/agent-platform/plans/runtime-mcps.md` for the wider design.
      */
     mcpClients?: OpenedMcp[]
+    /**
+     * Outbound HTTP client every native tool's `ctx.http` points at. Wired
+     * once at the runner entrypoint from `HTTPS_PROXY` env (smokescreen in
+     * prod, direct in dev). Required — tools assume the seam is present.
+     */
+    http: HttpFetcher
+    /**
+     * Base URL for the PostHog API the agent-applications-* tools call
+     * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
+     */
+    posthogApiBaseUrl: string
 }
 
 export interface BuiltAgentTools {
@@ -418,6 +430,8 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
               }
             : undefined,
+        http: deps.http,
+        posthogApiBaseUrl: deps.posthogApiBaseUrl,
     }
 }
 

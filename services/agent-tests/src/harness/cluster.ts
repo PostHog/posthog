@@ -53,6 +53,7 @@ import {
     PgSessionQueue,
     S3JsonlTabularStore,
     EncryptedFields,
+    HttpClient,
     S3MemoryStore,
     SecretBroker,
     TEST_S3_BUCKET,
@@ -188,6 +189,13 @@ export interface BuildClusterOpts {
      * implementation to exercise the rejection paths.
      */
     integrationHostValidator?: IntegrationHostValidator
+    /**
+     * Substitute the outbound HTTP client the runner threads into
+     * `ToolContext.http`. Tests that want to assert on outbound headers
+     * or short-circuit the network pass a `{ fetch: vi.fn(...) }` here.
+     * Defaults to a real `HttpClient` with no proxy (direct fetch).
+     */
+    http?: import('@posthog/agent-shared').HttpFetcher
 }
 
 let _pool: Pool | null = null
@@ -294,6 +302,13 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // exercise integration auth (none in the suite yet) can override.
         integrationHostValidator: opts.integrationHostValidator ?? (() => true),
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
+        // Real HttpClient with no proxy by default — tests that exercise
+        // outbound HTTP hit real localhost servers (matches the wider harness
+        // stance of real-everywhere except the model layer). Tests that
+        // want to assert on outbound headers / short-circuit the network
+        // override via `BuildClusterOpts.http`.
+        http: opts.http ?? new HttpClient(),
+        posthogApiBaseUrl: 'http://localhost:8010',
     })
 
     // Real-flow Slack signing secret resolver: decrypts the agent's

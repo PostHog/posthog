@@ -6,7 +6,14 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 
-import { buildTestStore, newTestPrefix, S3MemoryStore, type ToolContext, wipeTestPrefix } from '@posthog/agent-shared'
+import {
+    buildTestStore,
+    HttpClient,
+    newTestPrefix,
+    S3MemoryStore,
+    type ToolContext,
+    wipeTestPrefix,
+} from '@posthog/agent-shared'
 
 import { memoryDeleteV1, memoryListV1, memoryReadV1, memorySearchV1, memoryUpdateV1, memoryWriteV1 } from './memory'
 
@@ -19,6 +26,8 @@ function makeCtx(store: S3MemoryStore | undefined): ToolContext {
         secret: () => undefined,
         log: () => undefined,
         memoryStore: store,
+        http: new HttpClient(),
+        posthogApiBaseUrl: 'http://localhost:8010',
     }
 }
 

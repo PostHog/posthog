@@ -113,6 +113,13 @@ export interface BuildAppOpts {
      * a broker between processes but loses creds on a worker restart.
      */
     credentialBroker?: import('@posthog/agent-shared').CredentialBroker
+    /**
+     * Outbound HTTP for any trigger's outbound calls (currently only the
+     * slack identity bridge). Wired at the ingress entrypoint from
+     * `config.httpsProxy` so the call dispatches through smokescreen in
+     * prod. Optional — falls back to a direct HttpClient in tests.
+     */
+    http?: import('@posthog/agent-shared').HttpFetcher
 }
 
 export function buildApp(opts: BuildAppOpts): Express {
@@ -163,6 +170,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         integrations: opts.integrations ?? null,
         posthogDb: opts.posthogDb ?? null,
         broker: opts.credentialBroker,
+        http: opts.http,
     }
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

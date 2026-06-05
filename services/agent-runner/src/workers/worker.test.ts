@@ -15,6 +15,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
+    HttpClient,
     InProcessSandboxPool,
     MemoryBundleStore,
     MemoryRevisionStore,
@@ -90,6 +91,8 @@ describe('Worker', () => {
         await queue.enqueue(session)
 
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,
@@ -154,6 +157,8 @@ describe('Worker', () => {
 
         const pool = new InProcessSandboxPool()
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,
@@ -243,6 +248,8 @@ describe('Worker', () => {
         }
 
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,
@@ -307,6 +314,8 @@ describe('Worker', () => {
         await queue.enqueue(session)
 
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,
@@ -374,6 +383,8 @@ describe('Worker', () => {
         } as unknown as typeof revisions
 
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions: throwingRevisions,
             bundle,
@@ -500,6 +511,8 @@ describe('Worker', () => {
             }
 
             const worker = new Worker({
+                http: new HttpClient(),
+                posthogApiBaseUrl: 'http://localhost:8010',
                 queue,
                 revisions,
                 bundle,
@@ -524,6 +537,8 @@ describe('Worker', () => {
 
         let claimCalls = 0
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,

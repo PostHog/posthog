@@ -18,7 +18,14 @@
 import { Request } from 'express'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
-import { AgentApplication, AuthMode, CredentialMap, SessionPrincipal } from '@posthog/agent-shared'
+import {
+    AgentApplication,
+    AuthMode,
+    CredentialMap,
+    HttpClient,
+    HttpFetcher,
+    SessionPrincipal,
+} from '@posthog/agent-shared'
 
 import { AuthVerifier, publicVerifier, readBearer, VerifyResult } from './auth'
 
@@ -47,16 +54,20 @@ export interface PosthogIdentityIntrospector {
 export interface DefaultIntrospectorOpts {
     /** Base URL for the PostHog API. Default: `http://localhost:8010`. */
     baseUrl?: string
-    /** Optional override for `fetch` — tests inject. */
-    fetchImpl?: typeof fetch
+    /**
+     * Outbound HTTP. Defaults to a direct HttpClient when omitted —
+     * production wires the ingress-shared HttpClient so the introspect
+     * call routes through smokescreen alongside every other fetch.
+     */
+    http?: HttpFetcher
 }
 
 export function defaultPosthogIntrospector(opts: DefaultIntrospectorOpts = {}): PosthogIdentityIntrospector {
     const baseUrl = (opts.baseUrl ?? 'http://localhost:8010').replace(/\/+$/, '')
-    const f = opts.fetchImpl ?? fetch
+    const http = opts.http ?? new HttpClient()
     return {
         async introspect(bearer: string): Promise<PosthogMeResponse | null> {
-            const res = await f(`${baseUrl}/api/users/@me/`, {
+            const res = await http.fetch(`${baseUrl}/api/users/@me/`, {
                 headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
             })
             if (res.status === 401 || res.status === 403) {

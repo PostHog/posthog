@@ -9,6 +9,7 @@
 
 import * as vm from 'vm'
 
+import { HttpClient, type HttpFetcher } from '../runtime/http-client'
 import { AcquireOpts, InvokeRequest, InvokeResponse, Sandbox, SandboxPool, SandboxToolLoad } from './sandbox'
 
 interface LoadedAction {
@@ -37,6 +38,8 @@ interface InProcessSandboxOpts {
     nonces: Record<string, string>
     /** Optional plaintext secret resolution for `secrets.value()` (escape hatch). */
     secretValues?: Record<string, string>
+    /** Outbound HTTP — same dispatcher native tools use. Falls back to direct fetch when omitted. */
+    http?: HttpFetcher
 }
 
 class InProcessSandbox implements Sandbox {
@@ -44,12 +47,14 @@ class InProcessSandbox implements Sandbox {
     private readonly tools: Map<string, LoadedTool>
     private readonly nonces: Record<string, string>
     private readonly secretValues: Record<string, string>
+    private readonly http: HttpFetcher
     readonly sessionId: string
 
     constructor(opts: InProcessSandboxOpts) {
         this.sessionId = opts.sessionId
         this.nonces = opts.nonces
         this.secretValues = opts.secretValues ?? {}
+        this.http = opts.http ?? new HttpClient()
         this.tools = new Map(opts.tools.map((t) => [t.id, this.loadTool(t)]))
     }
 
@@ -59,6 +64,7 @@ class InProcessSandbox implements Sandbox {
     }
 
     private loadTool(load: SandboxToolLoad): LoadedTool {
+        const guestFetch = (url: string, init?: RequestInit): Promise<Response> => this.http.fetch(url, init)
         const sandbox: Record<string, unknown> = {
             module: { exports: {} },
             exports: {},
@@ -74,7 +80,7 @@ class InProcessSandbox implements Sandbox {
             TextDecoder,
             Buffer,
             JSON,
-            fetch,
+            fetch: guestFetch,
         }
         sandbox.global = sandbox
         const ctx = vm.createContext(sandbox)
@@ -129,7 +135,7 @@ class InProcessSandbox implements Sandbox {
                 },
             },
             http: {
-                fetch: async (url: string, init?: RequestInit) => fetch(url, init),
+                fetch: (url: string, init?: RequestInit) => this.http.fetch(url, init),
             },
         }
     }
@@ -179,9 +185,15 @@ export class InProcessSandboxPool implements SandboxPool {
     readonly kind = 'in-process' as const
     private readonly bySession = new Map<string, InProcessSandbox>()
     private readonly secretValuesProvider?: (sessionId: string) => Record<string, string>
+    private readonly http?: HttpFetcher
 
-    constructor(opts?: { secretValuesProvider?: (sessionId: string) => Record<string, string> }) {
+    constructor(opts?: {
+        secretValuesProvider?: (sessionId: string) => Record<string, string>
+        /** Outbound HTTP dispatcher for guest tool code (`fetch` + `ctx.http.fetch`). */
+        http?: HttpFetcher
+    }) {
         this.secretValuesProvider = opts?.secretValuesProvider
+        this.http = opts?.http
     }
 
     async acquireForSession(opts: AcquireOpts): Promise<Sandbox> {
@@ -195,6 +207,7 @@ export class InProcessSandboxPool implements SandboxPool {
             tools: opts.tools,
             nonces: opts.nonces,
             secretValues: this.secretValuesProvider ? this.secretValuesProvider(opts.sessionId) : {},
+            http: this.http,
         })
         this.bySession.set(opts.sessionId, sandbox)
         return sandbox

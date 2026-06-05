@@ -31,7 +31,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js'
 
-import { IntegrationCredentials, McpRef } from '@posthog/agent-shared'
+import { HttpFetcher, IntegrationCredentials, McpRef } from '@posthog/agent-shared'
 
 /** Remote tool descriptor as returned by `client.listTools()`. */
 export interface RemoteMcpTool {
@@ -110,14 +110,29 @@ export interface OpenMcpClientsDeps {
      * to set this at boot.
      */
     devMcpBearerToken?: string
+    /**
+     * Outbound HTTP client. Passed as the SDK transport's `fetch` option so
+     * MCP traffic dispatches through the same proxy as native tools (in
+     * prod that's smokescreen). When omitted, the SDK uses its built-in
+     * global `fetch` — fine for tests, never set in prod.
+     */
+    http?: HttpFetcher
 }
 
 const DEFAULT_CLIENT_INFO = { name: 'posthog-agent-runner', version: '0.1.0' }
 
 const noopLog: NonNullable<OpenMcpClientsDeps['log']> = () => {}
 
-const defaultTransportFactory: McpTransportFactory = ({ url, headers }) =>
-    new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers } })
+function makeDefaultTransportFactory(http?: HttpFetcher): McpTransportFactory {
+    // Bind ahead of time so each transport call dispatches through the same
+    // HttpClient — undefined falls back to the SDK's built-in global fetch.
+    const boundFetch = http ? http.fetch.bind(http) : undefined
+    return ({ url, headers }) =>
+        new StreamableHTTPClientTransport(new URL(url), {
+            requestInit: { headers },
+            ...(boundFetch ? { fetch: boundFetch } : {}),
+        })
+}
 
 /**
  * Open one MCP client per entry in `refs`, returning a stable list plus a
@@ -133,7 +148,7 @@ export async function openMcpClients(
     }
 
     const log = deps.log ?? noopLog
-    const transportFactory = deps.transportFactory ?? defaultTransportFactory
+    const transportFactory = deps.transportFactory ?? makeDefaultTransportFactory(deps.http)
     const clientInfo = deps.clientInfo ?? DEFAULT_CLIENT_INFO
 
     // Parallel open — N refs would otherwise stack N round-trips at session

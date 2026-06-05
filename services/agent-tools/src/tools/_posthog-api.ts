@@ -17,13 +17,12 @@
  *     (response body trimmed to 400 chars for the model context).
  *   - Network error → propagates the original.
  *
- * Base URL: `POSTHOG_API_BASE_URL` env, defaulting to
- * `http://localhost:8010` for dev. Prod sets per-region.
+ * Base URL is supplied via `ctx.posthogApiBaseUrl` — wired from
+ * `config.posthogApiBaseUrl` at runner boot. Dev defaults to
+ * `http://localhost:8010` via `PlatformConfigSchema`.
  */
 
 import type { ToolContext } from '@posthog/agent-shared'
-
-const POSTHOG_API_BASE_URL = (process.env.POSTHOG_API_BASE_URL ?? 'http://localhost:8010').replace(/\/+$/, '')
 
 export interface CallPosthogApiOpts {
     method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
@@ -50,7 +49,8 @@ export async function callPosthogApi<T = unknown>(ctx: ToolContext, opts: CallPo
               .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
               .join('&')
         : ''
-    const url = `${POSTHOG_API_BASE_URL}${opts.path}${qs}`
+    const baseUrl = ctx.posthogApiBaseUrl.replace(/\/+$/, '')
+    const url = `${baseUrl}${opts.path}${qs}`
     const init: RequestInit = {
         method: opts.method,
         headers: {
@@ -60,7 +60,7 @@ export async function callPosthogApi<T = unknown>(ctx: ToolContext, opts: CallPo
         },
         ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
     }
-    const res = await fetch(url, init)
+    const res = await ctx.http.fetch(url, init)
     if (!res.ok) {
         const body = await res.text().catch(() => '')
         throw new Error(`posthog_api_error: ${res.status} ${body.slice(0, 400)}`)

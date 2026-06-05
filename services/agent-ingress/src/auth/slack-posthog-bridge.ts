@@ -25,7 +25,7 @@
 
 import type { Pool } from 'pg'
 
-import { AgentUser, IdentityStore, IntegrationStore } from '@posthog/agent-shared'
+import { AgentUser, HttpClient, HttpFetcher, IdentityStore, IntegrationStore } from '@posthog/agent-shared'
 
 const SLACK_USERS_INFO_URL = 'https://slack.com/api/users.info'
 
@@ -41,6 +41,13 @@ export interface BridgeSlackUserDeps {
      * `fetch` against `slack.com/api/users.info`.
      */
     fetchSlackEmail?: (token: string, slackUserId: string, signal: AbortSignal) => Promise<string | null>
+    /**
+     * Outbound HTTP client for the default fetcher. Defaults to a direct
+     * HttpClient when omitted — wire from the ingress entrypoint so the
+     * Slack lookup dispatches through smokescreen in prod. Ignored when
+     * `fetchSlackEmail` is set (tests).
+     */
+    http?: HttpFetcher
     timeoutMs?: number
 }
 
@@ -74,7 +81,9 @@ export async function bridgeSlackToPosthogUser(
             await deps.identities.setPosthogUserId(agentUser.id, null)
             return null
         }
-        const fetcher = deps.fetchSlackEmail ?? defaultFetchSlackEmail
+        const http = deps.http ?? new HttpClient()
+        const fetcher =
+            deps.fetchSlackEmail ?? ((token, userId, signal) => defaultFetchSlackEmail(http, token, userId, signal))
         const email = await fetcher(credentials.access_token, slackUserId, ctrl.signal)
         if (!email) {
             await deps.identities.setPosthogUserId(agentUser.id, null)
@@ -92,8 +101,13 @@ export async function bridgeSlackToPosthogUser(
     }
 }
 
-async function defaultFetchSlackEmail(token: string, slackUserId: string, signal: AbortSignal): Promise<string | null> {
-    const res = await fetch(`${SLACK_USERS_INFO_URL}?user=${encodeURIComponent(slackUserId)}`, {
+async function defaultFetchSlackEmail(
+    http: HttpFetcher,
+    token: string,
+    slackUserId: string,
+    signal: AbortSignal
+): Promise<string | null> {
+    const res = await http.fetch(`${SLACK_USERS_INFO_URL}?user=${encodeURIComponent(slackUserId)}`, {
         method: 'GET',
         headers: { authorization: `Bearer ${token}` },
         signal,

@@ -1,4 +1,4 @@
-import { defineNativeTool, IntegrationCredentials, Type } from '@posthog/agent-shared'
+import { defineNativeTool, HttpFetcher, IntegrationCredentials, Type } from '@posthog/agent-shared'
 
 function slackAuth(creds: IntegrationCredentials | undefined): string {
     if (!creds || !creds.access_token) {
@@ -7,8 +7,13 @@ function slackAuth(creds: IntegrationCredentials | undefined): string {
     return creds.access_token
 }
 
-async function slackCall(token: string, method: string, body: Record<string, unknown>): Promise<unknown> {
-    const res = await fetch(`https://slack.com/api/${method}`, {
+async function slackCall(
+    http: HttpFetcher,
+    token: string,
+    method: string,
+    body: Record<string, unknown>
+): Promise<unknown> {
+    const res = await http.fetch(`https://slack.com/api/${method}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json; charset=utf-8',
@@ -88,7 +93,7 @@ export const slackPostMessageV1 = defineNativeTool({
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackAuth(ctx.integrations[args.team_integration_id])
-        const res = (await slackCall(token, 'chat.postMessage', {
+        const res = (await slackCall(ctx.http, token, 'chat.postMessage', {
             channel: args.channel,
             text: args.text,
             thread_ts: args.thread_ts,
@@ -111,7 +116,7 @@ export const slackUpdateMessageV1 = defineNativeTool({
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackAuth(ctx.integrations[args.team_integration_id])
-        await slackCall(token, 'chat.update', { channel: args.channel, ts: args.ts, text: args.text })
+        await slackCall(ctx.http, token, 'chat.update', { channel: args.channel, ts: args.ts, text: args.text })
         return { ok: true }
     },
 })
@@ -148,7 +153,7 @@ export const slackReadChannelV1 = defineNativeTool({
         if (args.cursor) {
             body.cursor = args.cursor
         }
-        const res = (await slackCall(token, 'conversations.history', body)) as {
+        const res = (await slackCall(ctx.http, token, 'conversations.history', body)) as {
             messages?: RawSlackMessage[]
             has_more?: boolean
             response_metadata?: { next_cursor?: string }
@@ -190,7 +195,7 @@ export const slackReadThreadV1 = defineNativeTool({
         if (args.cursor) {
             body.cursor = args.cursor
         }
-        const res = (await slackCall(token, 'conversations.replies', body)) as {
+        const res = (await slackCall(ctx.http, token, 'conversations.replies', body)) as {
             messages?: RawSlackMessage[]
             has_more?: boolean
             response_metadata?: { next_cursor?: string }
@@ -218,7 +223,11 @@ export const slackReactV1 = defineNativeTool({
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackAuth(ctx.integrations[args.team_integration_id])
-        await slackCall(token, 'reactions.add', { channel: args.channel, timestamp: args.ts, name: args.name })
+        await slackCall(ctx.http, token, 'reactions.add', {
+            channel: args.channel,
+            timestamp: args.ts,
+            name: args.name,
+        })
         return { ok: true }
     },
 })

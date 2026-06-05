@@ -15,6 +15,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
+    HttpClient,
     McpRef,
     MemoryApprovalStore,
     MemoryBundleStore,
@@ -94,6 +95,8 @@ async function run(
         sandbox: null,
         integrations: {},
         secrets: {},
+        http: new HttpClient(),
+        posthogApiBaseUrl: 'http://localhost:8010',
         ...over,
     })
 }

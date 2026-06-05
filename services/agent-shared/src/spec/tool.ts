@@ -20,6 +20,7 @@ import { Static, TSchema, Type } from 'typebox'
 import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
+import type { HttpFetcher } from '../runtime/http-client'
 
 export type { Static, TSchema }
 
@@ -87,6 +88,21 @@ export interface ToolContext {
     credentials?: {
         resolve(target: string): Promise<Credential | null>
     }
+    /**
+     * Outbound HTTP client. In prod this routes through smokescreen via
+     * an undici ProxyAgent; in dev/test it's a direct fetch. **All tool
+     * outbound HTTP must go through this** — Node's `fetch` does not
+     * read HTTP_PROXY env vars, so bare `fetch(...)` calls silently
+     * bypass smokescreen. See `HttpClient` in agent-shared/runtime.
+     */
+    http: HttpFetcher
+    /**
+     * Base URL for the PostHog API the `@posthog/agent-applications-*`
+     * and other PostHog-proxying tools call against. Wired from
+     * `config.posthogApiBaseUrl` at runner boot — no `process.env`
+     * reads inside tool code.
+     */
+    posthogApiBaseUrl: string
 }
 
 export interface IntegrationCredentials {

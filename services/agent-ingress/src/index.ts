@@ -123,6 +123,7 @@ async function main(): Promise<void> {
         posthogDb,
         authProvider,
         credentialBroker,
+        http,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port, bus: bus.constructor.name }, 'listening')

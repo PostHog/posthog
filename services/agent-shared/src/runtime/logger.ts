@@ -23,6 +23,14 @@ import pino, { Logger as PinoLogger } from 'pino'
 
 export type Logger = PinoLogger
 
+/**
+ * Documented exception to the "no process.env outside the typed config loader"
+ * rule (agent-shared/CLAUDE.md rule 7). The logger is the bootstrap — it
+ * needs a level before any service has loaded its config, and importing the
+ * config schema from here would create a circular dependency (every config
+ * loader logs validation errors). Tests are caught by `VITEST=true`, which
+ * vitest sets automatically; prod sets `LOG_LEVEL=info` via the chart.
+ */
 function defaultLevel(): string {
     if (process.env.LOG_LEVEL) {
         return process.env.LOG_LEVEL

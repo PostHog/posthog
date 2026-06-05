@@ -14,6 +14,7 @@ import { z } from 'zod'
 
 import {
     AgentApplication,
+    HttpFetcher,
     IdentityStore,
     IntegrationStore,
     SessionPrincipal,
@@ -58,6 +59,13 @@ export interface SlackTriggerDeps {
     integrations?: IntegrationStore | null
     /** Direct posthog DB pool for the bridge's `posthog_user` email lookup. */
     posthogDb?: Pool | null
+    /**
+     * Outbound HTTP for the Slack identity bridge's `users.info` lookup.
+     * Wired from the ingress entrypoint so the call dispatches through
+     * smokescreen in prod alongside every other fetch. Optional — falls
+     * back to a direct HttpClient when absent (harness path).
+     */
+    http?: HttpFetcher
 }
 
 export function slackRouter(deps: SlackTriggerDeps): Router {
@@ -150,6 +158,7 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                         integrations: deps.integrations,
                         identities: deps.identities,
                         posthogDb: deps.posthogDb,
+                        http: deps.http,
                     })
                 }
             }

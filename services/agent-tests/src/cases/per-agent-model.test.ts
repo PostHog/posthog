@@ -20,6 +20,7 @@ import {
     AgentSpecSchema,
     EMPTY_USAGE_TOTAL,
     FsBundleStore,
+    HttpClient,
     InProcessSandboxPool,
     PgRevisionStore,
     PgSessionQueue,
@@ -71,6 +72,8 @@ describe('per-agent spec.model resolution: real e2e', () => {
         const modelsResolved: string[] = []
 
         const worker = new Worker({
+            http: new HttpClient(),
+            posthogApiBaseUrl: 'http://localhost:8010',
             queue,
             revisions,
             bundle,

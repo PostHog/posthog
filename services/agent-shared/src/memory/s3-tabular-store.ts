@@ -49,7 +49,12 @@ export class S3JsonlTabularStore implements TabularStore {
         this.client = opts.client
         this.bucket = opts.bucket
         this.bucketPrefix = opts.bucketPrefix ?? 'agent_tables'
-        this.maxRetries = opts.maxRetries ?? 5
+        // 20 attempts paired with jittered backoff (see `mutate`) covers the
+        // realistic ceiling of concurrent writers per table. Lower numbers
+        // exhaust under 10-way contention because lock-step retries keep
+        // colliding; the backoff plus headroom is what makes the canary
+        // (CONCURRENCY: racing appends) deterministic.
+        this.maxRetries = opts.maxRetries ?? 20
     }
 
     async listTables(scope: MemoryScope): Promise<{ name: string; size: number }[]> {
@@ -93,23 +98,28 @@ export class S3JsonlTabularStore implements TabularStore {
         rowsToAdd: TableRow[],
         opts: { dedupeOn?: string } = {}
     ): Promise<{ appended: number; skipped: number }> {
-        return this.mutate(scope, table, (rows) => {
-            let appended = 0
-            let skipped = 0
-            const seen = opts.dedupeOn ? new Set(rows.map((r) => r[opts.dedupeOn!])) : null
-            for (const row of rowsToAdd) {
-                if (seen && row[opts.dedupeOn!] !== undefined && seen.has(row[opts.dedupeOn!])) {
-                    skipped++
-                    continue
+        return this.mutate(
+            scope,
+            table,
+            (rows) => {
+                let appended = 0
+                let skipped = 0
+                const seen = opts.dedupeOn ? new Set(rows.map((r) => r[opts.dedupeOn!])) : null
+                for (const row of rowsToAdd) {
+                    if (seen && row[opts.dedupeOn!] !== undefined && seen.has(row[opts.dedupeOn!])) {
+                        skipped++
+                        continue
+                    }
+                    rows.push(row)
+                    if (seen) {
+                        seen.add(row[opts.dedupeOn!])
+                    }
+                    appended++
                 }
-                rows.push(row)
-                if (seen) {
-                    seen.add(row[opts.dedupeOn!])
-                }
-                appended++
-            }
-            return { rows, result: { appended, skipped } }
-        }, { checkCeiling: true })
+                return { rows, result: { appended, skipped } }
+            },
+            { checkCeiling: true }
+        )
     }
 
     async query(scope: MemoryScope, table: string, q: TableQuery = {}): Promise<TableRow[]> {
@@ -200,11 +210,30 @@ export class S3JsonlTabularStore implements TabularStore {
                 if (!isPreconditionFailed(err)) {
                     throw err
                 }
+                // Jittered exponential backoff. Without this, N concurrent
+                // writers all retry in lock-step, collide, retry in lock-step
+                // again, and exhaust the budget before convergence. Capped at
+                // 100ms so a worst-case retry storm finishes inside a single
+                // tool call's budget.
+                await sleep(jitteredBackoffMs(attempt))
             }
         }
         // Exhausted all retries while still conflicting.
         throw new TabularConflictError(table)
     }
+}
+
+function jitteredBackoffMs(attempt: number): number {
+    // Minimum 15ms lets SeaweedFS's read-after-write window close before the
+    // re-read; without it, retries can see the pre-conflict body and write
+    // against a stale ETag that SeaweedFS still accepts. Capped at ~250ms
+    // (2^attempt) so a worst-case retry storm finishes inside one tool call.
+    const ceiling = Math.min(250, 15 + 2 ** attempt * 5)
+    return 15 + Math.floor(Math.random() * (ceiling - 15))
+}
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 async function streamToString(body: unknown): Promise<string> {

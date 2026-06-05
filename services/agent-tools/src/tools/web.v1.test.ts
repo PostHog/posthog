@@ -1,22 +1,25 @@
+import { vi } from 'vitest'
+
+import type { HttpFetcher } from '@posthog/agent-shared'
+
 import { makeCtx } from '../test-helpers'
 import { webFetchV1 } from './web-fetch.v1'
 import { setWebSearchProvider, webSearchV1 } from './web-search.v1'
 
-const originalFetch = global.fetch
-
 describe('@posthog/web-fetch', () => {
-    afterEach(() => {
-        global.fetch = originalFetch
-    })
-
     it('returns status, body, content_type', async () => {
-        global.fetch = vi.fn(async () => ({
-            ok: true,
-            status: 200,
-            text: async () => '<html></html>',
-            headers: { get: (k: string) => (k === 'content-type' ? 'text/html' : null) },
-        })) as unknown as typeof fetch
-        const out = await webFetchV1.run({ url: 'https://example.com', max_bytes: 1_000_000 }, makeCtx())
+        const http: HttpFetcher = {
+            fetch: vi.fn(
+                async () =>
+                    ({
+                        ok: true,
+                        status: 200,
+                        text: async () => '<html></html>',
+                        headers: { get: (k: string) => (k === 'content-type' ? 'text/html' : null) },
+                    }) as unknown as Response
+            ),
+        }
+        const out = await webFetchV1.run({ url: 'https://example.com', max_bytes: 1_000_000 }, makeCtx({ http }))
         expect(out.status).toBe(200)
         expect(out.body).toBe('<html></html>')
         expect(out.content_type).toBe('text/html')
@@ -24,13 +27,18 @@ describe('@posthog/web-fetch', () => {
 
     it('truncates body to max_bytes', async () => {
         const big = 'x'.repeat(10_000)
-        global.fetch = vi.fn(async () => ({
-            ok: true,
-            status: 200,
-            text: async () => big,
-            headers: { get: () => null },
-        })) as unknown as typeof fetch
-        const out = await webFetchV1.run({ url: 'https://example.com', max_bytes: 100 }, makeCtx())
+        const http: HttpFetcher = {
+            fetch: vi.fn(
+                async () =>
+                    ({
+                        ok: true,
+                        status: 200,
+                        text: async () => big,
+                        headers: { get: () => null },
+                    }) as unknown as Response
+            ),
+        }
+        const out = await webFetchV1.run({ url: 'https://example.com', max_bytes: 100 }, makeCtx({ http }))
         expect(out.body.length).toBe(100)
     })
 })

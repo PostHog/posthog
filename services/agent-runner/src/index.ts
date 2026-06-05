@@ -27,6 +27,7 @@ import {
     createAgentPool,
     createLogger,
     EncryptedFields,
+    HttpClient,
     HttpGatewayClient,
     installProcessHandlers,
     isDev,
@@ -72,6 +73,18 @@ async function main(): Promise<void> {
             'AGENT_DEV_MCP_BEARER_TOKEN is a dev-only escape hatch for external-MCP auth and must not be set when NODE_ENV=production.'
         )
     }
+
+    // Outbound HTTP — every tool fetch, gateway fetch, and MCP transport
+    // dispatches through here. In prod `config.httpsProxy` points at
+    // smokescreen so author-supplied URLs (web-fetch, http-request,
+    // external MCPs) get SSRF protection. Fail-fast in non-dev when unset
+    // rather than silently bypassing the proxy.
+    if (!config.httpsProxy && !isDev()) {
+        throw new Error(
+            'HTTPS_PROXY must be set — outbound fetches must route through smokescreen in prod. Wire `httpProxy.enabled: true` in the chart.'
+        )
+    }
+    const http = new HttpClient({ proxyUrl: config.httpsProxy })
 
     // S3 bundle storage is required — sessions need to load the revision's
     // compiled code + spec + skills at start. Fail-fast at boot rather than
@@ -186,7 +199,7 @@ async function main(): Promise<void> {
     // See docs/agent-platform/plans/ai-gateway-integration.md §3 (W1).
     const teamApiKeys = config.useAiGateway ? new PgTeamApiKeyResolver(posthogDb) : null
     // Gateway read client for /v1/usage + /v1/wallet/balance lookups.
-    const gatewayClient = config.useAiGateway ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl }) : null
+    const gatewayClient = config.useAiGateway ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http }) : null
 
     // Agent memory: S3-backed file store. Disabled (memory tools surface
     // `memory_store_unavailable` to the model) when the bucket isn't
@@ -244,7 +257,14 @@ async function main(): Promise<void> {
         queue: new PgSessionQueue(agentDb),
         revisions,
         bundle: bundles,
-        sandboxes: selectSandboxPool(),
+        sandboxes: selectSandboxPool({
+            backend: config.sandboxBackend,
+            sandboxHostImage: config.sandboxHostImage,
+            sandboxDockerImage: config.sandboxDockerImage,
+            sandboxModalImage: config.sandboxModalImage,
+            modalAppName: config.modalAppName,
+            modalRegion: config.modalRegion,
+        }),
         sandboxInstances: new PgSandboxInstanceStore(agentDb),
         broker: new SecretBroker(),
         credentialBroker,
@@ -293,6 +313,8 @@ async function main(): Promise<void> {
         // `mcp_integration_host_validator_not_wired`. Registry seeded with
         // slack; extend in integration-host-registry.ts as kinds are added.
         integrationHostValidator: makeIntegrationHostValidator(),
+        http,
+        posthogApiBaseUrl: config.posthogApiBaseUrl,
     })
 
     const shutdown = (sig: string): void => {

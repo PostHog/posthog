@@ -30,6 +30,7 @@ import {
     createLogger,
     CredentialBroker,
     GatewayClient,
+    HttpFetcher,
     LogSink,
     MemoryStore,
     TabularStore,
@@ -189,6 +190,19 @@ export interface WorkerDeps {
      * refuses to set this when NODE_ENV=production.
      */
     devMcpBearerToken?: string
+    /**
+     * Outbound HTTP client. Forwarded into `runSession` → `AgentToolDeps`
+     * → `ToolContext.http`; also handed to `openMcpClients` so the MCP
+     * SDK's `StreamableHTTPClientTransport` routes through the same
+     * dispatcher. Wired at the runner entrypoint from `HTTPS_PROXY` env
+     * (smokescreen in prod, direct in dev).
+     */
+    http: HttpFetcher
+    /**
+     * Base URL for the PostHog API the agent-applications-* tools call
+     * against. Forwarded into `ToolContext.posthogApiBaseUrl`.
+     */
+    posthogApiBaseUrl: string
 }
 
 export class Worker {
@@ -370,6 +384,7 @@ export class Worker {
                     integrationHostValidator: this.deps.integrationHostValidator,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
+                    http: this.deps.http,
                 })
                 openedMcpClients = opened.clients
                 mcpClose = opened.close
@@ -401,6 +416,8 @@ export class Worker {
                 credentialBroker: this.deps.credentialBroker,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,
+                http: this.deps.http,
+                posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
                 onTurnPersist: async (s) => {
                     // Persist progress after every turn so a crash mid-loop
                     // leaves valid conversation state on disk. pending_inputs

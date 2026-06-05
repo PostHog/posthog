@@ -52,6 +52,7 @@ export * from './runtime/process-handlers'
 export * from './runtime/encryption'
 export * from './runtime/team-api-key-resolver'
 export * from './runtime/gateway-client'
+export * from './runtime/http-client'
 
 export * from './config/platform'
 

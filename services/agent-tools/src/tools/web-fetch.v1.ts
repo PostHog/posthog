@@ -16,9 +16,9 @@ export const webFetchV1 = defineNativeTool({
     }),
     requires: { integrations: [], scopes: ['web:fetch'] },
     cost_hint: 'medium',
-    async run(args, _ctx) {
+    async run(args, ctx) {
         const maxBytes = args.max_bytes ?? 1_000_000
-        const res = await fetch(args.url, { method: 'GET' })
+        const res = await ctx.http.fetch(args.url, { method: 'GET' })
         const text = await res.text()
         return {
             status: res.status,

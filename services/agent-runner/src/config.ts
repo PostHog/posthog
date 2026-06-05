@@ -149,6 +149,37 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             "Dev-only bearer attached to `kind: external` MCP requests when the ref has no `auth.integration` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via integrations or `kind: agent`."
         ),
+    sandboxBackend: z
+        .enum(['docker', 'modal'])
+        .optional()
+        .describe(
+            "Sandbox pool impl. `modal` (prod) provisions per-session Modal sandboxes; `docker` (local dev) runs the posthog-agent-sandbox-host image via the docker socket. Optional in the schema so config parse stays clean in tests that don't construct a sandbox pool; the runner entrypoint throws at boot when unset. In-process sandbox is selected by tests directly, never via config — it has no isolation and isn't a valid prod / local-dev choice."
+        ),
+    sandboxHostImage: z
+        .string()
+        .optional()
+        .describe(
+            'Canonical `posthog-agent-sandbox-host` image reference (pinned by SHA in prod). Applies to both backends unless an `AGENT_SANDBOX_{DOCKER,MODAL}_IMAGE` override is set.'
+        ),
+    sandboxDockerImage: z
+        .string()
+        .optional()
+        .describe(
+            'Backend-specific Docker image override. Takes precedence over `sandboxHostImage` for the docker backend.'
+        ),
+    sandboxModalImage: z
+        .string()
+        .optional()
+        .describe(
+            'Backend-specific Modal image override. Takes precedence over `sandboxHostImage` for the modal backend.'
+        ),
+    modalAppName: z.string().optional().describe('Optional Modal app name. When unset the Modal SDK uses its default.'),
+    modalRegion: z
+        .string()
+        .optional()
+        .describe(
+            'Modal region pin (e.g. `us-east`, `eu-west`). Defaults to whatever `resolveRegion()` derives from `CLOUD_DEPLOYMENT` inside the Modal pool when unset.'
+        ),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -178,6 +209,12 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'bundleS3SecretAccessKey',
     AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
     AGENT_DEV_MCP_BEARER_TOKEN: 'devMcpBearerToken',
+    SANDBOX_BACKEND: 'sandboxBackend',
+    SANDBOX_HOST_IMAGE: 'sandboxHostImage',
+    SANDBOX_DOCKER_IMAGE: 'sandboxDockerImage',
+    SANDBOX_MODAL_IMAGE: 'sandboxModalImage',
+    MODAL_APP_NAME: 'modalAppName',
+    MODAL_REGION: 'modalRegion',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {

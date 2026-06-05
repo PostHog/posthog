@@ -33,7 +33,6 @@ async function loadBundle(): Promise<{ spec: Record<string, unknown>; files: Rec
 
 describe('example: sre-slack-bot bundle', () => {
     let c: Cluster
-    const originalFetch = global.fetch
 
     beforeEach(async () => {
         c = await buildCluster({
@@ -46,7 +45,6 @@ describe('example: sre-slack-bot bundle', () => {
     })
 
     afterEach(async () => {
-        global.fetch = originalFetch
         await c.teardown()
     })
 
@@ -73,42 +71,53 @@ describe('example: sre-slack-bot bundle', () => {
         // Track every Slack-bound request the agent made so we can prove the
         // bearer header was stamped (i.e. ${SLACK_BOT_TOKEN} substitution
         // actually fired on the runner side) and the JSON body was shaped
-        // correctly for the Slack Web API.
+        // correctly for the Slack Web API. The recorder replaces the runner's
+        // HttpClient — bare global.fetch wouldn't intercept anymore now that
+        // tools dispatch through `ctx.http.fetch`.
         const slackCalls: Array<{ url: string; method?: string; auth?: string; body?: unknown }> = []
-        global.fetch = ((input: string | URL | Request, init?: RequestInit) => {
-            const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
-            if (url.includes('slack.com/api/')) {
-                const headers = (init?.headers ?? {}) as Record<string, string>
-                slackCalls.push({
-                    url,
-                    method: init?.method,
-                    auth: headers.Authorization,
-                    body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
-                })
-                // Every Slack endpoint we hit in this test responds with `ok: true`.
+        const recorderHttp = {
+            fetch: (input: string | URL, init?: RequestInit): Promise<Response> => {
+                const url = typeof input === 'string' ? input : input.toString()
+                if (url.includes('slack.com/api/')) {
+                    const headers = (init?.headers ?? {}) as Record<string, string>
+                    slackCalls.push({
+                        url,
+                        method: init?.method,
+                        auth: headers.Authorization,
+                        body: typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body,
+                    })
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
+                        text: async () => JSON.stringify({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
+                        headers: new Map([['content-type', 'application/json']]),
+                    } as unknown as Response)
+                }
+                if (url.includes('runbooks.internal')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        text: async () => '# Runbook: ingest 500s\nCheck kafka consumer lag.',
+                        headers: new Map([['content-type', 'text/markdown']]),
+                    } as unknown as Response)
+                }
                 return Promise.resolve({
                     ok: true,
                     status: 200,
-                    json: async () => ({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
-                    text: async () => JSON.stringify({ ok: true, ts: '1700000050.000200', channel: 'C01' }),
-                    headers: new Map([['content-type', 'application/json']]),
+                    text: async () => '{}',
+                    headers: new Map(),
                 } as unknown as Response)
-            }
-            if (url.includes('runbooks.internal')) {
-                return Promise.resolve({
-                    ok: true,
-                    status: 200,
-                    text: async () => '# Runbook: ingest 500s\nCheck kafka consumer lag.',
-                    headers: new Map([['content-type', 'text/markdown']]),
-                } as unknown as Response)
-            }
-            return Promise.resolve({
-                ok: true,
-                status: 200,
-                text: async () => '{}',
-                headers: new Map(),
-            } as unknown as Response)
-        }) as unknown as typeof fetch
+            },
+        }
+        // Rebuild the cluster with the http recorder. The default cluster
+        // (from beforeEach) carries the real HttpClient; we tear it down and
+        // start fresh so the runner threads the recorder into ToolContext.http.
+        await c.teardown()
+        c = await buildCluster({
+            resolveSecrets: async () => ({ SLACK_BOT_TOKEN: 'xoxb-test-token' }),
+            http: recorderHttp,
+        })
 
         // The faux model's script — same triage flow as before, but every
         // Slack tool call now goes through `@posthog/http-request` against

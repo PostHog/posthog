@@ -104,15 +104,17 @@ export const httpRequestV1 = defineNativeTool({
             format: 'uri',
             description: 'Target URL. May contain `${NAME}` placeholders that resolve from spec.secrets.',
         }),
-        method: Type.Union(
-            [
-                Type.Literal('GET'),
-                Type.Literal('POST'),
-                Type.Literal('PUT'),
-                Type.Literal('PATCH'),
-                Type.Literal('DELETE'),
-            ],
-            { default: 'GET', description: 'HTTP method. Default GET.' }
+        method: Type.Optional(
+            Type.Union(
+                [
+                    Type.Literal('GET'),
+                    Type.Literal('POST'),
+                    Type.Literal('PUT'),
+                    Type.Literal('PATCH'),
+                    Type.Literal('DELETE'),
+                ],
+                { default: 'GET', description: 'HTTP method. Default GET.' }
+            )
         ),
         headers: Type.Optional(
             Type.Record(Type.String(), Type.String(), {
@@ -173,7 +175,7 @@ export const httpRequestV1 = defineNativeTool({
 
         let res: Response
         try {
-            res = await fetch(url, {
+            res = await ctx.http.fetch(url, {
                 method,
                 headers: finalHeaders,
                 body,

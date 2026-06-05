@@ -86,6 +86,13 @@ export const PlatformConfigSchema = z.object({
         .describe(
             'Base URL for the PostHog API the oauth/pat verifiers introspect against. Dev defaults to localhost:8010; prod must set explicitly (e.g. https://app.posthog.com).'
         ),
+    httpsProxy: z
+        .string()
+        .url()
+        .optional()
+        .describe(
+            'Outbound HTTP proxy URL — in prod this points at smokescreen (see charts/shared/agent-platform/common.yaml `httpProxy.enabled`). Every agent service wires this into a shared HttpClient so tool fetches, MCP transport, and ai-gateway calls dispatch through one dispatcher. Unset in dev — fetches go direct. Service entrypoints fail closed in prod when this is unset.'
+        ),
     kafkaHosts: z
         .string()
         .default('localhost:9092')
@@ -110,6 +117,7 @@ export const PLATFORM_ENV_KEY_MAP: Record<string, keyof PlatformConfig> = {
     REDIS_URL: 'redisUrl',
     ENCRYPTION_SALT_KEYS: 'encryptionSaltKeys',
     POSTHOG_API_BASE_URL: 'posthogApiBaseUrl',
+    HTTPS_PROXY: 'httpsProxy',
     KAFKA_HOSTS: 'kafkaHosts',
     LOG_LEVEL: 'logLevel',
 }

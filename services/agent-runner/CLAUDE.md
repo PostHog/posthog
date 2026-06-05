@@ -48,6 +48,13 @@ first.
    `turn_started`, `tool_called`, `completed`, `waiting`, `failed`, etc.
    Silent paths defeat the SSE + Kafka log story.
 
+5. **No `process.env` reads + one HttpClient.** Env access goes through
+   `loadAgentRunnerConfig` at boot; the typed `Config` flows from
+   there. Every outbound HTTP call (tools, gateway, MCP) reaches the
+   wire via the shared `HttpClient` wired in `src/index.ts` and
+   threaded through `WorkerDeps.http`. See agent-shared/CLAUDE.md
+   rules 7-8 for the full story + the lint rule that enforces it.
+
 ## When you change something here
 
 A change to the loop, the dispatcher, or any resolver needs an e2e

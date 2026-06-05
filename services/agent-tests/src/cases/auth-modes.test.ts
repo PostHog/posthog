@@ -326,57 +326,62 @@ describe('multi-mode auth + credential broker: real e2e', () => {
     })
 
     it('case 9: end-to-end — model calls @posthog/agent-applications-list, which reads the broker and the credential survives the round-trip', async () => {
-        // Faux a successful HTTP call by stubbing global fetch — the native
-        // tool builds the URL + Authorization header; we just verify the
-        // header carries the user's bearer.
+        // The native tool builds the URL + Authorization header; we substitute
+        // the runner's HttpClient with a recorder so the tool's `ctx.http.fetch`
+        // lands here instead of going to the real PostHog API. Tear down the
+        // shared `beforeEach` cluster and rebuild with the http override —
+        // tests own this entire cluster's lifecycle.
+        await c.teardown()
         const seenAuth: string[] = []
-        const originalFetch = global.fetch
-        global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-            const auth = init?.headers ? (init.headers as Record<string, string>).Authorization : undefined
-            if (auth) {
-                seenAuth.push(auth)
-            }
-            void input
-            return {
-                ok: true,
-                status: 200,
-                json: async () => ({
-                    results: [{ id: 'app-1', slug: 'weekly-digest', name: 'Weekly digest', description: '' }],
-                }),
-                text: async () => '',
-            } as unknown as Response
-        }) as unknown as typeof fetch
-        try {
-            await c.deployAgent({
-                slug: 'lister',
-                spec: {
-                    auth: { modes: [{ type: 'pat' }] },
-                    tools: [{ kind: 'native', id: '@posthog/agent-applications-list' }],
-                },
-            })
-            c.setScript([fauxCallTool('@posthog/agent-applications-list', {}), fauxText('listed')])
-            const res = await request(c.ingress)
-                .post('/agents/lister/run')
-                .set('authorization', 'Bearer phx_test_pat')
-                .send({ message: 'list my agents' })
-            expect(res.status).toBe(200)
-            await c.drain()
-            const session = await c.queue.get(res.body.session_id)
-            expect(session!.state).toBe('completed')
-
-            // The native tool received the bearer + made a fetch that
-            // returned our stub. Confirm the Authorization header carried
-            // the user's actual PAT — the credential round-trip works.
-            expect(seenAuth).toContain('Bearer phx_test_pat')
-            // And the tool_result has the stubbed body.
-            const toolResult = session!.conversation.find((m) => m.role === 'toolResult') as
-                | { role: 'toolResult'; content: Array<{ type: string; text?: string }> }
-                | undefined
-            expect(toolResult).not.toBeUndefined()
-            const text = toolResult!.content.find((c) => c.type === 'text')?.text ?? ''
-            expect(text).toContain('weekly-digest')
-        } finally {
-            global.fetch = originalFetch
+        const recorderHttp = {
+            fetch: async (_input: string | URL, init?: RequestInit) => {
+                const auth = init?.headers ? (init.headers as Record<string, string>).Authorization : undefined
+                if (auth) {
+                    seenAuth.push(auth)
+                }
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        results: [{ id: 'app-1', slug: 'weekly-digest', name: 'Weekly digest', description: '' }],
+                    }),
+                    text: async () => '',
+                } as unknown as Response
+            },
         }
+        const VALID_PAT_BEARER = 'phx_test_pat'
+        const built = buildIntrospector({
+            [VALID_PAT_BEARER]: { uuid: POSTHOG_USER_UUID, email: 'ben@posthog.com', teamId: TEAM_ID },
+        })
+        c = await buildCluster({ authProvider: buildProvider(built.introspector), http: recorderHttp })
+
+        await c.deployAgent({
+            slug: 'lister',
+            spec: {
+                auth: { modes: [{ type: 'pat' }] },
+                tools: [{ kind: 'native', id: '@posthog/agent-applications-list' }],
+            },
+        })
+        c.setScript([fauxCallTool('@posthog/agent-applications-list', {}), fauxText('listed')])
+        const res = await request(c.ingress)
+            .post('/agents/lister/run')
+            .set('authorization', 'Bearer phx_test_pat')
+            .send({ message: 'list my agents' })
+        expect(res.status).toBe(200)
+        await c.drain()
+        const session = await c.queue.get(res.body.session_id)
+        expect(session!.state).toBe('completed')
+
+        // The native tool received the bearer + made a fetch that returned our
+        // stub. Confirm the Authorization header carried the user's actual
+        // PAT — the credential round-trip works.
+        expect(seenAuth).toContain('Bearer phx_test_pat')
+        // And the tool_result has the stubbed body.
+        const toolResult = session!.conversation.find((m) => m.role === 'toolResult') as
+            | { role: 'toolResult'; content: Array<{ type: string; text?: string }> }
+            | undefined
+        expect(toolResult).not.toBeUndefined()
+        const text = toolResult!.content.find((c) => c.type === 'text')?.text ?? ''
+        expect(text).toContain('weekly-digest')
     })
 })

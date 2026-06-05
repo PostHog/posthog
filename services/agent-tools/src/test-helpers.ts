@@ -1,4 +1,6 @@
-import { ToolContext } from '@posthog/agent-shared'
+import { HttpClient, ToolContext } from '@posthog/agent-shared'
+
+const DEFAULT_POSTHOG_API_BASE_URL = 'http://localhost:8010'
 
 export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
     const logs: Array<{ level: string; msg: string; meta?: Record<string, unknown> }> = []
@@ -11,6 +13,8 @@ export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
         log: (level, msg, meta) => {
             logs.push({ level, msg, meta })
         },
+        http: new HttpClient(),
+        posthogApiBaseUrl: DEFAULT_POSTHOG_API_BASE_URL,
         ...overrides,
     }
 }
@@ -30,6 +34,8 @@ export function makeCapturingCtx(): {
         log: (level, msg, meta) => {
             logs.push({ level, msg, meta })
         },
+        http: new HttpClient(),
+        posthogApiBaseUrl: DEFAULT_POSTHOG_API_BASE_URL,
     }
     return { ctx, logs }
 }

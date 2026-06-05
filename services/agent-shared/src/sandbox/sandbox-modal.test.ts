@@ -59,6 +59,14 @@ function loadRepoEnv(): void {
 loadRepoEnv()
 
 const HAS_CREDS = Boolean(process.env.MODAL_TOKEN_ID && process.env.MODAL_TOKEN_SECRET)
+// Skip even with Modal creds unless an image override is provided. The
+// default `:master` tag only exists once the image lands on main; for an
+// in-flight branch you'd typically run the test as
+//   SANDBOX_HOST_IMAGE=ghcr.io/posthog/posthog-agent-sandbox-host:pr-NN \
+//     pnpm --filter @posthog/agent-shared test src/sandbox/sandbox-modal
+// — gating here keeps `pnpm test` green on branches where `:master`
+// might lag the source.
+const HAS_IMAGE = Boolean(process.env.SANDBOX_HOST_IMAGE)
 const KEEP = process.env.MODAL_E2E_KEEP_SANDBOX === '1'
 
 // CommonJS source for the test tool. Defines a single `default` action that
@@ -80,7 +88,7 @@ module.exports = {
 }
 `
 
-const maybeDescribe = HAS_CREDS ? describe : describe.skip
+const maybeDescribe = HAS_CREDS && HAS_IMAGE ? describe : describe.skip
 
 maybeDescribe('ModalSandboxPool: real e2e', () => {
     it('acquires a sandbox, lays out a tool, dispatches an invoke, terminates', async () => {

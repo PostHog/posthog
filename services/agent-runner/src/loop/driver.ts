@@ -56,6 +56,7 @@ import {
     FRAMEWORK_PROMPT_VERSION,
     GatewayClient,
     generationSpanId,
+    HttpFetcher,
     IntegrationCredentials,
     isDeltaEventKind,
     LogLevel,
@@ -168,6 +169,15 @@ export interface RunSessionDeps {
      * worker's `finally`). Absent or empty → no MCP tools surface.
      */
     mcpClients?: OpenedMcp[]
+    /**
+     * Outbound HTTP client for native tools — threaded through to
+     * `AgentToolDeps` and then `ToolContext.http`. Required so tools can
+     * assume the seam is present; wired once at the runner entrypoint
+     * from `HTTPS_PROXY` env (smokescreen in prod, direct in dev).
+     */
+    http: HttpFetcher
+    /** Base URL for the PostHog API. Forwarded into `ToolContext.posthogApiBaseUrl`. */
+    posthogApiBaseUrl: string
 }
 
 export type RunOutcome =
@@ -288,6 +298,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             dispatchClientTool,
             credentialBroker: deps.credentialBroker,
             mcpClients: deps.mcpClients,
+            http: deps.http,
+            posthogApiBaseUrl: deps.posthogApiBaseUrl,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 

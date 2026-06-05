@@ -9,6 +9,7 @@
  * docs/agent-platform/plans/ai-gateway-integration.md §3 (W5 / W6).
  */
 
+import type { HttpFetcher } from './http-client'
 import { createLogger } from './logger'
 
 /** Wire shape of GET /v1/usage/{request_id}. */
@@ -61,6 +62,19 @@ export interface HttpGatewayClientOpts {
     maxAttempts?: number
     /** Initial backoff for the retry loop in ms. Default 25. Doubles each retry. */
     initialBackoffMs?: number
+    /**
+     * Outbound HTTP client. Wired at the service entrypoint so gateway
+     * calls go through the same dispatcher (smokescreen in prod, direct
+     * in dev) as tool fetches.
+     *
+     * NOTE: ai-gateway is an internal service, so routing this through
+     * smokescreen pays a hop for no SSRF benefit (the gateway URL is
+     * runner-controlled, not author-controlled). For now we eat the hop
+     * to keep "all outbound fetch uses one HttpClient" as the invariant —
+     * worth adding an explicit `bypassProxy: true` knob on `HttpClient`
+     * if the latency shows up in profiling.
+     */
+    http: HttpFetcher
 }
 
 export class HttpGatewayClient implements GatewayClient {
@@ -69,12 +83,14 @@ export class HttpGatewayClient implements GatewayClient {
     private readonly timeoutMs: number
     private readonly maxAttempts: number
     private readonly initialBackoffMs: number
+    private readonly http: HttpFetcher
 
     constructor(opts: HttpGatewayClientOpts) {
         this.baseUrl = opts.baseUrl.replace(/\/$/, '')
         this.timeoutMs = opts.timeoutMs ?? 3_000
         this.maxAttempts = Math.max(1, opts.maxAttempts ?? 4)
         this.initialBackoffMs = Math.max(1, opts.initialBackoffMs ?? 25)
+        this.http = opts.http
     }
 
     async getUsage(requestId: string, opts: { phc: string }): Promise<GatewayUsage | null> {
@@ -130,7 +146,7 @@ export class HttpGatewayClient implements GatewayClient {
         const ac = new AbortController()
         const timer = setTimeout(() => ac.abort(), this.timeoutMs)
         try {
-            const res = await fetch(`${this.baseUrl}${path}`, {
+            const res = await this.http.fetch(`${this.baseUrl}${path}`, {
                 headers: { Authorization: `Bearer ${phc}` },
                 signal: ac.signal,
             })
