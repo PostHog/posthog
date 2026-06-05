@@ -584,11 +584,18 @@ jobs:
               # --log-order=stream: stream pytest output live instead of buffering until completion
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
               env:
-                  # --reuse-db: keep the test database between sequential product runs to avoid
-                  # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
+                  # --reuse-db: reuse the test DB across sequential product runs to avoid
+                  # ClickHouse ReplicatedMergeTree drop/create races.
+                  # --timeout: a Python-level hang (loops, lock waits) fails fast with a stack dump
+                  # instead of eating the whole job's timeout-minutes cap. signal kills only the hung test
+                  # (thread would os._exit the whole shard) but can't interrupt a native DB call, so
+                  # a stuck query still falls to the job cap. func_only clocks just the test body, so
+                  # cold-cache migration warmup in DB setup can't trip it. Slowest test ~60s; longer
+                  # ones opt in via @pytest.mark.timeout.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
+                      --timeout=300 --timeout-method=signal -o timeout_func_only=true
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations --durations-path ../../.test_durations' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
