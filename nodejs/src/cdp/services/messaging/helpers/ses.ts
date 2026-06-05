@@ -156,12 +156,15 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Reject: 'email_failed',
 }
 
+// Module-scoped so the permissive-allowlist warning fires at most once per process, even if the
+// handler is reconstructed (e.g. per request or in a handler factory), rather than once per instance.
+let hasWarnedEmptyAllowlist = false
+
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
 
     /** Allowlist of SNS TopicArns permitted to deliver to this webhook. Empty = allow any topic. */
     private readonly allowedTopicArns: Set<string>
-    private hasWarnedEmptyAllowlist = false
 
     constructor(allowedTopicArns: string = defaultConfig.CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS) {
         this.allowedTopicArns = new Set(
@@ -181,11 +184,11 @@ export class SesWebhookHandler {
      */
     private isAllowedTopicArn(topicArn: string): boolean {
         if (this.allowedTopicArns.size === 0) {
-            if (!this.hasWarnedEmptyAllowlist) {
+            if (!hasWarnedEmptyAllowlist) {
                 logger.warn(
                     '[SesWebhookHandler] CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS is empty - accepting SES events from any SNS topic. Set it to enforce a topic allowlist.'
                 )
-                this.hasWarnedEmptyAllowlist = true
+                hasWarnedEmptyAllowlist = true
             }
             return true
         }
@@ -372,7 +375,7 @@ export class SesWebhookHandler {
 
         // Reject envelopes from topics we don't recognise before doing anything with them (auto-confirm,
         // opt-out, ...). A verified signature alone doesn't prove the message came from our SES topic.
-        if ('envelope' in parsed && !this.isAllowedTopicArn(parsed.envelope.TopicArn)) {
+        if (parsed.mode === 'sns' && 'envelope' in parsed && !this.isAllowedTopicArn(parsed.envelope.TopicArn)) {
             logger.warn('[SesWebhookHandler] Rejecting envelope from non-allowlisted TopicArn', {
                 topicArn: parsed.envelope.TopicArn,
             })

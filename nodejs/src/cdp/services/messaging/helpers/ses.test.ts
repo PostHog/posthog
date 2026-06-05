@@ -307,26 +307,18 @@ describe('SesWebhookHandler', () => {
             SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
         })
 
-        it('processes a Notification from an allowlisted TopicArn', async () => {
+        it.each([
+            { label: 'processes a Notification from an allowlisted TopicArn', topicArn: allowedArn, status: 200 },
+            { label: 'rejects a Notification from a TopicArn outside the allowlist', topicArn: foreignArn, status: 403 },
+        ])('$label', async ({ topicArn, status }) => {
             const allowlisted = new SesWebhookHandler(allowedArn)
             const result = await allowlisted.handleWebhook({
-                body: notification(allowedArn),
+                body: notification(topicArn),
                 headers: {},
                 verifySignature: false,
             })
-            expect(result.status).toBe(200)
-            expect(result.metrics?.[0].metricName).toBe('email_opened')
-        })
-
-        it('rejects a Notification from a TopicArn outside the allowlist', async () => {
-            const allowlisted = new SesWebhookHandler(allowedArn)
-            const result = await allowlisted.handleWebhook({
-                body: notification(foreignArn),
-                headers: {},
-                verifySignature: false,
-            })
-            expect(result.status).toBe(403)
-            expect(result.metrics).toBeUndefined()
+            expect(result.status).toBe(status)
+            expect(result.metrics?.[0]?.metricName).toBe(status === 200 ? 'email_opened' : undefined)
         })
 
         it('parses a comma-separated allowlist with surrounding whitespace', async () => {

@@ -114,7 +114,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_TRACKING_URL: string
 
     // Comma-separated allowlist of SNS TopicArns permitted to deliver SES events to the webhook.
-    // Empty = allow any topic whose signature verifies (logs a warning); set per environment to enforce.
+    // Empty = allow any topic (logs a warning); set per environment to enforce. This is independent of
+    // SNS signature verification, which still runs when enabled.
     CDP_SES_WEBHOOK_ALLOWED_TOPIC_ARNS: string
 
     // Cyclotron (CDP job queue)
