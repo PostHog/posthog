@@ -533,12 +533,6 @@ FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 # Dedicated Redis for ai-gateway HyperCache reads
 AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
 
-# Dedicated Redis used by the llm-gateway service for rate-limit / usage
-# counters. This is a SEPARATE cluster from AI_GATEWAY_REDIS_URL (which only
-# holds the HyperCache policy blob). Not normally wired into Django pods —
-# set it where an operator needs to inspect or reset gateway usage counters.
-LLM_GATEWAY_REDIS_URL = os.getenv("LLM_GATEWAY_REDIS_URL", None)
-
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
