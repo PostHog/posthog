@@ -20,6 +20,7 @@
         "@aws-sdk/client-s3": "^3.723.0",
         "@earendil-works/pi-ai": "^0.75.5",
         "fernet-nodejs": "^1.0.6",
+        "jose": "^6.2.3",
         "minisearch": "^7.1.2",
         "modal": "^0.7.6",
         "pg": "^8.6.0",

@@ -1,6 +1,6 @@
 import type { Pool } from 'pg'
 
-import { MemoryTeamApiKeyResolver, PgTeamApiKeyResolver, TeamApiKeyNotFoundError } from './team-api-key-resolver'
+import { PgTeamApiKeyResolver, TeamApiKeyNotFoundError } from './team-api-key-resolver'
 
 interface FakeQueryArgs {
     sql: string
@@ -93,24 +93,5 @@ describe('PgTeamApiKeyResolver', () => {
         rows = [{ api_token: 'phc_team1' }]
         await expect(r.resolve(1)).resolves.toBe('phc_team1')
         expect(pool.queries).toHaveLength(2)
-    })
-})
-
-describe('MemoryTeamApiKeyResolver', () => {
-    it('returns seeded values', async () => {
-        const r = new MemoryTeamApiKeyResolver({ 1: 'phc_a', 2: 'phc_b' })
-        await expect(r.resolve(1)).resolves.toBe('phc_a')
-        await expect(r.resolve(2)).resolves.toBe('phc_b')
-    })
-
-    it('throws for unseeded teams', async () => {
-        const r = new MemoryTeamApiKeyResolver()
-        await expect(r.resolve(99)).rejects.toBeInstanceOf(TeamApiKeyNotFoundError)
-    })
-
-    it('set() registers a new value', async () => {
-        const r = new MemoryTeamApiKeyResolver()
-        r.set(7, 'phc_seven')
-        await expect(r.resolve(7)).resolves.toBe('phc_seven')
     })
 })

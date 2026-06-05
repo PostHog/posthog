@@ -1,21 +1,70 @@
+import type { S3Client } from '@aws-sdk/client-s3'
+import { createHash } from 'node:crypto'
+import { Pool } from 'pg'
 import request from 'supertest'
 
+/**
+ * Deterministic uuid from a short label. PG enforces uuid format on
+ * `agent_session.{id,application_id,revision_id}` etc; tests previously used
+ * label-shaped strings like `'s-a'` / `'app-1'`. Hashing keeps the labels in
+ * the source for readability and produces a stable mapping for assertions.
+ */
+function uuidFor(label: string): string {
+    const h = createHash('md5').update(label).digest('hex')
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-8${h.slice(17, 20)}-${h.slice(20, 32)}`
+}
+
+import { reset } from '@posthog/agent-migrations'
 import {
     AgentSession,
     AgentSpecSchema,
+    buildTestBundleStore,
     EMPTY_USAGE_TOTAL,
-    MemoryBundleStore,
-    MemoryRevisionStore,
-    MemorySessionQueue,
+    INTERNAL_JWT_AUDIENCE,
+    mintInternalJwt,
+    newTestPrefix,
+    PgRevisionStore,
+    PgSessionQueue,
+    S3BundleStore,
+    wipeTestPrefix,
 } from '@posthog/agent-shared'
 
 import { buildJanitorApp } from './server'
 
-function session(id: string): AgentSession {
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+let pool: Pool
+let bundlePrefix: string
+let bundleClient: S3Client
+let bundleStore: S3BundleStore
+
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+    bundlePrefix = newTestPrefix('agent_bundles_janitor_srv_test')
+    const built = buildTestBundleStore(bundlePrefix)
+    bundleClient = built.client
+    bundleStore = built.store
+})
+
+afterEach(async () => {
+    await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+    bundleClient.destroy()
+})
+
+function session(label: string): AgentSession {
     return {
-        id,
-        application_id: 'app',
-        revision_id: 'rev',
+        id: uuidFor(label),
+        application_id: uuidFor('app'),
+        revision_id: uuidFor('rev'),
         team_id: 1,
         external_key: null,
         idempotency_key: null,
@@ -34,8 +83,8 @@ function session(id: string): AgentSession {
 }
 
 describe('janitor HTTP', () => {
-    function mk(): { queue: MemorySessionQueue; app: ReturnType<typeof buildJanitorApp> } {
-        const queue = new MemorySessionQueue()
+    function mk(): { queue: PgSessionQueue; app: ReturnType<typeof buildJanitorApp> } {
+        const queue = new PgSessionQueue(pool)
         const app = buildJanitorApp({
             queue,
             sweep: { queue, stuckRunningThresholdMs: 60_000 },
@@ -51,16 +100,18 @@ describe('janitor HTTP', () => {
 
     it('GET /sessions?application_id= returns summaries, newest first', async () => {
         const { queue, app } = mk()
-        const a = { ...session('s-a'), application_id: 'app-1', created_at: '2026-05-01T00:00:00Z' }
-        const b = { ...session('s-b'), application_id: 'app-1', created_at: '2026-05-02T00:00:00Z' }
-        const c = { ...session('s-c'), application_id: 'other', created_at: '2026-05-03T00:00:00Z' }
+        const a = { ...session('s-a'), application_id: uuidFor('app-1'), created_at: '2026-05-01T00:00:00Z' }
+        const b = { ...session('s-b'), application_id: uuidFor('app-1'), created_at: '2026-05-02T00:00:00Z' }
+        const c = { ...session('s-c'), application_id: uuidFor('other'), created_at: '2026-05-03T00:00:00Z' }
         await queue.enqueue(a)
         await queue.enqueue(b)
         await queue.enqueue(c)
-        const res = await request(app).get('/sessions').query({ application_id: 'app-1' })
+        const res = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1') })
         expect(res.status).toBe(200)
         const ids = (res.body.results as Array<{ id: string }>).map((s) => s.id)
-        expect(ids).toEqual(['s-b', 's-a'])
+        expect(ids).toEqual([uuidFor('s-b'), uuidFor('s-a')])
         expect(res.body.count).toBe(2)
         // Summaries strip the heavy conversation body.
         expect(Object.keys(res.body.results[0])).not.toContain('conversation')
@@ -82,7 +133,9 @@ describe('janitor HTTP', () => {
         // Pre-zod, an unknown state silently passed through to the queue layer
         // and could cause weird filter behavior. The schema rejects it now.
         const { app } = mk()
-        const res = await request(app).get('/sessions').query({ application_id: 'app-1', state: 'banana' })
+        const res = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), state: 'banana' })
         expect(res.status).toBe(400)
         expect(res.body.error).toBe('invalid_request')
     })
@@ -149,47 +202,53 @@ describe('janitor HTTP', () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('done-r1'),
-            application_id: 'app-1',
-            revision_id: 'rev-1',
+            application_id: uuidFor('app-1'),
+            revision_id: uuidFor('rev-1'),
             state: 'completed',
             created_at: '2026-05-02T00:00:00Z',
         })
         await queue.enqueue({
             ...session('fail-r1'),
-            application_id: 'app-1',
-            revision_id: 'rev-1',
+            application_id: uuidFor('app-1'),
+            revision_id: uuidFor('rev-1'),
             state: 'failed',
             created_at: '2026-05-03T00:00:00Z',
         })
         await queue.enqueue({
             ...session('done-r2'),
-            application_id: 'app-1',
-            revision_id: 'rev-2',
+            application_id: uuidFor('app-1'),
+            revision_id: uuidFor('rev-2'),
             state: 'completed',
             created_at: '2026-04-25T00:00:00Z',
         })
         // state=completed,failed → both completed and failed across revs
-        const both = await request(app).get('/sessions').query({ application_id: 'app-1', state: 'completed,failed' })
-        expect((both.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual([
-            'done-r1',
-            'done-r2',
-            'fail-r1',
-        ])
+        const both = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), state: 'completed,failed' })
+        expect((both.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(
+            [uuidFor('done-r1'), uuidFor('done-r2'), uuidFor('fail-r1')].sort()
+        )
         // revision_id filter scopes to one revision
-        const r1 = await request(app).get('/sessions').query({ application_id: 'app-1', revision_id: 'rev-1' })
-        expect((r1.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
+        const r1 = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), revision_id: uuidFor('rev-1') })
+        expect((r1.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(
+            [uuidFor('done-r1'), uuidFor('fail-r1')].sort()
+        )
         // created_after excludes older sessions
         const recent = await request(app)
             .get('/sessions')
-            .query({ application_id: 'app-1', created_after: '2026-05-01T00:00:00Z' })
-        expect((recent.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(['done-r1', 'fail-r1'])
+            .query({ application_id: uuidFor('app-1'), created_after: '2026-05-01T00:00:00Z' })
+        expect((recent.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(
+            [uuidFor('done-r1'), uuidFor('fail-r1')].sort()
+        )
     })
 
     it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-rich'),
-            application_id: 'app-1',
+            application_id: uuidFor('app-1'),
             // The runner accumulates this; we set it explicitly so the summary
             // matches what a live row would carry.
             usage_total: {
@@ -213,7 +272,9 @@ describe('janitor HTTP', () => {
                 },
             ],
         })
-        const res = await request(app).get('/sessions').query({ application_id: 'app-1' })
+        const res = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1') })
         expect(res.body.results[0].preview).toBe('hello back!')
         expect(res.body.results[0].usage_total).toMatchObject({
             tokens_in: 50,
@@ -225,12 +286,12 @@ describe('janitor HTTP', () => {
     it('GET /sessions/:id returns session, 404 if missing', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s1'))
-        const ok = await request(app).get('/sessions/s1')
+        const ok = await request(app).get(`/sessions/${uuidFor('s1')}`)
         expect(ok.status).toBe(200)
-        expect(ok.body.id).toBe('s1')
+        expect(ok.body.id).toBe(uuidFor('s1'))
         expect(ok.body.conversation_trimmed).toBe(false)
         expect(ok.body.usage_total).not.toBeUndefined()
-        const miss = await request(app).get('/sessions/nope')
+        const miss = await request(app).get(`/sessions/${uuidFor('nope')}`)
         expect(miss.status).toBe(404)
     })
 
@@ -270,7 +331,9 @@ describe('janitor HTTP', () => {
                 },
             ],
         })
-        const res = await request(app).get('/sessions/s-long').query({ last_n: 2 })
+        const res = await request(app)
+            .get(`/sessions/${uuidFor('s-long')}`)
+            .query({ last_n: 2 })
         expect(res.body.conversation_trimmed).toBe(true)
         expect(res.body.conversation_total_turns).toBe(4)
         expect(res.body.conversation).toHaveLength(2)
@@ -284,7 +347,7 @@ describe('janitor HTTP', () => {
         const { queue, app } = mk()
         await queue.enqueue({
             ...session('s-backfill'),
-            application_id: 'app-x',
+            application_id: uuidFor('app-x'),
             conversation: [
                 { role: 'user', content: 'q', timestamp: 1 },
                 {
@@ -299,41 +362,43 @@ describe('janitor HTTP', () => {
             ],
         })
         // Dry-run reports the would-be change but doesn't persist.
-        const dry = await request(app).post('/sessions/backfill_usage').send({ application_id: 'app-x', dry_run: true })
+        const dry = await request(app)
+            .post('/sessions/backfill_usage')
+            .send({ application_id: uuidFor('app-x'), dry_run: true })
         expect(dry.status).toBe(200)
         expect(dry.body).toMatchObject({ scanned: 1, updated: 1, dry_run: true })
-        expect((await queue.get('s-backfill'))!.usage_total.tokens_in).toBe(0)
+        expect((await queue.get(uuidFor('s-backfill')))!.usage_total.tokens_in).toBe(0)
 
         // Real run writes the recomputed totals.
         const real = await request(app)
             .post('/sessions/backfill_usage')
-            .send({ application_id: 'app-x', dry_run: false })
+            .send({ application_id: uuidFor('app-x'), dry_run: false })
         expect(real.body).toMatchObject({ scanned: 1, updated: 1, dry_run: false })
-        const after = (await queue.get('s-backfill'))!
+        const after = (await queue.get(uuidFor('s-backfill')))!
         expect(after.usage_total.tokens_in).toBe(7)
         expect(after.usage_total.cost_total).toBeCloseTo(0.015, 10)
 
         // Second run finds nothing to update.
         const repeat = await request(app)
             .post('/sessions/backfill_usage')
-            .send({ application_id: 'app-x', dry_run: false })
+            .send({ application_id: uuidFor('app-x'), dry_run: false })
         expect(repeat.body).toMatchObject({ scanned: 1, updated: 0 })
     })
 
     it('POST /sessions/:id/cancel marks cancelled', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s2'))
-        const res = await request(app).post('/sessions/s2/cancel')
+        const res = await request(app).post(`/sessions/${uuidFor('s2')}/cancel`)
         expect(res.status).toBe(200)
         expect(res.body).toMatchObject({ ok: true, state: 'cancelled' })
-        expect((await queue.get('s2'))!.state).toBe('cancelled')
+        expect((await queue.get(uuidFor('s2')))!.state).toBe('cancelled')
     })
 
     it('POST /sessions/:id/cancel is idempotent on terminal state', async () => {
         const { queue, app } = mk()
         await queue.enqueue(session('s2b'))
-        await request(app).post('/sessions/s2b/cancel')
-        const second = await request(app).post('/sessions/s2b/cancel')
+        await request(app).post(`/sessions/${uuidFor('s2b')}/cancel`)
+        const second = await request(app).post(`/sessions/${uuidFor('s2b')}/cancel`)
         expect(second.status).toBe(200)
         expect(second.body).toMatchObject({ ok: true, idempotent: true, state: 'cancelled' })
     })
@@ -348,7 +413,7 @@ describe('janitor HTTP', () => {
         const old = iso(now - 7 * 24 * 60 * 60 * 1000)
         await queue.enqueue({
             ...session('live-1'),
-            application_id: 'app-x',
+            application_id: uuidFor('app-x'),
             state: 'running',
             created_at: recent,
             updated_at: recent,
@@ -356,7 +421,7 @@ describe('janitor HTTP', () => {
         })
         await queue.enqueue({
             ...session('done-1'),
-            application_id: 'app-x',
+            application_id: uuidFor('app-x'),
             state: 'completed',
             created_at: recent,
             updated_at: recent,
@@ -364,7 +429,7 @@ describe('janitor HTTP', () => {
         })
         await queue.enqueue({
             ...session('failed-1'),
-            application_id: 'app-x',
+            application_id: uuidFor('app-x'),
             state: 'failed',
             created_at: recent,
             updated_at: recent,
@@ -372,7 +437,7 @@ describe('janitor HTTP', () => {
         })
         await queue.enqueue({
             ...session('old-1'),
-            application_id: 'app-x',
+            application_id: uuidFor('app-x'),
             state: 'completed',
             created_at: old,
             updated_at: old,
@@ -380,13 +445,15 @@ describe('janitor HTTP', () => {
         })
         await queue.enqueue({
             ...session('other-app'),
-            application_id: 'app-y',
+            application_id: uuidFor('app-y'),
             state: 'running',
             created_at: recent,
             updated_at: recent,
             usage_total: { ...EMPTY_USAGE_TOTAL, cost_total: 99 },
         })
-        const res = await request(app).get('/sessions/stats').query({ application_id: 'app-x' })
+        const res = await request(app)
+            .get('/sessions/stats')
+            .query({ application_id: uuidFor('app-x') })
         expect(res.status).toBe(200)
         expect(res.body).toMatchObject({
             liveCount: 1,
@@ -466,7 +533,7 @@ describe('janitor HTTP', () => {
         const res = await request(app).get('/sessions/live').query({ team_id: 7 })
         expect(res.status).toBe(200)
         const ids = (res.body.results as Array<{ id: string }>).map((s) => s.id)
-        expect(ids).toEqual(['live-new', 'live-old'])
+        expect(ids).toEqual([uuidFor('live-new'), uuidFor('live-old')])
         expect(Object.keys(res.body.results[0])).not.toContain('conversation')
     })
 
@@ -499,16 +566,51 @@ describe('janitor HTTP', () => {
         })
     })
 
-    it('enforces internal secret when configured', async () => {
-        const queue = new MemorySessionQueue()
+    it('enforces aud-bound JWT auth when an internal signing key is configured', async () => {
+        const queue = new PgSessionQueue(pool)
+        const signingKey = 'topsecret'
         const app = buildJanitorApp({
             queue,
             sweep: { queue, stuckRunningThresholdMs: 60_000 },
-            internalSecret: 'topsecret',
+            internalSigningKey: signingKey,
         })
-        const noAuth = await request(app).get('/sessions/x')
+
+        const noAuth = await request(app).get('/sessions/00000000-0000-4000-8000-00000000ddff')
         expect(noAuth.status).toBe(401)
-        const withAuth = await request(app).get('/sessions/x').set('x-internal-secret', 'topsecret')
+        expect(noAuth.body).toMatchObject({ reason: 'missing_token' })
+
+        const rawSecret = await request(app)
+            .get('/sessions/00000000-0000-4000-8000-00000000ddff')
+            .set('x-internal-secret', 'topsecret')
+        expect(rawSecret.status).toBe(401)
+
+        // Token minted for a different audience must be rejected.
+        const wrongAud = await mintInternalJwt({
+            audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
+            signingKey,
+        })
+        const wrongAudRes = await request(app)
+            .get('/sessions/00000000-0000-4000-8000-00000000ddff')
+            .set('x-internal-secret', wrongAud)
+        expect(wrongAudRes.status).toBe(401)
+
+        // Right audience, wrong signing key.
+        const wrongKey = await mintInternalJwt({
+            audience: INTERNAL_JWT_AUDIENCE.JANITOR_RPC,
+            signingKey: 'other-key',
+        })
+        const wrongKeyRes = await request(app)
+            .get('/sessions/00000000-0000-4000-8000-00000000ddff')
+            .set('x-internal-secret', wrongKey)
+        expect(wrongKeyRes.status).toBe(401)
+
+        const ok = await mintInternalJwt({
+            audience: INTERNAL_JWT_AUDIENCE.JANITOR_RPC,
+            signingKey,
+        })
+        const withAuth = await request(app)
+            .get('/sessions/00000000-0000-4000-8000-00000000ddff')
+            .set('x-internal-secret', ok)
         expect(withAuth.status).toBe(404) // session not found, but auth passed
     })
 
@@ -528,14 +630,14 @@ describe('janitor HTTP', () => {
     /* ────────────────────────── revisions ────────────────────────── */
 
     async function mkRevisionApp(): Promise<{
-        revisions: MemoryRevisionStore
-        bundles: MemoryBundleStore
+        revisions: PgRevisionStore
+        bundles: S3BundleStore
         app: ReturnType<typeof buildJanitorApp>
         revisionId: string
     }> {
-        const revisions = new MemoryRevisionStore()
-        const bundles = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundles = bundleStore
+        const queue = new PgSessionQueue(pool)
         const apprec = await revisions.createApplication({ team_id: 1, slug: 'a', name: 'A', description: '' })
         const rev = await revisions.createRevision({
             application_id: apprec.id,
@@ -579,9 +681,9 @@ describe('janitor HTTP', () => {
     })
 
     it('POST /revisions/:id/cron/fire enqueues a session for the named cron', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundles = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundles = bundleStore
+        const queue = new PgSessionQueue(pool)
         const apprec = await revisions.createApplication({ team_id: 1, slug: 'a', name: 'A', description: '' })
         const rev = await revisions.createRevision({
             application_id: apprec.id,
@@ -616,9 +718,9 @@ describe('janitor HTTP', () => {
     })
 
     it('POST /revisions/:id/cron/fire dedupes repeat clicks with the same request_id', async () => {
-        const revisions = new MemoryRevisionStore()
-        const bundles = new MemoryBundleStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const bundles = bundleStore
+        const queue = new PgSessionQueue(pool)
         const apprec = await revisions.createApplication({ team_id: 1, slug: 'a', name: 'A', description: '' })
         const rev = await revisions.createRevision({
             application_id: apprec.id,

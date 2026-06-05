@@ -1,6 +1,27 @@
-import { AgentSpecSchema, MemoryBundleStore } from '@posthog/agent-shared'
+import {
+    AgentSpecSchema,
+    buildTestBundleStore,
+    newTestPrefix,
+    S3BundleStore,
+    wipeTestPrefix,
+} from '@posthog/agent-shared'
 
 import { buildSystemPrompt } from './system-prompt'
+
+let bundlePrefix: string
+let bundleTestStore: ReturnType<typeof buildTestBundleStore>
+let bundle: S3BundleStore
+
+beforeEach(() => {
+    bundlePrefix = newTestPrefix('agent_bundles_system_prompt_test')
+    bundleTestStore = buildTestBundleStore(bundlePrefix)
+    bundle = bundleTestStore.store
+})
+
+afterEach(async () => {
+    await wipeTestPrefix(bundleTestStore.client, bundlePrefix).catch(() => undefined)
+    bundleTestStore.client.destroy()
+})
 
 function makeRev(spec: ReturnType<typeof AgentSpecSchema.parse>): never {
     return {
@@ -18,7 +39,6 @@ function makeRev(spec: ReturnType<typeof AgentSpecSchema.parse>): never {
 
 describe('buildSystemPrompt', () => {
     it('reads agent.md and emits a skill INDEX (not bodies)', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'You are a helpful agent.')
         await bundle.write('rev1', 'skills/research/SKILL.md', 'Be thorough.')
         await bundle.write('rev1', 'skills/cite/SKILL.md', 'Cite sources.')
@@ -43,7 +63,6 @@ describe('buildSystemPrompt', () => {
     })
 
     it('skills without a description fall back to a placeholder in the index', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'top')
         const spec = AgentSpecSchema.parse({
             model: 'x',
@@ -54,7 +73,6 @@ describe('buildSystemPrompt', () => {
     })
 
     it('emits no skills section when spec.skills is empty', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'top')
         const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
@@ -62,14 +80,12 @@ describe('buildSystemPrompt', () => {
     })
 
     it('falls back when entrypoint missing', async () => {
-        const bundle = new MemoryBundleStore()
         const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
         expect(prompt).toMatch(/missing entrypoint/)
     })
 
     it('injects the framework preamble before agent.md', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'I am the agent author content.')
         const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
@@ -84,7 +100,6 @@ describe('buildSystemPrompt', () => {
     })
 
     it('framework preamble covers all default sections', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const spec = AgentSpecSchema.parse({ model: 'x' })
         const prompt = await buildSystemPrompt(makeRev(spec), bundle)
@@ -115,7 +130,6 @@ describe('buildSystemPrompt', () => {
     })
 
     it('spec.framework_prompt.omit suppresses specific sections', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
         const spec = AgentSpecSchema.parse({
             model: 'x',
@@ -131,8 +145,34 @@ describe('buildSystemPrompt', () => {
         expect(prompt).toContain('Conversation state')
     })
 
+    it('omits the unavailable-MCPs section when no failures are passed', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle)
+        expect(prompt).not.toContain('Unavailable capabilities')
+    })
+
+    it('lists unavailable MCPs with the category hint, no raw error strings', async () => {
+        await bundle.write('rev1', 'agent.md', 'x')
+        const spec = AgentSpecSchema.parse({ model: 'x' })
+        const prompt = await buildSystemPrompt(makeRev(spec), bundle, {
+            unavailableMcps: [
+                { id: 'posthog', category: 'auth' },
+                { id: 'linear', category: 'network' },
+                { id: 'gh', category: 'not_found' },
+                { id: 'mystery', category: 'unknown' },
+            ],
+        })
+        expect(prompt).toContain('Unavailable capabilities')
+        expect(prompt).toContain('`posthog` — authentication issue')
+        expect(prompt).toContain('`linear` — network or upstream issue')
+        expect(prompt).toContain('`gh` — endpoint not found')
+        expect(prompt).toContain('`mystery` — unavailable')
+        // The model is told not to paste raw error strings to the user.
+        expect(prompt).toMatch(/do NOT paste raw error messages/)
+    })
+
     it('reasoning hint only fires for high / xhigh', async () => {
-        const bundle = new MemoryBundleStore()
         await bundle.write('rev1', 'agent.md', 'x')
 
         // No spec.reasoning → no hint.

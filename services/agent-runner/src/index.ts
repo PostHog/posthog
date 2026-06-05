@@ -208,43 +208,43 @@ async function main(): Promise<void> {
         ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http: new DirectHttpClient() })
         : null
 
-    // Agent memory: S3-backed file store. Disabled (memory tools surface
-    // `memory_store_unavailable` to the model) when the bucket isn't
-    // configured — dev/CI without object storage still boots cleanly.
-    let memoryStore: MemoryStore | undefined
-    // Tabular reference store - shares the memory S3 client + bucket (agent_tables
-    // prefix); same enable condition as memory.
-    let tabularStore: TabularStore | undefined
-    if (config.memoryS3Bucket && config.memoryS3Endpoint) {
-        const s3 = new S3Client({
-            endpoint: config.memoryS3Endpoint,
-            region: config.memoryS3Region,
-            forcePathStyle: config.memoryS3ForcePathStyle,
-            credentials:
-                config.memoryS3AccessKeyId && config.memoryS3SecretAccessKey
-                    ? {
-                          accessKeyId: config.memoryS3AccessKeyId,
-                          secretAccessKey: config.memoryS3SecretAccessKey,
-                      }
-                    : undefined,
-        })
-        memoryStore = new S3MemoryStore({
-            client: s3,
-            bucket: config.memoryS3Bucket,
-            bucketPrefix: config.memoryS3Prefix,
-        })
-        tabularStore = new S3JsonlTabularStore({
-            client: s3,
-            bucket: config.memoryS3Bucket,
-            bucketPrefix: 'agent_tables',
-        })
-        log.info(
-            { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
-            'memory.s3.enabled'
+    // Agent memory: S3-backed file store. Required everywhere — the runner
+    // refuses to boot without it so the `@posthog/memory-*` + `@posthog/table-*`
+    // tools always work the same way in dev as in prod. Dev gets a default
+    // pointing at SeaweedFS (provisioned by `hogli start`); prod must wire its
+    // bucket + endpoint via env. No more `memory_store_unavailable` surfacing
+    // to the model on a misconfigured dev box.
+    if (!config.memoryS3Bucket || !config.memoryS3Endpoint) {
+        throw new Error(
+            'AGENT_MEMORY_S3_BUCKET and AGENT_MEMORY_S3_ENDPOINT must both be set — the runner refuses to start without memory storage. Dev: SeaweedFS via `hogli start` (defaults wired in `agent-shared/src/config/platform.ts`). Prod: real S3 / equivalent.'
         )
-    } else {
-        log.warn({}, 'memory.s3.disabled — set AGENT_MEMORY_S3_BUCKET + AGENT_MEMORY_S3_ENDPOINT to enable')
     }
+    const memoryS3 = new S3Client({
+        endpoint: config.memoryS3Endpoint,
+        region: config.memoryS3Region,
+        forcePathStyle: config.memoryS3ForcePathStyle,
+        credentials:
+            config.memoryS3AccessKeyId && config.memoryS3SecretAccessKey
+                ? {
+                      accessKeyId: config.memoryS3AccessKeyId,
+                      secretAccessKey: config.memoryS3SecretAccessKey,
+                  }
+                : undefined,
+    })
+    const memoryStore: MemoryStore = new S3MemoryStore({
+        client: memoryS3,
+        bucket: config.memoryS3Bucket,
+        bucketPrefix: config.memoryS3Prefix,
+    })
+    const tabularStore: TabularStore = new S3JsonlTabularStore({
+        client: memoryS3,
+        bucket: config.memoryS3Bucket,
+        bucketPrefix: 'agent_tables',
+    })
+    log.info(
+        { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
+        'memory.s3.enabled'
+    )
 
     // Per-session credential broker — same shape ingress writes to.
     // Required for any non-public auth mode (e.g. the concierge's

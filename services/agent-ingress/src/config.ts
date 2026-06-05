@@ -34,11 +34,11 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .string()
         .default('/agents')
         .describe('URL prefix in path mode (default `/agents`). Slug comes immediately after.'),
-    previewSecret: z
+    internalSigningKey: z
         .string()
         .optional()
         .describe(
-            "HMAC secret shared with Django (must match Django's `AGENT_PREVIEW_SECRET`). Verifies x-agent-preview-token on non-live invokes. Unset → gate bypassed (dev / harness only). See docs/agent-platform/plans/draft-preview-auth.md."
+            "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies x-agent-preview-token on non-live invokes (aud = agent-ingress.preview). Unset → preview gate bypassed (dev / harness only). See docs/agent-platform/plans/draft-preview-auth.md."
         ),
 })
 
@@ -50,7 +50,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
     ROUTING_MODE: 'routingMode',
     DOMAIN_SUFFIX: 'domainSuffix',
     PATH_PREFIX: 'pathPrefix',
-    AGENT_PREVIEW_SECRET: 'previewSecret',
+    AGENT_INTERNAL_SIGNING_KEY: 'internalSigningKey',
 })
 
 export function loadAgentIngressConfig(env: NodeJS.ProcessEnv = process.env): AgentIngressConfig {

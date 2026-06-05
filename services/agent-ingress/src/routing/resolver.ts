@@ -19,16 +19,14 @@
  * URLs.
  */
 
-import { jwtVerify } from 'jose'
-
-import { AgentApplication, AgentRevision, RevisionStore } from '@posthog/agent-shared'
-
-/**
- * JWT audience that Django mints on preview-proxy hops. The ingress only
- * accepts tokens carrying this audience — so a JWT minted for some other
- * PostHog feature (export rendering, livestream, …) can't be replayed here.
- */
-const PREVIEW_TOKEN_AUDIENCE = 'posthog:agent_preview'
+import {
+    AgentApplication,
+    AgentRevision,
+    INTERNAL_JWT_AUDIENCE,
+    InternalJwtVerifyError,
+    RevisionStore,
+    verifyInternalJwt,
+} from '@posthog/agent-shared'
 
 export type RoutingMode = 'domain' | 'path'
 
@@ -78,16 +76,17 @@ export interface ResolverOpts {
     /** Team that owns all routed agents in this deployment. v1 = single tenant. */
     teamId: number
     /**
-     * HMAC secret shared with Django. Django mints a short-lived JWT (aud =
-     * `posthog:agent_preview`, claims `{ app, rev }`); the caller forwards
-     * it as either the `x-agent-preview-token` header (POST/DELETE + the
-     * server-side preview-proxy) or the `?preview_token=` query parameter
-     * (browser `EventSource` for `/listen`, since EventSource can't set
-     * headers). The resolver verifies signature + exp + claim-binding on
-     * non-live resolutions. Leave undefined to bypass the gate (dev /
-     * harness path); production wires `AGENT_PREVIEW_SECRET`.
+     * Shared HMAC signing key for cross-service JWTs (the same value Django
+     * + the janitor read from `AGENT_INTERNAL_SIGNING_KEY`). Django mints
+     * a short-lived JWT (aud = `agent-ingress.preview`, claims `{ app, rev }`);
+     * the caller forwards it as either the `x-agent-preview-token` header
+     * (POST/DELETE + the server-side preview-proxy) or the `?preview_token=`
+     * query parameter (browser `EventSource` for `/listen`, since
+     * EventSource can't set headers). The resolver verifies signature +
+     * aud + exp + claim-binding on non-live resolutions. Leave undefined
+     * to bypass the gate (dev / harness path).
      */
-    previewSecret?: string
+    internalSigningKey?: string
 }
 
 export class RevisionResolver {
@@ -164,14 +163,14 @@ export class RevisionResolver {
 
     /**
      * Refuse non-live invokes unless the request carries a valid preview JWT
-     * signed with the shared secret. Token must (a) verify against the HMAC,
-     * (b) carry the `posthog:agent_preview` audience, (c) not be expired, and
-     * (d) carry `app` + `rev` claims that match the resolved revision. The
-     * check is bypassed when `previewSecret` isn't configured (dev / harness
-     * path).
+     * signed with the internal signing key. Token must (a) verify against
+     * the HMAC, (b) carry the `agent-ingress.preview` audience, (c) not be
+     * expired, and (d) carry `app` + `rev` claims that match the resolved
+     * revision. The check is bypassed when `internalSigningKey` isn't
+     * configured (dev / harness path).
      */
     private async assertPreviewGate(resolved: ResolvedAgent, providedToken: string | undefined): Promise<void> {
-        if (!this.opts.previewSecret) {
+        if (!this.opts.internalSigningKey) {
             return
         }
         if (resolved.revision.id === resolved.application.live_revision_id) {
@@ -180,17 +179,15 @@ export class RevisionResolver {
         if (!providedToken) {
             throw new MissingPreviewSecretError('missing_token')
         }
-        const keyBytes = new TextEncoder().encode(this.opts.previewSecret)
         let payload: Record<string, unknown>
         try {
-            const verified = await jwtVerify(providedToken, keyBytes, {
-                audience: PREVIEW_TOKEN_AUDIENCE,
-                algorithms: ['HS256'],
+            payload = await verifyInternalJwt({
+                token: providedToken,
+                audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
+                signingKey: this.opts.internalSigningKey,
             })
-            payload = verified.payload as Record<string, unknown>
         } catch (e) {
-            // jose throws on bad signature / expired / wrong audience.
-            throw new MissingPreviewSecretError(`token_verify_failed: ${(e as Error).message}`)
+            throw new MissingPreviewSecretError(`token_verify_failed: ${(e as InternalJwtVerifyError).reason}`)
         }
         if (payload.app !== resolved.application.id) {
             throw new MissingPreviewSecretError('app_claim_mismatch')

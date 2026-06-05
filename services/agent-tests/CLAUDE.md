@@ -10,20 +10,35 @@ for the wider dev flow. This file is the test-side contract.
 ## The harness
 
 [src/harness/cluster.ts](src/harness/cluster.ts) is the only thing
-tests should construct. It boots:
+tests should construct. It boots the same impls prod runs, against
+the local services `hogli start` brings up:
 
 - **Real Postgres** at `agent_runtime_queue_test` (override with
   `AGENT_TEST_DB_URL`). Schema is **dropped + reapplied per test** —
   no leaked state between cases.
-- **Real filesystem** for the bundle store, in a per-test tmp dir.
+- **Real Redis** (`REDIS_URL`, defaults to `redis://localhost:6379`) —
+  `RedisSessionEventBus` with a per-cluster channel prefix so
+  concurrent test files don't see each other's events.
+- **Real Kafka** (`KAFKA_HOSTS`, defaults to `localhost:9092`) —
+  `KafkaLogSink` against the `log_entries` topic. Tests assert on
+  the wire payloads via the sink's `tap` callback (the harness
+  captures into `c.logs.forSession(id)`) — we don't poll ClickHouse
+  because the materialised view is async and flakey under load.
+- **Real SeaweedFS / S3** (`AGENT_MEMORY_TEST_S3_*`, defaults to
+  the SeaweedFS the dev stack ships) — `S3BundleStore` +
+  `S3MemoryStore`, each rooted at a per-cluster random prefix that
+  teardown wipes.
 - **Real Express ingress + Worker loop + InProcessSandboxPool**.
+  `InProcessSandboxPool`'s constructor refuses unless `NODE_ENV=test`
+  (vitest sets it automatically). Prod uses Docker / Modal via
+  `selectSandboxPool()`.
 - **Real PiAiClient** pointed at pi-ai's `faux` provider — `c.setScript([...])`
   arms the next N responses.
 
-What the harness does NOT mock: the queue, the bundle store, the
-sandbox, the tool dispatcher, the lifecycle bus, the log sink, the
-identity store. Mocking any of these in a test is a smell — fix the
-real implementation, or extend the harness.
+The only mocked layer is the model — faux pi-ai. Everything else is
+the prod impl against a real local service. There are no in-memory
+queue / bundle / bus / log / identity / credential variants in the
+codebase any more; constructing one is a build error.
 
 ## The "vital feature → case" rule
 

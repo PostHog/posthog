@@ -3,9 +3,8 @@
  * interact with a deployed agent. Each (application, principal_kind, principal_id)
  * tuple resolves to a stable `AgentUser` row that persists across sessions.
  *
- * Two impls:
- *   - `MemoryIdentityStore` (tests / local dev)
- *   - `PgIdentityStore` (prod, backed by agent_user table)
+ * Backed by `agent_user` in Postgres. Tests use `PgIdentityStore` against the
+ * test DB; there is no in-memory variant.
  */
 
 import type { Pool } from 'pg'
@@ -54,65 +53,6 @@ export interface IdentityStore {
      * misses don't re-hit Slack.
      */
     setPosthogUserId(agentUserId: string, posthogUserId: number | null): Promise<void>
-}
-
-export class MemoryIdentityStore implements IdentityStore {
-    private readonly rows: AgentUser[] = []
-
-    async findOrCreate(input: {
-        team_id: number
-        application_id: string
-        principal_kind: string
-        principal_id: string
-        metadata?: Record<string, unknown>
-    }): Promise<AgentUser> {
-        const existing = this.rows.find(
-            (r) =>
-                r.application_id === input.application_id &&
-                r.principal_kind === input.principal_kind &&
-                r.principal_id === input.principal_id
-        )
-        if (existing) {
-            return existing
-        }
-        const fresh: AgentUser = {
-            id: uuidv4(),
-            team_id: input.team_id,
-            application_id: input.application_id,
-            principal_kind: input.principal_kind,
-            principal_id: input.principal_id,
-            metadata: input.metadata,
-            created_at: new Date().toISOString(),
-        }
-        this.rows.push(fresh)
-        return fresh
-    }
-
-    async find(input: {
-        application_id: string
-        principal_kind: string
-        principal_id: string
-    }): Promise<AgentUser | null> {
-        return (
-            this.rows.find(
-                (r) =>
-                    r.application_id === input.application_id &&
-                    r.principal_kind === input.principal_kind &&
-                    r.principal_id === input.principal_id
-            ) ?? null
-        )
-    }
-
-    async setPosthogUserId(agentUserId: string, posthogUserId: number | null): Promise<void> {
-        const row = this.rows.find((r) => r.id === agentUserId)
-        if (row) {
-            row.posthog_user_id = posthogUserId
-        }
-    }
-
-    async getById(agentUserId: string): Promise<AgentUser | null> {
-        return this.rows.find((r) => r.id === agentUserId) ?? null
-    }
 }
 
 export class PgIdentityStore implements IdentityStore {

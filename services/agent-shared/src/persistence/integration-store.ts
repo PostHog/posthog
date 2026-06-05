@@ -81,50 +81,6 @@ function parseSensitiveConfig(raw: Record<string, unknown> | null, kind: string)
     return credentials
 }
 
-export class MemoryIntegrationStore implements IntegrationStore {
-    private readonly rows: Array<{
-        team_id: number
-        kind: string
-        integration_id: string
-        credentials: IntegrationCredentials
-    }> = []
-
-    add(team_id: number, kind: string, integration_id: string, credentials: IntegrationCredentials): void {
-        const i = this.rows.findIndex(
-            (r) => r.team_id === team_id && r.kind === kind && r.integration_id === integration_id
-        )
-        const row = { team_id, kind, integration_id, credentials }
-        if (i >= 0) {
-            this.rows[i] = row
-        } else {
-            this.rows.push(row)
-        }
-    }
-
-    async get(team_id: number, kind: string, integration_id: string): Promise<IntegrationCredentials | null> {
-        const row = this.rows.find(
-            (r) => r.team_id === team_id && r.kind === kind && r.integration_id === integration_id
-        )
-        return row?.credentials ?? null
-    }
-
-    async list(team_id: number, kind: string): Promise<IntegrationRow[]> {
-        return this.rows
-            .filter((r) => r.team_id === team_id && r.kind === kind)
-            .map((r) => ({ integration_id: r.integration_id, credentials: r.credentials }))
-    }
-
-    async resolveForSpec(team_id: number, kinds: string[]): Promise<Record<string, IntegrationCredentials>> {
-        const out: Record<string, IntegrationCredentials> = {}
-        for (const kind of kinds) {
-            for (const row of await this.list(team_id, kind)) {
-                out[`${kind}:${row.integration_id}`] = row.credentials
-            }
-        }
-        return out
-    }
-}
-
 interface DbRow {
     integration_id: string | null
     sensitive_config: string | null

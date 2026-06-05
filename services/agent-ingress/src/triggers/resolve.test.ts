@@ -12,16 +12,31 @@
 
 import type { Request, Response } from 'express'
 import { SignJWT } from 'jose'
+import { Pool } from 'pg'
 
-import { AgentRevision, AgentSpecSchema, MemoryRevisionStore } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-migrations'
+import { AgentSpecSchema, PgRevisionStore } from '@posthog/agent-shared'
 
 import { RevisionResolver } from '../routing/resolver'
 import { resolveAgent } from './resolve'
 
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+afterAll(async () => {
+    await pool.end()
+})
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
+
 const SECRET = 'test-preview-secret-test-preview-secret'
-// Mirrors the (currently unexported) constant in routing/resolver.ts
-// — `aud` must match the one the resolver hands to `jwtVerify`.
-const PREVIEW_TOKEN_AUDIENCE = 'posthog:agent_preview'
+// Mirrors INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW from agent-shared — `aud`
+// must match the one the resolver hands to `verifyInternalJwt`.
+const PREVIEW_TOKEN_AUDIENCE = 'agent-ingress.preview'
 
 // UUID-shaped id so the resolver's `<slug>-<8..32 hex>` regex matches.
 const DRAFT_UUID = '019e74a3-57d4-78f3-86a0-7e7135a96d80'
@@ -35,19 +50,12 @@ async function mintToken(secret: string, claims: { app: string; rev: string; aud
         .sign(new TextEncoder().encode(secret))
 }
 
-/** MemoryRevisionStore generates `rev_N` ids by default; force a UUID-shaped one. */
-function rebrand(store: MemoryRevisionStore, oldId: string, newId: string): void {
-    const map = (store as unknown as { revs: Map<string, AgentRevision> }).revs
-    const rev = map.get(oldId)
-    if (!rev) {
-        throw new Error(`revision ${oldId} not found`)
-    }
-    rev.id = newId
-    map.delete(oldId)
-    map.set(newId, rev)
+/** Override a PG-generated revision uuid so tests can hardcode DRAFT_UUID. */
+async function rebrandRevisionPg(oldId: string, newId: string): Promise<void> {
+    await pool.query(`UPDATE agent_revision SET id = $2 WHERE id = $1`, [oldId, newId])
 }
 
-async function seedDraft(store: MemoryRevisionStore, slug: string): Promise<{ appId: string }> {
+async function seedDraft(store: PgRevisionStore, slug: string): Promise<{ appId: string }> {
     const app = await store.createApplication({ team_id: 1, slug, name: slug, description: '' })
     const live = await store.createRevision({
         application_id: app.id,
@@ -65,17 +73,17 @@ async function seedDraft(store: MemoryRevisionStore, slug: string): Promise<{ ap
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({ model: 'x' }),
     })
-    rebrand(store, draft.id, DRAFT_UUID)
+    await rebrandRevisionPg(draft.id, DRAFT_UUID)
     return { appId: app.id }
 }
 
-function mkResolver(store: MemoryRevisionStore): RevisionResolver {
+function mkResolver(store: PgRevisionStore): RevisionResolver {
     return new RevisionResolver({
         revisions: store,
         mode: 'path',
         pathPrefix: '/agents',
         teamId: 1,
-        previewSecret: SECRET,
+        internalSigningKey: SECRET,
     })
 }
 
@@ -109,7 +117,7 @@ function fakeReq(opts: { slug: string; header?: string; queryToken?: string }): 
 
 describe('resolveAgent (preview token source)', () => {
     it('admits a draft invoke when the JWT arrives in the `x-agent-preview-token` header', async () => {
-        const store = new MemoryRevisionStore()
+        const store = new PgRevisionStore(pool)
         const { appId } = await seedDraft(store, 'gated')
         const token = await mintToken(SECRET, { app: appId, rev: DRAFT_UUID })
         const { res, captured } = fakeRes()
@@ -124,7 +132,7 @@ describe('resolveAgent (preview token source)', () => {
         // EventSource cannot set custom headers, so the browser puts
         // the JWT in the URL. This is the regression cover for the
         // direct-to-ingress preview-token architecture.
-        const store = new MemoryRevisionStore()
+        const store = new PgRevisionStore(pool)
         const { appId } = await seedDraft(store, 'gated')
         const token = await mintToken(SECRET, { app: appId, rev: DRAFT_UUID })
         const { res, captured } = fakeRes()
@@ -140,7 +148,7 @@ describe('resolveAgent (preview token source)', () => {
     })
 
     it('header wins over query string when both are present', async () => {
-        const store = new MemoryRevisionStore()
+        const store = new PgRevisionStore(pool)
         const { appId } = await seedDraft(store, 'gated')
         const goodToken = await mintToken(SECRET, { app: appId, rev: DRAFT_UUID })
         const badQueryToken = await mintToken('different-secret', { app: appId, rev: DRAFT_UUID })
@@ -157,7 +165,7 @@ describe('resolveAgent (preview token source)', () => {
     })
 
     it('returns 401 with `preview_token_required` when neither source carries a token', async () => {
-        const store = new MemoryRevisionStore()
+        const store = new PgRevisionStore(pool)
         await seedDraft(store, 'gated')
         const { res, captured } = fakeRes()
 

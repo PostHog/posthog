@@ -388,4 +388,48 @@ describe('runtime MCPs: real e2e', () => {
         // ONE row, not two — the unique index collapsed the duplicate.
         expect(rows).toHaveLength(1)
     })
+
+    it('an MCP that fails to open does NOT crash the session — the agent continues with the rest', async () => {
+        // Reproduces the bug surfaced in dev: a misconfigured MCP (no token,
+        // unreachable URL, missing secret) used to mark the entire session
+        // `failed` before the agent ran a single turn. Now it should:
+        //   - keep the working MCPs alive
+        //   - complete the turn using whatever the model can do
+        //   - record the failure in log_entries (for the agent owner)
+        //   - NOT include the raw error text in the session.error / bus payload
+        const { factory, captured } = buildFactory({
+            ping: { description: 'p', handler: () => ({ ok: true }) },
+        })
+        c = await buildCluster({ mcpTransportFactory: factory })
+        c.setScript([fauxCallTool('working__ping', {}), fauxText('done')])
+        await c.deployAgent({
+            slug: 'mcp-degraded',
+            spec: {
+                mcps: [
+                    // `working` opens cleanly via the in-process factory.
+                    { id: 'working', url: 'https://example.com/working' },
+                    // `broken` references an undeclared secret → resolveTarget
+                    // throws → reported as an unavailable MCP, not session-fatal.
+                    { id: 'broken', url: 'https://example.com/${MISSING}/mcp', secrets: ['MISSING'] },
+                ],
+            },
+        })
+        const res = await request(c.ingress).post('/agents/mcp-degraded/run').send({ message: 'go' })
+        await c.drain()
+
+        const session = await c.queue.get(res.body.session_id)
+        // Session completed normally with the surviving MCP.
+        expect(session!.state).toBe('completed')
+        expect(captured).toEqual([{ name: 'ping', args: {}, target: { url: 'https://example.com/working' } }])
+
+        // The agent owner sees the per-failure detail in log_entries (the
+        // server-side observability channel) — not on the bus.
+        const logs = c.logs.forSession(res.body.session_id)
+        const mcpFail = logs.find((e) => e.event === 'mcp_open_failed')
+        expect(mcpFail).not.toBeUndefined()
+        expect(mcpFail!.level).toBe('warn')
+        expect(mcpFail!.data.prefix).toBe('broken')
+        expect(mcpFail!.data.category).toBe('auth')
+        expect(mcpFail!.data.reason).toMatch(/mcp_secret_not_resolved/)
+    })
 })

@@ -5,11 +5,13 @@
  *
  *   runner ─Kafka─▶ topic: log_entries ─consumer─▶ log_entries (CH)
  *
- * Sinks:
- *   - InMemoryLogSink (tests + local dev) — captures entries for assertion
- *   - NoopLogSink (dev/local without a Kafka broker)
- *   - KafkaLogSink (prod) — wraps node-rdkafka's HighLevelProducer; ports the
- *     pattern from services/agent-core/src/log-entries/producer.ts.
+ * `KafkaLogSink` is the only impl — used by prod, dev, and tests (the harness
+ * connects against the local Kafka broker via `bin/start`). Tests assert on
+ * the wire payloads via the `tap` callback rather than polling ClickHouse
+ * (the CH materialised view is asynchronous and flakey under load). The tap
+ * fires synchronously before each `produce()` so a passing assertion means
+ * the producer was actually invoked with the expected wire bytes; the
+ * downstream CH write is exercised end-to-end in prod.
  *
  * Internal `LogEntry` shape is the structured event+data one — useful for
  * test assertions and downstream consumers. The Kafka writer translates it
@@ -46,33 +48,6 @@ export const AGENT_SESSION_LOG_SOURCE = 'agent_session'
 
 export interface LogSink {
     write(entries: LogEntry[]): Promise<void>
-}
-
-/* -------------------------------------------------------------------------- */
-/* In-memory + noop sinks (tests, local dev)                                  */
-/* -------------------------------------------------------------------------- */
-
-export class InMemoryLogSink implements LogSink {
-    public readonly entries: LogEntry[] = []
-
-    async write(entries: LogEntry[]): Promise<void> {
-        this.entries.push(...entries)
-    }
-
-    /** Return entries filtered by session. Most tests want this. */
-    forSession(sessionId: string): LogEntry[] {
-        return this.entries.filter((e) => e.session_id === sessionId)
-    }
-
-    clear(): void {
-        this.entries.length = 0
-    }
-}
-
-export class NoopLogSink implements LogSink {
-    async write(_entries: LogEntry[]): Promise<void> {
-        // intentionally empty
-    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -170,6 +145,16 @@ export interface KafkaLogSinkOptions {
         warn: (msg: string, meta?: unknown) => void
         error: (msg: string, meta?: unknown) => void
     }
+    /**
+     * Synchronous side channel called per entry *before* `producer.produce()`.
+     * Tests wire this to accumulate the wire payloads for assertion — that
+     * way we validate the producer was invoked with the right bytes without
+     * paying the ClickHouse materialised-view round-trip latency (which is
+     * asynchronous and flakey under load). The tap sees the same `LogEntry`
+     * the runner emitted plus the translated `LogEntryWire`; assertions
+     * usually grep on the structured fields and ignore the wire envelope.
+     */
+    tap?: (entry: LogEntry, wire: LogEntryWire) => void
 }
 
 /**
@@ -284,6 +269,13 @@ export class KafkaLogSink implements LogSink {
         const topic = this.opts.topic ?? 'log_entries'
         for (const entry of entries) {
             const wire = toWire(entry)
+            if (this.opts.tap) {
+                try {
+                    this.opts.tap(entry, wire)
+                } catch (err) {
+                    this.log.warn('tap threw', { error: String(err) })
+                }
+            }
             const value = Buffer.from(safeClickhouseString(JSON.stringify(wire)))
             try {
                 this.producer.produce(topic, null, value, null, Date.now(), noopDeliveryCallback)

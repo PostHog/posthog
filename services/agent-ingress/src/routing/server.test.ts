@@ -1,13 +1,26 @@
 import { createHmac } from 'crypto'
+import { Pool } from 'pg'
 import request from 'supertest'
 
-import { AgentSpecSchema, MemoryRevisionStore, MemorySessionQueue } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-migrations'
+import {
+    AgentSpecSchema,
+    PgCredentialBroker,
+    PgRevisionStore,
+    PgSessionQueue,
+    RedisSessionEventBus,
+} from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
-import { MemorySessionEventBus } from '@posthog/agent-shared'
 
 import { buildApp } from './server'
 
 const TEST_SLACK_SECRET = 'test-slack-secret'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const HARNESS_ENCRYPTION_SALT_KEYS = '01234567890123456789012345678901'
 
 /**
  * Mints the `(timestamp, signature)` pair Slack would send for a given body.
@@ -21,10 +34,7 @@ function signSlack(body: string, secret = TEST_SLACK_SECRET): { ts: string; sig:
     return { ts, sig: `v0=${mac}` }
 }
 
-async function seedApp(
-    store: MemoryRevisionStore,
-    slug: string
-): Promise<{ app: AgentApplication; rev: AgentRevision }> {
+async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: AgentApplication; rev: AgentRevision }> {
     const app = await store.createApplication({ team_id: 1, slug, name: slug, description: '' })
     const rev = await store.createRevision({
         application_id: app.id,
@@ -47,26 +57,50 @@ async function seedApp(
 }
 
 describe('ingress HTTP server (path mode)', () => {
+    let pool: Pool
+    let bus: RedisSessionEventBus
+
+    beforeAll(async () => {
+        pool = new Pool({ connectionString: TEST_DB_URL })
+        bus = new RedisSessionEventBus({
+            url: REDIS_URL,
+            channelPrefix: `ingress_server_test_${Math.random().toString(36).slice(2, 10)}`,
+        })
+        await bus.connect()
+    })
+
+    beforeEach(async () => {
+        await reset({ databaseUrl: TEST_DB_URL })
+    })
+
+    afterAll(async () => {
+        await bus.disconnect()
+        await pool.end()
+    })
+
     function mk(): {
-        revisions: MemoryRevisionStore
-        queue: MemorySessionQueue
-        bus: MemorySessionEventBus
+        revisions: PgRevisionStore
+        queue: PgSessionQueue
+        bus: RedisSessionEventBus
         app: ReturnType<typeof buildApp>
     } {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        const bus = new MemorySessionEventBus()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const credentialBroker = new PgCredentialBroker(pool, {
+            encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
+        })
         const app = buildApp({
             revisions,
             queue,
             bus,
+            credentialBroker,
             teamId: 1,
             routingMode: 'path',
             pathPrefix: '/agents',
-            // In-memory resolver: returns the test secret for every
-            // `(secretRef, application)` lookup. Models the
-            // "PostHog runs one Slack app for everything" deployment without
-            // needing each fixture to populate an `encrypted_env`.
+            // Returns the test secret for every `(secretRef, application)`
+            // lookup. Models the "PostHog runs one Slack app for everything"
+            // deployment without needing each fixture to populate an
+            // `encrypted_env`.
             slackSigningSecretResolver: {
                 async resolve(): Promise<string | null> {
                     return TEST_SLACK_SECRET

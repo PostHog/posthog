@@ -2,11 +2,35 @@
  * Unit tests for the per-asker authorisation helper. The PostHog DB call is
  * stubbed; the contract under test is "does the helper correctly read the
  * most recent user-turn sender and resolve their authorisation."
+ *
+ * The identity store is the real `PgIdentityStore` against the test DB — same
+ * impl prod runs. Per-test reset keeps cases isolated. There is no in-memory
+ * identity store anymore.
  */
 
-import { ConversationMessage, MemoryIdentityStore, SessionPrincipal } from '@posthog/agent-shared'
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
+import { ConversationMessage, PgIdentityStore, SessionPrincipal } from '@posthog/agent-shared'
 
 import { findLastUserSender, makePerAskerAuth } from './per-asker-auth'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+let pool: Pool
+
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
 
 function userMsg(content: string, sender?: SessionPrincipal): ConversationMessage {
     return { role: 'user', content, timestamp: Date.now(), sender }
@@ -67,16 +91,16 @@ describe('findLastUserSender', () => {
 })
 
 describe('makePerAskerAuth', () => {
-    async function makeStoreWithAdmin(adminAgentUserId: string, posthogUserId: number): Promise<MemoryIdentityStore> {
-        const store = new MemoryIdentityStore()
+    async function makeStoreWithAdmin(adminAgentUserId: string, posthogUserId: number): Promise<PgIdentityStore> {
+        const store = new PgIdentityStore(pool)
         const user = await store.findOrCreate({
             team_id: 7,
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-CAROL',
         })
         // Rebind the id so callers can stamp it on conversation senders.
-        // MemoryIdentityStore mints a fresh uuid; we'd rather control it.
+        // PgIdentityStore mints a fresh uuid; we'd rather control it.
         await store.setPosthogUserId(user.id, posthogUserId)
         return store
     }
@@ -84,7 +108,7 @@ describe('makePerAskerAuth', () => {
     it('returns true when the asker is a slack-mapped team admin', async () => {
         const store = await makeStoreWithAdmin('ignored', 42)
         const carol = await store.find({
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-CAROL',
         })
@@ -106,7 +130,7 @@ describe('makePerAskerAuth', () => {
     it('returns false when the asker is mapped but not a team admin on this team', async () => {
         const store = await makeStoreWithAdmin('ignored', 42)
         const carol = await store.find({
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-CAROL',
         })
@@ -127,7 +151,7 @@ describe('makePerAskerAuth', () => {
     })
 
     it('returns false when no AgentUser exists for the sender id', async () => {
-        const store = new MemoryIdentityStore()
+        const store = new PgIdentityStore(pool)
         const isAuthed = makePerAskerAuth({
             identities: store,
             posthogDb: fakePosthogDb([]),
@@ -136,18 +160,18 @@ describe('makePerAskerAuth', () => {
             userMsg('ghost asker', {
                 kind: 'slack' as const,
                 workspace_id: 'T_7',
-                slack_user_id: 'nonexistent-uuid',
-                agent_user_id: 'nonexistent-uuid',
+                slack_user_id: '00000000-0000-4000-8000-00000000ffff',
+                agent_user_id: '00000000-0000-4000-8000-00000000ffff',
             }),
         ]
         expect(await isAuthed(conv, 7, ['team_admins'], null)).toBe(false)
     })
 
     it('returns false when the AgentUser exists but has no posthog_user_id (external slack member)', async () => {
-        const store = new MemoryIdentityStore()
+        const store = new PgIdentityStore(pool)
         const ext = await store.findOrCreate({
             team_id: 7,
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-EXTERNAL',
         })
@@ -172,7 +196,7 @@ describe('makePerAskerAuth', () => {
         // PAT-based self-authorisation is a sensible follow-up but isn't
         // implemented in v0. Asking via a PAT today still queues.
         const isAuthed = makePerAskerAuth({
-            identities: new MemoryIdentityStore(),
+            identities: new PgIdentityStore(pool),
             posthogDb: fakePosthogDb([{ user_id: 42, team_id: 7 }]),
         })
         const conv = [userMsg('via pat', { kind: 'service', team_id: 7, id: 'pat-carol' })]
@@ -181,7 +205,7 @@ describe('makePerAskerAuth', () => {
 
     it('returns false when no user-turn carries a sender (legacy rows)', async () => {
         const isAuthed = makePerAskerAuth({
-            identities: new MemoryIdentityStore(),
+            identities: new PgIdentityStore(pool),
             posthogDb: fakePosthogDb([]),
         })
         // Both messages predate per-message stamping.
@@ -194,7 +218,7 @@ describe('makePerAskerAuth', () => {
         // `session_principal` (PR 7). Anything else falls through to false
         // without touching the identity store or the posthog DB.
         const isAuthed = makePerAskerAuth({
-            identities: new MemoryIdentityStore(),
+            identities: new PgIdentityStore(pool),
             posthogDb: fakePosthogDb([]),
         })
         const conv = [
@@ -231,7 +255,7 @@ describe('makePerAskerAuth', () => {
             // turn — fast-path authorises without touching the posthog DB
             // (the fake's query throws if called).
             const isAuthed = makePerAskerAuth({
-                identities: new MemoryIdentityStore(),
+                identities: new PgIdentityStore(pool),
                 posthogDb: {
                     async query() {
                         throw new Error('should not hit posthog DB on the session_principal fast path')
@@ -249,7 +273,7 @@ describe('makePerAskerAuth', () => {
             // somehow lands in alice's session, the session_principal scope
             // still rejects.
             const isAuthed = makePerAskerAuth({
-                identities: new MemoryIdentityStore(),
+                identities: new PgIdentityStore(pool),
                 posthogDb: fakePosthogDb([]),
             })
             const conv = [userMsg('promote it', bob)]
@@ -258,7 +282,7 @@ describe('makePerAskerAuth', () => {
 
         it('returns false when sessionPrincipal is null (public agent — nothing to compare against)', async () => {
             const isAuthed = makePerAskerAuth({
-                identities: new MemoryIdentityStore(),
+                identities: new PgIdentityStore(pool),
                 posthogDb: fakePosthogDb([]),
             })
             const conv = [userMsg('promote it', alice)]
@@ -272,7 +296,7 @@ describe('makePerAskerAuth', () => {
             // explicit exclusion every public caller would clear the gate.
             const anon: SessionPrincipal = { kind: 'anonymous' }
             const isAuthed = makePerAskerAuth({
-                identities: new MemoryIdentityStore(),
+                identities: new PgIdentityStore(pool),
                 posthogDb: fakePosthogDb([]),
             })
             const conv = [userMsg('promote it', anon)]
@@ -285,10 +309,10 @@ describe('makePerAskerAuth', () => {
             // session), so we fall through and resolve team_admins via the
             // existing path. Alice is configured as a team admin on team 7
             // via the posthog-DB fake.
-            const store = new MemoryIdentityStore()
+            const store = new PgIdentityStore(pool)
             const senderAgent = await store.findOrCreate({
                 team_id: 7,
-                application_id: 'app',
+                application_id: '00000000-0000-4000-8000-00000000aa01',
                 principal_kind: 'slack',
                 principal_id: 'T01:U-ADMIN',
             })

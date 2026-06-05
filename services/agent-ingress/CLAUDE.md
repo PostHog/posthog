@@ -47,10 +47,13 @@ for the wider dev flow before non-trivial changes.
    — don't add a new global env var, and don't put the key name on the
    spec.
 
-3. **`/listen` SSE depends on the bus.** The default
-   `MemorySessionEventBus` only fans out within one process. Multi-host
-   needs `REDIS_URL` (publishes via `RedisSessionEventBus`). If you
-   add a new lifecycle event, make sure both bus impls carry it.
+3. **`/listen` SSE depends on the bus.** `RedisSessionEventBus` is
+   the only impl (in-memory variant was deleted — it silently broke
+   multi-host fan-out). Every entrypoint must wire `REDIS_URL`; the
+   harness wires it against the local Redis with a per-cluster
+   channel prefix so concurrent test files don't deliver each other's
+   events. If you add a new lifecycle event, make sure SSE consumers
+   handle it.
 
 4. **Auth lives in `AuthProvider`, not inlined.** Don't bake principal
    lookup into a trigger handler — extend or swap the `AuthProvider`

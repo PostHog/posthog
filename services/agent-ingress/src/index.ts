@@ -126,7 +126,7 @@ async function main(): Promise<void> {
         domainSuffix: config.domainSuffix,
         pathPrefix: config.pathPrefix,
         slackSigningSecretResolver,
-        previewSecret: config.previewSecret,
+        internalSigningKey: config.internalSigningKey,
         integrations,
         posthogDb,
         authProvider,

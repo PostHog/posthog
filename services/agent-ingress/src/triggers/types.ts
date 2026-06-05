@@ -21,7 +21,14 @@
 
 import { Router } from 'express'
 
-import type { HttpFetcher, IdentityStore, SessionEventBus, SessionQueue, Trigger } from '@posthog/agent-shared'
+import type {
+    CredentialBroker,
+    HttpFetcher,
+    IdentityStore,
+    SessionEventBus,
+    SessionQueue,
+    Trigger,
+} from '@posthog/agent-shared'
 
 import type { AuthProvider } from '../enqueue/auth'
 import type { RevisionResolver } from '../routing/resolver'
@@ -37,6 +44,12 @@ export interface TriggerDeps {
     /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
     signingSecretResolver: SlackSigningSecretResolver
     identities?: IdentityStore
+    /**
+     * Per-session credential broker. Chat trigger consumes it on /run + /send;
+     * other triggers ignore it. Required — prod wires `PgCredentialBroker`,
+     * tests wire the same against the test DB.
+     */
+    broker: CredentialBroker
     /**
      * Outbound HTTP — currently only the slack trigger consumes it (for
      * the identity bridge's Slack `users.info` call). Wired at the

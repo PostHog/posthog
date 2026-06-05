@@ -28,9 +28,10 @@
  *   Health:
  *     GET    /healthz
  *
- * Auth: a single shared-secret header (`x-internal-secret`). Django keeps the
- * team / scope checks on its side; this layer trusts the request once the
- * secret matches.
+ * Auth: an audience-bound JWT (`x-internal-secret: <jwt>`, aud =
+ * `agent-janitor.rpc`) signed with the shared `AGENT_INTERNAL_SIGNING_KEY`.
+ * Django keeps the team / scope checks on its side; this layer trusts the
+ * request once signature + audience verify.
  *
  * Defensive shape: every async route is wrapped in `asyncHandler` so a
  * rejected promise lands in the global `errorHandler` below instead of
@@ -54,11 +55,14 @@ import {
     createLogger,
     EMPTY_USAGE_TOTAL,
     FRAMEWORK_PROMPT_VERSION,
+    INTERNAL_JWT_AUDIENCE,
+    InternalJwtVerifyError,
     lastAssistantTextPreview,
     MemoryStore,
     TabularStore,
     RevisionStore,
     SessionQueue,
+    verifyInternalJwt,
 } from '@posthog/agent-shared'
 import { listNativeTools } from '@posthog/agent-tools'
 
@@ -93,7 +97,12 @@ export interface JanitorServerOpts {
     memoryStore?: MemoryStore
     /** Read-only tabular store for the console Tables view. */
     tabularStore?: TabularStore
-    internalSecret?: string
+    /**
+     * Shared HMAC signing key — when set, the auth middleware requires
+     * `x-internal-secret: <jwt>` with `aud = agent-janitor.rpc` on every
+     * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
+     */
+    internalSigningKey?: string
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -246,18 +255,28 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     // a few markdown files). Larger bundles should land an S3 presigned URL
     // path eventually; flagged in the bundle-push action below.
     app.use(express.json({ limit: '8mb' }))
-    if (opts.internalSecret) {
+    if (opts.internalSigningKey) {
+        const signingKey = opts.internalSigningKey
         app.use((req: Request, res: Response, next: NextFunction) => {
             if (req.path === '/healthz') {
                 next()
                 return
             }
             const auth = req.headers['x-internal-secret']
-            if (auth !== opts.internalSecret) {
-                res.status(401).json({ error: 'unauthorized' })
+            const token = Array.isArray(auth) ? auth[0] : auth
+            if (!token) {
+                res.status(401).json({ error: 'unauthorized', reason: 'missing_token' })
                 return
             }
-            next()
+            verifyInternalJwt({
+                token,
+                audience: INTERNAL_JWT_AUDIENCE.JANITOR_RPC,
+                signingKey,
+            })
+                .then(() => next())
+                .catch((e: InternalJwtVerifyError) => {
+                    res.status(401).json({ error: 'unauthorized', reason: e.reason })
+                })
         })
     }
     app.get('/healthz', (_req, res) => {

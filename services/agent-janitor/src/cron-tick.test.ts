@@ -1,18 +1,39 @@
 /**
- * Unit tests for `cronTick`. Uses in-memory revision + session queue impls
- * so the scheduler logic is exercised end-to-end without PG. PR-3 of
+ * Unit tests for `cronTick`. Backs against the real PG-backed revision +
+ * session queue (no in-memory variants); the scheduler logic is exercised
+ * end-to-end with the same persistence prod runs. PR-3 of
  * `cron-trigger-scheduler.md` v0.
  */
 
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
 import {
     AgentApplication,
     AgentRevision,
     AgentSpecSchema,
-    MemoryRevisionStore,
-    MemorySessionQueue,
+    PgRevisionStore,
+    PgSessionQueue,
 } from '@posthog/agent-shared'
 
 import { cronTick, fireCronManually, newCronTickState } from './cron-tick'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+let pool: Pool
+
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
 
 interface SetupOpts {
     triggers: Array<{
@@ -32,7 +53,7 @@ interface SetupOpts {
 }
 
 async function deploy(
-    revisions: MemoryRevisionStore,
+    revisions: PgRevisionStore,
     opts: SetupOpts
 ): Promise<{ app: AgentApplication; rev: AgentRevision }> {
     const app = await revisions.createApplication({
@@ -74,16 +95,16 @@ const minimalCron = (
 
 describe('cronTick', () => {
     it('no-ops when there are no live cron revisions', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         const state = newCronTickState()
         const out = await cronTick({ revisions, queue }, state)
         expect(out).toEqual({ fired: 0, skipped_no_window: 0, skipped_caught_up: 0, skipped_no_app: 0, errors: 0 })
     })
 
     it('first tick after process start fires nothing — lastTickAt = now, window is empty', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         await deploy(revisions, { triggers: [minimalCron()] })
         const state = newCronTickState()
         const out = await cronTick({ revisions, queue }, state)
@@ -94,9 +115,9 @@ describe('cronTick', () => {
     })
 
     it('fires a session when a scheduled firing falls in the window', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        const { rev } = await deploy(revisions, {
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const { app, rev } = await deploy(revisions, {
             triggers: [minimalCron({ schedule: '* * * * *', prompt: 'tick' })],
         })
         const state = newCronTickState()
@@ -110,15 +131,15 @@ describe('cronTick', () => {
         expect(out.fired).toBe(1)
         // The fired session lands on the most-recent firing minute (10:03).
         const minute = Math.floor(new Date('2026-06-01T10:03:00Z').getTime() / 60_000)
-        const session = await queue.findByIdempotencyKey('app_1', `cron:${rev.id}:digest:${minute}`)
+        const session = await queue.findByIdempotencyKey(app.id, `cron:${rev.id}:digest:${minute}`)
         expect(session).not.toBeNull()
         expect((session!.conversation[0] as { content: string }).content).toBe('tick')
     })
 
     it('catch_up=all fires every missed firing within the age cap', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        const { rev } = await deploy(revisions, {
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const { app, rev } = await deploy(revisions, {
             triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'all' })],
         })
         const state = newCronTickState()
@@ -133,14 +154,14 @@ describe('cronTick', () => {
             return Math.floor(d.getTime() / 60_000)
         })
         for (const minute of minutes) {
-            const session = await queue.findByIdempotencyKey('app_1', `cron:${rev.id}:digest:${minute}`)
+            const session = await queue.findByIdempotencyKey(app.id, `cron:${rev.id}:digest:${minute}`)
             expect(session).not.toBeNull()
         }
     })
 
     it('catch_up=skip drops the firings when multiple are missed', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         await deploy(revisions, { triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'skip' })] })
         const state = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
@@ -152,8 +173,8 @@ describe('cronTick', () => {
     })
 
     it('max_catch_up_age_seconds bounds the catch-up regardless of mode', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         await deploy(revisions, {
             triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'all', max_catch_up_age_seconds: 120 })],
         })
@@ -175,8 +196,8 @@ describe('cronTick', () => {
         // BEFORE iteration, a long pause + a sub-minute schedule would
         // walk hundreds of thousands of firings only to discard them all
         // in applyCatchUp. The cap should keep firings.length bounded.
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         await deploy(revisions, {
             triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'all', max_catch_up_age_seconds: 120 })],
         })
@@ -200,8 +221,8 @@ describe('cronTick', () => {
         // A frequent schedule with a long catch-up window can pile up far more
         // survivors than one tick should fire. The cap keeps the most recent
         // MAX_FIRINGS_PER_TICK (100) and counts the rest as caught-up.
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         await deploy(revisions, {
             triggers: [minimalCron({ schedule: '* * * * *', catch_up: 'all', max_catch_up_age_seconds: 100_000 })],
         })
@@ -223,10 +244,10 @@ describe('cronTick', () => {
     it('idempotency: re-running the same tick is a no-op (the unique-key path)', async () => {
         // Simulates a second janitor replica running cronTick on the same
         // window; the second call should land on the unique-violation path
-        // (via the in-memory queue's findByIdempotencyKey).
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        await deploy(revisions, { triggers: [minimalCron({ schedule: '* * * * *' })] })
+        // (via PgSessionQueue's findByIdempotencyKey + the row's UNIQUE index).
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const { app, rev } = await deploy(revisions, { triggers: [minimalCron({ schedule: '* * * * *' })] })
         const tickA = newCronTickState()
         const tickB = newCronTickState()
         const t0 = new Date('2026-06-01T10:00:00Z')
@@ -243,7 +264,7 @@ describe('cronTick', () => {
             Math.floor(new Date('2026-06-01T10:01:00Z').getTime() / 60_000),
             Math.floor(new Date('2026-06-01T10:02:00Z').getTime() / 60_000),
         ]) {
-            const session = await queue.findByIdempotencyKey('app_1', `cron:rev_2:digest:${minute}`)
+            const session = await queue.findByIdempotencyKey(app.id, `cron:${rev.id}:digest:${minute}`)
             if (session) {
                 all.push(session)
             }
@@ -259,9 +280,9 @@ describe('cronTick', () => {
     })
 
     it('stamps trigger_metadata on the fired session', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        await deploy(revisions, {
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const { app, rev } = await deploy(revisions, {
             triggers: [minimalCron({ schedule: '* * * * *', prompt: 'p', timezone: 'UTC' })],
         })
         const state = newCronTickState()
@@ -270,8 +291,8 @@ describe('cronTick', () => {
         const t1 = new Date('2026-06-01T10:01:30Z')
         await cronTick({ revisions, queue, now: () => t1 }, state)
         const session = await queue.findByIdempotencyKey(
-            'app_1',
-            `cron:rev_2:digest:${Math.floor(new Date('2026-06-01T10:01:00Z').getTime() / 60_000)}`
+            app.id,
+            `cron:${rev.id}:digest:${Math.floor(new Date('2026-06-01T10:01:00Z').getTime() / 60_000)}`
         )
         expect(session).not.toBeNull()
         expect(session!.trigger_metadata).toMatchObject({
@@ -282,9 +303,9 @@ describe('cronTick', () => {
     })
 
     it('expands {fired_at:iso|date|week} + {cron_name} + {schedule} placeholders in the prompt', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        await deploy(revisions, {
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const { app, rev } = await deploy(revisions, {
             triggers: [
                 minimalCron({
                     schedule: '0 9 * * MON',
@@ -300,7 +321,7 @@ describe('cronTick', () => {
         await cronTick({ revisions, queue, now: () => t1 }, state)
         const sessions = []
         for (const minute of [Math.floor(new Date('2026-06-01T09:00:00Z').getTime() / 60_000)]) {
-            const s = await queue.findByIdempotencyKey('app_1', `cron:rev_2:digest:${minute}`)
+            const s = await queue.findByIdempotencyKey(app.id, `cron:${rev.id}:digest:${minute}`)
             if (s) {
                 sessions.push(s)
             }
@@ -315,9 +336,9 @@ describe('cronTick', () => {
     })
 
     it('expands placeholders in external_key — same set as prompt', async () => {
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
-        await deploy(revisions, {
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
+        const { app } = await deploy(revisions, {
             triggers: [
                 minimalCron({
                     schedule: '0 9 * * MON',
@@ -331,7 +352,7 @@ describe('cronTick', () => {
         await cronTick({ revisions, queue, now: () => t0 }, state)
         const t1 = new Date('2026-06-01T09:30:00Z')
         await cronTick({ revisions, queue, now: () => t1 }, state)
-        const byExternal = await queue.findByExternalKey('app_1', 'digest-2026-W23')
+        const byExternal = await queue.findByExternalKey(app.id, 'digest-2026-W23')
         expect(byExternal).not.toBeNull()
     })
 
@@ -339,8 +360,8 @@ describe('cronTick', () => {
         // A malformed schedule (something the freeze validator would've
         // rejected, but injected here to prove the runtime is defensive)
         // increments `errors`, doesn't fire, doesn't throw.
-        const revisions = new MemoryRevisionStore()
-        const queue = new MemorySessionQueue()
+        const revisions = new PgRevisionStore(pool)
+        const queue = new PgSessionQueue(pool)
         await deploy(revisions, {
             triggers: [{ type: 'cron', config: { name: 'bad', schedule: 'definitely-not-a-cron', prompt: 'go' } }],
         })
@@ -355,8 +376,8 @@ describe('cronTick', () => {
 
     describe('fireCronManually', () => {
         it('fires a session with the cron-manual idempotency-key shape', async () => {
-            const revisions = new MemoryRevisionStore()
-            const queue = new MemorySessionQueue()
+            const revisions = new PgRevisionStore(pool)
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = await deploy(revisions, {
                 triggers: [minimalCron({ schedule: '0 9 * * MON', prompt: 'manual test' })],
             })
@@ -371,8 +392,8 @@ describe('cronTick', () => {
         })
 
         it('same request_id is idempotent — second call returns the original session id', async () => {
-            const revisions = new MemoryRevisionStore()
-            const queue = new MemorySessionQueue()
+            const revisions = new PgRevisionStore(pool)
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = await deploy(revisions, {
                 triggers: [minimalCron({ schedule: '0 9 * * MON' })],
             })
@@ -388,8 +409,8 @@ describe('cronTick', () => {
         })
 
         it('throws when the cron name is unknown', async () => {
-            const revisions = new MemoryRevisionStore()
-            const queue = new MemorySessionQueue()
+            const revisions = new PgRevisionStore(pool)
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = await deploy(revisions, {
                 triggers: [minimalCron({ schedule: '0 9 * * MON' })],
             })

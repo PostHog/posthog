@@ -13,17 +13,23 @@ for the wider dev flow.
   truth** for the `revision.spec` JSONB shape. The Django side
   validates loosely and passes through; this schema is authoritative.
 - [src/persistence/](src/persistence/) — `PgSessionQueue`,
-  `PgRevisionStore`, `PgSandboxInstanceStore`, `PgApprovalStore`. SQL
-  schema lives in [@posthog/agent-migrations](../agent-migrations/),
-  not here.
+  `PgRevisionStore`, `PgIdentityStore`, `PgIntegrationStore`,
+  `PgSandboxInstanceStore`, `PgApprovalStore`, `PgCredentialBroker`.
+  All Postgres-backed; there are no in-memory variants. SQL schema
+  lives in [@posthog/agent-migrations](../agent-migrations/), not here.
 - [src/storage/](src/storage/) — `BundleStore` interface +
-  `FsBundleStore` impl.
+  `S3BundleStore` impl. Prod runs against real S3, tests against
+  SeaweedFS via `buildTestBundleStore`. No fs/in-memory bundle store.
 - [src/sandbox/](src/sandbox/) — `SandboxImpl` interface +
-  `InProcessSandboxPool` (the default; Modal lives elsewhere).
+  `InProcessSandboxPool` (constructor refuses unless `NODE_ENV=test` —
+  vitest sets it automatically). Prod uses Docker (local dev) or
+  Modal via `selectSandboxPool()`.
 - [src/runtime/](src/runtime/) — `SessionEventBus` interface +
-  `MemorySessionEventBus`, `LogSink` interface +
-  `InMemoryLogSink`, `IdentityStore` + `MemoryIdentityStore`,
-  `SecretBroker`.
+  `RedisSessionEventBus` (the only impl); `LogSink` +
+  `KafkaLogSink` (with optional `tap` for test assertions);
+  `AnalyticsSink` + `CaptureAnalyticsSink` + `NoopAnalyticsSink`
+  (latter is the dev fallback when no PostHog destination is wired);
+  `SecretBroker`; `CredentialBroker` interface.
 - [src/memory/](src/memory/) — `MemoryStore` interface +
   `S3MemoryStore`. Markdown + YAML frontmatter file format;
   MiniSearch-backed BM25 over file bodies for the
@@ -37,11 +43,16 @@ for the wider dev flow.
    library. If you're tempted to add `express` or `startServer`,
    you're in the wrong package.
 
-2. **Interfaces first, then impls.** Every cross-process boundary
-   (queue, bundle, sandbox, bus, log sink, identity, secret) is an
-   interface here. Concrete impls (in-memory, Pg, FS, Redis, Kafka)
-   are sibling files. The harness substitutes in-memory variants —
-   keep that swap cheap.
+2. **Interfaces first, then one real impl.** Every cross-process
+   boundary (queue, bundle, sandbox, bus, log sink, identity, secret)
+   is an interface here, but there is only one concrete impl per
+   boundary and it's the one prod runs (`PgX` for persistence,
+   `S3X` for storage, `RedisSessionEventBus` for the bus,
+   `KafkaLogSink` for logs, …). The test harness wires the same
+   classes against real local services (Postgres, Redis, Kafka,
+   SeaweedFS) — no fakes, no in-memory shortcuts. The rule is
+   "if it's stateful and it diverges silently from prod, delete it"
+   — that's exactly what bit us before this refactor.
 
 3. **`AgentSpecSchema` is the contract — change it carefully.**
    Tightening a field can reject revisions Django happily wrote.
@@ -61,11 +72,10 @@ TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
 5. **Cross-process services are constructor-injected, not module
    singletons.** Wire each impl at the entrypoint and pass it through
    `WorkerDeps` → `runSession` → dispatcher into `ToolContext` (see
-   `memoryStore` for the worked example). Tests substitute an
-   in-memory variant by constructing it directly; no `setX()` /
-   `getX()` global. The pre-existing `posthog-client.ts` /
-   `memory-broker.ts` (deleted) pattern is the antipattern we're
-   moving away from.
+   `memoryStore` for the worked example). Tests inject the same real
+   impls; they don't construct fakes. No `setX()` / `getX()` global.
+   The pre-existing `posthog-client.ts` / `memory-broker.ts`
+   (deleted) pattern is the antipattern we're moving away from.
 
 6. **Prefer well-tested libraries over hand-rolled rankers /
    parsers.** MiniSearch (`@posthog/agent-shared`'s `search.ts`) is
@@ -105,7 +115,7 @@ TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
      `ToolContext` / `WorkerDeps` / anywhere agent code can reach it.**
      A NO_PROXY-style allowlist would defeat the divide — an
      `@posthog/http-request` against `posthog-web-django.posthog.svc.
-  cluster.local` would match the suffix and bypass smokescreen
+cluster.local` would match the suffix and bypass smokescreen
      entirely. The class identity is the capability.
      Bare global `fetch` is flagged by the lint rule in
      `.oxlintrc.json` across `services/agent-*/src/**/*.ts` (tests +

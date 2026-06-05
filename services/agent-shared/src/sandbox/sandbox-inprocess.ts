@@ -192,6 +192,20 @@ export class InProcessSandboxPool implements SandboxPool {
         /** Outbound HTTP dispatcher for guest tool code (`fetch` + `ctx.http.fetch`). */
         http?: HttpFetcher
     }) {
+        // Test-only. Guest code runs in this process — there's no isolation, so
+        // a misbehaving sandbox can read process memory, write the local fs, or
+        // exhaust CPU. Production uses `DockerSandboxPool` (local) or
+        // `ModalSandboxPool` (prod), selected via `selectSandboxPool` from env.
+        // Vitest sets NODE_ENV=test automatically; any direct construction
+        // outside that env is a wiring mistake and we'd rather fail at boot
+        // than silently run unsandboxed in dev or prod.
+        if (process.env.NODE_ENV !== 'test') {
+            throw new Error(
+                `InProcessSandboxPool is test-only and refuses to construct when NODE_ENV !== 'test' (got ${
+                    process.env.NODE_ENV === undefined ? '(unset)' : JSON.stringify(process.env.NODE_ENV)
+                }). Use selectSandboxPool() to wire docker or modal.`
+            )
+        }
         this.secretValuesProvider = opts?.secretValuesProvider
         this.http = opts?.http
     }

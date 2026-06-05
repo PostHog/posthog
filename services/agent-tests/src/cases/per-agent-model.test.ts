@@ -9,26 +9,35 @@
  */
 
 import { type AssistantMessage, fauxAssistantMessage, type Model, registerFauxProvider } from '@earendil-works/pi-ai'
-import { promises as fs } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { Pool } from 'pg'
 
 import { reset } from '@posthog/agent-migrations'
 import { Worker } from '@posthog/agent-runner'
 import {
     AgentSpecSchema,
+    buildTestBundleStore,
     EMPTY_USAGE_TOTAL,
-    FsBundleStore,
     HttpClient,
     InProcessSandboxPool,
+    KafkaLogSink,
+    newTestPrefix,
     PgRevisionStore,
     PgSessionQueue,
+    RedisSessionEventBus,
     SecretBroker,
+    TEST_S3_BUCKET,
+    wipeTestPrefix,
 } from '@posthog/agent-shared'
+
+const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
+
+type BundleTestStore = ReturnType<typeof buildTestBundleStore>
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 
 let fauxHandle: ReturnType<typeof registerFauxProvider> | undefined
 
@@ -46,27 +55,41 @@ function fauxModelFor(specModel: string): Model<string> {
 
 describe('per-agent spec.model resolution: real e2e', () => {
     let pool: Pool
-    let bundleRoot: string
+    let bundlePrefix: string
+    let bundleTestStore: BundleTestStore
+    let bus: RedisSessionEventBus
+    let logs: KafkaLogSink
 
     beforeAll(async () => {
         pool = new Pool({ connectionString: TEST_DB_URL })
+        bus = new RedisSessionEventBus({
+            url: REDIS_URL,
+            channelPrefix: `permodel_${Math.random().toString(36).slice(2, 10)}`,
+        })
+        await bus.connect()
+        logs = new KafkaLogSink({ brokers: KAFKA_HOSTS, topic: 'log_entries', name: 'permodel_test' })
+        await logs.connect()
     })
 
     beforeEach(async () => {
         await reset({ databaseUrl: TEST_DB_URL })
-        bundleRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'permodel-'))
+        bundlePrefix = newTestPrefix('agent_bundles_permodel_test')
+        bundleTestStore = buildTestBundleStore(bundlePrefix)
     })
 
     afterEach(async () => {
-        await fs.rm(bundleRoot, { recursive: true, force: true }).catch(() => undefined)
+        await wipeTestPrefix(bundleTestStore.client, bundlePrefix).catch(() => undefined)
+        bundleTestStore.client.destroy()
     })
 
     afterAll(async () => {
+        await bus.disconnect()
+        await logs.disconnect()
         await pool.end()
     })
 
     it('two agents with different spec.model values resolve distinct Models', async () => {
-        const bundle = new FsBundleStore(bundleRoot)
+        const bundle = bundleTestStore.store
         const revisions = new PgRevisionStore(pool)
         const queue = new PgSessionQueue(pool)
         const modelsResolved: string[] = []
@@ -74,11 +97,13 @@ describe('per-agent spec.model resolution: real e2e', () => {
         const worker = new Worker({
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
+            logs,
             queue,
             revisions,
             bundle,
             sandboxes: new InProcessSandboxPool(),
             broker: new SecretBroker(),
+            bus,
             resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             // Per-agent model resolution — keys off spec.model verbatim. This is
@@ -101,7 +126,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 application_id: app.id,
                 parent_revision_id: null,
                 created_by_id: null,
-                bundle_uri: `fs://${bundleRoot}/${app.id}/`,
+                bundle_uri: `s3://${TEST_S3_BUCKET}/${bundlePrefix}/${app.id}/`,
                 spec,
             })
             await bundle.write(rev.id, 'agent.md', 'x')

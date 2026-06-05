@@ -67,7 +67,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .optional()
         .transform((v): string | undefined => v ?? (isDev() ? DEV_S3_ENDPOINT : undefined))
         .describe(
-            'S3-compatible endpoint for agent-memory file storage. Dev defaults to local SeaweedFS; prod unset disables memory tools.'
+            'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it. Dev defaults to local SeaweedFS via `hogli start`.'
         ),
     memoryS3Region: z
         .string()

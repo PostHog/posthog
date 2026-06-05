@@ -22,6 +22,7 @@
 import { DeleteObjectsCommand, ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 import { randomBytes } from 'node:crypto'
 
+import { S3BundleStore } from '../storage/s3-bundle-store'
 import { S3MemoryStore } from './s3-store'
 
 export const TEST_S3_ENDPOINT = process.env.AGENT_MEMORY_TEST_S3_ENDPOINT ?? 'http://localhost:8333'
@@ -55,6 +56,18 @@ export function newTestPrefix(label = 'agent_memory_test'): string {
 export function buildTestStore(prefix: string): { client: S3Client; store: S3MemoryStore } {
     const client = buildTestS3Client()
     const store = new S3MemoryStore({ client, bucket: TEST_S3_BUCKET, bucketPrefix: prefix })
+    return { client, store }
+}
+
+/**
+ * S3BundleStore against the same SeaweedFS test bucket, rooted at a per-test
+ * prefix. There is no Fs / in-memory bundle store anymore — the harness, every
+ * unit test, dev, and prod all go through the real S3 path so the multipart
+ * write + signed-URL + listing semantics get exercised.
+ */
+export function buildTestBundleStore(prefix: string): { client: S3Client; store: S3BundleStore } {
+    const client = buildTestS3Client()
+    const store = new S3BundleStore({ client, bucket: TEST_S3_BUCKET, bucketPrefix: prefix })
     return { client, store }
 }
 

@@ -14,10 +14,14 @@
  *   - `secrets[]` → resolve each name via `secrets[NAME]`; substitute
  *     `${NAME}` placeholders in the URL before opening the transport.
  *
- * Failure during open: any single ref's open is wrapped in `Promise.allSettled`
- * so a partial-open doesn't leak clients. The first error is re-thrown after
- * the already-opened clients are closed — matching sandbox-acquire's
- * all-or-nothing contract. The caller (worker) marks the session failed.
+ * Failure during open: a single ref failing to connect (transport error,
+ * upstream 401, auth resolution issue) no longer kills the session. The
+ * function returns `{ clients, close, failures }` — `clients` is the
+ * successfully-opened subset and `failures` carries per-ref categorisation
+ * so the agent's system prompt can tell the model which capabilities are
+ * temporarily unavailable. Only `duplicate_mcp_prefix` (a spec-author
+ * conflict that breaks model-visible tool naming) is still thrown — the
+ * runner has no graceful fallback when two refs collide.
  *
  * NOT in scope for this module: tool-name prefixing (the caller composes
  * `${prefix}__${toolName}`), inclusion filtering via `ref.tools[]` (the
@@ -59,6 +63,73 @@ export interface OpenedMcp {
     listTools(): Promise<RemoteMcpTool[]>
     callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>
     close(): Promise<void>
+}
+
+/**
+ * Coarse failure-cause buckets surfaced to the agent's system prompt so the
+ * model can tell the user *what kind of thing* is wrong (without the raw
+ * upstream error string, which often leaks transport URLs / docs links /
+ * provider-side stack hints). The agent owner gets the full reason via
+ * log_entries.
+ *   - `auth`      — credentials / token / secret resolution problem
+ *                   (`mcp_secret_not_resolved`, `mcp_integration_*`,
+ *                   401/403 from the remote)
+ *   - `network`   — couldn't reach the server (DNS, refused, timeout, 5xx)
+ *   - `not_found` — server responded but said the endpoint is gone (404, 410)
+ *   - `unknown`   — anything else; default bucket for novel transport errors
+ */
+export type McpFailureCategory = 'auth' | 'network' | 'not_found' | 'unknown'
+
+export interface McpOpenFailure {
+    ref: McpRef
+    category: McpFailureCategory
+    /** The raw error message. Server-side observability only — never to be
+     *  forwarded to the chat UI or the model's view of the world. The agent
+     *  owner reads this via `log_entries` on the session detail page. */
+    devReason: string
+}
+
+/**
+ * Heuristic classifier — string-matching against the error message is
+ * brittle, but every alternative (typed errors, status codes everywhere)
+ * requires touching every transport library + auth resolver in the stack.
+ * The category never feeds back into runtime behaviour; it only shapes the
+ * one user-visible sentence in the system prompt, so a mis-categorisation
+ * degrades to "unavailable (unknown reason)" rather than a real bug.
+ */
+export function categorizeMcpOpenError(err: Error): McpFailureCategory {
+    const msg = err.message.toLowerCase()
+    if (
+        msg.includes('mcp_secret_not_resolved') ||
+        msg.includes('mcp_integration_') ||
+        msg.includes('no token') ||
+        msg.includes('unauthor') ||
+        msg.includes(' 401') ||
+        msg.includes(' 403') ||
+        msg.includes('forbidden') ||
+        msg.includes('invalid api key') ||
+        msg.includes('invalid token')
+    ) {
+        return 'auth'
+    }
+    if (msg.includes(' 404') || msg.includes('not found') || msg.includes('gone')) {
+        return 'not_found'
+    }
+    if (
+        msg.includes('econnrefused') ||
+        msg.includes('etimedout') ||
+        msg.includes('enotfound') ||
+        msg.includes('eai_again') ||
+        msg.includes('network') ||
+        msg.includes('timeout') ||
+        msg.includes('502') ||
+        msg.includes('503') ||
+        msg.includes('504') ||
+        msg.includes('connection')
+    ) {
+        return 'network'
+    }
+    return 'unknown'
 }
 
 /**
@@ -142,9 +213,9 @@ function makeDefaultTransportFactory(http?: HttpFetcher): McpTransportFactory {
 export async function openMcpClients(
     refs: readonly McpRef[],
     deps: OpenMcpClientsDeps
-): Promise<{ clients: OpenedMcp[]; close: () => Promise<void> }> {
+): Promise<{ clients: OpenedMcp[]; close: () => Promise<void>; failures: McpOpenFailure[] }> {
     if (refs.length === 0) {
-        return { clients: [], close: async () => {} }
+        return { clients: [], close: async () => {}, failures: [] }
     }
 
     const log = deps.log ?? noopLog
@@ -152,28 +223,33 @@ export async function openMcpClients(
     const clientInfo = deps.clientInfo ?? DEFAULT_CLIENT_INFO
 
     // Parallel open — N refs would otherwise stack N round-trips at session
-    // start. `allSettled` so a partial-open doesn't leak the successful clients.
+    // start. `allSettled` so a partial-open doesn't leak the successful
+    // clients. Per-ref failures are kept and surfaced via `failures`; the
+    // session continues with the subset that did open.
     const results = await Promise.allSettled(
         refs.map((ref) => openOne(ref, { ...deps, transportFactory, clientInfo, log }))
     )
 
     const opened: OpenedMcp[] = []
-    let firstErr: Error | undefined
-    for (const r of results) {
+    const failures: McpOpenFailure[] = []
+    for (let i = 0; i < results.length; i++) {
+        const r = results[i]
         if (r.status === 'fulfilled') {
             opened.push(r.value)
-        } else if (!firstErr) {
-            firstErr = r.reason instanceof Error ? r.reason : new Error(String(r.reason))
+            continue
         }
-    }
-    if (firstErr) {
-        await closeAll(opened, log)
-        throw firstErr
+        const err = r.reason instanceof Error ? r.reason : new Error(String(r.reason))
+        const ref = refs[i]
+        const category = categorizeMcpOpenError(err)
+        failures.push({ ref, category, devReason: err.message })
+        log('warn', 'mcp.open.failed', { prefix: ref.id, category, devReason: err.message })
     }
 
     // Duplicate prefix = the model would see two tools with the same fully
-    // qualified name. Surface this loud at open time rather than letting one
-    // silently shadow the other downstream.
+    // qualified name. This is a spec-author conflict the runner has no
+    // graceful fallback for — surface loudly rather than silently shadowing
+    // one. Closing already-opened clients on the way out matches the
+    // historical contract.
     const prefixes = new Set<string>()
     for (const o of opened) {
         if (prefixes.has(o.prefix)) {
@@ -186,6 +262,7 @@ export async function openMcpClients(
     return {
         clients: opened,
         close: async () => closeAll(opened, log),
+        failures,
     }
 }
 

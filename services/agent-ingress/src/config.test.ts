@@ -7,7 +7,7 @@ describe('loadAgentIngressConfig', () => {
         expect(cfg.teamId).toBe(1)
         expect(cfg.routingMode).toBe('path')
         expect(cfg.pathPrefix).toBe('/agents')
-        expect(cfg.previewSecret).toBeUndefined()
+        expect(cfg.internalSigningKey).toBeUndefined()
         expect(cfg.logLevel).toBe('info')
     })
 
@@ -25,18 +25,9 @@ describe('loadAgentIngressConfig', () => {
         expect(() => loadAgentIngressConfig({ ROUTING_MODE: 'lol' })).toThrow()
     })
 
-    it('previewSecret comes from AGENT_PREVIEW_SECRET (single source of truth)', () => {
-        const cfg = loadAgentIngressConfig({ AGENT_PREVIEW_SECRET: 'dedicated-preview-secret' })
-        expect(cfg.previewSecret).toBe('dedicated-preview-secret')
-    })
-
-    it('previewSecret does NOT fall back to INTERNAL_SECRET — silent mismatch on the Django side would 401', () => {
-        // Regression: there used to be an INTERNAL_SECRET fallback here
-        // that wasn't mirrored on the Django side, so a dev env with
-        // only INTERNAL_SECRET set would have ingress requiring tokens
-        // while Django sent none → opaque 401s on every draft invoke.
-        const cfg = loadAgentIngressConfig({ INTERNAL_SECRET: 'shared-with-janitor' })
-        expect(cfg.previewSecret).toBeUndefined()
+    it('internalSigningKey comes from AGENT_INTERNAL_SIGNING_KEY', () => {
+        const cfg = loadAgentIngressConfig({ AGENT_INTERNAL_SIGNING_KEY: 'shared-key' })
+        expect(cfg.internalSigningKey).toBe('shared-key')
     })
 
     it('platform fields (POSTHOG_DB_URL, AGENT_DB_URL, REDIS_URL) come from the shared schema', () => {

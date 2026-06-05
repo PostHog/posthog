@@ -9,6 +9,8 @@
 
 import request from 'supertest'
 
+import type { SessionEvent } from '@posthog/agent-shared'
+
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxErrorTurn, fauxText } from '../harness'
 
 describe('log sink: real e2e', () => {
@@ -71,6 +73,37 @@ describe('log sink: real e2e', () => {
         expect(failed).not.toBeUndefined()
         expect(failed!.level).toBe('error')
         expect(failed!.data.reason).toBe('rate_limit')
+    })
+
+    it('`failed` bus payload is empty — raw reason lives ONLY in log_entries', async () => {
+        // The bus event is fanned out to every chat client connected to
+        // the session. Raw failure reasons can carry provider error
+        // bodies, internal URLs, model/provider ids — none of which
+        // should be exposed to end users of someone-else's agent.
+        // log_entries (which the session-detail page reads) is the
+        // authoritative place for agent owners to see why a session
+        // failed. This pins both halves of that contract.
+        c.setScript([fauxErrorTurn('rate_limit')])
+        await c.deployAgent({ slug: 'logs-fail-split' })
+
+        const events: SessionEvent[] = []
+        const run = await request(c.ingress).post('/agents/logs-fail-split/run').send({ message: 'x' })
+        const sid = run.body.session_id
+        const unsubscribe = c.bus.subscribe(sid, (e) => events.push(e))
+        await c.drain()
+        unsubscribe()
+
+        const failedBus = events.find((e) => e.kind === 'failed')
+        expect(failedBus).not.toBeUndefined()
+        // No reason / source / model / provider on the bus — payload
+        // is empty by design.
+        expect(failedBus!.data).toEqual({})
+
+        // But the log entry still carries everything an agent owner
+        // needs to debug.
+        const failedLog = c.logs.forSession(sid).find((e) => e.event === 'failed')
+        expect(failedLog).not.toBeUndefined()
+        expect(failedLog!.data.reason).toBe('rate_limit')
     })
 
     it('writes a completed entry when a text-only turn ends', async () => {

@@ -1,8 +1,36 @@
+import type { S3Client } from '@aws-sdk/client-s3'
 import { z } from 'zod'
 
-import { AgentRevision, AgentSpecSchema, MemoryBundleStore } from '@posthog/agent-shared'
+import {
+    AgentRevision,
+    AgentSpecSchema,
+    buildTestBundleStore,
+    newTestPrefix,
+    S3BundleStore,
+    wipeTestPrefix,
+} from '@posthog/agent-shared'
 
 import { validateRevisionBundle } from './validate-spec'
+
+let bundlePrefix: string
+let bundleClient: S3Client
+let bundleStore: S3BundleStore
+
+beforeEach(() => {
+    bundlePrefix = newTestPrefix('agent_bundles_validate_spec_test')
+    const built = buildTestBundleStore(bundlePrefix)
+    bundleClient = built.client
+    bundleStore = built.store
+})
+
+afterEach(async () => {
+    await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+    bundleClient.destroy()
+})
+
+function makeBundles(): S3BundleStore {
+    return bundleStore
+}
 
 // Default fixture has a `chat` trigger so every test isn't forced to declare
 // one. The `no_triggers` rule is exercised explicitly below by passing
@@ -27,7 +55,7 @@ function mkRev(spec: Partial<z.input<typeof AgentSpecSchema>> = {}): AgentRevisi
 
 describe('validateRevisionBundle', () => {
     it('passes when the bundle has the entrypoint and no tools/skills are declared', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         const report = await validateRevisionBundle(mkRev(), bundles)
         expect(report.ok).toBe(true)
@@ -36,7 +64,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('reports missing_entrypoint when agent.md is absent', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         const report = await validateRevisionBundle(mkRev(), bundles)
         expect(report.ok).toBe(false)
         expect(report.errors).toEqual([
@@ -45,7 +73,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('honors a custom spec.entrypoint', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'prompts/main.md', 'hi')
         const ok = await validateRevisionBundle(mkRev({ entrypoint: 'prompts/main.md' }), bundles)
         expect(ok.ok).toBe(true)
@@ -54,7 +82,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('catches unknown native tool ids and resolves valid ones', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         const report = await validateRevisionBundle(
             mkRev({
@@ -76,7 +104,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('catches missing compiled.js / schema.json on a custom tool', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         await bundles.write('rev1', 'tools/wc/schema.json', '{}')
         // compiled.js intentionally missing.
@@ -89,7 +117,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('catches a custom tool that has neither compiled.js nor schema.json', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         const report = await validateRevisionBundle(
             mkRev({ tools: [{ kind: 'custom', id: 'wc', path: 'tools/wc/' }] }),
@@ -100,7 +128,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('catches missing skill files', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         await bundles.write('rev1', 'skills/present.md', 'be thorough')
         const report = await validateRevisionBundle(
@@ -122,7 +150,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('reports no_triggers when spec.triggers is empty', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         const report = await validateRevisionBundle(mkRev({ triggers: [] }), bundles)
         expect(report.ok).toBe(false)
@@ -136,7 +164,7 @@ describe('validateRevisionBundle', () => {
     })
 
     it('returns revision state alongside the report', async () => {
-        const bundles = new MemoryBundleStore()
+        const bundles = makeBundles()
         await bundles.write('rev1', 'agent.md', 'hi')
         const rev = mkRev()
         rev.state = 'ready'
@@ -161,7 +189,7 @@ describe('validateRevisionBundle', () => {
         async function setup(
             triggers: Array<NonNullable<z.input<typeof AgentSpecSchema>['triggers']>[number]>
         ): ReturnType<typeof validateRevisionBundle> {
-            const bundles = new MemoryBundleStore()
+            const bundles = makeBundles()
             await bundles.write('rev1', 'agent.md', 'hi')
             return validateRevisionBundle(mkRev({ triggers }), bundles)
         }

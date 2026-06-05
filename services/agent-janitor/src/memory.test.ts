@@ -9,12 +9,30 @@
  */
 
 import { S3Client } from '@aws-sdk/client-s3'
+import { Pool } from 'pg'
 import request from 'supertest'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { buildTestStore, MemorySessionQueue, newTestPrefix, S3MemoryStore, wipeTestPrefix } from '@posthog/agent-shared'
+import { reset } from '@posthog/agent-migrations'
+import { buildTestStore, newTestPrefix, PgSessionQueue, S3MemoryStore, wipeTestPrefix } from '@posthog/agent-shared'
 
 import { buildJanitorApp } from './server'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
 
 const TEAM = 1
 const APP = '019e75de-d9fa-7fe9-a2fb-93a6a545c82b'
@@ -22,7 +40,7 @@ const OTHER_APP = '019e7600-0000-7000-8000-000000000000'
 const OTHER_TEAM = 99
 
 function mk(memoryStore: S3MemoryStore | undefined): ReturnType<typeof buildJanitorApp> {
-    const queue = new MemorySessionQueue()
+    const queue = new PgSessionQueue(pool)
     return buildJanitorApp({
         queue,
         sweep: { queue, stuckRunningThresholdMs: 60_000 },

@@ -35,11 +35,11 @@ const DEV_S3_SECRET_ACCESS_KEY = 'any'
 
 export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
     port: z.coerce.number().int().positive().default(8082).describe('HTTP listen port.'),
-    internalSecret: z
+    internalSigningKey: z
         .string()
         .optional()
         .describe(
-            'Shared secret Django sends as `x-internal-secret`. Required in prod for any endpoint other than `/healthz`.'
+            "Shared HMAC signing key (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Verifies the audience-bound JWT Django sends as `x-internal-secret` (aud = `agent-janitor.rpc`). Required in prod for any endpoint other than `/healthz`."
         ),
     stuckRunningMs: z.coerce
         .number()
@@ -166,7 +166,7 @@ export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
 
 const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     PORT: 'port',
-    INTERNAL_SECRET: 'internalSecret',
+    AGENT_INTERNAL_SIGNING_KEY: 'internalSigningKey',
     STUCK_RUNNING_MS: 'stuckRunningMs',
     STUCK_WAITING_MS: 'stuckWaitingMs',
     IDLE_COMPLETED_MS: 'idleCompletedMs',

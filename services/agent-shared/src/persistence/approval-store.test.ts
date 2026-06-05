@@ -1,7 +1,28 @@
 import { randomUUID } from 'node:crypto'
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
 
 import { AssistantMessageRecord } from '../spec/spec'
-import { ApprovalStore, hashCanonicalArgs, MemoryApprovalStore, UpsertApprovalRequestInput } from './approval-store'
+import { ApprovalStore, hashCanonicalArgs, UpsertApprovalRequestInput } from './approval-store'
+import { PgApprovalStore } from './pg-approval-store'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+let pool: Pool
+
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
 
 function fauxAssistantMessage(): AssistantMessageRecord {
     return {
@@ -11,13 +32,19 @@ function fauxAssistantMessage(): AssistantMessageRecord {
     }
 }
 
+const DEFAULT_SESSION_ID = '00000000-0000-4000-8000-000000005e51'
+const DEFAULT_APP_ID = '00000000-0000-4000-8000-000000005a91'
+const DEFAULT_REV_ID = '00000000-0000-4000-8000-000000005ee1'
+const SESSION_ID_S1 = '00000000-0000-4000-8000-0000000051f1'
+const SESSION_ID_S2 = '00000000-0000-4000-8000-0000000052f2'
+
 function buildInput(overrides: Partial<UpsertApprovalRequestInput> = {}): UpsertApprovalRequestInput {
     return {
         id: randomUUID(),
-        session_id: 'sess-1',
-        application_id: 'app-1',
+        session_id: DEFAULT_SESSION_ID,
+        application_id: DEFAULT_APP_ID,
         team_id: 1,
-        revision_id: 'rev-1',
+        revision_id: DEFAULT_REV_ID,
         turn: 1,
         tool_call_id: 'tc_abc',
         tool_name: '@posthog/team-delete',
@@ -33,11 +60,29 @@ function buildInput(overrides: Partial<UpsertApprovalRequestInput> = {}): Upsert
     }
 }
 
-describe('MemoryApprovalStore', () => {
+/**
+ * Seed the parent `agent_session` rows so the approval table's FK
+ * (`agent_tool_approval_request.session_id → agent_session.id`) holds. The
+ * test uses a handful of fixed uuids; pre-seed them after each schema reset.
+ */
+async function seedSessions(sessionIds: string[]): Promise<void> {
+    for (const id of sessionIds) {
+        await pool.query(
+            `INSERT INTO agent_session
+                (id, application_id, revision_id, team_id, state, conversation, pending_inputs)
+             VALUES ($1, $2, $3, 1, 'queued', '[]'::jsonb, '[]'::jsonb)
+             ON CONFLICT (id) DO NOTHING`,
+            [id, DEFAULT_APP_ID, DEFAULT_REV_ID]
+        )
+    }
+}
+
+describe('ApprovalStore (PG)', () => {
     let store: ApprovalStore
 
-    beforeEach(() => {
-        store = new MemoryApprovalStore()
+    beforeEach(async () => {
+        store = new PgApprovalStore(pool)
+        await seedSessions([DEFAULT_SESSION_ID, SESSION_ID_S1, SESSION_ID_S2])
     })
 
     describe('hashCanonicalArgs', () => {
@@ -82,7 +127,7 @@ describe('MemoryApprovalStore', () => {
         it('after rejection, re-issuing the same args creates a fresh row (not deduped)', async () => {
             const first = await store.upsertQueued(buildInput())
             await store.markRejected(first.request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
                 reason: 'no',
             })
@@ -96,14 +141,14 @@ describe('MemoryApprovalStore', () => {
         it('markApproving only fires from queued', async () => {
             const { request } = await store.upsertQueued(buildInput())
             const ok = await store.markApproving(request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
             })
             expect(ok?.state).toBe('approving')
 
             // Second attempt is a no-op.
             const again = await store.markApproving(request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
             })
             expect(again).toBeNull()
@@ -112,7 +157,7 @@ describe('MemoryApprovalStore', () => {
         it('markDispatched maps outcome.error to dispatched_failed', async () => {
             const { request } = await store.upsertQueued(buildInput())
             await store.markApproving(request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
             })
             const failed = await store.markDispatched(request.id, { error: 'kaboom' })
@@ -123,7 +168,7 @@ describe('MemoryApprovalStore', () => {
         it('markDispatched with result lands as dispatched', async () => {
             const { request } = await store.upsertQueued(buildInput())
             await store.markApproving(request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
             })
             const done = await store.markDispatched(request.id, { result: { ok: true } })
@@ -134,7 +179,7 @@ describe('MemoryApprovalStore', () => {
         it('markRejected stamps reason', async () => {
             const { request } = await store.upsertQueued(buildInput())
             const rejected = await store.markRejected(request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
                 reason: 'amount too high',
             })
@@ -159,30 +204,30 @@ describe('MemoryApprovalStore', () => {
 
     describe('listings', () => {
         it('lists by session, scoped to that session only', async () => {
-            const a = await store.upsertQueued(buildInput({ session_id: 's1', proposed_args: { team_id: 1 } }))
-            const b = await store.upsertQueued(buildInput({ session_id: 's1', proposed_args: { team_id: 2 } }))
-            await store.upsertQueued(buildInput({ session_id: 's2', proposed_args: { team_id: 3 } }))
+            const a = await store.upsertQueued(buildInput({ session_id: SESSION_ID_S1, proposed_args: { team_id: 1 } }))
+            const b = await store.upsertQueued(buildInput({ session_id: SESSION_ID_S1, proposed_args: { team_id: 2 } }))
+            await store.upsertQueued(buildInput({ session_id: SESSION_ID_S2, proposed_args: { team_id: 3 } }))
 
             // Ordering across rows created in the same tick is implementation-
             // defined (the Pg impl orders by created_at DESC; ties break
             // however Pg likes). Assert membership, not order.
-            const ids = (await store.listBySession('s1')).map((r) => r.id).sort()
+            const ids = (await store.listBySession(SESSION_ID_S1)).map((r) => r.id).sort()
             expect(ids).toEqual([a.request.id, b.request.id].sort())
         })
 
         it('filters listings by state', async () => {
-            const { request } = await store.upsertQueued(buildInput({ session_id: 's1' }))
+            const { request } = await store.upsertQueued(buildInput({ session_id: SESSION_ID_S1 }))
             await store.markRejected(request.id, {
-                decided_by: 'user-1',
+                decided_by: '00000000-0000-4000-8000-0000000000a1',
                 decided_at: new Date().toISOString(),
             })
-            await store.upsertQueued(buildInput({ session_id: 's1', proposed_args: { team_id: 99 } }))
+            await store.upsertQueued(buildInput({ session_id: SESSION_ID_S1, proposed_args: { team_id: 99 } }))
 
-            const queued = await store.listBySession('s1', { state: 'queued' })
+            const queued = await store.listBySession(SESSION_ID_S1, { state: 'queued' })
             expect(queued).toHaveLength(1)
             expect(queued[0].state).toBe('queued')
 
-            const rejected = await store.listBySession('s1', { state: 'rejected' })
+            const rejected = await store.listBySession(SESSION_ID_S1, { state: 'rejected' })
             expect(rejected).toHaveLength(1)
             expect(rejected[0].state).toBe('rejected')
         })

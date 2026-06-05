@@ -117,39 +117,40 @@ async function main(): Promise<void> {
             return rev?.spec?.resume
         },
     }
-    // S3-backed memory store. Unset bucket/endpoint disables the
-    // /memory/* endpoints (503), keeping local dev that hasn't wired
-    // SeaweedFS bootable.
-    let memoryStore: MemoryStore | undefined
-    // Tabular store shares the memory S3 client + bucket (agent_tables prefix);
-    // serves the console Tables view via /tables/* routes.
-    let tabularStore: TabularStore | undefined
-    if (config.memoryS3Bucket && config.memoryS3Endpoint) {
-        const s3 = new S3Client({
-            endpoint: config.memoryS3Endpoint,
-            region: config.memoryS3Region,
-            forcePathStyle: config.memoryS3ForcePathStyle,
-            credentials:
-                config.memoryS3AccessKeyId && config.memoryS3SecretAccessKey
-                    ? {
-                          accessKeyId: config.memoryS3AccessKeyId,
-                          secretAccessKey: config.memoryS3SecretAccessKey,
-                      }
-                    : undefined,
-        })
-        memoryStore = new S3MemoryStore({
-            client: s3,
-            bucket: config.memoryS3Bucket,
-            bucketPrefix: config.memoryS3Prefix,
-        })
-        tabularStore = new S3JsonlTabularStore({ client: s3, bucket: config.memoryS3Bucket, bucketPrefix: 'agent_tables' })
-        log.info(
-            { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
-            'memory.s3.enabled'
+    // S3-backed memory store. Required everywhere — no optional fallback that
+    // returns 503. Dev wires SeaweedFS via `hogli start` and the platform
+    // config dev defaults; prod must set bucket + endpoint explicitly.
+    if (!config.memoryS3Bucket || !config.memoryS3Endpoint) {
+        throw new Error(
+            'AGENT_MEMORY_S3_BUCKET and AGENT_MEMORY_S3_ENDPOINT must both be set — janitor refuses to start without memory storage. Dev: SeaweedFS via `hogli start`. Prod: real S3 / equivalent.'
         )
-    } else {
-        log.warn({}, 'memory.s3.disabled — set AGENT_MEMORY_S3_BUCKET + AGENT_MEMORY_S3_ENDPOINT to enable')
     }
+    const memoryS3 = new S3Client({
+        endpoint: config.memoryS3Endpoint,
+        region: config.memoryS3Region,
+        forcePathStyle: config.memoryS3ForcePathStyle,
+        credentials:
+            config.memoryS3AccessKeyId && config.memoryS3SecretAccessKey
+                ? {
+                      accessKeyId: config.memoryS3AccessKeyId,
+                      secretAccessKey: config.memoryS3SecretAccessKey,
+                  }
+                : undefined,
+    })
+    const memoryStore: MemoryStore = new S3MemoryStore({
+        client: memoryS3,
+        bucket: config.memoryS3Bucket,
+        bucketPrefix: config.memoryS3Prefix,
+    })
+    const tabularStore: TabularStore = new S3JsonlTabularStore({
+        client: memoryS3,
+        bucket: config.memoryS3Bucket,
+        bucketPrefix: 'agent_tables',
+    })
+    log.info(
+        { bucket: config.memoryS3Bucket, endpoint: config.memoryS3Endpoint, prefix: config.memoryS3Prefix },
+        'memory.s3.enabled'
+    )
 
     const app = buildJanitorApp({
         queue,
@@ -159,7 +160,7 @@ async function main(): Promise<void> {
         bundles,
         memoryStore,
         tabularStore,
-        internalSecret: config.internalSecret,
+        internalSigningKey: config.internalSigningKey,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port }, 'listening')

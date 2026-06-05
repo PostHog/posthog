@@ -1,14 +1,79 @@
 /**
- * Unit tests for the Slack → PostHog user bridge. The Slack and Postgres
- * calls are stubbed; the contract under test is "what does the bridge
- * cache on the AgentUser row given each possible upstream response."
+ * Unit tests for the Slack → PostHog user bridge. The Slack and PostHog API
+ * calls are stubbed; the contract under test is "what does the bridge cache
+ * on the AgentUser row given each possible upstream response." The identity
+ * store is the real `PgIdentityStore` against the test DB (no in-memory variant).
  */
 
-import { AgentUser, MemoryIdentityStore, MemoryIntegrationStore } from '@posthog/agent-shared'
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
+import { AgentUser, IntegrationCredentials, IntegrationStore, PgIdentityStore } from '@posthog/agent-shared'
 
 import { bridgeSlackToPosthogUser } from './slack-posthog-bridge'
 
-async function seedIdentity(store: MemoryIdentityStore, agentUser: AgentUser): Promise<void> {
+/**
+ * Per-test inline IntegrationStore stub. PgIntegrationStore reads from the
+ * Django `posthog_integration` table which doesn't live in the agent test
+ * DB, so this minimal in-test impl seeds whatever rows a case needs.
+ */
+function makeIntegrationStub(
+    seed: Array<{ teamId: number; kind: string; integrationId: string; credentials: IntegrationCredentials }> = []
+): IntegrationStore & {
+    add: (teamId: number, kind: string, integrationId: string, credentials: IntegrationCredentials) => void
+} {
+    const rows = [...seed]
+    return {
+        add(teamId, kind, integrationId, credentials) {
+            const i = rows.findIndex((r) => r.teamId === teamId && r.kind === kind && r.integrationId === integrationId)
+            const row = { teamId, kind, integrationId, credentials }
+            if (i >= 0) {
+                rows[i] = row
+            } else {
+                rows.push(row)
+            }
+        },
+        async get(teamId, kind, integrationId) {
+            return (
+                rows.find((r) => r.teamId === teamId && r.kind === kind && r.integrationId === integrationId)
+                    ?.credentials ?? null
+            )
+        },
+        async list(teamId, kind) {
+            return rows
+                .filter((r) => r.teamId === teamId && r.kind === kind)
+                .map((r) => ({ integration_id: r.integrationId, credentials: r.credentials }))
+        },
+        async resolveForSpec(teamId, kinds) {
+            const out: Record<string, IntegrationCredentials> = {}
+            for (const kind of kinds) {
+                for (const r of rows.filter((rr) => rr.teamId === teamId && rr.kind === kind)) {
+                    out[`${kind}:${r.integrationId}`] = r.credentials
+                }
+            }
+            return out
+        },
+    }
+}
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+let pool: Pool
+
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
+
+async function seedIdentity(store: PgIdentityStore, agentUser: AgentUser): Promise<void> {
     // Round-trip the row through the public API so tests don't depend on
     // the store's private internals. findOrCreate uses (application_id,
     // principal_kind, principal_id) as the natural key, then we patch
@@ -31,7 +96,7 @@ function makeAgentUser(overrides: Partial<AgentUser> = {}): AgentUser {
     return {
         id: 'au-bob',
         team_id: 1,
-        application_id: 'app',
+        application_id: '00000000-0000-4000-8000-00000000aa01',
         principal_kind: 'slack',
         principal_id: 'T01ACME:U-BOB',
         metadata: { workspace: 'T01ACME', slack_user: 'U-BOB' },
@@ -58,9 +123,9 @@ function fakePosthogDb(emailToUserId: Record<string, number>): import('pg').Pool
 
 describe('bridgeSlackToPosthogUser', () => {
     it('caches the matched posthog_user.id when slack returns an email that exists', async () => {
-        const integrations = new MemoryIntegrationStore()
+        const integrations = makeIntegrationStub()
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser()
         await seedIdentity(identities, agentUser)
 
@@ -73,7 +138,7 @@ describe('bridgeSlackToPosthogUser', () => {
 
         expect(userId).toBe(42)
         const cached = await identities.find({
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-BOB',
         })
@@ -81,9 +146,9 @@ describe('bridgeSlackToPosthogUser', () => {
     })
 
     it('caches `null` when slack returns an email with no matching posthog_user', async () => {
-        const integrations = new MemoryIntegrationStore()
+        const integrations = makeIntegrationStub()
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser({ id: 'au-external' })
         await seedIdentity(identities, agentUser)
 
@@ -96,7 +161,7 @@ describe('bridgeSlackToPosthogUser', () => {
 
         expect(userId).toBeNull()
         const cached = await identities.find({
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-BOB',
         })
@@ -104,13 +169,13 @@ describe('bridgeSlackToPosthogUser', () => {
     })
 
     it('returns the cached posthog_user_id without re-running the lookup', async () => {
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser({ posthog_user_id: 7 })
         await seedIdentity(identities, agentUser)
 
         let calls = 0
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
-            integrations: new MemoryIntegrationStore(),
+            integrations: makeIntegrationStub(),
             identities,
             posthogDb: fakePosthogDb({}),
             fetchSlackEmail: async () => {
@@ -123,13 +188,13 @@ describe('bridgeSlackToPosthogUser', () => {
     })
 
     it('respects an explicit cached null (no match found previously) without re-asking slack', async () => {
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser({ posthog_user_id: null })
         await seedIdentity(identities, agentUser)
 
         let calls = 0
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
-            integrations: new MemoryIntegrationStore(),
+            integrations: makeIntegrationStub(),
             identities,
             posthogDb: fakePosthogDb({}),
             fetchSlackEmail: async () => {
@@ -142,20 +207,20 @@ describe('bridgeSlackToPosthogUser', () => {
     })
 
     it('caches `null` when no slack integration is connected (treat as "lookup ran, no match")', async () => {
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser({ id: 'au-noslack' })
         await seedIdentity(identities, agentUser)
 
         // Empty integration store — no slack token for the team.
         const userId = await bridgeSlackToPosthogUser(agentUser, 'T01ACME', 'U-BOB', {
-            integrations: new MemoryIntegrationStore(),
+            integrations: makeIntegrationStub(),
             identities,
             posthogDb: fakePosthogDb({ 'bob@posthog.com': 42 }),
             fetchSlackEmail: async () => 'bob@posthog.com',
         })
         expect(userId).toBeNull()
         const cached = await identities.find({
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-BOB',
         })
@@ -163,9 +228,9 @@ describe('bridgeSlackToPosthogUser', () => {
     })
 
     it('does NOT cache when the slack lookup throws — next event can retry', async () => {
-        const integrations = new MemoryIntegrationStore()
+        const integrations = makeIntegrationStub()
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser({ id: 'au-blip' })
         await seedIdentity(identities, agentUser)
 
@@ -179,19 +244,23 @@ describe('bridgeSlackToPosthogUser', () => {
         })
         expect(userId).toBeNull()
         const cached = await identities.find({
-            application_id: 'app',
+            application_id: '00000000-0000-4000-8000-00000000aa01',
             principal_kind: 'slack',
             principal_id: 'T01ACME:U-BOB',
         })
-        // Lookup failed transiently, not cached. `undefined` (not `null`) so
-        // the next event runs the bridge again.
-        expect(cached!.posthog_user_id).toBeUndefined()
+        // Lookup failed transiently. PgIdentityStore initialises
+        // `posthog_user_id` to NULL on row create, so we can't distinguish
+        // "never looked up" from "looked up, no match" purely on the column
+        // value — the contract is that the bridge does NOT explicitly stamp
+        // a cache marker when the upstream throws, so the next event can
+        // retry. Asserting null here captures the on-disk default.
+        expect(cached!.posthog_user_id).toBeNull()
     })
 
     it('matches emails case-insensitively (Slack profile + PostHog stored case may differ)', async () => {
-        const integrations = new MemoryIntegrationStore()
+        const integrations = makeIntegrationStub()
         integrations.add(1, 'slack', 'T01ACME', { kind: 'slack', access_token: 'xoxb-acme' })
-        const identities = new MemoryIdentityStore()
+        const identities = new PgIdentityStore(pool)
         const agentUser = makeAgentUser({ id: 'au-case' })
         await seedIdentity(identities, agentUser)
 

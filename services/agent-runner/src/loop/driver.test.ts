@@ -1,3 +1,4 @@
+import type { S3Client } from '@aws-sdk/client-s3'
 import {
     type AssistantMessage,
     fauxAssistantMessage,
@@ -7,21 +8,31 @@ import {
     streamSimple,
     type ToolCall,
 } from '@earendil-works/pi-ai'
+import { Pool } from 'pg'
 
+import { reset } from '@posthog/agent-migrations'
 import {
     AgentRevision,
     type ApprovalRequest,
     type ApprovalStore,
     AgentSession,
     AgentSpecSchema,
+    buildTestBundleStore,
     EMPTY_USAGE_TOTAL,
     HttpClient,
+    KafkaLogSink,
     McpRef,
-    MemoryApprovalStore,
-    MemoryBundleStore,
+    newTestPrefix,
+    PgApprovalStore,
+    PgSessionQueue,
     principalsMatch,
+    RedisSessionEventBus,
+    S3BundleStore,
     SessionPrincipal,
+    wipeTestPrefix,
 } from '@posthog/agent-shared'
+
+const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { buildApprovalDecidedMarker } from './approval-marker'
@@ -30,6 +41,12 @@ import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { findLastUserSender, type IsAskerInApproverScope } from './per-asker-auth'
 
 const FAUX_MODEL_ID = 'faux/test'
+// Realistic UUID — PG's `uuid` columns (approvals.session_id, etc.) reject
+// arbitrary strings, so the previous `'sess1'` literal broke any test that
+// touched a real `PgApprovalStore`.
+const TEST_SESSION_ID = '00000000-0000-4000-8000-00000000fe01'
+const TEST_APP_ID = '00000000-0000-4000-8000-00000000aa01'
+const TEST_REV_ID = '00000000-0000-4000-8000-00000000aa02'
 
 let fauxHandle: ReturnType<typeof registerFauxProvider> | undefined
 function fauxModel(script: Array<AssistantMessage | (() => AssistantMessage)>): Model<string> {
@@ -47,13 +64,13 @@ const errored = (msg: string): AssistantMessage => fauxAssistantMessage('', { st
 
 function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}): AgentRevision {
     return {
-        id: 'rev1',
-        application_id: 'app',
+        id: TEST_REV_ID,
+        application_id: TEST_APP_ID,
         parent_revision_id: null,
         created_by_id: null,
         created_at: '2026-05-29',
         state: 'live',
-        bundle_uri: 'fs://x/',
+        bundle_uri: 's3://x/',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: FAUX_MODEL_ID, ...spec }),
     }
@@ -61,9 +78,9 @@ function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}
 
 function makeSession(over: Partial<AgentSession> = {}): AgentSession {
     return {
-        id: 'sess1',
-        application_id: 'app',
-        revision_id: 'rev1',
+        id: TEST_SESSION_ID,
+        application_id: TEST_APP_ID,
+        revision_id: TEST_REV_ID,
         team_id: 1,
         external_key: null,
         idempotency_key: null,
@@ -82,19 +99,75 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
     }
 }
 
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
+const driverTestBus = new RedisSessionEventBus({
+    url: REDIS_URL,
+    channelPrefix: `driver_test_${Math.random().toString(36).slice(2, 10)}`,
+})
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+let bundlePrefix: string
+let bundleClient: S3Client
+let bundleStore: S3BundleStore
+const driverTestLogs = new KafkaLogSink({ brokers: KAFKA_HOSTS, topic: 'log_entries', name: 'driver_test' })
+
+beforeAll(async () => {
+    await driverTestBus.connect()
+    await driverTestLogs.connect()
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+
+afterAll(async () => {
+    await driverTestBus.disconnect()
+    await driverTestLogs.disconnect()
+    await pool.end()
+})
+
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+    bundlePrefix = newTestPrefix('agent_bundles_driver_test')
+    const built = buildTestBundleStore(bundlePrefix)
+    bundleClient = built.client
+    bundleStore = built.store
+})
+
+afterEach(async () => {
+    await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+    bundleClient.destroy()
+})
+
+/**
+ * Seed PG with an `agent_session` row for the session. Required when the
+ * test wires `PgApprovalStore` because `agent_tool_approval_request.session_id`
+ * has a FK to `agent_session(id)`. Tests that don't touch approvals can skip
+ * this — the in-memory session struct passed to `runSession` is enough.
+ */
+async function seedSessionRow(session: AgentSession): Promise<void> {
+    const queue = new PgSessionQueue(pool)
+    await queue.enqueue(session)
+}
+
 async function run(
     rev: AgentRevision,
     session: AgentSession,
     over: Record<string, unknown> = {}
 ): ReturnType<typeof runSession> {
-    const bundle = new MemoryBundleStore()
+    const bundle = bundleStore
     await bundle.write(rev.id, 'agent.md', 'you are a bot')
+    if (over.approvals) {
+        await seedSessionRow(session)
+    }
     return runSession(rev, session, {
         model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]),
         bundle,
         sandbox: null,
         integrations: {},
         secrets: {},
+        bus: driverTestBus,
+        logs: driverTestLogs,
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
         ...over,
@@ -264,7 +337,7 @@ describe('driver runSession', () => {
                 session,
                 {
                     script: [stop('ok')],
-                    approvals: storeWithRow({ session_id: 'sess1', state: 'rejected' }),
+                    approvals: storeWithRow({ session_id: TEST_SESSION_ID, state: 'rejected' }),
                 }
             )
             expect(out.state).toBe('completed')
@@ -351,7 +424,7 @@ describe('driver runSession', () => {
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
             })
-            const approvals = new MemoryApprovalStore()
+            const approvals = new PgApprovalStore(pool)
             const session = makeSession({
                 principal: principalAlice,
                 conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
@@ -374,7 +447,7 @@ describe('driver runSession', () => {
             // Remote tool was NEVER called.
             expect(mcp.calls).toEqual([])
             // Exactly one approval row queued for this session.
-            const rows = await approvals.listBySession('sess1')
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
             expect(rows).toHaveLength(1)
             expect(rows[0].tool_name).toBe('posthog__agent-applications-revisions-promote-create')
             expect(rows[0].state).toBe('queued')
@@ -389,7 +462,7 @@ describe('driver runSession', () => {
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-list': { description: 'd', result: { results: [] } },
             })
-            const approvals = new MemoryApprovalStore()
+            const approvals = new PgApprovalStore(pool)
             const session = makeSession({ principal: principalAlice })
             const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
                 script: [toolUse([call('posthog__agent-applications-list', {})]), stop('listed')],
@@ -399,7 +472,7 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             // Remote was hit normally — no approval interception.
             expect(mcp.calls).toEqual([{ name: 'agent-applications-list', args: {} }])
-            expect(await approvals.listBySession('sess1')).toHaveLength(0)
+            expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
         })
 
         it('iterates past earlier bare-string entries to find a later gated object (no false-positive short-circuit)', async () => {
@@ -414,7 +487,7 @@ describe('driver runSession', () => {
                     result: { promoted: true },
                 },
             })
-            const approvals = new MemoryApprovalStore()
+            const approvals = new PgApprovalStore(pool)
             const session = makeSession({
                 principal: principalAlice,
                 // Drop the sender stamp so the per-asker fast-path can't fire
@@ -435,7 +508,7 @@ describe('driver runSession', () => {
             })
             expect(out.state).toBe('completed')
             expect(mcp.calls).toEqual([])
-            const rows = await approvals.listBySession('sess1')
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
             expect(rows).toHaveLength(1)
         })
 
@@ -477,7 +550,7 @@ describe('driver runSession', () => {
             const mcp = makeFakeMcp('posthog', collisionRef, {
                 pingback: { description: 'd', result: { ok: true } },
             })
-            const approvals = new MemoryApprovalStore()
+            const approvals = new PgApprovalStore(pool)
             const session = makeSession({ principal: principalAlice })
             // The model calls the client-tool id (`posthog__pingback`). The
             // build-agent-tools collision-skip means the MCP version is
@@ -503,7 +576,7 @@ describe('driver runSession', () => {
                 }
             )
             // No approval row queued — the wrap declined to apply the MCP policy.
-            expect(await approvals.listBySession('sess1')).toHaveLength(0)
+            expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
             // Session reaches a terminal state (the client tool's runtime
             // dispatcher isn't wired in this faux harness, but the loop
             // outcome doesn't matter — what matters is "we didn't queue").
@@ -519,7 +592,7 @@ describe('driver runSession', () => {
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
             })
-            const approvals = new MemoryApprovalStore()
+            const approvals = new PgApprovalStore(pool)
             const session = makeSession({
                 principal: principalAlice,
                 conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
@@ -551,7 +624,7 @@ describe('driver runSession', () => {
                 { name: 'agent-applications-revisions-promote-create', args: { application_id: 'app' } },
             ])
             // No approval row queued — that's the whole point of the fast-path.
-            expect(await approvals.listBySession('sess1')).toHaveLength(0)
+            expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
         })
     })
 
@@ -589,7 +662,7 @@ describe('driver runSession', () => {
             const out = await run(makeRev(), session, {
                 script: [stop('hi back')],
                 streamFn: recordingStreamFn(calls),
-                gatewayHeaders: { 'X-PostHog-Distinct-Id': 'team:1:agent:app', 'X-PostHog-Trace-Id': 'sess1' },
+                gatewayHeaders: { 'X-PostHog-Distinct-Id': 'team:1:agent:app', 'X-PostHog-Trace-Id': TEST_SESSION_ID },
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
                 useGatewayCost: true,
             })
@@ -599,21 +672,21 @@ describe('driver runSession', () => {
             expect(calls).toHaveLength(1)
             expect(calls[0].headers).toMatchObject({
                 'X-PostHog-Distinct-Id': 'team:1:agent:app',
-                'X-PostHog-Trace-Id': 'sess1',
-                'Idempotency-Key': 'agent:sess1:1',
-                'X-Request-Id': 'agent:sess1:1',
+                'X-PostHog-Trace-Id': TEST_SESSION_ID,
+                'Idempotency-Key': `agent:${TEST_SESSION_ID}:1`,
+                'X-Request-Id': `agent:${TEST_SESSION_ID}:1`,
             })
             // getUsage was called for that exact request id; the returned
             // cost landed in usage_total.
             expect(getUsage).toHaveBeenCalledTimes(1)
-            expect(getUsage).toHaveBeenCalledWith('agent:sess1:1', { phc: 'phc_test' })
+            expect(getUsage).toHaveBeenCalledWith(`agent:${TEST_SESSION_ID}:1`, { phc: 'phc_test' })
             expect(session.usage_total.cost_total).toBeCloseTo(0.42, 5)
         })
 
         it('survives a getUsage NaN/failure without polluting cost_total', async () => {
             const calls: Array<{ headers: Record<string, string> | undefined }> = []
             const getUsage = vi.fn(async () => ({
-                request_id: 'agent:sess1:1',
+                request_id: `agent:${TEST_SESSION_ID}:1`,
                 team_id: 1,
                 cost_usd: 'not-a-number',
                 settled_at: new Date().toISOString(),

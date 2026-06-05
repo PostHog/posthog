@@ -4,10 +4,16 @@
  * Real everywhere except model invocation:
  *   - Postgres (agent_runtime_queue_test) — PgSessionQueue + PgRevisionStore.
  *     Schema is dropped + recreated per test.
- *   - Filesystem — FsBundleStore in a per-test tmp dir.
+ *   - SeaweedFS / S3 — `S3BundleStore` + `S3MemoryStore` against the
+ *     `AGENT_MEMORY_TEST_S3_*` bucket, per-cluster random prefix. No fs/in-memory
+ *     bundle store — every test exercises the real multipart write + signed-URL
+ *     path that prod uses.
+ *   - Redis (REDIS_URL, defaults to redis://localhost:6379) — RedisSessionEventBus
+ *     with a per-cluster channel prefix so concurrent test files don't see each
+ *     other's events. Same impl prod runs; in-memory bus has been removed.
  *   - Express ingress — full real route table.
  *   - Runner Worker — same loop the prod bin runs (concurrency, shutdown, pending_inputs).
- *   - Sandbox pool — InProcessSandboxPool.
+ *   - Sandbox pool — InProcessSandboxPool (constructor refuses outside NODE_ENV=test).
  *   - Driver — streams through pi-ai's `streamSimple`, pointed at the faux provider.
  *
  * Mocked at the model layer ONLY: pi-ai's `faux` provider, registered once per
@@ -19,38 +25,32 @@
 import type { Model } from '@earendil-works/pi-ai'
 import { createHmac } from 'crypto'
 import { Express } from 'express'
-import { promises as fs } from 'fs'
-import * as os from 'os'
-import * as path from 'path'
 import { Pool } from 'pg'
 import request from 'supertest'
 
-import {
-    AuthProvider,
-    buildApp,
-    MemorySessionEventBus,
-    SessionEventBus,
-    SlackSigningSecretResolver,
-} from '@posthog/agent-ingress'
+import { AuthProvider, buildApp, SessionEventBus, SlackSigningSecretResolver } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
 import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
-import type { IdentityStore } from '@posthog/agent-shared'
-import { InMemoryLogSink, MemoryIdentityStore } from '@posthog/agent-shared'
+import type { IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
     AgentRevision,
     AgentSpecSchema,
+    buildTestBundleStore,
     buildTestStore as buildMemoryTestStore,
     CredentialBroker,
-    FsBundleStore,
     InProcessSandboxPool,
+    KafkaLogSink,
     newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
+    RedisSessionEventBus,
+    S3BundleStore,
     S3JsonlTabularStore,
     EncryptedFields,
     HttpClient,
@@ -65,6 +65,24 @@ import { buildFauxModel, ScriptedTurn } from './faux'
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+
+// nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
+
+const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
+
+/**
+ * Test-side `LogSink`-shaped collector backed by `KafkaLogSink`. The real
+ * sink does the produce; the tap accumulates entries for assertion. Tests
+ * never query ClickHouse — the materialized view is async and flakey under
+ * load. Validating that produce was called with the right wire bytes is the
+ * contract that prevents drift; the downstream CH path is exercised in prod.
+ */
+export interface CollectingLogSink {
+    readonly entries: LogEntry[]
+    forSession(sessionId: string): LogEntry[]
+    clear(): void
+}
 
 /** Deterministic 32-byte salt for the harness's `EncryptedFields`. Same key
  *  drives the credential broker and the Slack signing-secret resolver, so the
@@ -93,11 +111,12 @@ export interface Cluster {
     pool: Pool
     revisions: PgRevisionStore
     queue: PgSessionQueue
-    bundle: FsBundleStore
-    bundleRoot: string
+    bundle: S3BundleStore
+    /** Per-cluster bucket prefix the bundle store is rooted at. */
+    bundlePrefix: string
     bus: SessionEventBus
     identities: IdentityStore
-    logs: InMemoryLogSink
+    logs: CollectingLogSink
     sandboxes: InProcessSandboxPool
     credentialBroker: CredentialBroker
     sandboxInstances: PgSandboxInstanceStore
@@ -227,13 +246,44 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // migration from @posthog/agent-migrations — single source of truth.
     await reset({ databaseUrl: TEST_DB_URL })
 
-    const bundleRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'v2-bundle-'))
-    const bundle = new FsBundleStore(bundleRoot)
+    // Real S3 bundle store against SeaweedFS, per-cluster prefix. Same impl
+    // prod runs against real S3 — no fs/in-memory variant. The bucket and
+    // client come from the shared `buildTestBundleStore` helper which mirrors
+    // `buildTestStore` for the memory store.
+    const bundlePrefix = `agent_bundles_harness_${Math.random().toString(36).slice(2, 10)}`
+    const { client: bundleClient, store: bundle } = buildTestBundleStore(bundlePrefix)
     const revisions = new PgRevisionStore(pool)
     const queue = new PgSessionQueue(pool)
-    const bus: SessionEventBus = new MemorySessionEventBus()
-    const identities: IdentityStore = new MemoryIdentityStore()
-    const logs = new InMemoryLogSink()
+    // Real Redis pub/sub with a per-cluster channel prefix so concurrent test
+    // files don't deliver each other's events. Same impl prod runs; in-memory
+    // bus has been removed. Teardown disconnects.
+    const busChannelPrefix = `harness_${Math.random().toString(36).slice(2, 10)}`
+    const bus: SessionEventBus & { connect: () => Promise<void>; disconnect: () => Promise<void> } =
+        new RedisSessionEventBus({ url: REDIS_URL, channelPrefix: busChannelPrefix })
+    await bus.connect()
+    const identities: IdentityStore = new PgIdentityStore(pool)
+    // Real KafkaLogSink against the local broker. The tap captures wire
+    // payloads as they're produced so tests can assert on event shape
+    // without polling ClickHouse. Teardown disconnects.
+    const collected: LogEntry[] = []
+    const logSink = new KafkaLogSink({
+        brokers: KAFKA_HOSTS,
+        topic: 'log_entries',
+        name: 'agent_tests',
+        tap: (entry) => collected.push(entry),
+    })
+    await logSink.connect()
+    const logs: CollectingLogSink = {
+        get entries(): LogEntry[] {
+            return collected
+        },
+        forSession(sessionId: string): LogEntry[] {
+            return collected.filter((e) => e.session_id === sessionId)
+        },
+        clear(): void {
+            collected.length = 0
+        },
+    }
     const sandboxes = new InProcessSandboxPool()
     const sandboxInstances = new PgSandboxInstanceStore(pool)
     const approvals = new PgApprovalStore(pool)
@@ -287,7 +337,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         broker,
         credentialBroker,
         bus,
-        logs,
+        logs: logSink,
         resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
@@ -362,7 +412,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         revisions,
         queue,
         bundle,
-        bundleRoot,
+        bundlePrefix,
         bus,
         identities,
         sandboxInstances,
@@ -426,7 +476,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 application_id: app.id,
                 parent_revision_id: null,
                 created_by_id: null,
-                bundle_uri: `fs://${bundleRoot}/${app.id}/`,
+                bundle_uri: `s3://${TEST_S3_BUCKET}/${bundlePrefix}/${app.id}/`,
                 spec,
             })
             for (const [p, content] of Object.entries(input.files ?? {})) {
@@ -461,9 +511,12 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
             }
         },
         async teardown() {
-            await fs.rm(bundleRoot, { recursive: true, force: true }).catch(() => undefined)
+            await wipeMemoryTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+            bundleClient.destroy()
             await wipeMemoryTestPrefix(memoryStoreClient, memoryStorePrefix).catch(() => undefined)
             memoryStoreClient.destroy()
+            await bus.disconnect().catch(() => undefined)
+            await logSink.disconnect().catch(() => undefined)
         },
     }
 }

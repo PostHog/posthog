@@ -1,21 +1,42 @@
-import { AgentSpecSchema, MemorySessionQueue, SessionPrincipal } from '@posthog/agent-shared'
+import { randomUUID } from 'node:crypto'
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
+import { AgentSpecSchema, PgSessionQueue, SessionPrincipal } from '@posthog/agent-shared'
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 
 import { enqueueOrResume } from './enqueue'
 
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+afterAll(async () => {
+    await pool.end()
+})
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
+
 function makePair(): { app: AgentApplication; rev: AgentRevision } {
+    // PG schema requires UUID-shaped ids on agent_session.application_id /
+    // revision_id (no FK constraint, just type). Synthetic uuids per test.
+    const appId = randomUUID()
+    const revId = randomUUID()
     const app = {
-        id: 'app1',
+        id: appId,
         team_id: 1,
         slug: 'x',
         name: 'X',
         description: '',
-        live_revision_id: 'rev1',
+        live_revision_id: revId,
         archived: false,
         encrypted_env: null,
     }
     const rev = {
-        id: 'rev1',
+        id: revId,
         application_id: app.id,
         parent_revision_id: null,
         created_by_id: null,
@@ -33,7 +54,7 @@ const BOB: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id
 
 describe('enqueueOrResume', () => {
     it('creates a fresh session without externalKey', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const out = await enqueueOrResume(
             { queue, teamId: 1 },
@@ -49,7 +70,7 @@ describe('enqueueOrResume', () => {
     })
 
     it('resumes an existing session matching externalKey + same principal', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
             { queue, teamId: 1 },
@@ -84,7 +105,7 @@ describe('enqueueOrResume', () => {
         // Under the new state machine `completed` is the open idle state —
         // external_key reuse picks it back up. Only `closed` / `failed`
         // force a fresh session.
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
             { queue, teamId: 1 },
@@ -112,7 +133,7 @@ describe('enqueueOrResume', () => {
     })
 
     it('creates a new session if existing one is `closed` (terminal)', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
             { queue, teamId: 1 },
@@ -144,7 +165,7 @@ describe('enqueueOrResume', () => {
         // resume someone else's thread because principals weren't checked on
         // the externalKey resume path. Now we record a pending elevation
         // request and surface elevation_required to the trigger instead.
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const first = await enqueueOrResume(
             { queue, teamId: 1 },
@@ -192,7 +213,7 @@ describe('enqueueOrResume', () => {
     })
 
     it('expires the oldest pending elevation request once the cap is exceeded', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         await enqueueOrResume(
             { queue, teamId: 1 },
@@ -229,7 +250,7 @@ describe('enqueueOrResume', () => {
 
     describe('idempotency_key', () => {
         it('creates the session on first call with a key', async () => {
-            const queue = new MemorySessionQueue()
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
                 { queue, teamId: 1 },
@@ -247,7 +268,7 @@ describe('enqueueOrResume', () => {
         })
 
         it('returns the original session id on a duplicate call — no append, no resume, no new row', async () => {
-            const queue = new MemorySessionQueue()
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const first = await enqueueOrResume(
                 { queue, teamId: 1 },
@@ -280,7 +301,7 @@ describe('enqueueOrResume', () => {
         })
 
         it('stamps trigger_metadata on the session row when supplied', async () => {
-            const queue = new MemorySessionQueue()
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const out = await enqueueOrResume(
                 { queue, teamId: 1 },
@@ -311,7 +332,7 @@ describe('enqueueOrResume', () => {
             // A request with both keys, where the idempotency_key matches an
             // existing row. The dedupe path returns the original; the
             // external_key resume path doesn't fire.
-            const queue = new MemorySessionQueue()
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const first = await enqueueOrResume(
                 { queue, teamId: 1 },
@@ -345,7 +366,7 @@ describe('enqueueOrResume', () => {
             // Simulates the window between findByIdempotencyKey and INSERT:
             // a concurrent writer landed a row first. The wrapped queue throws
             // the PG unique-violation code on the second insert.
-            const queue = new MemorySessionQueue()
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             // First call goes through normally; capture its id.
             const first = await enqueueOrResume(
@@ -409,7 +430,7 @@ describe('enqueueOrResume', () => {
             // Without an idempotency_key supplied, a unique-violation has
             // nothing to resolve against — should rethrow rather than
             // silently swallow.
-            const queue = new MemorySessionQueue()
+            const queue = new PgSessionQueue(pool)
             const { app, rev } = makePair()
             const racyQueue = new Proxy(queue, {
                 get(target, prop, recv) {

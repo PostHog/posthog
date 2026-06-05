@@ -88,29 +88,3 @@ export class TeamApiKeyNotFoundError extends Error {
         this.name = 'TeamApiKeyNotFoundError'
     }
 }
-
-/**
- * In-memory resolver for tests and harness. Pre-seed with team→token entries;
- * `resolve()` throws `TeamApiKeyNotFoundError` for unseeded teams.
- */
-export class MemoryTeamApiKeyResolver implements TeamApiKeyResolver {
-    private readonly store = new Map<number, string>()
-
-    constructor(seed: Record<number, string> = {}) {
-        for (const [k, v] of Object.entries(seed)) {
-            this.store.set(Number(k), v)
-        }
-    }
-
-    set(teamId: number, token: string): void {
-        this.store.set(teamId, token)
-    }
-
-    async resolve(teamId: number): Promise<string> {
-        const v = this.store.get(teamId)
-        if (!v) {
-            throw new TeamApiKeyNotFoundError(`team_id=${teamId} not seeded`)
-        }
-        return v
-    }
-}

@@ -8,7 +8,7 @@ Two unrelated responsibilities in one process:
 2. **Sweep timer** — re-queues stuck `running` sessions and fails
    stuck `waiting` sessions on a configurable interval.
 
-Both are unauthenticated unless `INTERNAL_SECRET` is set (it must be in
+Both are unauthenticated unless `AGENT_INTERNAL_SIGNING_KEY` is set (it must be in
 prod). Read [docs/agent-platform/docs/local-dev.md](../../docs/agent-platform/docs/local-dev.md)
 for the wider dev flow.
 

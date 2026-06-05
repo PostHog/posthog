@@ -28,6 +28,7 @@
         "zod": "^4.3.6"
     },
     "devDependencies": {
+        "@posthog/agent-migrations": "workspace:*",
         "@types/express": "^4.17.21",
         "@types/node": "catalog:",
         "@types/pg": "^8.6.0",

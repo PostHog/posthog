@@ -1,6 +1,19 @@
-import { EMPTY_USAGE_TOTAL, EncryptedFields, MemoryRevisionStore } from '@posthog/agent-shared'
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
+import { EMPTY_USAGE_TOTAL, EncryptedFields, PgRevisionStore } from '@posthog/agent-shared'
 
 import { makeEncryptedEnvResolver } from './encrypted-env-resolver'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+afterAll(async () => {
+    await pool.end()
+})
 
 const KEY = '01234567890123456789012345678901'
 
@@ -28,11 +41,12 @@ function freshSession(overrides: Record<string, unknown> = {}): never {
 }
 
 describe('makeEncryptedEnvResolver', () => {
-    let revisions: MemoryRevisionStore
+    let revisions: PgRevisionStore
     let encryption: EncryptedFields
 
-    beforeEach(() => {
-        revisions = new MemoryRevisionStore()
+    beforeEach(async () => {
+        await reset({ databaseUrl: TEST_DB_URL })
+        revisions = new PgRevisionStore(pool)
         encryption = new EncryptedFields(KEY)
     })
 
@@ -55,7 +69,7 @@ describe('makeEncryptedEnvResolver', () => {
 
     it('returns {} when the application is unknown (revision_store returns null)', async () => {
         const resolve = makeEncryptedEnvResolver({ revisions, encryption })
-        expect(await resolve(freshSession({ application_id: 'nope' }))).toEqual({})
+        expect(await resolve(freshSession({ application_id: '00000000-0000-4000-8000-000000000666' }))).toEqual({})
     })
 
     it('decrypts a JSON env block into a string-only map', async () => {

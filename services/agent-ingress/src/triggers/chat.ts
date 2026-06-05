@@ -7,7 +7,7 @@
 import { Request, Response, Router } from 'express'
 import { z } from 'zod'
 
-import { CredentialBroker, MemoryCredentialBroker, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
+import { CredentialBroker, SessionEventBus, SessionQueue } from '@posthog/agent-shared'
 
 import { buildElevationResponse, principalDisplay, recordElevationRequest, requireAclAccess } from '../enqueue/acl'
 import { authorize, AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
@@ -39,16 +39,17 @@ export interface ChatTriggerDeps {
     teamId: number
     authProvider?: AuthProvider
     /**
-     * Broker for per-session auth credentials. Default: a fresh
-     * `MemoryCredentialBroker` so dev / tests work out of the box.
-     * Prod wires a `RedisCredentialBroker` shared across services.
+     * Broker for per-session auth credentials. Required — prod wires
+     * `PgCredentialBroker`, the harness wires the same against the test DB.
+     * There is no in-memory fallback (it silently diverged from prod when
+     * processes restarted).
      */
-    broker?: CredentialBroker
+    broker: CredentialBroker
 }
 
 export function chatRouter(deps: ChatTriggerDeps): Router {
     const r = Router({ mergeParams: true })
-    const broker = deps.broker ?? new MemoryCredentialBroker()
+    const broker = deps.broker
 
     r.post(
         '/run',

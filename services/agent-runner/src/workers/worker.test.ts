@@ -99,8 +99,10 @@ describe('Worker', () => {
     })
 
     afterEach(async () => {
-        await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
-        bundleClient.destroy()
+        if (bundleClient) {
+            await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+            bundleClient.destroy()
+        }
     })
 
     it('claims a session, runs it, marks it completed', async () => {
@@ -118,8 +120,9 @@ describe('Worker', () => {
         })
         await bundle.write(rev.id, 'agent.md', 'you are a bot')
 
+        const sessionId = randomUUID()
         const session: AgentSession = {
-            id: 'sess1',
+            id: sessionId,
             application_id: app.id,
             revision_id: rev.id,
             team_id: 1,
@@ -155,7 +158,7 @@ describe('Worker', () => {
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
-        const after = await queue.get('sess1')
+        const after = await queue.get(sessionId)
         expect(after!.state).toBe('completed')
     })
 
@@ -185,8 +188,9 @@ describe('Worker', () => {
         await bundle.write(rev.id, 'tools/noop/compiled.js', COMPILED)
         await bundle.write(rev.id, 'tools/noop/schema.json', JSON.stringify({ description: 'noop' }))
 
+        const sessionId = randomUUID()
         const session: AgentSession = {
-            id: 'sess2',
+            id: sessionId,
             application_id: app.id,
             revision_id: rev.id,
             team_id: 1,
@@ -223,7 +227,7 @@ describe('Worker', () => {
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
-        const after = await queue.get('sess2')
+        const after = await queue.get(sessionId)
         expect(after!.state).toBe('completed')
     })
 
@@ -251,7 +255,7 @@ describe('Worker', () => {
         await bundle.write(rev.id, 'agent.md', 'you are a bot')
 
         const session: AgentSession = {
-            id: 'sess_mcp',
+            id: randomUUID(),
             application_id: app.id,
             revision_id: rev.id,
             team_id: 1,
@@ -318,7 +322,7 @@ describe('Worker', () => {
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
-        const after = await queue.get('sess_mcp')
+        const after = await queue.get(session.id)
         expect(after!.state).toBe('completed')
         expect(echoCalls).toEqual([{ msg: 'hi there' }])
         // The transport pair is closed via the worker's `finally`. The
@@ -348,7 +352,7 @@ describe('Worker', () => {
         await bundle.write(rev.id, 'agent.md', 'x')
 
         const session: AgentSession = {
-            id: 'sess3',
+            id: randomUUID(),
             application_id: app.id,
             revision_id: rev.id,
             team_id: 1,
@@ -392,7 +396,7 @@ describe('Worker', () => {
         })
 
         await worker.loop({ iterations: 1, claimTimeoutMs: 10 })
-        const after = await queue.get('sess3')
+        const after = await queue.get(session.id)
         // After shutdown mid-loop, session is re-queued for sibling pickup.
         expect(after!.state).toBe('queued')
         // Conversation persists across the handoff.
@@ -410,9 +414,9 @@ describe('Worker', () => {
         const queue = new PgSessionQueue(pool)
         const app = await revisions.createApplication({ team_id: 1, slug: 'x', name: 'X', description: '' })
         const session: AgentSession = {
-            id: 'sess-bad-rev',
+            id: randomUUID(),
             application_id: app.id,
-            revision_id: 'rev-does-not-exist-and-throws',
+            revision_id: '00000000-0000-0000-0000-deadbeefdead',
             team_id: 1,
             external_key: null,
             idempotency_key: null,
@@ -456,7 +460,7 @@ describe('Worker', () => {
 
         // The loop should not throw — runOne owns the boundary.
         await expect(worker.loop({ iterations: 1, claimTimeoutMs: 10 })).resolves.toBeUndefined()
-        const after = await queue.get('sess-bad-rev')
+        const after = await queue.get(session.id)
         expect(after!.state).toBe('failed')
     })
 
@@ -542,7 +546,7 @@ describe('Worker', () => {
                 await bundle.write(rev.id, 'tools/noop/schema.json', '{}')
             }
             const session: AgentSession = {
-                id: 'sess-preflight',
+                id: randomUUID(),
                 application_id: app.id,
                 revision_id: rev.id,
                 team_id: 1,
@@ -586,7 +590,7 @@ describe('Worker', () => {
             })
 
             await expect(worker.loop({ iterations: 1, claimTimeoutMs: 10 })).resolves.toBeUndefined()
-            const after = await queue.get('sess-preflight')
+            const after = await queue.get(session.id)
             expect(after!.state).toBe('failed')
 
             // Pre-runSession failures must surface a synthetic assistant

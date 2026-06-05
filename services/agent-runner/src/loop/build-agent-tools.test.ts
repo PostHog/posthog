@@ -1,20 +1,44 @@
+import type { S3Client } from '@aws-sdk/client-s3'
 import { z } from 'zod'
 
 import {
     AgentRevision,
     AgentSession,
     AgentSpecSchema,
+    buildTestBundleStore,
     EMPTY_USAGE_TOTAL,
     HttpClient,
     InProcessSandboxPool,
     McpRef,
-    MemoryBundleStore,
+    newTestPrefix,
+    S3BundleStore,
     ToolRefSchema,
+    wipeTestPrefix,
 } from '@posthog/agent-shared'
 import { setPosthogInternalClient } from '@posthog/agent-tools'
 
 import { AgentToolDeps, buildAgentTools } from './build-agent-tools'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+
+let bundlePrefix: string
+let bundleClient: S3Client
+let bundleStore: S3BundleStore
+
+beforeEach(() => {
+    bundlePrefix = newTestPrefix('agent_bundles_build_tools_test')
+    const built = buildTestBundleStore(bundlePrefix)
+    bundleClient = built.client
+    bundleStore = built.store
+})
+
+afterEach(async () => {
+    await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+    bundleClient.destroy()
+})
+
+function makeBundle(): S3BundleStore {
+    return bundleStore
+}
 
 type ToolRefInput = z.input<typeof ToolRefSchema>
 
@@ -117,7 +141,7 @@ function makeDeps(rev: AgentRevision, over: Partial<AgentToolDeps> = {}): AgentT
         sandbox: null,
         integrations: {},
         secrets: {},
-        bundle: new MemoryBundleStore(),
+        bundle: makeBundle(),
         log: () => undefined,
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
@@ -242,7 +266,7 @@ describe('buildAgentTools', () => {
     })
 
     it('custom tool description + parameters load from schema.json in the bundle', async () => {
-        const bundle = new MemoryBundleStore()
+        const bundle = makeBundle()
         await bundle.write(
             'rev1',
             'tools/fetch-acme/schema.json',

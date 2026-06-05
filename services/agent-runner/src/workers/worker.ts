@@ -377,6 +377,7 @@ export class Worker {
             // same all-or-nothing contract as the sandbox-acquire path. We open
             // AFTER the sandbox so the cost-of-failure on a bad MCP doesn't waste
             // a sandbox-pool slot; the order is otherwise unobservable.
+            let mcpFailures: Awaited<ReturnType<typeof openMcpClients>>['failures'] = []
             if (rev.spec.mcps.length > 0) {
                 const opened = await openMcpClients(rev.spec.mcps, {
                     integrations,
@@ -389,6 +390,32 @@ export class Worker {
                 })
                 openedMcpClients = opened.clients
                 mcpClose = opened.close
+                mcpFailures = opened.failures
+                // Persist the per-ref failure detail to log_entries so the
+                // agent owner can debug via the session-detail page. The
+                // bus + system prompt only see the coarse category — raw
+                // reasons stay server-side.
+                if (mcpFailures.length > 0 && this.deps.logs) {
+                    const ts = new Date().toISOString()
+                    await this.deps.logs
+                        .write(
+                            mcpFailures.map((f) => ({
+                                ts,
+                                team_id: session.team_id,
+                                application_id: session.application_id,
+                                session_id: session.id,
+                                level: 'warn',
+                                event: 'mcp_open_failed',
+                                data: { prefix: f.ref.id, category: f.category, reason: f.devReason },
+                            }))
+                        )
+                        .catch((logErr) =>
+                            sLog.warn(
+                                { err: (logErr as Error).message },
+                                'session.mcp_failure_log_write_failed — session continues with degraded MCPs'
+                            )
+                        )
+                }
             }
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
             const model = resolveModel(rev.spec.model)
@@ -417,6 +444,7 @@ export class Worker {
                 credentialBroker: this.deps.credentialBroker,
                 isAskerInApproverScope: this.deps.isAskerInApproverScope,
                 mcpClients: openedMcpClients,
+                mcpFailures,
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
                 onTurnPersist: async (s) => {
@@ -483,12 +511,19 @@ export class Worker {
             })
 
             // 2. Lifecycle event to the bus — /listen SSE clients render it.
+            //    Deliberately empty payload: the raw `reason` can carry
+            //    implementation detail (MCP transport URLs, secret-resolver
+            //    error bodies, etc.) and the bus event is fanned out to
+            //    every chat client connected to this session — not just
+            //    the agent owner. The full reason is in log_entries (write
+            //    below) for the session-detail page to surface to owners.
+            //    Keep in sync with `emitFailure` in driver.ts.
             if (this.deps.bus) {
                 await this.deps.bus
                     .publish({
                         session_id: session.id,
                         kind: 'failed',
-                        data: { reason, source: 'pre_run_session' },
+                        data: {},
                         ts,
                     })
                     .catch((busErr) =>

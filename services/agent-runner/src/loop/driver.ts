@@ -64,8 +64,6 @@ import {
     MemoryStore,
     TabularStore,
     NoopAnalyticsSink,
-    NoopLogSink,
-    NoopSessionEventBus,
     Sandbox,
     SecretBroker,
     SessionEvent,
@@ -76,7 +74,7 @@ import {
 
 import { approvalMarkerRequestId, ApprovalPolicy, dispatchApprovedResult, queueApprovalResult } from './approval'
 import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResultDetails } from './build-agent-tools'
-import type { OpenedMcp } from './mcp-clients'
+import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
 import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
@@ -109,8 +107,8 @@ export interface RunSessionDeps {
     shutdownSignal?: AbortSignal
     /** Called once per turn after the assistant message + tool results are appended. */
     onTurnPersist?: (session: AgentSession) => Promise<void>
-    bus?: SessionEventBus
-    logs?: LogSink
+    bus: SessionEventBus
+    logs: LogSink
     analytics?: AnalyticsSink
     /** Suppress pi-ai's client-side cost numbers (gateway tracks cost server-side). */
     useGatewayCost?: boolean
@@ -170,6 +168,15 @@ export interface RunSessionDeps {
      */
     mcpClients?: OpenedMcp[]
     /**
+     * Per-ref failures from `openMcpClients` for the MCPs that did NOT open
+     * successfully. Threaded into the system prompt so the model is told
+     * which capabilities are unavailable for this session and can shape
+     * its response accordingly. The full `devReason` of each entry is
+     * intentionally NOT included in the model-visible text — it lives in
+     * `log_entries` for the agent owner. Absent / empty → all MCPs opened.
+     */
+    mcpFailures?: McpOpenFailure[]
+    /**
      * Outbound HTTP client for native tools — threaded through to
      * `AgentToolDeps` and then `ToolContext.http`. Required so tools can
      * assume the seam is present; wired once at the runner entrypoint
@@ -187,9 +194,11 @@ export type RunOutcome =
     | { state: 'failed'; reason: string; turns: number }
 
 export async function runSession(rev: AgentRevision, session: AgentSession, deps: RunSessionDeps): Promise<RunOutcome> {
-    const system = await buildSystemPrompt(rev, deps.bundle)
-    const bus: SessionEventBus = deps.bus ?? new NoopSessionEventBus()
-    const logs: LogSink = deps.logs ?? new NoopLogSink()
+    const system = await buildSystemPrompt(rev, deps.bundle, {
+        unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
+    })
+    const bus: SessionEventBus = deps.bus
+    const logs: LogSink = deps.logs
     const analytics: AnalyticsSink = deps.analytics ?? new NoopAnalyticsSink()
     const distinctId = analyticsDistinctId(session)
 
@@ -220,6 +229,33 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 level,
                 event: kind,
                 data,
+            },
+        ])
+    }
+
+    /**
+     * `failed` is the one event whose payload leaks implementation detail
+     * — raw provider error strings, model + provider ids, internal URLs
+     * from MCP transports, etc. Any of that on the SSE bus means any chat
+     * client (not just the agent owner) sees it. We split: publish a
+     * deliberately empty payload to the bus (state=failed is enough for
+     * the chat UI to render a generic banner), and stash the full reason
+     * + context in log_entries so the agent owner can debug via the
+     * session-detail page. Keep both this and the worker's pre_run_session
+     * failure path in sync.
+     */
+    const emitFailure = async (reason: string, logExtras: Record<string, unknown> = {}): Promise<void> => {
+        const ts = new Date().toISOString()
+        await bus.publish({ session_id: session.id, kind: 'failed', data: {}, ts } satisfies SessionEvent)
+        await logs.write([
+            {
+                ts,
+                team_id: session.team_id,
+                application_id: session.application_id,
+                session_id: session.id,
+                level: 'error',
+                event: 'failed',
+                data: { reason, ...logExtras },
             },
         ])
     }
@@ -662,6 +698,18 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             if (!requestId || !deps.approvals) {
                                 // Plain steering input (e.g. /send) — consume it.
                                 out.push(msg)
+                                if (msg.role === 'user') {
+                                    // Echo to live SSE consumers so the optimistic local
+                                    // bubble can be reconciled with the server-confirmed
+                                    // conversation position. message_end appends to
+                                    // session.conversation; this event mirrors it for
+                                    // anyone reading the live stream.
+                                    await emit('user_message', {
+                                        text: typeof msg.content === 'string' ? msg.content : '',
+                                        sender: msg.sender ?? null,
+                                        timestamp: msg.timestamp,
+                                    })
+                                }
                                 continue
                             }
                             try {
@@ -772,7 +820,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 return { state: 'suspended', reason: 'shutdown', turns: turn }
             }
             runLog.error({ turn, err: e.message, ...errorContext() }, 'loop.failed')
-            await emit('failed', { reason: e.message ?? 'loop_error', turns: turn, ...errorContext() })
+            await emitFailure(e.message ?? 'loop_error', { turns: turn, ...errorContext() })
             return { state: 'failed', reason: e.message ?? 'loop_error', turns: turn }
         }
 
@@ -786,11 +834,11 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
         }
         if (lastStopReason === 'error') {
             runLog.error({ turn, reason: lastError, ...errorContext() }, 'model.error')
-            await emit('failed', { reason: lastError ?? 'model_error', turns: turn, ...errorContext() })
+            await emitFailure(lastError ?? 'model_error', { turns: turn, ...errorContext() })
             return { state: 'failed', reason: lastError ?? 'model_error', turns: turn }
         }
         if (lastStopReason === 'length') {
-            await emit('failed', { reason: 'max_tokens', turns: turn, ...errorContext() })
+            await emitFailure('max_tokens', { turns: turn, ...errorContext() })
             return { state: 'failed', reason: 'max_tokens', turns: turn }
         }
 
@@ -807,7 +855,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             }
         }
         if (stoppedByCap && lastTurnContinued) {
-            await emit('failed', { reason: 'max_turns_exceeded', turns: turn })
+            await emitFailure('max_turns_exceeded', { turns: turn })
             return { state: 'failed', reason: 'max_turns_exceeded', turns: turn }
         }
         await emit('completed', { turns: turn })

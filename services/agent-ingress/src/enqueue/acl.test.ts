@@ -7,15 +7,31 @@
  * path lives in agent-tests under cases/slack-elevation-interactivity.test.ts.
  */
 
+import { Pool } from 'pg'
+
+import { reset } from '@posthog/agent-migrations'
 import {
     AgentSession,
     EMPTY_USAGE_TOTAL,
-    MemorySessionQueue,
     PendingElevationRequest,
+    PgSessionQueue,
     SessionPrincipal,
 } from '@posthog/agent-shared'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from './acl'
+
+const TEST_DB_URL =
+    process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+let pool: Pool
+beforeAll(() => {
+    pool = new Pool({ connectionString: TEST_DB_URL })
+})
+afterAll(async () => {
+    await pool.end()
+})
+beforeEach(async () => {
+    await reset({ databaseUrl: TEST_DB_URL })
+})
 
 const ALICE: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-alice' }
 const BOB: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-bob' }
@@ -23,9 +39,9 @@ const CAROL: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_
 
 function makeSession(opts: { state?: AgentSession['state']; pending?: PendingElevationRequest[] } = {}): AgentSession {
     return {
-        id: 'sess-1',
-        application_id: 'app',
-        revision_id: 'rev',
+        id: '00000000-0000-4000-8000-00000000ee51',
+        application_id: '00000000-0000-4000-8000-00000000aa01',
+        revision_id: '00000000-0000-4000-8000-00000000ee52',
         team_id: 1,
         external_key: 'slack:C01:thread1',
         idempotency_key: null,
@@ -86,7 +102,7 @@ describe('authorizeGrant', () => {
 
 describe('applyElevationGrant', () => {
     it('writes an ACL entry, marks request granted, replays the proposed message, queues the session', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const session = makeSession({ pending: [makePendingRequest({ content: 'bob says hi' })] })
         await queue.enqueue(session)
 
@@ -110,7 +126,7 @@ describe('applyElevationGrant', () => {
     })
 
     it('honours an explicit expires_in_ms by stamping expires_at on the ACL entry', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const session = makeSession({ pending: [makePendingRequest()] })
         await queue.enqueue(session)
 
@@ -124,7 +140,7 @@ describe('applyElevationGrant', () => {
     })
 
     it('throws when applied to a non-pending request (idempotency stop)', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const decided = { ...makePendingRequest(), state: 'granted' as const, decision_at: 'now', decision_by: ALICE }
         const session = makeSession({ pending: [decided] })
         await queue.enqueue(session)
@@ -134,7 +150,7 @@ describe('applyElevationGrant', () => {
     })
 
     it('throws when the request id is unknown', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const session = makeSession()
         await queue.enqueue(session)
         await expect(applyElevationGrant(queue, session, { requestId: 'missing', granter: ALICE })).rejects.toThrow(
@@ -145,7 +161,7 @@ describe('applyElevationGrant', () => {
 
 describe('applyElevationDecline', () => {
     it('marks the request declined without mutating ACL or advancing the session', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const session = makeSession({ state: 'completed', pending: [makePendingRequest()] })
         await queue.enqueue(session)
 
@@ -162,7 +178,7 @@ describe('applyElevationDecline', () => {
     })
 
     it('throws when the request is already decided', async () => {
-        const queue = new MemorySessionQueue()
+        const queue = new PgSessionQueue(pool)
         const decided = { ...makePendingRequest(), state: 'declined' as const, decision_at: 'now', decision_by: ALICE }
         const session = makeSession({ pending: [decided] })
         await queue.enqueue(session)

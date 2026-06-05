@@ -37,8 +37,11 @@ first.
 2. **Side effects go through injected interfaces.** The bundle store,
    queue, sandbox pool, secret broker, log sink, event bus are all
    constructor args on `Worker`. Don't import a concrete impl inside
-   the loop — that breaks the harness's ability to substitute a faux
-   sandbox / in-memory bus / in-process sink.
+   the loop — that breaks the harness's ability to wire the same real
+   classes (`PgX`, `S3X`, `Redis…`, `Kafka…`) against local services.
+   The only test-time deviation is `InProcessSandboxPool` (gated to
+   `NODE_ENV=test`) and the faux pi-ai provider — everything else is
+   the prod impl.
 
 3. **Concurrency lives in `Worker`, not in the loop.** `driver.ts`
    runs one session at a time. If you find yourself adding `Promise.all`

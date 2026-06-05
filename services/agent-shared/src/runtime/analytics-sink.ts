@@ -208,37 +208,16 @@ export function eventNameFor(event: AnalyticsEvent): '$ai_generation' | '$ai_spa
 }
 
 /* -------------------------------------------------------------------------- */
-/* In-memory + noop sinks (tests, local dev)                                  */
+/* Noop sink — dev fallback when no PostHog destination is configured.        */
 /* -------------------------------------------------------------------------- */
 
-export class InMemoryAnalyticsSink implements AnalyticsSink {
-    public readonly events: AnalyticsEvent[] = []
-
-    async write(events: AnalyticsEvent[]): Promise<void> {
-        this.events.push(...events)
-    }
-
-    /** Return events filtered by session. Most tests want this. */
-    forSession(sessionId: string): AnalyticsEvent[] {
-        return this.events.filter((e) => e.session_id === sessionId)
-    }
-
-    /** Convenience splits — easier than asserting on `kind` discriminator inline. */
-    generations(sessionId?: string): AnalyticsGenerationEvent[] {
-        const filtered = sessionId ? this.forSession(sessionId) : this.events
-        return filtered.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
-    }
-
-    spans(sessionId?: string): AnalyticsSpanEvent[] {
-        const filtered = sessionId ? this.forSession(sessionId) : this.events
-        return filtered.filter((e): e is AnalyticsSpanEvent => e.kind === 'span')
-    }
-
-    clear(): void {
-        this.events.length = 0
-    }
-}
-
+/**
+ * Drops every event on the floor. Wired in dev / local when the runner has no
+ * `POSTHOG_ANALYTICS_API_KEY` to talk to. Prod and the test harness use
+ * `CaptureAnalyticsSink` against a real PostHog endpoint; there is no
+ * in-memory test variant — assertions on analytics go through the sink's
+ * `tap` option below, the same way `KafkaLogSink` exposes wire payloads.
+ */
 export class NoopAnalyticsSink implements AnalyticsSink {
     async write(_events: AnalyticsEvent[]): Promise<void> {
         // intentionally empty

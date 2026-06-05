@@ -6,7 +6,7 @@ describe('loadAgentJanitorConfig', () => {
         expect(cfg.port).toBe(8082)
         expect(cfg.maxRetries).toBe(3)
         expect(cfg.logLevel).toBe('info')
-        expect(cfg.internalSecret).toBeUndefined()
+        expect(cfg.internalSigningKey).toBeUndefined()
         expect(cfg.posthogDbUrl).toContain('postgres://')
     })
 

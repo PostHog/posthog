@@ -97,6 +97,30 @@ describe('listen SSE: real e2e', () => {
         expect(toolResultEvt!.data.ok).toBe(true)
     })
 
+    it('publishes user_message when /send drains a pending input into the next turn', async () => {
+        // Live SSE consumers need the server-confirmed user message so the
+        // optimistic local bubble can be reconciled against the actual
+        // conversation order (rather than relying on a reload to ground
+        // it via getSession).
+        c.setScript([fauxText('first'), fauxText('second')])
+        await c.deployAgent({ slug: 'ssee-user-msg' })
+
+        const run = await request(c.ingress).post('/agents/ssee-user-msg/run').send({ message: 'hello' })
+        const sid = run.body.session_id
+
+        const events: SessionEvent[] = []
+        const unsubscribe = c.bus.subscribe(sid, (e) => events.push(e))
+        // Drain the first turn so the worker is idle before /send appends.
+        await c.drain()
+        await request(c.ingress).post('/agents/ssee-user-msg/send').send({ session_id: sid, message: 'follow-up' })
+        await c.drain()
+        unsubscribe()
+
+        const userMessageEvts = events.filter((e) => e.kind === 'user_message')
+        expect(userMessageEvts).toHaveLength(1)
+        expect(userMessageEvts[0].data.text).toBe('follow-up')
+    })
+
     it('publishes completed when the agent ends the turn with text', async () => {
         // Asking the user a question is no longer a dedicated bus event
         // — the agent just emits text and the turn ends.

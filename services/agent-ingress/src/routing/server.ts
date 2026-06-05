@@ -12,7 +12,7 @@ import { createLogger, RevisionStore, SessionQueue } from '@posthog/agent-shared
 
 const log = createLogger('ingress')
 
-import { SessionEventBus, MemorySessionEventBus } from '@posthog/agent-shared'
+import { SessionEventBus } from '@posthog/agent-shared'
 import type { AgentSpec } from '@posthog/agent-shared'
 
 import { AuthProvider, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
@@ -68,7 +68,7 @@ function resolveRouteAuth(kind: RouteAuthKind, specAuth: AgentSpec['auth']): Rec
 export interface BuildAppOpts {
     revisions: RevisionStore
     queue: SessionQueue
-    bus?: SessionEventBus
+    bus: SessionEventBus
     teamId: number
     routingMode: RoutingMode
     domainSuffix?: string
@@ -86,11 +86,12 @@ export interface BuildAppOpts {
     /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
     identities?: IdentityStore
     /**
-     * Shared secret with Django for the preview-proxy gate on non-live
-     * revision invokes. When unset, the gate is bypassed (dev / harness).
-     * See docs/agent-platform/plans/draft-preview-auth.md.
+     * Shared HMAC signing key with Django for the preview-proxy gate on
+     * non-live revision invokes (aud = `agent-ingress.preview`). When
+     * unset, the gate is bypassed (dev / harness). See
+     * docs/agent-platform/plans/draft-preview-auth.md.
      */
-    previewSecret?: string
+    internalSigningKey?: string
     /**
      * Read-only access to PostHog's integration table. Slack trigger uses it
      * to fetch a workspace bot token for the Slack → PostHog user bridge
@@ -107,12 +108,11 @@ export interface BuildAppOpts {
     /**
      * Per-session credential broker. Ingress writes user auth materials
      * (OAuth bearer, PAT, JWT) here at /run + /send; the runner reads
-     * via `ToolContext.credentials.resolve(target)`. Optional — when
-     * absent each trigger router defaults to a fresh process-local
-     * `MemoryCredentialBroker`, which works for tests that don't share
-     * a broker between processes but loses creds on a worker restart.
+     * via `ToolContext.credentials.resolve(target)`. Required — prod wires
+     * `PgCredentialBroker`, tests wire the same against the test DB. No
+     * in-memory fallback (it silently lost creds on worker restart).
      */
-    credentialBroker?: import('@posthog/agent-shared').CredentialBroker
+    credentialBroker: import('@posthog/agent-shared').CredentialBroker
     /**
      * Outbound HTTP for any trigger's outbound calls (currently only the
      * slack identity bridge). Wired at the ingress entrypoint from
@@ -124,14 +124,14 @@ export interface BuildAppOpts {
 
 export function buildApp(opts: BuildAppOpts): Express {
     const app = express()
-    const bus = opts.bus ?? new MemorySessionEventBus()
+    const bus = opts.bus
     const resolver = new RevisionResolver({
         revisions: opts.revisions,
         mode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         pathPrefix: opts.pathPrefix,
         teamId: opts.teamId,
-        previewSecret: opts.previewSecret,
+        internalSigningKey: opts.internalSigningKey,
     })
     app.use(
         express.json({
@@ -171,7 +171,7 @@ export function buildApp(opts: BuildAppOpts): Express {
         posthogDb: opts.posthogDb ?? null,
         broker: opts.credentialBroker,
         http: opts.http,
-    }
+    } as const
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 
     // Self-describing schemas. The response cascades from `spec.triggers` ∩

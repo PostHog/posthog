@@ -18,6 +18,22 @@ module.exports = {
 `
 
 describe('InProcessSandboxPool', () => {
+    it('refuses to construct outside NODE_ENV=test', () => {
+        // Guards against accidentally wiring the unsandboxed pool in dev /
+        // prod — selectSandboxPool() is the boundary for those.
+        const prev = process.env.NODE_ENV
+        try {
+            process.env.NODE_ENV = 'production'
+            expect(() => new InProcessSandboxPool()).toThrow(/test-only/i)
+            process.env.NODE_ENV = 'development'
+            expect(() => new InProcessSandboxPool()).toThrow(/test-only/i)
+            process.env.NODE_ENV = undefined
+            expect(() => new InProcessSandboxPool()).toThrow(/test-only/i)
+        } finally {
+            process.env.NODE_ENV = prev
+        }
+    })
+
     it('loads a tool and runs an action', async () => {
         const pool = new InProcessSandboxPool()
         const sandbox = await pool.acquireForSession({

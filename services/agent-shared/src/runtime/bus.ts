@@ -1,7 +1,10 @@
 /**
- * Session event bus. Production wires to Redis pub/sub; tests use the
- * in-memory impl below. Carries lifecycle events from the runner to listening
- * clients (chat /listen, MCP transport, future telemetry sinks).
+ * Session event bus. Redis pub/sub everywhere (prod, dev, tests). Carries
+ * lifecycle events from the runner to listening clients (chat /listen, MCP
+ * transport, future telemetry sinks). There is no in-memory variant — the
+ * harness runs against a real local Redis with a per-cluster channel prefix
+ * so unit-style tests exercise the real round-trip and can't silently drift
+ * from prod.
  */
 
 import type { Redis as IoRedis } from 'ioredis'
@@ -11,6 +14,15 @@ import { createLogger } from './logger'
 export type SessionEventKind =
     | 'session_started'
     | 'turn_started'
+    /**
+     * Fired when the runner drains a user input from `pending_inputs`
+     * (i.e. the user message becomes part of the conversation the
+     * agent will respond to). Carries `{ text, sender?, timestamp }`.
+     * Lets live SSE consumers ground the optimistic local user bubble
+     * against server-confirmed conversation order instead of relying
+     * on a reload to pick up the authoritative shape.
+     */
+    | 'user_message'
     | 'assistant_text'
     | 'assistant_text_delta'
     | 'assistant_thinking_delta'
@@ -79,52 +91,8 @@ export interface SessionEventBus {
     subscribe(sessionId: string, fn: (e: SessionEvent) => void): () => void
 }
 
-export class MemorySessionEventBus implements SessionEventBus {
-    private readonly subs = new Map<string, Set<(e: SessionEvent) => void>>()
-
-    async publish(event: SessionEvent): Promise<void> {
-        const set = this.subs.get(event.session_id)
-        if (!set) {
-            return
-        }
-        for (const fn of set) {
-            try {
-                fn(event)
-            } catch {
-                // ignore subscriber errors so one bad listener doesn't break others
-            }
-        }
-    }
-
-    subscribe(sessionId: string, fn: (e: SessionEvent) => void): () => void {
-        let set = this.subs.get(sessionId)
-        if (!set) {
-            set = new Set()
-            this.subs.set(sessionId, set)
-        }
-        set.add(fn)
-        return () => {
-            set!.delete(fn)
-            if (set!.size === 0) {
-                this.subs.delete(sessionId)
-            }
-        }
-    }
-}
-
-/** A no-op bus — drop events on the floor. Useful for production runners
- *  that don't have a bus wired yet. */
-export class NoopSessionEventBus implements SessionEventBus {
-    async publish(_event: SessionEvent): Promise<void> {
-        // intentionally empty
-    }
-    subscribe(_sessionId: string, _fn: (e: SessionEvent) => void): () => void {
-        return () => undefined
-    }
-}
-
 /* -------------------------------------------------------------------------- */
-/* Redis pub/sub — production bus across runner ↔ ingress processes.          */
+/* Redis pub/sub — the only bus impl. Used by prod, dev, and tests.            */
 /* -------------------------------------------------------------------------- */
 
 export interface RedisSessionEventBusOptions {
@@ -148,9 +116,8 @@ export interface RedisSessionEventBusOptions {
  * channel so subscribing N listeners to one session only opens one Redis
  * channel.
  *
- * Lazy-imports `ioredis` so the v2 packages don't pull it in for dev / tests
- * that use `MemorySessionEventBus`. Call `await bus.connect()` once at boot;
- * `disconnect()` on shutdown.
+ * Lazy-imports `ioredis` so callers that never touch the bus don't pull it
+ * in. Call `await bus.connect()` once at boot; `disconnect()` on shutdown.
  */
 export class RedisSessionEventBus implements SessionEventBus {
     private readonly opts: Required<RedisSessionEventBusOptions>

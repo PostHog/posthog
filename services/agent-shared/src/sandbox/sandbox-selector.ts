@@ -2,8 +2,10 @@
  * Pick a sandbox pool impl from typed config. Single switch point so the
  * runner stays agnostic. Prod must explicitly pick `modal` (or `docker` for
  * local dev with isolation); `in-process` is **not** a valid choice at this
- * boundary — harness + per-package tests instantiate `InProcessSandboxPool`
- * directly when they want the unisolated path.
+ * boundary, and `InProcessSandboxPool`'s constructor refuses to run unless
+ * `NODE_ENV=test` — harness + per-package tests instantiate it directly
+ * under vitest, which sets the env automatically. Any other call site is a
+ * wiring mistake and fails fast.
  */
 
 import { SandboxPool } from './sandbox'
