@@ -89,7 +89,7 @@ impl K8sAwareness {
                 }
             },
             Err(_) => {
-                warn!(controller = %controller, "controllers lock contended, returning Unknown");
+                debug!(controller = %controller, "controllers lock contended, returning Unknown");
                 DepartureReason::Unknown
             }
         }
