@@ -76,13 +76,12 @@ You can create an API key in your [Salesloft account](https://accounts.salesloft
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and len(INCREMENTAL_FIELDS[endpoint]) > 0,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and len(INCREMENTAL_FIELDS[endpoint]) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                # Only the incremental endpoints carry advertised fields; full-refresh ones are empty.
+                supports_incremental=bool(INCREMENTAL_FIELDS[endpoint]),
+                supports_append=bool(INCREMENTAL_FIELDS[endpoint]),
+                incremental_fields=INCREMENTAL_FIELDS[endpoint],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:
