@@ -649,6 +649,11 @@ class ExpressionFieldType(Type):
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
+    # Printer hint, unset (None) by default like `type`/`Constant.inline`, so the "skip None" AST serializers leave it
+    # out and existing snapshots/equality are unchanged. Set True only on the synthetic physical-column fields the
+    # ClickHouse passes build for the within_non_hogql_query (lightweight-DELETE) path: the printer then drops the table
+    # prefix so the mutation analyzer accepts the bare column (`mat_$browser`, not `sharded_events.mat_$browser`).
+    unqualified: bool | None = None
 
     def resolve_database_field(self, context: HogQLContext) -> Optional[FieldOrTable]:
         if isinstance(self.table_type, BaseTableType):

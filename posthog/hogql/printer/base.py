@@ -1220,8 +1220,11 @@ class BasePrinter(Visitor[str]):
                     if not isinstance(resolved_field, DatabaseField):
                         raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
-                if self.context.within_non_hogql_query and type_with_name_in_scope == type:
-                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                if self.context.within_non_hogql_query and (type.unqualified or type_with_name_in_scope == type):
+                    # Do not prepend table name in non-hogql context. We don't know what it actually is. `unqualified`
+                    # is set on the synthetic physical-column fields the lowering passes build for this path, where the
+                    # in-scope lookup can't find them but the lightweight-DELETE mutation analyzer still requires bare
+                    # column references.
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
