@@ -116,10 +116,30 @@ class SharingConfiguration(models.Model):
         if active is None:
             return None
 
-        if dedupe and cls.queryset_active_for_resource(**resource_lookup).exclude(pk=active.pk).exists():
+        if dedupe:
             cls.expire_duplicate_active_configs(keep=active, **resource_lookup)
 
         return active
+
+    def _lock_resource_for_rotation(self) -> None:
+        if self.dashboard_id:
+            from products.dashboards.backend.models.dashboard import Dashboard
+
+            Dashboard.objects.select_for_update().get(pk=self.dashboard_id, team_id=self.team_id)
+        elif self.insight_id:
+            Insight.objects.select_for_update().get(pk=self.insight_id, team_id=self.team_id)
+        elif self.notebook_id:
+            from products.notebooks.backend.models import Notebook
+
+            Notebook.objects.select_for_update().get(pk=self.notebook_id, team_id=self.team_id)
+        elif self.recording_id:
+            from posthog.models import SessionRecording
+
+            SessionRecording.objects.select_for_update().get(session_id=self.recording_id, team_id=self.team_id)
+        elif self.interviewee_context_id:
+            from products.user_interviews.backend.models import IntervieweeContext
+
+            IntervieweeContext.objects.select_for_update().get(pk=self.interviewee_context_id, team_id=self.team_id)
 
     def _resource_lookup_for_instance(self) -> dict[str, Any]:
         return self._resource_lookup(
@@ -136,6 +156,8 @@ class SharingConfiguration(models.Model):
         resource_lookup = self._resource_lookup_for_instance()
 
         with transaction.atomic():
+            self._lock_resource_for_rotation()
+
             active_configs = list(
                 SharingConfiguration.objects.select_for_update()
                 .filter(**resource_lookup, expires_at__isnull=True)
@@ -143,9 +165,6 @@ class SharingConfiguration(models.Model):
             )
 
             if not active_configs:
-                latest_active = SharingConfiguration.queryset_active_for_resource(**resource_lookup).first()
-                if latest_active is not None:
-                    return latest_active
                 source = self
             else:
                 source = active_configs[0]

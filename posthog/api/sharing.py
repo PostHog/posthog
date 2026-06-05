@@ -380,8 +380,12 @@ class SharingConfigurationViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin,
                     .exclude(pk=instance.pk)
                     .exists()
                 ):
-                    dashboard.share_token = None
-                    dashboard.is_shared = False
+                    if instance.pk:
+                        dashboard.share_token = instance.access_token
+                        dashboard.is_shared = instance.enabled
+                    else:
+                        dashboard.share_token = None
+                        dashboard.is_shared = False
                     dashboard.save(update_fields=["share_token", "is_shared"])
                 else:
                     instance.enabled = dashboard.is_shared

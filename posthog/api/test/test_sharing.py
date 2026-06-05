@@ -669,8 +669,8 @@ class TestSharing(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         dashboard.refresh_from_db()
-        assert dashboard.share_token is None
-        assert dashboard.is_shared is False
+        assert dashboard.share_token == "active_token"
+        assert dashboard.is_shared is True
         assert response.json()["access_token"] == "active_token"
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
