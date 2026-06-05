@@ -1289,6 +1289,29 @@ async def aupdate_records_total_count(
     return rows_updated
 
 
+async def afetch_last_completed_run_records_completed(
+    batch_export_id: UUID, before_or_at_interval_end: dt.datetime | None = None
+) -> int | None:
+    """Async fetch the records_completed of the most recent COMPLETED run for a batch export.
+
+    Currently used as a rough estimate to pick how many staging files to write. The estimate is taken
+    relative to the interval being processed: when `before_or_at_interval_end` is given we only consider
+    runs whose `data_interval_end` is at or before it, to improve accuracy for backfill runs.
+
+    Returns None when no such completed run with a recorded count exists (e.g. the first ever run).
+    """
+    queryset = BatchExportRun.objects.filter(
+        batch_export_id=batch_export_id,
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed__isnull=False,
+    )
+    if before_or_at_interval_end is not None:
+        queryset = queryset.filter(data_interval_end__lte=before_or_at_interval_end)
+
+    run = await queryset.order_by("-data_interval_end").values("records_completed").afirst()
+    return run["records_completed"] if run else None
+
+
 async def afetch_batch_export_runs_in_range(
     batch_export_id: UUID,
     interval_start: dt.datetime,
