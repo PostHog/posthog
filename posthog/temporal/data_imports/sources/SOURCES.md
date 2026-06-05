@@ -45,6 +45,7 @@ the row lists both.
 | Source           | Comm method                 | Primary library                                                 | Tracked transport           |
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
+| amplitude        | HTTP                        | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -178,7 +179,6 @@ doesn't conflict with concurrent PRs.
 - adjust
 - airtable
 - amazon_ads
-- amplitude
 - apple_search_ads
 - appsflyer
 - auth0
