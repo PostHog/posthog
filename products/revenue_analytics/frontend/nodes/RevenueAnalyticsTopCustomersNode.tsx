@@ -7,7 +7,6 @@ import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -17,9 +16,10 @@ import {
     RevenueAnalyticsTopCustomersQueryResponse,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { GraphDataset, GraphType } from '~/types'
+import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
+import { RevenueAnalyticsChart } from './RevenueAnalyticsChart'
 
 let uniqueNode = 0
 export function RevenueAnalyticsTopCustomersNode(props: {
@@ -93,9 +93,9 @@ export function RevenueAnalyticsTopCustomersNode(props: {
             <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
                 <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
                     <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                        <LineGraph
-                            data-attr="revenue-analytics-top-customers-node-graph"
-                            type={GraphType.Line}
+                        <RevenueAnalyticsChart
+                            dataAttr="revenue-analytics-top-customers-node-graph"
+                            kind="line"
                             datasets={datasets}
                             labels={labels}
                             isInProgress={!dateFilter.dateTo}
@@ -106,8 +106,6 @@ export function RevenueAnalyticsTopCustomersNode(props: {
                                 aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                                 aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
                             }}
-                            incompletenessOffsetFromEnd={1}
-                            labelGroupType="none"
                         />
                     </BindLogic>
                 </BindLogic>

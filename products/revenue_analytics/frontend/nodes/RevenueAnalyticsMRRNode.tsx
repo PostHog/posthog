@@ -138,8 +138,8 @@ const Tile = ({ context }: TileProps): JSX.Element => {
                     labels={labels}
                     legend={{
                         display: breakdownProperties.length > 0 && mappedDatasets.length > 1,
-                        position: 'right',
-                        // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
+                        // The first series renders at the bottom of the stack but the legend lists top-down,
+                        // so reverse the legend to keep both reading in the same visual order.
                         reverse: true,
                     }}
                     trendsFilter={{

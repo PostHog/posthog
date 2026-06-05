@@ -1,19 +1,21 @@
 import { useValues } from 'kea'
 
+import { getBarColorFromStatus } from 'lib/colors'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { LineGraph } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { GraphDataset, GraphType } from '~/types'
+import type { RevenueAnalyticsMRRQueryResultItem } from '~/queries/schema/schema-general'
+import { GraphDataset } from '~/types'
 
-import { revenueAnalyticsLogic } from '../../revenueAnalyticsLogic'
+import { RevenueAnalyticsChart } from '../RevenueAnalyticsChart'
 import { extractLabelAndDatasets } from '../shared'
 import { mrrBreakdownModalLogic } from './mrrBreakdownModalLogic'
 
+type RevenueAnalyticsStatus = `revenue-analytics-${keyof RevenueAnalyticsMRRQueryResultItem}`
+
 export function MRRBreakdownChart(): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
-    const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { data, newDatasets, expansionDatasets, contractionDatasets, churnDatasets } =
         useValues(mrrBreakdownModalLogic)
     const { isPrefix, symbol: currencySymbol } = getCurrencySymbol(baseCurrency)
@@ -43,18 +45,14 @@ export function MRRBreakdownChart(): JSX.Element {
         <div className="w-full">
             <InsightsWrapper>
                 <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
-                    <LineGraph
+                    <RevenueAnalyticsChart
+                        dataAttr="mrr-breakdown-chart"
                         datasets={datasetsWithIds}
                         labels={labels}
-                        type={GraphType.Bar}
-                        data-attr="mrr-breakdown-chart"
-                        labelGroupType="none"
-                        isStacked={true}
-                        isInProgress={!dateFilter.dateTo}
-                        legend={{
-                            display: true,
-                            position: 'right',
-                        }}
+                        kind="bar"
+                        divergingStack
+                        legend={{ show: true, position: 'right' }}
+                        getColor={(dataset) => getBarColorFromStatus(dataset.status as RevenueAnalyticsStatus)}
                         trendsFilter={{
                             aggregationAxisFormat: 'numeric',
                             aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
