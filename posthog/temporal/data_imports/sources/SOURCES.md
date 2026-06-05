@@ -64,6 +64,7 @@ the row lists both.
 | convex           | HTTP                        | requests                                                        | ✅                          |
 | copper           | HTTP                        | requests                                                        | ✅                          |
 | customer_io      | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (App API) / ➖ (webhook) |
+| datadog          | HTTP                        | requests                                                        | ✅                          |
 | doit             | HTTP                        | requests                                                        | ✅                          |
 | drip             | HTTP                        | requests                                                        | ✅                          |
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
@@ -171,7 +172,6 @@ doesn't conflict with concurrent PRs.
 - cockroachdb
 - confluence
 - copper
-- datadog
 - dynamodb
 - elasticsearch
 - facebook_pages
