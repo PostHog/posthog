@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import request from 'supertest'
 
 import { AgentSpecSchema, MemoryRevisionStore, MemorySessionQueue } from '@posthog/agent-shared'
@@ -5,6 +6,20 @@ import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 import { MemorySessionEventBus } from '@posthog/agent-shared'
 
 import { buildApp } from './server'
+
+const TEST_SLACK_SECRET = 'test-slack-secret'
+
+/**
+ * Mints the `(timestamp, signature)` pair Slack would send for a given body.
+ * Slack signs `v0:<ts>:<rawBody>` with the shared signing secret; the ingress
+ * verifies the exact same HMAC. Used by every `/slack/*` test case below
+ * since every Slack route requires a verified signature now.
+ */
+function signSlack(body: string, secret = TEST_SLACK_SECRET): { ts: string; sig: string } {
+    const ts = String(Math.floor(Date.now() / 1000))
+    const mac = createHmac('sha256', secret).update(`v0:${ts}:${body}`).digest('hex')
+    return { ts, sig: `v0=${mac}` }
+}
 
 async function seedApp(
     store: MemoryRevisionStore,
@@ -48,6 +63,15 @@ describe('ingress HTTP server (path mode)', () => {
             teamId: 1,
             routingMode: 'path',
             pathPrefix: '/agents',
+            // In-memory resolver: returns the test secret for every
+            // `(secretRef, application)` lookup. Models the
+            // "PostHog runs one Slack app for everything" deployment without
+            // needing each fixture to populate an `encrypted_env`.
+            slackSigningSecretResolver: {
+                async resolve(): Promise<string | null> {
+                    return TEST_SLACK_SECRET
+                },
+            },
         })
         return { revisions, queue, bus, app }
     }
@@ -88,10 +112,19 @@ describe('ingress HTTP server (path mode)', () => {
     })
 
     it('POST /slack/events handles url_verification challenge', async () => {
-        const { app } = mk()
+        const { revisions, app } = mk()
+        // Slack signs url_verification with the same signing secret the agent
+        // configures, so the agent has to exist + the resolver has to return
+        // the secret before the challenge round-trip works.
+        await seedApp(revisions, 'foo')
+        const body = JSON.stringify({ type: 'url_verification', challenge: 'xyz' })
+        const { ts, sig } = signSlack(body)
         const res = await request(app)
             .post('/agents/foo/slack/events')
-            .send({ type: 'url_verification', challenge: 'xyz' })
+            .set('content-type', 'application/json')
+            .set('x-slack-request-timestamp', ts)
+            .set('x-slack-signature', sig)
+            .send(body)
         expect(res.status).toBe(200)
         expect(res.body.challenge).toBe('xyz')
     })
@@ -99,18 +132,28 @@ describe('ingress HTTP server (path mode)', () => {
     it('POST /slack/events with thread_ts uses externalKey for resume', async () => {
         const { revisions, queue, app } = mk()
         await seedApp(revisions, 'echo')
+        const firstBody = JSON.stringify({
+            type: 'event_callback',
+            event: { type: 'message', channel: 'C01', user: 'U01', text: 'hi', ts: '1.0', thread_ts: '1.0' },
+        })
+        const firstSig = signSlack(firstBody)
         const first = await request(app)
             .post('/agents/echo/slack/events')
-            .send({
-                type: 'event_callback',
-                event: { type: 'message', channel: 'C01', user: 'U01', text: 'hi', ts: '1.0', thread_ts: '1.0' },
-            })
+            .set('content-type', 'application/json')
+            .set('x-slack-request-timestamp', firstSig.ts)
+            .set('x-slack-signature', firstSig.sig)
+            .send(firstBody)
+        const secondBody = JSON.stringify({
+            type: 'event_callback',
+            event: { type: 'message', channel: 'C01', user: 'U01', text: 'follow', ts: '1.1', thread_ts: '1.0' },
+        })
+        const secondSig = signSlack(secondBody)
         const second = await request(app)
             .post('/agents/echo/slack/events')
-            .send({
-                type: 'event_callback',
-                event: { type: 'message', channel: 'C01', user: 'U01', text: 'follow', ts: '1.1', thread_ts: '1.0' },
-            })
+            .set('content-type', 'application/json')
+            .set('x-slack-request-timestamp', secondSig.ts)
+            .set('x-slack-signature', secondSig.sig)
+            .send(secondBody)
         expect(first.body.resumed).toBe(false)
         expect(second.body.resumed).toBe(true)
         expect(second.body.session_id).toBe(first.body.session_id)

@@ -25,6 +25,7 @@ import type { IdentityStore, SessionEventBus, SessionQueue, Trigger } from '@pos
 
 import type { AuthProvider } from '../enqueue/auth'
 import type { RevisionResolver } from '../routing/resolver'
+import type { SlackSigningSecretResolver } from './slack'
 
 /** Superset of every dep any trigger router needs. Triggers pick what they use. */
 export interface TriggerDeps {
@@ -33,7 +34,8 @@ export interface TriggerDeps {
     bus: SessionEventBus
     teamId: number
     authProvider?: AuthProvider
-    signingSecret?: string
+    /** Resolves the per-agent Slack signing secret named by `slack.config.signing_secret_ref`. */
+    signingSecretResolver: SlackSigningSecretResolver
     identities?: IdentityStore
 }
 

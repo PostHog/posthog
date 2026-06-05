@@ -489,3 +489,63 @@ def _relax_node(node: Any) -> None:
 
 AGENT_SPEC_JSON_SCHEMA: dict[str, Any] = _AGENT_SPEC_JSON_SCHEMA_RAW
 AGENT_SPEC_JSON_SCHEMA_FOR_WRITE: dict[str, Any] = _relax_required_for_defaults(_AGENT_SPEC_JSON_SCHEMA_RAW)
+
+
+# ── Per-trigger-type required secrets ──────────────────────────────────────
+#
+# Mirrors `services/agent-shared/src/spec/trigger-secrets.ts` for the
+# Django-side validation path. Keep the two in lockstep — the slack trigger
+# handler in agent-ingress reads `SLACK_SIGNING_SECRET_KEY` and the freeze /
+# promote gate here rejects revisions whose agent's `encrypted_env` is missing
+# the same key.
+
+SLACK_SIGNING_SECRET_KEY = "SLACK_SIGNING_SECRET"
+
+TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = {
+    "chat": [],
+    "webhook": [],
+    "cron": [],
+    "mcp": [],
+    "slack": [
+        {
+            "key": SLACK_SIGNING_SECRET_KEY,
+            "label": "Slack signing secret",
+            "description": (
+                "Your Slack app's signing secret. Find it under Settings → Basic Information → "
+                "Signing Secret. Required to verify inbound Slack event signatures."
+            ),
+            "required": True,
+        },
+    ],
+}
+
+
+def missing_required_secrets(spec: dict[str, Any], env_map: dict[str, str]) -> list[dict[str, Any]]:
+    """Walk `spec.triggers` and return the `TriggerSecretRequirement` entries
+    whose `required: True` keys aren't present in `env_map`. Empty list = OK
+    to promote. Each entry comes back with the trigger type tucked in under
+    `trigger` so the caller can render a per-trigger error message.
+
+    Pure / side-effect-free so the same helper can drive both the promote-time
+    gate and a future "what's still missing?" UI hint."""
+    out: list[dict[str, Any]] = []
+    triggers = spec.get("triggers") or []
+    if not isinstance(triggers, list):
+        return out
+    seen_keys: set[str] = set()
+    for trigger in triggers:
+        if not isinstance(trigger, dict):
+            continue
+        trigger_type = trigger.get("type")
+        if not isinstance(trigger_type, str):
+            continue
+        for requirement in TRIGGER_REQUIRED_SECRETS.get(trigger_type, []):
+            if not requirement.get("required"):
+                continue
+            key = requirement["key"]
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            if not env_map.get(key):
+                out.append({**requirement, "trigger": trigger_type})
+    return out

@@ -16,6 +16,7 @@ export * from './spec/summarize-conversation'
 export * from './spec/tool'
 export * from './spec/framework-preamble'
 export * from './spec/system-prompt'
+export * from './spec/trigger-secrets'
 
 export * from './storage/bundle'
 export * from './storage/memory-bundle-store'

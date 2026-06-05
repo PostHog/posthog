@@ -17,13 +17,21 @@
  */
 
 import type { Model } from '@earendil-works/pi-ai'
+import { createHmac } from 'crypto'
 import { Express } from 'express'
 import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { Pool } from 'pg'
+import request from 'supertest'
 
-import { AuthProvider, buildApp, MemorySessionEventBus, SessionEventBus } from '@posthog/agent-ingress'
+import {
+    AuthProvider,
+    buildApp,
+    MemorySessionEventBus,
+    SessionEventBus,
+    SlackSigningSecretResolver,
+} from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
 import { reset } from '@posthog/agent-migrations'
 import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
@@ -44,6 +52,7 @@ import {
     PgSandboxInstanceStore,
     PgSessionQueue,
     S3JsonlTabularStore,
+    EncryptedFields,
     S3MemoryStore,
     SecretBroker,
     TEST_S3_BUCKET,
@@ -56,6 +65,11 @@ import { buildFauxModel, ScriptedTurn } from './faux'
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
 
+/** Deterministic 32-byte salt for the harness's `EncryptedFields`. Same key
+ *  drives the credential broker and the Slack signing-secret resolver, so the
+ *  encrypt/decrypt round-trip is exercised end-to-end on every test. */
+const HARNESS_ENCRYPTION_SALT_KEYS = '01234567890123456789012345678901'
+
 export interface BuildAgentInput {
     slug: string
     name?: string
@@ -64,6 +78,14 @@ export interface BuildAgentInput {
     /** Spec input — accepts the partial shape before AgentSpecSchema applies defaults. */
     spec?: Record<string, unknown>
     files?: Record<string, string>
+    /**
+     * Plaintext env map. The harness Fernet-encrypts it with the same key the
+     * harness's `SlackSigningSecretResolver` uses to decrypt, so production's
+     * "decrypt at request time, look up key" path is exercised end-to-end.
+     * Required for slack triggers (handler resolves `SLACK_SIGNING_SECRET_KEY`
+     * here). Other triggers don't read env so this can stay undefined.
+     */
+    encrypted_env?: Record<string, string>
 }
 
 export interface Cluster {
@@ -96,6 +118,14 @@ export interface Cluster {
     ingress: Express
     janitor: Express
     worker: Worker
+    /** Compute the (timestamp, signature) Slack would send for `rawBody`
+     *  using the caller-supplied signing secret. Convenience for tests that
+     *  also pass that secret into `deployAgent` via `encrypted_env`. */
+    signSlack(rawBody: string, secret: string): { ts: string; sig: string }
+    /** Send a signed POST to `/agents/<slug>/slack/<action>` carrying `body`
+     *  as JSON, signed with `secret`. Same secret must be set in the agent's
+     *  `encrypted_env[SLACK_SIGNING_SECRET]`. */
+    slackPost(slug: string, action: string, body: object, secret: string): Promise<import('supertest').Response>
     /** Rearm the faux provider's response script for the next pi-ai call(s). */
     setScript(turns: ScriptedTurn[]): void
     deployAgent(input: BuildAgentInput): Promise<{ application: AgentApplication; revision: AgentRevision }>
@@ -109,7 +139,14 @@ export interface BuildClusterOpts {
     teamId?: number
     routingMode?: 'path' | 'domain'
     domainSuffix?: string
-    slackSigningSecret?: string
+    /**
+     * Direct resolver override — used by tests that want to exercise the
+     * per-agent `encrypted_env` lookup explicitly. Without this the harness
+     * wires a resolver that returns `cluster.slackSigningSecret` for every
+     * lookup, which is the right default for tests that just want a Slack
+     * trigger to "work end-to-end" without populating an encrypted env.
+     */
+    slackSigningSecretResolver?: SlackSigningSecretResolver
     /** Override the per-session secret resolver (defaults to empty). */
     resolveSecrets?: (sessionId: string) => Promise<Record<string, string>>
     /** Override the per-session integrations resolver (defaults to empty). */
@@ -202,7 +239,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     // EncryptedFields expects a 32-byte UTF-8 string (same constraint
     // production uses; matches `pg-impls.test.ts`).
     const credentialBroker = new PgCredentialBroker(pool, {
-        encryptionSaltKeys: '01234567890123456789012345678901',
+        encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
     })
     // Real S3 (SeaweedFS) memory store with a per-cluster random prefix —
     // teardown wipes it. Failing here means SeaweedFS isn't up; fix the dev
@@ -259,6 +296,26 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
     })
 
+    // Real-flow Slack signing secret resolver: decrypts the agent's
+    // `encrypted_env` via the same `EncryptedFields` key the credential broker
+    // uses, then plucks the requested key. Tests populate `encrypted_env` on
+    // `deployAgent` to wire a secret per agent — same path production uses.
+    const encryption = new EncryptedFields(HARNESS_ENCRYPTION_SALT_KEYS)
+    const slackSigningSecretResolver: SlackSigningSecretResolver = opts.slackSigningSecretResolver ?? {
+        async resolve(secretKey, application): Promise<string | null> {
+            if (!application.encrypted_env) {
+                return null
+            }
+            try {
+                const env = encryption.decryptJsonEnv(application.encrypted_env)
+                const value = env[secretKey]
+                return typeof value === 'string' && value.length > 0 ? value : null
+            } catch {
+                return null
+            }
+        },
+    }
+
     const ingress = buildApp({
         revisions,
         queue,
@@ -267,7 +324,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         routingMode: opts.routingMode ?? 'path',
         pathPrefix: '/agents',
         domainSuffix: opts.domainSuffix,
-        slackSigningSecret: opts.slackSigningSecret,
+        slackSigningSecretResolver,
         authProvider: opts.authProvider,
         identities,
         credentialBroker,
@@ -304,16 +361,38 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         ingress,
         janitor,
         worker,
+        signSlack(rawBody: string, secret: string): { ts: string; sig: string } {
+            const ts = String(Math.floor(Date.now() / 1000))
+            const mac = createHmac('sha256', secret).update(`v0:${ts}:${rawBody}`).digest('hex')
+            return { ts, sig: `v0=${mac}` }
+        },
+        async slackPost(slug: string, action: string, body: object, secret: string): Promise<request.Response> {
+            const raw = JSON.stringify(body)
+            const ts = String(Math.floor(Date.now() / 1000))
+            const mac = createHmac('sha256', secret).update(`v0:${ts}:${raw}`).digest('hex')
+            return request(ingress)
+                .post(`/agents/${slug}/slack/${action}`)
+                .set('content-type', 'application/json')
+                .set('x-slack-request-timestamp', ts)
+                .set('x-slack-signature', `v0=${mac}`)
+                .send(raw)
+        },
         setScript(turns) {
             buildFauxModel(turns)
         },
         async deployAgent(input) {
             const tid = input.teamId ?? teamId
+            // Fernet-encrypt the env map the same way Django would, so the
+            // ingress's `SlackSigningSecretResolver` exercises real decrypt
+            // → look-up at request time. Tests that don't pass `encrypted_env`
+            // get null (matches an agent whose author never set any env).
+            const encrypted_env = input.encrypted_env ? encryption.encrypt(JSON.stringify(input.encrypted_env)) : null
             const app = await revisions.createApplication({
                 team_id: tid,
                 slug: input.slug,
                 name: input.name ?? input.slug,
                 description: input.description ?? '',
+                encrypted_env,
             })
             const spec = AgentSpecSchema.parse({
                 // Default model is "faux/<name>"; tests can override via spec.model.

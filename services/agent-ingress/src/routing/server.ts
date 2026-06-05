@@ -34,6 +34,19 @@ import { RevisionResolver, RoutingMode } from './resolver'
 const TRIGGER_MODULES: TriggerModule[] = [chatTrigger, slackTrigger, webhookTrigger, mcpTrigger]
 
 /**
+ * Fallback resolver used when callers (mostly dev / harness paths) don't wire
+ * a real one. Slack requests under such a setup get a clean
+ * `signing_secret_unresolved` 500 instead of an obscure `Cannot read
+ * properties of undefined`. Production wires a real `EncryptedFields`-backed
+ * resolver — see services/agent-ingress/src/index.ts.
+ */
+const UNCONFIGURED_SLACK_SIGNING_SECRET_RESOLVER: import('../triggers/slack').SlackSigningSecretResolver = {
+    async resolve(): Promise<string | null> {
+        return null
+    },
+}
+
+/**
  * Translate a route's auth kind into the concrete shape we publish to
  * callers. Resolved per-agent so the response says, e.g., "this route needs
  * a PAT" or "shared_secret in X-Acme-Secret header" — not just "uses agent
@@ -60,7 +73,15 @@ export interface BuildAppOpts {
     routingMode: RoutingMode
     domainSuffix?: string
     pathPrefix?: string
-    slackSigningSecret?: string
+    /**
+     * Resolves the Slack signing secret named by `slack.config.signing_secret_ref`
+     * on the agent's spec. In production: pulls the entry from the agent's
+     * `encrypted_env` via `EncryptedFields`. Optional only because chat/
+     * webhook/mcp ignore it; if the spec configures a slack trigger and this
+     * is absent, the slack trigger boots but every request 500s on
+     * `signing_secret_unresolved`.
+     */
+    slackSigningSecretResolver?: import('../triggers/slack').SlackSigningSecretResolver
     authProvider?: AuthProvider
     /** Optional identity store — Slack trigger uses this to mint stable AgentUser ids. */
     identities?: IdentityStore
@@ -129,15 +150,15 @@ export function buildApp(opts: BuildAppOpts): Express {
 
     const authProvider = opts.authProvider ?? PUBLIC_ONLY_AUTH_PROVIDER
     // Superset of every trigger's deps — each module's router picks what it
-    // needs. Slack uses `signingSecret`+`identities`; chat/webhook/mcp ignore
-    // them. Centralising the assembly here keeps the registry uniform.
+    // needs. Slack uses `signingSecretResolver`+`identities`; chat/webhook/mcp
+    // ignore them. Centralising the assembly here keeps the registry uniform.
     const triggerDeps = {
         resolver,
         queue: opts.queue,
         teamId: opts.teamId,
         bus,
         authProvider,
-        signingSecret: opts.slackSigningSecret,
+        signingSecretResolver: opts.slackSigningSecretResolver ?? UNCONFIGURED_SLACK_SIGNING_SECRET_RESOLVER,
         identities: opts.identities,
         integrations: opts.integrations ?? null,
         posthogDb: opts.posthogDb ?? null,

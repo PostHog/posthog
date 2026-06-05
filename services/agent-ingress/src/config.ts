@@ -34,10 +34,6 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .string()
         .default('/agents')
         .describe('URL prefix in path mode (default `/agents`). Slug comes immediately after.'),
-    slackSigningSecret: z
-        .string()
-        .optional()
-        .describe('Verifies inbound Slack webhook signatures. Required for the Slack trigger.'),
     previewSecret: z
         .string()
         .optional()
@@ -54,7 +50,6 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentIngressConfig>(PLATFORM_ENV_KEY_MAP, {
     ROUTING_MODE: 'routingMode',
     DOMAIN_SUFFIX: 'domainSuffix',
     PATH_PREFIX: 'pathPrefix',
-    SLACK_SIGNING_SECRET: 'slackSigningSecret',
     AGENT_PREVIEW_SECRET: 'previewSecret',
 })
 

@@ -530,6 +530,7 @@ export const AgentSpecSchema = z.object({
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
 export type Trigger = z.infer<typeof TriggerSchema>
+export type TriggerType = Trigger['type']
 export type ToolRef = z.infer<typeof ToolRefSchema>
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
 export type ApproverScope = z.infer<typeof ApproverScopeSchema>

@@ -80,6 +80,7 @@ from .serializers import (
     WriteBundleRequestSerializer,
     WriteFileRequestSerializer,
 )
+from .spec_schema import missing_required_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -1442,6 +1443,21 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError("Revision has no frozen bundle (bundle_sha256 is null).")
 
         application = revision.application
+
+        # Trigger types declare the secrets they need via
+        # `TRIGGER_REQUIRED_SECRETS` (see spec_schema.py). Each required key
+        # must be set in `application.encrypted_env` before promote, otherwise
+        # the ingress would 500 on the first inbound webhook for the trigger.
+        # Per-key gate, not per-trigger — multiple triggers can share a key.
+        env_map = AgentApplicationViewSet._load_env_map(application)
+        missing = missing_required_secrets(revision.spec or {}, env_map)
+        if missing:
+            details = ", ".join(f"{m['key']} (for {m['trigger']} trigger)" for m in missing)
+            raise ValidationError(
+                f"Cannot promote: agent is missing required encrypted_env entries: {details}. "
+                f"Set the value(s) via the env editor then retry."
+            )
+
         # Demote whatever's currently live, if anything different.
         previously_live = application.live_revision
         if previously_live and previously_live.id != revision.id:

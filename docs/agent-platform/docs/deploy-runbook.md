@@ -39,19 +39,30 @@ shouldn't pressure the product DB.
 
 ### `agent-ingress`
 
-| Var                    | Required                   | Default                       | Notes                                                                                                                                                                            |
-| ---------------------- | -------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTHOG_DB_URL`       | yes                        | localhost posthog             | Reads applications + revisions for slug/domain resolution.                                                                                                                       |
-| `AGENT_DB_URL`         | yes                        | localhost agent_runtime_queue | Enqueues sessions; writes `agent_user` rows.                                                                                                                                     |
-| `PORT`                 | no                         | 8080                          | HTTP listen port.                                                                                                                                                                |
-| `TEAM_ID`              | no                         | 1                             | Single-tenant fallback for the in-memory dev path. Prod resolves team_id per request via the auth middleware.                                                                    |
-| `ROUTING_MODE`         | no                         | `path`                        | `path` (`/agents/<slug>/...`) or `domain` (`<slug>.agents.example.com`).                                                                                                         |
-| `DOMAIN_SUFFIX`        | when `ROUTING_MODE=domain` | unset                         | The shared parent domain.                                                                                                                                                        |
-| `PATH_PREFIX`          | no                         | `/agents`                     | URL prefix in `path` mode.                                                                                                                                                       |
-| `SLACK_SIGNING_SECRET` | yes (Slack triggers)       | unset                         | Verifies inbound Slack webhooks.                                                                                                                                                 |
-| `ENCRYPTION_SALT_KEYS` | yes (prod)                 | unset                         | Must match Django's value. Backs `EncryptedFields` for `PgIntegrationStore` (Slack bot tokens) + `PgCredentialBroker`. Boot fails closed when unset under `NODE_ENV=production`. |
-| `REDIS_URL`            | yes (cross-host)           | unset                         | When set, `/listen` SSE subscribes to `RedisSessionEventBus` so events from any runner host reach this ingress's SSE clients.                                                    |
-| `LOG_LEVEL`            | no                         | `info`                        | pino level.                                                                                                                                                                      |
+| Var                    | Required                   | Default                       | Notes                                                                                                                                                                                                                          |
+| ---------------------- | -------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POSTHOG_DB_URL`       | yes                        | localhost posthog             | Reads applications + revisions for slug/domain resolution.                                                                                                                                                                     |
+| `AGENT_DB_URL`         | yes                        | localhost agent_runtime_queue | Enqueues sessions; writes `agent_user` rows.                                                                                                                                                                                   |
+| `PORT`                 | no                         | 8080                          | HTTP listen port.                                                                                                                                                                                                              |
+| `TEAM_ID`              | no                         | 1                             | Single-tenant fallback for the in-memory dev path. Prod resolves team_id per request via the auth middleware.                                                                                                                  |
+| `ROUTING_MODE`         | no                         | `path`                        | `path` (`/agents/<slug>/...`) or `domain` (`<slug>.agents.example.com`).                                                                                                                                                       |
+| `DOMAIN_SUFFIX`        | when `ROUTING_MODE=domain` | unset                         | The shared parent domain.                                                                                                                                                                                                      |
+| `PATH_PREFIX`          | no                         | `/agents`                     | URL prefix in `path` mode.                                                                                                                                                                                                     |
+| `ENCRYPTION_SALT_KEYS` | yes (prod)                 | unset                         | Must match Django's value. Backs `EncryptedFields` for `PgIntegrationStore` (Slack bot tokens) + `PgCredentialBroker` + Slack signing-secret resolution (see below). Boot fails closed when unset under `NODE_ENV=production`. |
+| `REDIS_URL`            | yes (cross-host)           | unset                         | When set, `/listen` SSE subscribes to `RedisSessionEventBus` so events from any runner host reach this ingress's SSE clients.                                                                                                  |
+| `LOG_LEVEL`            | no                         | `info`                        | pino level.                                                                                                                                                                                                                    |
+
+**Slack signing secret — per-agent, no env var, no spec ref.** Each
+trigger type declares the secrets it expects in `TRIGGER_REQUIRED_SECRETS`
+(see `services/agent-shared/src/spec/trigger-secrets.ts`). The slack
+trigger requires `SLACK_SIGNING_SECRET` in the agent's
+`AgentApplication.encrypted_env`. Authors set it via the env editor in
+the console; the Django `promote` action refuses to flip a revision live
+if the key is missing, so production traffic always finds a value when
+the ingress decrypts at request time. BYO Slack apps work day-1 — each
+agent points at its own Slack app's secret. To extend this to other
+triggers / tools, add an entry to `TRIGGER_REQUIRED_SECRETS` and the
+freeze-time gate picks it up automatically.
 
 ### `agent-janitor`
 

@@ -27,9 +27,25 @@ for the wider dev flow before non-trivial changes.
    read for routing. Authoring writes go through Django →
    janitor — not through here.
 
-2. **Trigger handlers are skinny.** Verify signature → look up app →
-   resolve identity → enqueue → return. Anything heavier is a smell —
-   long work belongs in the runner, not in the request thread.
+2. **Trigger handlers are skinny.** Look up app → resolve secrets →
+   verify signature → resolve identity → enqueue → return. Anything
+   heavier is a smell — long work belongs in the runner, not in the
+   request thread. (Slack flipped the app-vs-signature order: we resolve
+   the agent first so we know which signing secret to use.)
+
+   **Slack signing secret is per-agent, not global.** There is no
+   `SLACK_SIGNING_SECRET` env. The Slack handler looks up the
+   conventional `SLACK_SIGNING_SECRET_KEY` (from
+   `@posthog/agent-shared`'s `TRIGGER_REQUIRED_SECRETS` registry) in the
+   agent's `AgentApplication.encrypted_env` via
+   `SlackSigningSecretResolver`, which decrypts on every request using
+   the same `EncryptedFields` helper as everywhere else. Django's
+   promote action gates on the entry being present so production
+   requests always find a value. BYO Slack apps work day-1. To add
+   another "trigger needs a secret in encrypted_env" use case, add an
+   entry to `TRIGGER_REQUIRED_SECRETS` and look it up via the resolver
+   — don't add a new global env var, and don't put the key name on the
+   spec.
 
 3. **`/listen` SSE depends on the bus.** The default
    `MemorySessionEventBus` only fans out within one process. Multi-host
@@ -39,6 +55,13 @@ for the wider dev flow before non-trivial changes.
 4. **Auth lives in `AuthProvider`, not inlined.** Don't bake principal
    lookup into a trigger handler — extend or swap the `AuthProvider`
    passed to `buildApp`.
+
+5. **No `process.env` reads + one HttpClient.** Env access goes
+   through `loadAgentIngressConfig` at boot; the typed `Config` flows
+   from there. Every outbound HTTP call (PostHog API introspect,
+   Slack identity bridge) reaches the wire via the shared `HttpClient`
+   wired in `src/index.ts`. See agent-shared/CLAUDE.md rules 7-8 for
+   the full story + the lint rule that enforces it.
 
 ## When you change something here
 

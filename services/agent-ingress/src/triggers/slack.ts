@@ -12,7 +12,14 @@ import { Request, Response, Router } from 'express'
 import type { Pool } from 'pg'
 import { z } from 'zod'
 
-import { IdentityStore, IntegrationStore, SessionPrincipal, SessionQueue } from '@posthog/agent-shared'
+import {
+    AgentApplication,
+    IdentityStore,
+    IntegrationStore,
+    SessionPrincipal,
+    SessionQueue,
+    SLACK_SIGNING_SECRET_KEY,
+} from '@posthog/agent-shared'
 
 import { bridgeSlackToPosthogUser } from '../auth/slack-posthog-bridge'
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
@@ -23,11 +30,21 @@ import { hasTrigger, resolveAgent } from './resolve'
 import { SlackEventBodySchema } from './slack.schemas'
 import type { TriggerModule } from './types'
 
+/**
+ * Resolves a secret named by `secretKey` (conventional, from
+ * `TRIGGER_REQUIRED_SECRETS`) out of the agent's `encrypted_env`. The concrete
+ * impl decrypts via `EncryptedFields`; the harness wires an in-memory
+ * fallback. Pattern reusable for any future "trigger-needs-secret" wiring.
+ */
+export interface SlackSigningSecretResolver {
+    resolve(secretKey: string, application: AgentApplication): Promise<string | null>
+}
+
 export interface SlackTriggerDeps {
     resolver: RevisionResolver
     queue: SessionQueue
     teamId: number
-    signingSecret?: string
+    signingSecretResolver: SlackSigningSecretResolver
     /** Optional identity store — when present, slack events resolve to a stable AgentUser. */
     identities?: IdentityStore
     /**
@@ -48,7 +65,32 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
     r.post(
         '/slack/events',
         asyncHandler(async (req: Request, res: Response) => {
-            if (deps.signingSecret && !verifySlackSignature(req, deps.signingSecret)) {
+            // Resolve the agent first — the URL slug picks it. The signing
+            // secret lives at the conventional `SLACK_SIGNING_SECRET_KEY`
+            // entry of the agent's `encrypted_env`; freeze-time validation
+            // in the janitor rejects revisions whose application doesn't
+            // have it set, so production traffic always finds a value.
+            const resolved = await resolveAgent(deps.resolver, req, res)
+            if (!resolved) {
+                if (!res.headersSent) {
+                    res.status(404).json({ error: 'no_agent' })
+                }
+                return
+            }
+            if (!hasTrigger(resolved, 'slack')) {
+                res.status(404).json({ error: 'no_slack_trigger' })
+                return
+            }
+            const slackTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
+            const signingSecret = await deps.signingSecretResolver.resolve(
+                SLACK_SIGNING_SECRET_KEY,
+                resolved.application
+            )
+            if (!signingSecret) {
+                res.status(500).json({ error: 'signing_secret_unresolved' })
+                return
+            }
+            if (!verifySlackSignature(req, signingSecret)) {
                 res.status(401).json({ error: 'invalid_signature' })
                 return
             }
@@ -73,21 +115,9 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
                 res.json({ ok: true })
                 return
             }
-            const resolved = await resolveAgent(deps.resolver, req, res)
-            if (!resolved) {
-                if (!res.headersSent) {
-                    res.status(404).json({ error: 'no_agent' })
-                }
-                return
-            }
-            if (!hasTrigger(resolved, 'slack')) {
-                res.status(404).json({ error: 'no_slack_trigger' })
-                return
-            }
 
             // Workspace trust check. trusted_workspaces is required in the spec:
             // an array gates on membership; `"*"` opens to any workspace.
-            const slackTrigger = resolved.revision.spec.triggers.find((t) => t.type === 'slack')
             const trusted =
                 slackTrigger && 'config' in slackTrigger
                     ? (slackTrigger.config as { trusted_workspaces?: string[] | '*' }).trusted_workspaces
@@ -195,12 +225,31 @@ export function slackRouter(deps: SlackTriggerDeps): Router {
 
     // Slack interactivity: button clicks on the elevation message land here.
     // Slack posts `application/x-www-form-urlencoded` with a `payload` field
-    // carrying URL-encoded JSON. We verify the signing secret, parse the
-    // payload, and dispatch grant/decline to the ACL helpers.
+    // carrying URL-encoded JSON. We resolve the agent via the URL slug to
+    // find the right signing secret, verify, then dispatch.
     r.post(
         '/slack/interactivity',
         asyncHandler(async (req: Request, res: Response) => {
-            if (deps.signingSecret && !verifySlackSignature(req, deps.signingSecret)) {
+            const resolved = await resolveAgent(deps.resolver, req, res)
+            if (!resolved) {
+                if (!res.headersSent) {
+                    res.status(404).json({ error: 'no_agent' })
+                }
+                return
+            }
+            if (!hasTrigger(resolved, 'slack')) {
+                res.status(404).json({ error: 'no_slack_trigger' })
+                return
+            }
+            const signingSecret = await deps.signingSecretResolver.resolve(
+                SLACK_SIGNING_SECRET_KEY,
+                resolved.application
+            )
+            if (!signingSecret) {
+                res.status(500).json({ error: 'signing_secret_unresolved' })
+                return
+            }
+            if (!verifySlackSignature(req, signingSecret)) {
                 res.status(401).json({ error: 'invalid_signature' })
                 return
             }

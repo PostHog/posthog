@@ -13,10 +13,13 @@
  */
 
 import {
+    AgentApplication,
     createAgentPool,
     createLogger,
     EncryptedFields,
+    HttpClient,
     installProcessHandlers,
+    isDev,
     PgCredentialBroker,
     PgIdentityStore,
     PgIntegrationStore,
@@ -28,6 +31,7 @@ import {
 import { loadAgentIngressConfig } from './config'
 import { buildDefaultVerifiers, defaultPosthogIntrospector } from './enqueue/verifiers'
 import { buildApp } from './routing/server'
+import type { SlackSigningSecretResolver } from './triggers/slack'
 
 const log = createLogger('agent-ingress')
 
@@ -50,6 +54,17 @@ async function main(): Promise<void> {
     const bus = new RedisSessionEventBus({ url: config.redisUrl })
     await bus.connect()
 
+    // Outbound HTTP — Slack identity bridge + PostHog API introspect both
+    // dispatch through here. In prod `config.httpsProxy` points at
+    // smokescreen so outbound calls match the runner's posture. Fail-fast
+    // in non-dev when unset rather than silently bypassing the proxy.
+    if (!config.httpsProxy && !isDev()) {
+        throw new Error(
+            'HTTPS_PROXY must be set — outbound fetches must route through smokescreen in prod. Wire `httpProxy.enabled: true` in the chart.'
+        )
+    }
+    const http = new HttpClient({ proxyUrl: config.httpsProxy })
+
     // Slack → PostHog user bridge needs the integration store to fetch the
     // workspace bot token for `users.info`. Construction throws if
     // encryption isn't configured — fail-fast at boot rather than first
@@ -62,7 +77,7 @@ async function main(): Promise<void> {
     // types). JWT verification needs an `issuer_secret_ref` resolver to
     // pull the embedding party's secret from the agent's encrypted env —
     // wired below.
-    const introspector = defaultPosthogIntrospector({ baseUrl: config.posthogApiBaseUrl })
+    const introspector = defaultPosthogIntrospector({ baseUrl: config.posthogApiBaseUrl, http })
     const authProvider = {
         verifiers: buildDefaultVerifiers({ introspector }),
     }
@@ -74,6 +89,25 @@ async function main(): Promise<void> {
         encryptionSaltKeys: config.encryptionSaltKeys,
     })
 
+    // Per-agent Slack signing secret. Each agent's spec names which entry in
+    // `encrypted_env` holds the Slack app's signing key
+    // (`slack.config.signing_secret_ref`); we decrypt the env per request and
+    // pluck the named entry. Mirrors `makeEncryptedEnvResolver` on the runner.
+    const slackSigningSecretResolver: SlackSigningSecretResolver = {
+        async resolve(secretRef: string, application: AgentApplication): Promise<string | null> {
+            if (!application.encrypted_env) {
+                return null
+            }
+            try {
+                const env = encryption.decryptJsonEnv(application.encrypted_env)
+                const value = env[secretRef]
+                return typeof value === 'string' && value.length > 0 ? value : null
+            } catch {
+                return null
+            }
+        },
+    }
+
     const app = buildApp({
         revisions: new PgRevisionStore(posthogDb),
         queue: new PgSessionQueue(agentDb),
@@ -83,7 +117,7 @@ async function main(): Promise<void> {
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,
         pathPrefix: config.pathPrefix,
-        slackSigningSecret: config.slackSigningSecret,
+        slackSigningSecretResolver,
         previewSecret: config.previewSecret,
         integrations,
         posthogDb,

@@ -5,9 +5,10 @@
  * Old equivalent: isolated/slack-identity.test.ts.
  */
 
-import request from 'supertest'
-
 import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
+
+const SLACK_SECRET = 'test-slack-secret'
+const SLACK_ENV = { SLACK_SIGNING_SECRET: SLACK_SECRET }
 
 function slackEvent(opts: {
     channel?: string
@@ -51,10 +52,9 @@ describe('slack identity: real e2e', () => {
         const { application } = await c.deployAgent({
             slug: 'trusted',
             spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: ['T01'] } }] },
+            encrypted_env: SLACK_ENV,
         })
-        const res = await request(c.ingress)
-            .post('/agents/trusted/slack/events')
-            .send(slackEvent({ team: 'T01', user: 'U01' }))
+        const res = await c.slackPost('trusted', 'events', slackEvent({ team: 'T01', user: 'U01' }), SLACK_SECRET)
         expect(res.status).toBe(200)
 
         const agentUser = await c.identities.find({
@@ -76,10 +76,9 @@ describe('slack identity: real e2e', () => {
         await c.deployAgent({
             slug: 'gated',
             spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: ['T-OK-ONLY'] } }] },
+            encrypted_env: SLACK_ENV,
         })
-        const res = await request(c.ingress)
-            .post('/agents/gated/slack/events')
-            .send(slackEvent({ team: 'T-EVIL', user: 'U-EVIL' }))
+        const res = await c.slackPost('gated', 'events', slackEvent({ team: 'T-EVIL', user: 'U-EVIL' }), SLACK_SECRET)
         expect(res.status).toBe(403)
         expect(res.body.error).toBe('workspace_not_trusted')
     })
@@ -89,14 +88,21 @@ describe('slack identity: real e2e', () => {
         const { application } = await c.deployAgent({
             slug: 'open',
             spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: '*' } }] },
+            encrypted_env: SLACK_ENV,
         })
 
-        await request(c.ingress)
-            .post('/agents/open/slack/events')
-            .send(slackEvent({ team: 'T-A', user: 'U-1', ts: '1.0', thread_ts: '1.0' }))
-        await request(c.ingress)
-            .post('/agents/open/slack/events')
-            .send(slackEvent({ team: 'T-B', user: 'U-2', ts: '2.0', thread_ts: '2.0' }))
+        await c.slackPost(
+            'open',
+            'events',
+            slackEvent({ team: 'T-A', user: 'U-1', ts: '1.0', thread_ts: '1.0' }),
+            SLACK_SECRET
+        )
+        await c.slackPost(
+            'open',
+            'events',
+            slackEvent({ team: 'T-B', user: 'U-2', ts: '2.0', thread_ts: '2.0' }),
+            SLACK_SECRET
+        )
 
         const a = await c.identities.find({
             application_id: application.id,
@@ -118,17 +124,24 @@ describe('slack identity: real e2e', () => {
         const { application } = await c.deployAgent({
             slug: 'stable',
             spec: { triggers: [{ type: 'slack', config: { trusted_workspaces: '*' } }] },
+            encrypted_env: SLACK_ENV,
         })
 
         // Two events from the same user, distinct threads → distinct sessions
         // but the AgentUser row is the same.
-        await request(c.ingress)
-            .post('/agents/stable/slack/events')
-            .send(slackEvent({ team: 'T-X', user: 'U-stable', ts: '1.0', thread_ts: '1.0' }))
+        await c.slackPost(
+            'stable',
+            'events',
+            slackEvent({ team: 'T-X', user: 'U-stable', ts: '1.0', thread_ts: '1.0' }),
+            SLACK_SECRET
+        )
         await c.drain()
-        await request(c.ingress)
-            .post('/agents/stable/slack/events')
-            .send(slackEvent({ team: 'T-X', user: 'U-stable', ts: '2.0', thread_ts: '2.0' }))
+        await c.slackPost(
+            'stable',
+            'events',
+            slackEvent({ team: 'T-X', user: 'U-stable', ts: '2.0', thread_ts: '2.0' }),
+            SLACK_SECRET
+        )
         await c.drain()
 
         const sessions = await c.queue.listForApplication(application.id)

@@ -22,6 +22,12 @@ import request from 'supertest'
 
 import { buildCluster, closeSharedPool, Cluster, fauxCallTool, fauxText } from '../harness'
 
+/** Every signed test below uses the same secret + the matching encrypted_env
+ *  entry. Mirrors the real production flow: author sets `SLACK_SIGNING_SECRET`
+ *  in their agent's encrypted_env, ingress decrypts at request time, verifies. */
+const SLACK_SECRET = 'test-slack-secret'
+const SLACK_ENV = { SLACK_SIGNING_SECRET: SLACK_SECRET }
+
 function slackEvent(opts: {
     channel?: string
     user?: string
@@ -55,6 +61,9 @@ function slackEvent(opts: {
     }
 }
 
+/** Manual signing for the edge-case tests below — `stale timestamp` and
+ *  `wrong secret` need control over the inputs that `c.slackPost` packages
+ *  up automatically. */
 function signSlack(body: string, secret: string, ts: number): { sig: string; tsString: string } {
     const tsString = String(ts)
     const base = `v0:${tsString}:${body}`
@@ -78,10 +87,8 @@ describe('slack trigger: real e2e', () => {
     })
 
     it('url_verification challenge round-trips', async () => {
-        await c.deployAgent({ slug: 'echo' })
-        const res = await request(c.ingress)
-            .post('/agents/echo/slack/events')
-            .send({ type: 'url_verification', challenge: 'xyz' })
+        await c.deployAgent({ slug: 'echo', encrypted_env: SLACK_ENV })
+        const res = await c.slackPost('echo', 'events', { type: 'url_verification', challenge: 'xyz' }, SLACK_SECRET)
         expect(res.status).toBe(200)
         expect(res.body.challenge).toBe('xyz')
     })
@@ -91,10 +98,13 @@ describe('slack trigger: real e2e', () => {
         // silently 200'd app_mention events with no-op. Regression: an
         // app_mention event must enqueue exactly like a channel message.
         c.setScript([fauxText('hello back')])
-        await c.deployAgent({ slug: 'mentioner', spec: {} })
-        const res = await request(c.ingress)
-            .post('/agents/mentioner/slack/events')
-            .send(slackEvent({ eventType: 'app_mention', text: '<@U0BOT> ping' }))
+        await c.deployAgent({ slug: 'mentioner', spec: {}, encrypted_env: SLACK_ENV })
+        const res = await c.slackPost(
+            'mentioner',
+            'events',
+            slackEvent({ eventType: 'app_mention', text: '<@U0BOT> ping' }),
+            SLACK_SECRET
+        )
         expect(res.status).toBe(200)
         expect(res.body.session_id).toBeTruthy()
 
@@ -119,19 +129,20 @@ describe('slack trigger: real e2e', () => {
         // channel/thread to chat.postMessage back to, so reply tool calls
         // failed at authoring time even for healthy bots.
         c.setScript([fauxText('ok')])
-        await c.deployAgent({ slug: 'enveloped', spec: {} })
-        const res = await request(c.ingress)
-            .post('/agents/enveloped/slack/events')
-            .send(
-                slackEvent({
-                    eventType: 'app_mention',
-                    channel: 'C-incidents',
-                    ts: '1700000099.000000',
-                    thread_ts: '1700000050.000000',
-                    user: 'U-engineer',
-                    text: '<@U-bot> any ideas?',
-                })
-            )
+        await c.deployAgent({ slug: 'enveloped', spec: {}, encrypted_env: SLACK_ENV })
+        const res = await c.slackPost(
+            'enveloped',
+            'events',
+            slackEvent({
+                eventType: 'app_mention',
+                channel: 'C-incidents',
+                ts: '1700000099.000000',
+                thread_ts: '1700000050.000000',
+                user: 'U-engineer',
+                text: '<@U-bot> any ideas?',
+            }),
+            SLACK_SECRET
+        )
         expect(res.status).toBe(200)
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
@@ -157,17 +168,17 @@ describe('slack trigger: real e2e', () => {
         // top-level `event_id` as the idempotency key short-circuits retries
         // before they touch pending_inputs.
         c.setScript([fauxText('once and only once')])
-        await c.deployAgent({ slug: 'no-dupes', spec: {} })
+        await c.deployAgent({ slug: 'no-dupes', spec: {}, encrypted_env: SLACK_ENV })
         const payload = slackEvent({
             eventType: 'app_mention',
             event_id: 'Ev_retry_canary',
             text: '<@U-bot> say hi',
         })
-        const first = await request(c.ingress).post('/agents/no-dupes/slack/events').send(payload)
+        const first = await c.slackPost('no-dupes', 'events', payload, SLACK_SECRET)
         expect(first.status).toBe(200)
         // Same payload — simulates Slack's retry. Should resolve to the same
         // session, NOT append to pending_inputs.
-        const retry = await request(c.ingress).post('/agents/no-dupes/slack/events').send(payload)
+        const retry = await c.slackPost('no-dupes', 'events', payload, SLACK_SECRET)
         expect(retry.status).toBe(200)
         expect(retry.body.session_id).toBe(first.body.session_id)
 
@@ -188,10 +199,13 @@ describe('slack trigger: real e2e', () => {
         // value (otherwise chat.postMessage would post to channel root, not
         // threaded), so the seed substitutes ts → thread_ts in that case.
         c.setScript([fauxText('ok')])
-        await c.deployAgent({ slug: 'top-level', spec: {} })
-        const res = await request(c.ingress)
-            .post('/agents/top-level/slack/events')
-            .send(slackEvent({ eventType: 'app_mention', ts: '99.000', thread_ts: undefined }))
+        await c.deployAgent({ slug: 'top-level', spec: {}, encrypted_env: SLACK_ENV })
+        const res = await c.slackPost(
+            'top-level',
+            'events',
+            slackEvent({ eventType: 'app_mention', ts: '99.000', thread_ts: undefined }),
+            SLACK_SECRET
+        )
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
         const userMsg = session!.conversation.find((m) => m.role === 'user') as
@@ -203,15 +217,21 @@ describe('slack trigger: real e2e', () => {
 
     it('thread_ts dedupe: second mention in same thread resumes existing session', async () => {
         c.setScript([fauxText('first reply'), fauxText('second reply')])
-        await c.deployAgent({ slug: 'thready', spec: {} })
-        const first = await request(c.ingress)
-            .post('/agents/thready/slack/events')
-            .send(slackEvent({ ts: '1', thread_ts: '1', text: 'first' }))
+        await c.deployAgent({ slug: 'thready', spec: {}, encrypted_env: SLACK_ENV })
+        const first = await c.slackPost(
+            'thready',
+            'events',
+            slackEvent({ ts: '1', thread_ts: '1', text: 'first' }),
+            SLACK_SECRET
+        )
         expect(first.body.resumed).toBe(false)
 
-        const second = await request(c.ingress)
-            .post('/agents/thready/slack/events')
-            .send(slackEvent({ ts: '2', thread_ts: '1', text: 'second' }))
+        const second = await c.slackPost(
+            'thready',
+            'events',
+            slackEvent({ ts: '2', thread_ts: '1', text: 'second' }),
+            SLACK_SECRET
+        )
         expect(second.body.resumed).toBe(true)
         expect(second.body.session_id).toBe(first.body.session_id)
 
@@ -242,24 +262,31 @@ describe('slack trigger: real e2e', () => {
         // pending_inputs with sender=bob. Asserts the per-message stamping
         // contract that #23 step 3 (dispatcher per-asker auth) will rely on.
         c.setScript([fauxText('first reply'), fauxText('after grant')])
-        await c.deployAgent({ slug: 'multiuser', spec: {} })
+        await c.deployAgent({ slug: 'multiuser', spec: {}, encrypted_env: SLACK_ENV })
 
         // Alice opens the thread.
-        const opened = await request(c.ingress)
-            .post('/agents/multiuser/slack/events')
-            .send(slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }))
+        const opened = await c.slackPost(
+            'multiuser',
+            'events',
+            slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }),
+            SLACK_SECRET
+        )
         await c.drain()
 
         // Bob tries to reply — rejected.
-        const bob = await request(c.ingress)
-            .post('/agents/multiuser/slack/events')
-            .send(slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }))
+        const bob = await c.slackPost(
+            'multiuser',
+            'events',
+            slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }),
+            SLACK_SECRET
+        )
         expect(bob.body.elevation_required).toBe(true)
 
         // Alice grants via interactivity.
-        const grant = await request(c.ingress)
-            .post('/agents/multiuser/slack/interactivity')
-            .send({
+        const grant = await c.slackPost(
+            'multiuser',
+            'interactivity',
+            {
                 payload: JSON.stringify({
                     type: 'block_actions',
                     team: { id: 'unknown' },
@@ -271,7 +298,9 @@ describe('slack trigger: real e2e', () => {
                         },
                     ],
                 }),
-            })
+            },
+            SLACK_SECRET
+        )
         expect(grant.status).toBe(200)
         await c.drain()
 
@@ -310,16 +339,22 @@ describe('slack trigger: real e2e', () => {
         // message is rejected, recorded as a PendingElevationRequest, and
         // the session stays parked until the owner grants elevation.
         c.setScript([fauxText('first reply')])
-        await c.deployAgent({ slug: 'gated', spec: {} })
-        const first = await request(c.ingress)
-            .post('/agents/gated/slack/events')
-            .send(slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }))
+        await c.deployAgent({ slug: 'gated', spec: {}, encrypted_env: SLACK_ENV })
+        const first = await c.slackPost(
+            'gated',
+            'events',
+            slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }),
+            SLACK_SECRET
+        )
         expect(first.body.resumed).toBe(false)
         await c.drain()
 
-        const second = await request(c.ingress)
-            .post('/agents/gated/slack/events')
-            .send(slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }))
+        const second = await c.slackPost(
+            'gated',
+            'events',
+            slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }),
+            SLACK_SECRET
+        )
         // Slack expects 200 on events; the elevation is signalled in the body.
         expect(second.status).toBe(200)
         expect(second.body.elevation_required).toBe(true)
@@ -368,30 +403,39 @@ describe('slack trigger: real e2e', () => {
 
         async function setupRejectedRequest(slug: string): Promise<{ sessionId: string; requestId: string }> {
             c.setScript([fauxText('first reply'), fauxText('after grant')])
-            await c.deployAgent({ slug, spec: {} })
-            const first = await request(c.ingress)
-                .post(`/agents/${slug}/slack/events`)
-                .send(slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }))
+            await c.deployAgent({ slug, spec: {}, encrypted_env: SLACK_ENV })
+            const first = await c.slackPost(
+                slug,
+                'events',
+                slackEvent({ user: 'U-ALICE', ts: '1', thread_ts: '1', text: 'alice opens' }),
+                SLACK_SECRET
+            )
             await c.drain()
-            const bob = await request(c.ingress)
-                .post(`/agents/${slug}/slack/events`)
-                .send(slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }))
+            const bob = await c.slackPost(
+                slug,
+                'events',
+                slackEvent({ user: 'U-BOB', ts: '2', thread_ts: '1', text: 'bob barges in' }),
+                SLACK_SECRET
+            )
             return { sessionId: first.body.session_id, requestId: bob.body.elevation_request_id }
         }
 
         it('owner grant: ACL entry written, bob message replays, session re-queues', async () => {
             const { sessionId, requestId } = await setupRejectedRequest('gated-grant')
 
-            const grant = await request(c.ingress)
-                .post('/agents/gated-grant/slack/interactivity')
-                .send({
+            const grant = await c.slackPost(
+                'gated-grant',
+                'interactivity',
+                {
                     payload: buildPayload({
                         sessionId,
                         requestId,
                         decision: 'grant',
                         user: 'U-ALICE',
                     }),
-                })
+                },
+                SLACK_SECRET
+            )
             expect(grant.status).toBe(200)
             expect(grant.body.text).toMatch(/granted/i)
 
@@ -413,16 +457,19 @@ describe('slack trigger: real e2e', () => {
         it('non-owner click: ephemeral message, request stays pending', async () => {
             const { sessionId, requestId } = await setupRejectedRequest('gated-noowner')
 
-            const stranger = await request(c.ingress)
-                .post('/agents/gated-noowner/slack/interactivity')
-                .send({
+            const stranger = await c.slackPost(
+                'gated-noowner',
+                'interactivity',
+                {
                     payload: buildPayload({
                         sessionId,
                         requestId,
                         decision: 'grant',
                         user: 'U-CAROL',
                     }),
-                })
+                },
+                SLACK_SECRET
+            )
             expect(stranger.status).toBe(200)
             expect(stranger.body.response_type).toBe('ephemeral')
             expect(stranger.body.text).toMatch(/only the session owner/i)
@@ -435,16 +482,19 @@ describe('slack trigger: real e2e', () => {
         it('decline: marks request declined, does not advance the session', async () => {
             const { sessionId, requestId } = await setupRejectedRequest('gated-decline')
 
-            const decline = await request(c.ingress)
-                .post('/agents/gated-decline/slack/interactivity')
-                .send({
+            const decline = await c.slackPost(
+                'gated-decline',
+                'interactivity',
+                {
                     payload: buildPayload({
                         sessionId,
                         requestId,
                         decision: 'decline',
                         user: 'U-ALICE',
                     }),
-                })
+                },
+                SLACK_SECRET
+            )
             expect(decline.status).toBe(200)
             expect(decline.body.text).toMatch(/declined/i)
 
@@ -457,74 +507,92 @@ describe('slack trigger: real e2e', () => {
         it('replaying a grant on an already-decided request returns "already decided"', async () => {
             const { sessionId, requestId } = await setupRejectedRequest('gated-replay')
 
-            const first = await request(c.ingress)
-                .post('/agents/gated-replay/slack/interactivity')
-                .send({
+            const first = await c.slackPost(
+                'gated-replay',
+                'interactivity',
+                {
                     payload: buildPayload({
                         sessionId,
                         requestId,
                         decision: 'grant',
                         user: 'U-ALICE',
                     }),
-                })
+                },
+                SLACK_SECRET
+            )
             expect(first.status).toBe(200)
             await c.drain()
 
-            const second = await request(c.ingress)
-                .post('/agents/gated-replay/slack/interactivity')
-                .send({
+            const second = await c.slackPost(
+                'gated-replay',
+                'interactivity',
+                {
                     payload: buildPayload({
                         sessionId,
                         requestId,
                         decision: 'grant',
                         user: 'U-ALICE',
                     }),
-                })
+                },
+                SLACK_SECRET
+            )
             expect(second.status).toBe(200)
             expect(second.body.response_type).toBe('ephemeral')
             expect(second.body.text).toMatch(/already been decided/i)
         })
 
         it('missing payload returns 400', async () => {
-            await c.deployAgent({ slug: 'gated-bad', spec: {} })
-            const res = await request(c.ingress).post('/agents/gated-bad/slack/interactivity').send({})
+            await c.deployAgent({ slug: 'gated-bad', spec: {}, encrypted_env: SLACK_ENV })
+            const res = await c.slackPost('gated-bad', 'interactivity', {}, SLACK_SECRET)
             expect(res.status).toBe(400)
             expect(res.body.error).toBe('missing_payload')
         })
 
         it('unknown session id returns 404', async () => {
-            await c.deployAgent({ slug: 'gated-missing', spec: {} })
-            const res = await request(c.ingress)
-                .post('/agents/gated-missing/slack/interactivity')
-                .send({
+            await c.deployAgent({ slug: 'gated-missing', spec: {}, encrypted_env: SLACK_ENV })
+            const res = await c.slackPost(
+                'gated-missing',
+                'interactivity',
+                {
                     payload: buildPayload({
                         sessionId: '00000000-0000-0000-0000-000000000000',
                         requestId: 'fake',
                         decision: 'grant',
                         user: 'U-ALICE',
                     }),
-                })
+                },
+                SLACK_SECRET
+            )
             expect(res.status).toBe(404)
             expect(res.body.error).toBe('session_not_found')
         })
     })
 
     it('distinct threads create distinct sessions', async () => {
-        await c.deployAgent({ slug: 'distinct', spec: {} })
-        const a = await request(c.ingress)
-            .post('/agents/distinct/slack/events')
-            .send(slackEvent({ ts: '1', thread_ts: '1', text: 'thread a' }))
-        const b = await request(c.ingress)
-            .post('/agents/distinct/slack/events')
-            .send(slackEvent({ ts: '2', thread_ts: '2', text: 'thread b' }))
+        await c.deployAgent({ slug: 'distinct', spec: {}, encrypted_env: SLACK_ENV })
+        const a = await c.slackPost(
+            'distinct',
+            'events',
+            slackEvent({ ts: '1', thread_ts: '1', text: 'thread a' }),
+            SLACK_SECRET
+        )
+        const b = await c.slackPost(
+            'distinct',
+            'events',
+            slackEvent({ ts: '2', thread_ts: '2', text: 'thread b' }),
+            SLACK_SECRET
+        )
         expect(a.body.session_id).not.toBe(b.body.session_id)
     })
 
     it('bot_id events are ignored (no echo loop)', async () => {
-        await c.deployAgent({ slug: 'noloop' })
-        const res = await request(c.ingress)
-            .post('/agents/noloop/slack/events')
-            .send(slackEvent({ bot_id: 'B01', text: 'I am a bot' }))
+        await c.deployAgent({ slug: 'noloop', encrypted_env: SLACK_ENV })
+        const res = await c.slackPost(
+            'noloop',
+            'events',
+            slackEvent({ bot_id: 'B01', text: 'I am a bot' }),
+            SLACK_SECRET
+        )
         expect(res.status).toBe(200)
         expect(res.body.session_id).toBeUndefined()
     })
@@ -534,16 +602,22 @@ describe('slack trigger: real e2e', () => {
         // external_key reuse picks it back up. Only `closed` (via
         // meta-end-session) or `failed` forces a fresh session.
         c.setScript([fauxText('done'), fauxText('again')])
-        await c.deployAgent({ slug: 'freshish', spec: {} })
-        const first = await request(c.ingress)
-            .post('/agents/freshish/slack/events')
-            .send(slackEvent({ ts: '1', thread_ts: '1', text: 'first' }))
+        await c.deployAgent({ slug: 'freshish', spec: {}, encrypted_env: SLACK_ENV })
+        const first = await c.slackPost(
+            'freshish',
+            'events',
+            slackEvent({ ts: '1', thread_ts: '1', text: 'first' }),
+            SLACK_SECRET
+        )
         await c.drain()
         expect((await c.queue.get(first.body.session_id))!.state).toBe('completed')
 
-        const second = await request(c.ingress)
-            .post('/agents/freshish/slack/events')
-            .send(slackEvent({ ts: '2', thread_ts: '1', text: 'second' }))
+        const second = await c.slackPost(
+            'freshish',
+            'events',
+            slackEvent({ ts: '2', thread_ts: '1', text: 'second' }),
+            SLACK_SECRET
+        )
         // Same external_key, session is open → resumed.
         expect(second.body.resumed).toBe(true)
         expect(second.body.session_id).toBe(first.body.session_id)
@@ -551,27 +625,35 @@ describe('slack trigger: real e2e', () => {
 
     it('`closed` thread starts a fresh session on the next mention', async () => {
         c.setScript([fauxCallTool('@posthog/meta-end-session', { summary: 'done' }), fauxText('again')])
-        await c.deployAgent({ slug: 'freshish-closed', spec: {} })
-        const first = await request(c.ingress)
-            .post('/agents/freshish-closed/slack/events')
-            .send(slackEvent({ ts: '1', thread_ts: '1', text: 'first' }))
+        await c.deployAgent({ slug: 'freshish-closed', spec: {}, encrypted_env: SLACK_ENV })
+        const first = await c.slackPost(
+            'freshish-closed',
+            'events',
+            slackEvent({ ts: '1', thread_ts: '1', text: 'first' }),
+            SLACK_SECRET
+        )
         await c.drain()
         expect((await c.queue.get(first.body.session_id))!.state).toBe('closed')
 
-        const second = await request(c.ingress)
-            .post('/agents/freshish-closed/slack/events')
-            .send(slackEvent({ ts: '2', thread_ts: '1', text: 'second' }))
+        const second = await c.slackPost(
+            'freshish-closed',
+            'events',
+            slackEvent({ ts: '2', thread_ts: '1', text: 'second' }),
+            SLACK_SECRET
+        )
         // Closed session is terminal → fresh session.
         expect(second.body.resumed).toBe(false)
         expect(second.body.session_id).not.toBe(first.body.session_id)
     })
 
     describe('signature verification', () => {
-        const secret = 'test-slack-secret'
+        const secret = SLACK_SECRET
 
         async function withSigCluster(): Promise<Cluster> {
-            const cluster = await buildCluster({ slackSigningSecret: secret })
-            await cluster.deployAgent({ slug: 'signed' })
+            const cluster = await buildCluster()
+            // Real flow: signing secret lives in the agent's encrypted_env;
+            // the ingress's resolver decrypts at request time.
+            await cluster.deployAgent({ slug: 'signed', encrypted_env: SLACK_ENV })
             return cluster
         }
 
@@ -627,15 +709,12 @@ describe('slack trigger: real e2e', () => {
         it('valid signature → 200', async () => {
             const cc = await withSigCluster()
             try {
-                const now = Math.floor(Date.now() / 1000)
-                const body = JSON.stringify({ type: 'url_verification', challenge: 'xyz' })
-                const { sig } = signSlack(body, secret, now)
-                const res = await request(cc.ingress)
-                    .post('/agents/signed/slack/events')
-                    .set('content-type', 'application/json')
-                    .set('x-slack-request-timestamp', String(now))
-                    .set('x-slack-signature', sig)
-                    .send(body)
+                const res = await cc.slackPost(
+                    'signed',
+                    'events',
+                    { type: 'url_verification', challenge: 'xyz' },
+                    SLACK_SECRET
+                )
                 expect(res.status).toBe(200)
                 expect(res.body.challenge).toBe('xyz')
             } finally {
