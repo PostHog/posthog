@@ -19869,6 +19869,7 @@
                 "RevenueCat",
                 "Polar",
                 "GoogleAds",
+                "GoogleSearchConsole",
                 "MetaAds",
                 "Klaviyo",
                 "Mailchimp",
@@ -21131,6 +21132,11 @@
                     },
                     "type": "array"
                 },
+                "hideIncompleteConversionWindowPeriods": {
+                    "default": false,
+                    "description": "Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert.",
+                    "type": "boolean"
+                },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical"
@@ -21141,6 +21147,11 @@
                     },
                     "description": "Customizations for the appearance of result datasets.",
                     "type": "object"
+                },
+                "showAnnotations": {
+                    "default": true,
+                    "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
+                    "type": "boolean"
                 },
                 "showTrendLines": {
                     "description": "Display linear regression trend lines on the chart (only for historical trends viz)",
@@ -22312,6 +22323,9 @@
                     "enum": ["enabled", "disabled", "optimized"],
                     "type": "string"
                 },
+                "pushDownPredicates": {
+                    "type": "boolean"
+                },
                 "s3TableUseInvalidColumns": {
                     "type": "boolean"
                 },
@@ -23431,6 +23445,7 @@
                 "google-cloud-service-account",
                 "google-cloud-storage",
                 "google-ads",
+                "google-search-console",
                 "google-sheets",
                 "linkedin-ads",
                 "snapchat",
@@ -40573,6 +40588,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "excludeAttributes": {
+                    "description": "Omit the per-span `attributes` map from results to keep payloads compact",
+                    "type": "boolean"
+                },
                 "filterGroup": {
                     "$ref": "#/definitions/PropertyGroupFilter"
                 },
@@ -41039,6 +41058,10 @@
                 },
                 "showAlertThresholdLines": {
                     "default": false,
+                    "type": "boolean"
+                },
+                "showAnnotations": {
+                    "default": true,
                     "type": "boolean"
                 },
                 "showConfidenceIntervals": {

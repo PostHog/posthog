@@ -1723,9 +1723,10 @@ def _post_channel_approval_prompt(
 
     org_label = _org_label(integration)
     text = (
-        ":wave: This is an externally-shared Slack channel. Anything I answer here can be "
-        f"seen by every member, including people outside {org_label}'s workspace. "
-        f"A member of {org_label} can enable me below."
+        f":wave: This is an externally-shared Slack channel. My answers can pull from {org_label}'s "
+        "PostHog project — including data about users, customers, and other internal metrics that aren't "
+        "otherwise visible in this channel — and anything I post will be seen by every member here, "
+        f"including people outside {org_label}'s workspace. A member of {org_label} can enable me below."
     )
 
     blocks: list[dict[str, Any]] = [
