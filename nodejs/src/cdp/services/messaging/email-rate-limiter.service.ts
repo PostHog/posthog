@@ -73,8 +73,13 @@ export class EmailRateLimiterService {
         // First call: try to consume the whole batch atomically.
         const [[, full]] = await this.limiter.rateLimitMany([{ id: EMAIL_RATE_LIMITER_KEY, cost: batchSize }])
 
-        if (!full.isRateLimited) {
-            tokensAvailable.set(Math.max(0, Math.floor(full.tokens)))
+        // Don't trust `isRateLimited` here — KeyedRateLimiterService computes it as
+        // `tokensAfter <= 0`, but the V2 Lua's success branch deducts the cost when
+        // `currentTokens - cost >= 0`, so an exact-drain returns `tokensAfter = 0`
+        // (consumed, success). Only `tokensAfter = -1` is a genuine denial. Treating
+        // 0 as a denial would burn the consumed credit and defer the whole batch.
+        if (full.tokens >= 0) {
+            tokensAvailable.set(Math.floor(full.tokens))
             return { processCount: batchSize, deferCount: 0, tokensAfter: full.tokens }
         }
 
@@ -89,15 +94,15 @@ export class EmailRateLimiterService {
 
         const [[, partial]] = await this.limiter.rateLimitMany([{ id: EMAIL_RATE_LIMITER_KEY, cost: available }])
 
-        // Even the partial can be denied if a competing worker drained the bucket
-        // between our two calls — defer the whole batch in that case.
-        if (partial.isRateLimited) {
+        // Same boundary applies: a competing worker may have drained the bucket
+        // between our two calls (genuine `-1`), in which case defer everything.
+        if (partial.tokens < 0) {
             tokensAvailable.set(Math.max(0, Math.floor(partial.tokensBefore)))
             deferredTotal.inc(batchSize)
             return { processCount: 0, deferCount: batchSize, tokensAfter: partial.tokensBefore }
         }
 
-        tokensAvailable.set(Math.max(0, Math.floor(partial.tokens)))
+        tokensAvailable.set(Math.floor(partial.tokens))
         const deferCount = batchSize - available
         deferredTotal.inc(deferCount)
         return { processCount: available, deferCount, tokensAfter: partial.tokens }

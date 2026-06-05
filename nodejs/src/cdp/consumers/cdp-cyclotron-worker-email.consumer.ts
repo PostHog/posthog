@@ -54,6 +54,21 @@ export class CdpCyclotronWorkerEmail extends CdpCyclotronWorkerHogFlow {
         }
     }
 
+    public override async stop(): Promise<void> {
+        await super.stop()
+        if (this.emailValkey?.destroy) {
+            try {
+                await this.emailValkey.destroy()
+            } catch (err) {
+                logger.warn('✉️ ', '[CdpCyclotronWorkerEmail] failed to drain email Valkey pool on stop', {
+                    error: String(err),
+                })
+            }
+        }
+        this.emailValkey = null
+        this.emailRateLimiter = null
+    }
+
     public override async processInvocations(
         invocations: CyclotronJobInvocation[]
     ): Promise<CyclotronJobInvocationResult[]> {

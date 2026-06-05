@@ -98,20 +98,16 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(worker['emailRateLimiter']).toBeNull()
         })
 
-        it('does not create a rate limiter when only one of bucket/refill is set', () => {
-            const worker1 = new CdpCyclotronWorkerEmail(
-                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0 }),
+        it.each([
+            { label: 'refill rate missing', overrides: { CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0 } },
+            { label: 'bucket size missing', overrides: { CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 0 } },
+        ])('does not create a rate limiter when $label', ({ overrides }) => {
+            const worker = new CdpCyclotronWorkerEmail(
+                enableRateLimit(overrides as Partial<Hub>),
                 createCdpConsumerDeps(hub),
                 createMockJobQueue()
             )
-            expect(worker1['emailRateLimiter']).toBeNull()
-
-            const worker2 = new CdpCyclotronWorkerEmail(
-                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 0 }),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-            expect(worker2['emailRateLimiter']).toBeNull()
+            expect(worker['emailRateLimiter']).toBeNull()
         })
 
         it('creates a rate limiter when valkey host + bucket + refill are all set', () => {
@@ -168,24 +164,37 @@ describe('CdpCyclotronWorkerEmail', () => {
         })
 
         it('defers the entire batch when the bucket is empty', async () => {
+            // Use bucketSize=2 + a batch-of-2 warmup so the warmup itself genuinely
+            // succeeds (cost==available is a success per the V2 Lua) and the bucket
+            // is provably empty before the asserted call. With bucketSize=1 + warmup
+            // of 1 the test passed for the wrong reason (the exact-drain bug).
             const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 1, CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0.0001 }),
+                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 2, CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0.0001 }),
                 createCdpConsumerDeps(hub),
                 createMockJobQueue()
             )
 
-            jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue([])
+            const parentSpy = jest
+                .spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations')
+                .mockResolvedValue([])
 
-            // Drain the single token.
-            await worker.processInvocations([createEmailInvocation('warmup', 1)])
+            // Drain both tokens.
+            await worker.processInvocations([
+                createEmailInvocation('warmup-1', 1),
+                createEmailInvocation('warmup-2', 1),
+            ])
+
+            parentSpy.mockClear()
 
             const results = await worker.processInvocations([
                 createEmailInvocation('email-1', 1),
                 createEmailInvocation('email-2', 1),
             ])
 
+            // Bucket genuinely empty → nothing should reach the parent, both deferred.
+            expect(parentSpy).not.toHaveBeenCalled()
             const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
-            expect(deferred.length).toBeGreaterThanOrEqual(1)
+            expect(deferred).toHaveLength(2)
         })
 
         it('staggers deferred reschedules with jitter to avoid thundering herd', async () => {

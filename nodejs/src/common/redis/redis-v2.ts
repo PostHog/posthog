@@ -47,6 +47,15 @@ export type RedisV2 = {
         options: RedisOptions,
         callback: (pipeline: RedisClientPipeline) => void
     ) => Promise<Array<[Error | null, any]> | null>
+    /**
+     * Drains in-flight acquisitions and closes the underlying ioredis clients.
+     * Idempotent — subsequent calls resolve immediately. Call from the owning
+     * consumer's `stop()` to avoid leaking TCP connections on shutdown.
+     *
+     * Optional on the type so existing mocks aren't forced to add it; always
+     * present on pools returned from `createRedisV2PoolFromConfig`.
+     */
+    destroy?: () => Promise<void>
 }
 
 export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 => {
@@ -104,9 +113,18 @@ export const createRedisV2PoolFromConfig = (config: RedisPoolConfig): RedisV2 =>
         })
     }
 
+    let destroyed: Promise<void> | null = null
+    const destroy = (): Promise<void> => {
+        if (!destroyed) {
+            destroyed = pool.drain().then(() => pool.clear())
+        }
+        return destroyed
+    }
+
     return {
         useClient,
         usePipeline,
+        destroy,
     }
 }
 
