@@ -1858,52 +1858,54 @@ def _build_warehouse_lazy(
     now = datetime.now(UTC)
 
     # ---- register stubs ----
-    for saved_query in saved_queries:
-        views.add_child(
-            TableNode.create_nested_for_chain(
-                saved_query.name.split("."),
-                table_factory=_make_view_factory(saved_query, modifiers, fk_specs, join_specs, saved_query.name),
-            ),
-            table_conflict_mode="ignore",
-        )
-    for saved_query in endpoint_saved_queries:
-        endpoint_node = TableNode(name=saved_query.name)
-        endpoint_node._table_factory = _make_view_factory(
-            saved_query, modifiers, fk_specs, join_specs, saved_query.name
-        )
-        views.add_child(endpoint_node, table_conflict_mode="ignore")
-    for view in revenue_views:
-        try:
-            views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
-        except Exception as e:
-            capture_exception(e)
-            continue
-
-    for table in tables:
-        if table.external_data_source:
-            name = get_data_warehouse_table_name(table.external_data_source, table.name)
-            factory = _make_table_factory(table, modifiers, fk_specs, join_specs, name, database, now)
-            bare_node = TableNode(name=table.name)
-            bare_node._table_factory = factory
-            warehouse_tables.add_child(bare_node)
-            warehouse_tables.add_child(
-                TableNode.create_nested_for_chain(name.split("."), table_factory=factory),
+    with timings.measure("register_stubs", emit_span=True):
+        for saved_query in saved_queries:
+            views.add_child(
+                TableNode.create_nested_for_chain(
+                    saved_query.name.split("."),
+                    table_factory=_make_view_factory(saved_query, modifiers, fk_specs, join_specs, saved_query.name),
+                ),
                 table_conflict_mode="ignore",
             )
-        else:
-            self_managed_node = TableNode(name=table.name)
-            self_managed_node._table_factory = _make_table_factory(
-                table, modifiers, fk_specs, join_specs, table.name, database, now
+        for saved_query in endpoint_saved_queries:
+            endpoint_node = TableNode(name=saved_query.name)
+            endpoint_node._table_factory = _make_view_factory(
+                saved_query, modifiers, fk_specs, join_specs, saved_query.name
             )
-            self_managed_warehouse_tables.add_child(self_managed_node)
+            views.add_child(endpoint_node, table_conflict_mode="ignore")
+        for view in revenue_views:
+            try:
+                views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+            except Exception as e:
+                capture_exception(e)
+                continue
 
-    database._add_warehouse_tables(warehouse_tables)
-    database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
-    database._add_views(views)
+        for table in tables:
+            if table.external_data_source:
+                name = get_data_warehouse_table_name(table.external_data_source, table.name)
+                factory = _make_table_factory(table, modifiers, fk_specs, join_specs, name, database, now)
+                bare_node = TableNode(name=table.name)
+                bare_node._table_factory = factory
+                warehouse_tables.add_child(bare_node)
+                warehouse_tables.add_child(
+                    TableNode.create_nested_for_chain(name.split("."), table_factory=factory),
+                    table_conflict_mode="ignore",
+                )
+            else:
+                self_managed_node = TableNode(name=table.name)
+                self_managed_node._table_factory = _make_table_factory(
+                    table, modifiers, fk_specs, join_specs, table.name, database, now
+                )
+                self_managed_warehouse_tables.add_child(self_managed_node)
+
+        database._add_warehouse_tables(warehouse_tables)
+        database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
+        database._add_views(views)
 
     # ---- compute field specs (cheap: metadata only, no hogql build) ----
-    for name in external_tables:
-        _emit_fk_specs_for_table(metas[name], schemas_by_name.get(name, []), metas, fk_specs)
+    with timings.measure("compute_specs", emit_span=True):
+        for name in external_tables:
+            _emit_fk_specs_for_table(metas[name], schemas_by_name.get(name, []), metas, fk_specs)
 
     # Map any name a join might reference (bare or namespaced) to the canonical name the table's
     # factory builds under, so warehouse-source joins emit a spec instead of materializing the table.
