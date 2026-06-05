@@ -343,7 +343,8 @@ def _inline_content_to_markdown(node: JsonDict) -> str:
             elif mark_type == "code":
                 text = f"`{text}`"
             elif mark_type == "link":
-                attrs = mark.get("attrs") if isinstance(mark.get("attrs"), dict) else {}
+                mark_attrs = mark.get("attrs")
+                attrs = mark_attrs if isinstance(mark_attrs, dict) else {}
                 text = f"[{text}]({attrs.get('href') or ''})"
         parts.append(text)
     return "".join(parts)

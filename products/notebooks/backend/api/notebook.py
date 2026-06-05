@@ -1063,7 +1063,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             notebook.title = title
             notebook.version += 1
             notebook.last_modified_at = now()
-            notebook.last_modified_by = request.user
+            notebook.last_modified_by = user
             notebook.save(
                 update_fields=[
                     "content_storage",
