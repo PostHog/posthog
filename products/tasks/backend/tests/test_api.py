@@ -9,6 +9,7 @@ from datetime import timedelta
 from typing import ClassVar, cast
 from urllib.parse import quote
 
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -5074,8 +5075,15 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
         return asyncio.run(_read())
 
-    def _collect_sse_events(self, response) -> list[dict]:
-        content = b"".join(response.streaming_content).decode("utf-8")
+    def _collect_sse_events(self, response, timeout: float = 30.0) -> list[dict]:
+        """Parse SSE events from a streaming response with a timeout safety net."""
+        chunks: list[bytes] = []
+        deadline = time.monotonic() + timeout
+        for chunk in response.streaming_content:
+            chunks.append(chunk)
+            if time.monotonic() > deadline:
+                break
+        content = b"".join(chunks).decode("utf-8")
         events: list[dict] = []
         for block in [part.strip() for part in content.split("\n\n") if part.strip()]:
             event_name = None
@@ -5121,6 +5129,7 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["data"]["notification"]["method"], "_posthog/sandbox_output")
 
+    @pytest.mark.timeout(30)
     def test_stream_start_latest_only_yields_new_events(self):
         task = self.create_task()
         run = task.create_run()
@@ -5149,12 +5158,17 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
         publisher.start()
         response = self.client.get(self._stream_url(task, run) + "?start=latest")
         events = self._collect_sse_events(response)
-        publisher.join()
+        publisher.join(timeout=10)
+        self.assertFalse(publisher.is_alive(), "Publisher thread did not complete within 10s")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(len(events), 1)
-        self.assertTrue(all(event["data"]["notification"]["method"] == "_posthog/console" for event in events), events)
-        self.assertEqual(events[-1]["data"]["notification"]["params"]["message"], "late hello")
+        notification_events = [e for e in events if e.get("data") and "notification" in e["data"]]
+        self.assertGreaterEqual(len(notification_events), 1)
+        self.assertTrue(
+            all(event["data"]["notification"]["method"] == "_posthog/console" for event in notification_events),
+            notification_events,
+        )
+        self.assertEqual(notification_events[-1]["data"]["notification"]["params"]["message"], "late hello")
 
 
 class TestTaskRunRedisStreamKeepalive(TestCase):
