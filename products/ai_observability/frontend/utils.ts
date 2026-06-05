@@ -1543,32 +1543,6 @@ export const AVAILABLE_TOOLS_ROLE = 'available tools'
 export const INTERNAL_THINKING_ROLE = 'assistant (thinking)'
 export const INTERNAL_TOOL_RESULT_ROLE = 'assistant (tool result)'
 
-// Returns the tool names invoked across events in chronological order (duplicates preserved)
-export function getToolNamesCalled(events: LLMTraceEvent[]): string[] {
-    const sorted = [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-    const names: string[] = []
-    // Pulls from `$ai_span_name` on instrumented `$ai_span` events
-    // and from `tool_calls[].function.name` on normalized `$ai_generation` outputs
-    for (const event of sorted) {
-        if (event.event === '$ai_span') {
-            const spanName = event.properties.$ai_span_name
-            if (typeof spanName === 'string' && spanName) {
-                names.push(spanName)
-            }
-        } else if (event.event === '$ai_generation') {
-            for (const msg of normalizeMessages(event.properties.$ai_output_choices, 'assistant')) {
-                for (const tc of msg.tool_calls ?? []) {
-                    const name = tc.function?.name
-                    if (typeof name === 'string' && name) {
-                        names.push(name)
-                    }
-                }
-            }
-        }
-    }
-    return names
-}
-
 export function normalizeMessages(messages: unknown, defaultRole: string, tools?: unknown): CompatMessage[] {
     const normalizedMessages: CompatMessage[] = []
 
