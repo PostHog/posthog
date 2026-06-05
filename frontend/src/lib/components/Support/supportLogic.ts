@@ -264,7 +264,7 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
         value: 'posthog-mcp',
         'data-attr': `support-form-target-area-posthog-mcp`,
-        label: 'MCP Server',
+        label: 'PostHog MCP',
     },
     {
         value: 'analytics',
@@ -280,6 +280,16 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'session_replay',
         'data-attr': `support-form-target-area-session_replay`,
         label: 'Session replay (incl. recordings)',
+    },
+    {
+        value: 'signals',
+        'data-attr': `support-form-target-area-signals`,
+        label: 'Signals',
+    },
+    {
+        value: 'slack',
+        'data-attr': `support-form-target-area-slack`,
+        label: 'Slack app',
     },
     {
         value: 'surveys',
@@ -307,6 +317,11 @@ export const TARGET_AREA_TO_NAME = [
     { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
     { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
+
+// Flattened single-list version for the searchable picker in the support form
+export const TARGET_AREA_OPTIONS: { key: string; label: string }[] = TARGET_AREA_TO_NAME.flatMap((group) =>
+    group.options.map((option) => ({ key: option.value, label: option.label }))
+)
 
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
