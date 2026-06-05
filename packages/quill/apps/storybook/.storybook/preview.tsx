@@ -6,29 +6,6 @@ import { themes } from '@storybook/theming'
 import { DocsContainer } from '@storybook/addon-docs'
 import { useDarkMode } from 'storybook-dark-mode'
 
-/**
- * Reads the addon's dark-mode signal and syncs it to:
- *  - `<html>` class/attribute (so quill's `--background` etc. resolve to dark)
- *  - the inline story canvas wrapper.
- *
- * Works for both Story and Docs views — DocsContainer below covers the
- * surrounding `.sbdocs-wrapper` chrome via Storybook's official theming.
- */
-function ThemeSync({ children }: { children: React.ReactNode }): React.ReactElement {
-    const isDark = useDarkMode()
-
-    useEffect(() => {
-        document.documentElement.classList.toggle('dark', isDark)
-        if (isDark) {
-            document.documentElement.setAttribute('theme', 'dark')
-        } else {
-            document.documentElement.removeAttribute('theme')
-        }
-    }, [isDark])
-
-    return <>{children}</>
-}
-
 function ThemedDocsContainer(props: React.ComponentProps<typeof DocsContainer>): React.ReactElement {
     const isDark = useDarkMode()
     return <DocsContainer {...props} theme={isDark ? themes.dark : themes.light} />
@@ -62,13 +39,28 @@ const preview: Preview = {
         },
     },
     decorators: [
-        (Story) => (
-            <ThemeSync>
+        // Hooks must run at the decorator's top level — Storybook's preview
+        // hooks context (which `useDarkMode` relies on) is only active here,
+        // not inside nested components a decorator renders. Syncs the signal to
+        // `<html>` class/attribute so quill's `--background` etc. resolve to dark.
+        (Story) => {
+            const isDark = useDarkMode()
+
+            useEffect(() => {
+                document.documentElement.classList.toggle('dark', isDark)
+                if (isDark) {
+                    document.documentElement.setAttribute('theme', 'dark')
+                } else {
+                    document.documentElement.removeAttribute('theme')
+                }
+            }, [isDark])
+
+            return (
                 <div className="bg-background text-foreground" style={{ padding: '1rem' }}>
                     <Story />
                 </div>
-            </ThemeSync>
-        ),
+            )
+        },
     ],
 }
 
