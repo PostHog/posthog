@@ -343,6 +343,20 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert clone.name == "renamed"
         assert frozen_events.name != "renamed"
 
+    def test_shallow_model_copy_of_frozen_table_is_writable(self):
+        frozen_events = ROOT_TABLES__DO_NOT_ADD_ANY_MORE["events"].table
+        assert isinstance(frozen_events, Table)
+
+        # pydantic's shallow copy shares the frozen fields mapping; the copy must still be editable, not raise.
+        shallow = frozen_events.model_copy()
+        shallow.name = "renamed"
+        shallow.fields["__shallow_ok__"] = StringDatabaseField(name="__shallow_ok__")
+
+        assert shallow.name == "renamed"
+        assert "__shallow_ok__" in shallow.fields
+        assert frozen_events.name != "renamed"
+        assert "__shallow_ok__" not in frozen_events.fields
+
     def test_materialized_table_is_mutable_including_nested_tables(self):
         database = Database()
         events = database.get_table("events")

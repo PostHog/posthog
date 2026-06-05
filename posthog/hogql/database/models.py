@@ -1,8 +1,8 @@
 import copy
 import datetime
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self
 
 from pydantic import (
     BaseModel,
@@ -257,6 +257,15 @@ class Table(FieldOrTable):
                 "take a mutable copy via Database.get_table(...) before editing."
             )
         super().__setattr__(name, value)
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        copied = super().model_copy(update=update, deep=deep)
+        # A shallow copy shares the frozen fields mapping by reference, leaving the copy read-only too;
+        # downgrade it to a plain dict so any copy of a frozen table is editable (deep copies already get
+        # one via _FrozenFields.__deepcopy__).
+        if type(copied.__dict__.get("fields")) is _FrozenFields:
+            copied.__dict__["fields"] = dict(copied.fields)
+        return copied
 
     def has_field(self, name: str | int) -> bool:
         return str(name) in self.fields
