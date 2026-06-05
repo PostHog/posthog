@@ -793,6 +793,26 @@ describe('experimentLogic', () => {
             expect(updatedMetric.breakdownAttributionValue).toEqual(1)
         })
 
+        it('should update breakdown limit on inline metric', () => {
+            const testExperiment: Experiment = {
+                ...experiment,
+                metrics: [
+                    {
+                        uuid: 'test-metric-uuid',
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: '$pageview' },
+                        breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                    },
+                ] as unknown as ExperimentMetric[],
+            }
+
+            logic.actions.setExperiment(testExperiment)
+            logic.actions.updateMetricBreakdownLimit('test-metric-uuid', 10)
+
+            const updatedMetric = logic.values.experiment.metrics[0] as ExperimentMetric
+            expect(updatedMetric.breakdownFilter?.breakdown_limit).toEqual(10)
+        })
+
         it('should add breakdown to shared metric metadata', () => {
             const breakdown: Breakdown = { property: '$browser', type: 'event' }
             const testExperiment: Experiment = {

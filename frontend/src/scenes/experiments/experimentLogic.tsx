@@ -1637,6 +1637,7 @@ export const experimentLogic = kea<experimentLogicType>([
             attributionType: BreakdownAttributionType,
             attributionValue?: number
         ) => ({ uuid, attributionType, attributionValue }),
+        updateMetricBreakdownLimit: (uuid: string, breakdownLimit: number) => ({ uuid, breakdownLimit }),
         // METRICS RESULTS
         clearMetricsResults: true,
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
@@ -1975,6 +1976,34 @@ export const experimentLogic = kea<experimentLogicType>([
                         ...metrics[targetIndex],
                         breakdownAttributionType: attributionType,
                         breakdownAttributionValue: attributionValue,
+                    } as ExperimentMetric
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                updateMetricBreakdownLimit: (state, { uuid, breakdownLimit }) => {
+                    // The breakdown limit applies to all metric types and is configured on
+                    // inline metrics from the results header. It lives on breakdownFilter.
+                    const metricsKey =
+                        (state?.metrics || ([] as ExperimentMetric[])).findIndex((m) => m.uuid === uuid) > -1
+                            ? 'metrics'
+                            : 'metrics_secondary'
+
+                    const metrics = [...(state?.[metricsKey] || [])]
+                    const targetIndex = metrics.findIndex((m) => m.uuid === uuid)
+                    if (targetIndex === -1) {
+                        return state
+                    }
+
+                    const metric = metrics[targetIndex] as ExperimentMetric
+                    metrics[targetIndex] = {
+                        ...metric,
+                        breakdownFilter: {
+                            ...metric.breakdownFilter,
+                            breakdown_limit: breakdownLimit,
+                        },
                     } as ExperimentMetric
 
                     return {
@@ -3370,6 +3399,21 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateMetricAttribution: async ({ uuid }) => {
+            const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
+
+            actions.updateExperiment({
+                metrics: values.experiment.metrics,
+                metrics_secondary: values.experiment.metrics_secondary,
+                update_feature_flag_params: false,
+            })
+
+            if (isPrimary) {
+                actions.loadPrimaryMetricsResults(true)
+            } else {
+                actions.loadSecondaryMetricsResults(true)
+            }
+        },
+        updateMetricBreakdownLimit: async ({ uuid }) => {
             const isPrimary = values.experiment.metrics.some((m) => m.uuid === uuid)
 
             actions.updateExperiment({
