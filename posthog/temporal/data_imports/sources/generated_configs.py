@@ -135,7 +135,7 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AsanaSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
