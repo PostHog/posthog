@@ -98,6 +98,14 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
 
+    @mock.patch(f"{PENDO_PATH}.make_tracked_session")
+    def test_redacts_the_integration_key(self, mock_session):
+        mock_session.return_value.get.return_value = _resp({}, 200)
+
+        validate_credentials("secret-key", "us")
+
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
 
 class TestGetRowsListEndpoint:
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")
@@ -115,6 +123,8 @@ class TestGetRowsListEndpoint:
         assert url == "https://app.pendo.io/api/v1/feature?expand=*"
         manager.save_state.assert_called_once()
         assert manager.save_state.call_args.args[0].offset == 2
+        # The integration key is masked from logged URLs and captured HTTP samples.
+        assert mock_session.call_args.kwargs["redact_values"] == ("key",)
 
     @mock.patch(f"{PENDO_PATH}.LIST_CHUNK_SIZE", 2)
     @mock.patch(f"{PENDO_PATH}.make_tracked_session")

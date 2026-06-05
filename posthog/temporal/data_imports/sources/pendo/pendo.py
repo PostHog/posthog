@@ -75,7 +75,9 @@ def validate_credentials(integration_key: str, region: Optional[str]) -> tuple[b
     # array), a bad/insufficient key returns 401/403.
     url = f"{get_base_url(region)}/api/v1/page"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(integration_key), timeout=10)
+        # `redact_values` masks the integration key from logged URLs and captured HTTP samples.
+        session = make_tracked_session(redact_values=(integration_key,))
+        response = session.get(url, headers=_get_headers(integration_key), timeout=10)
     except (requests.RequestException, OSError):
         return False, "Could not reach Pendo. Check your network connection and the selected region."
 
@@ -159,7 +161,8 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = PENDO_ENDPOINTS[endpoint]
     base_url = get_base_url(region)
-    session = make_tracked_session(headers=_get_headers(integration_key))
+    # `redact_values` masks the integration key from logged URLs and captured HTTP samples.
+    session = make_tracked_session(headers=_get_headers(integration_key), redact_values=(integration_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     start_offset = resume.offset if resume else 0
