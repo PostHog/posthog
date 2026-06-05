@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
-import { IconBottomPanel, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
+import { IconBottomPanel, IconHourglass, IconRabbit, IconSearch, IconTortoise } from '@posthog/icons'
 import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
@@ -16,6 +16,7 @@ import {
     SettingsToggle,
 } from 'scenes/session-recordings/components/PanelSettings'
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     ModesWithInteractions,
     PLAYBACK_SPEEDS,
@@ -68,6 +69,22 @@ function SetPlaybackSpeed(): JSX.Element {
                 status: speed === speedToggle ? 'danger' : 'default',
             }))}
             label={`Speed ${speed}x`}
+        />
+    )
+}
+
+function SkipInactivity(): JSX.Element {
+    const { skipInactivitySetting } = useValues(playerSettingsLogic)
+    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
+
+    return (
+        <SettingsToggle
+            title="Skip inactive parts of the recording"
+            label="Skip inactivity"
+            active={skipInactivitySetting}
+            data-attr="skip-inactivity"
+            onClick={() => setSkipInactivitySetting(!skipInactivitySetting)}
+            icon={<IconHourglass />}
         />
     )
 }
@@ -179,6 +196,7 @@ export function PlayerMetaTopSettings(): JSX.Element {
                 <div className="flex w-full justify-between items-center gap-0.5">
                     <div className="flex flex-row gap-0.5 h-full items-center">
                         <SetPlaybackSpeed />
+                        <SkipInactivity />
                         {showControlsLayoutToggle && <PlayerControlsLayoutToggle />}
                     </div>
 

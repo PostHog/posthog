@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import {
-    IconCheck,
     IconDownload,
     IconEllipsis,
     IconMinusSmall,
@@ -19,7 +18,6 @@ import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
     SessionRecordingPlayerMode,
@@ -136,8 +134,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const { logicProps, isMuted, hasReachedExportFullVideoLimit } = useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
         useActions(sessionRecordingPlayerLogic)
-    const { skipInactivitySetting } = useValues(playerSettingsLogic)
-    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
@@ -165,16 +161,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         const itemsArray: LemonMenuItems = [
             {
                 label: () => <AddToNotebookButton fullWidth={true} />,
-            },
-            {
-                label: 'Skip inactivity',
-                'data-attr': 'skip-inactivity-menu-item',
-                title: 'Skip inactive parts of the recording',
-                onClick: () => {
-                    return setSkipInactivitySetting(!skipInactivitySetting)
-                },
-                status: skipInactivitySetting ? 'danger' : 'default',
-                icon: skipInactivitySetting ? <IconCheck /> : <IconBlank />,
             },
             {
                 label: isMuted ? 'Unmute audio' : 'Mute audio',
@@ -229,7 +215,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         onDelete,
         exportRecordingToFile,
         size,
-        skipInactivitySetting,
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
