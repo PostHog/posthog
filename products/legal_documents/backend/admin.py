@@ -67,6 +67,10 @@ class LegalDocumentAdminForm(forms.ModelForm):
 
 @admin.register(LegalDocument)
 class LegalDocumentAdmin(admin.ModelAdmin):
+    # FK to posthog.Organization — without this the add view renders a <select>
+    # of every org on Cloud, which times out. Autocomplete searches lazily via
+    # OrganizationAdmin.search_fields.
+    autocomplete_fields = ("organization",)
     list_display = (
         "id",
         "document_type",

@@ -1191,6 +1191,10 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
 
         saved_query.save()
 
+        version.saved_query = saved_query
+        version.bucket_overrides = bucket_overrides
+        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
+
         saved_query.schedule_materialization()
 
         try:
@@ -1210,9 +1214,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, TaggedItemView
                     "saved_query_id": version.saved_query.id if version and version.saved_query else None,
                 },
             )
-        version.saved_query = saved_query
-        version.bucket_overrides = bucket_overrides
-        version.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
     def _disable_materialization(
         self, endpoint: Endpoint, request: Request, version: EndpointVersion | None = None

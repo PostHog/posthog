@@ -41,6 +41,11 @@ from posthog.temporal.data_modeling.metrics import (
     DATA_MODELING_LATENCY_HISTOGRAM_BUCKETS,
     DATA_MODELING_LATENCY_HISTOGRAM_METRICS,
 )
+from posthog.temporal.mcp_analytics.intent_clustering.metrics import (
+    MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
+    MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
+    MCPAClusteringMetricsInterceptor,
+)
 from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
@@ -125,6 +130,7 @@ ALL_INTERCEPTOR_CLASSES = [
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
+    MCPAClusteringMetricsInterceptor,
     SentimentMetricsInterceptor,
     EvalReportsMetricsInterceptor,
     LogsAlertingMetricsInterceptor,
@@ -236,6 +242,12 @@ async def create_worker(
         | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(SUMMARIZATION_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(CLUSTERING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(CLUSTERING_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                MCPA_CLUSTERING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(MCPA_CLUSTERING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
         | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(SENTIMENT_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(

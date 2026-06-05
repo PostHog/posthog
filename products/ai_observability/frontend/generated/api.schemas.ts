@@ -358,6 +358,27 @@ export const OutputTypeEnumApi = {
     Boolean: 'boolean',
 } as const
 
+export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
+
+/**
+ * A trigger condition set controlling which generations an evaluation runs on.
+ */
+export interface EvaluationConditionApi {
+    /**
+     * Stable identifier for this condition set.
+     * @maxLength 100
+     */
+    id: string
+    /**
+     * Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    rollout_percentage?: number
+    /** Property filters (event or person) that scope which generations match this condition set. */
+    properties?: EvaluationConditionApiPropertiesItem[]
+}
+
 /**
  * * `openai` - Openai
  * `anthropic` - Anthropic
@@ -445,8 +466,8 @@ export interface EvaluationApi {
     output_type: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: EvaluationApiOutputConfig
-    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-    conditions?: unknown
+    /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+    conditions?: EvaluationConditionApi[]
     model_configuration?: ModelConfigurationApi | null
     readonly created_at: string
     readonly updated_at: string
@@ -517,8 +538,8 @@ export interface PatchedEvaluationApi {
     output_type?: OutputTypeEnumApi
     /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results. */
     output_config?: PatchedEvaluationApiOutputConfig
-    /** Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each. */
-    conditions?: unknown
+    /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
+    conditions?: EvaluationConditionApi[]
     model_configuration?: ModelConfigurationApi | null
     readonly created_at?: string
     readonly updated_at?: string
@@ -1116,6 +1137,47 @@ export interface OfflineExperimentItemsRequestApi {
 export interface OfflineExperimentItemsResponseApi {
     /** Tuple-positional rows; positions match `RawOfflineExperimentMetricRow` in the frontend. */
     results: unknown[][]
+}
+
+export interface ParserRecipeApi {
+    readonly id: string
+    /**
+     * Human-readable recipe name shown in the editor.
+     * @maxLength 255
+     */
+    name: string
+    /** Raw YAML recipe source, compiled and validated client-side. */
+    source: string
+    /** User who created the recipe. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedParserRecipeListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ParserRecipeApi[]
+}
+
+export interface PatchedParserRecipeApi {
+    readonly id?: string
+    /**
+     * Human-readable recipe name shown in the editor.
+     * @maxLength 255
+     */
+    name?: string
+    /** Raw YAML recipe source, compiled and validated client-side. */
+    source?: string
+    /** User who created the recipe. */
+    readonly created_by?: UserBasicApi | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 export interface PaginatedLLMProviderKeyListApi {
@@ -2686,6 +2748,17 @@ export const LlmAnalyticsModelsRetrieveProvider = {
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate500 = { [key: string]: unknown }
+
+export type LlmAnalyticsParserRecipesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LlmAnalyticsProviderKeyValidationsCreate200 = { [key: string]: unknown }
 

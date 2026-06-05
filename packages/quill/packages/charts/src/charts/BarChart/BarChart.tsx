@@ -714,7 +714,11 @@ export function resolveClickedBarSeries<Meta>({
                 continue
             }
             const hit = crossSeriesData.find((d) => d.series.key === s.key)
-            return hit ? rewrite(hit.series, hit.value, dataIndex) : null
+            if (!hit) {
+                return null
+            }
+            const inTrackArea = cursorOutsideBarFillExtent(bar, cursor, isHorizontal)
+            return { ...rewrite(hit.series, hit.value, dataIndex), inTrackArea }
         }
         return null
     }
