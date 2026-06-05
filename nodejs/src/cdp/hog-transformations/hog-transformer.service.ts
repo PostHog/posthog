@@ -4,12 +4,7 @@ import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
-import {
-    CyclotronJobInvocationResult,
-    HogFunctionInvocationGlobalEvent,
-    HogFunctionInvocationGlobals,
-    HogFunctionType,
-} from '../../cdp/types'
+import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
@@ -141,9 +136,7 @@ export class HogTransformerService {
         return this.cachedTransformationFunctions
     }
 
-    private createInvocationGlobals(
-        event: PluginEvent
-    ): HogFunctionInvocationGlobals & { event: HogFunctionInvocationGlobalEvent } {
+    private createInvocationGlobals(event: PluginEvent): HogFunctionInvocationGlobals {
         return {
             project: {
                 id: event.team_id,

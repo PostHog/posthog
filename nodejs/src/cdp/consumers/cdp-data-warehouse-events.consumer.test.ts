@@ -103,8 +103,12 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 column2: 123,
                 test_prop: 'test_value',
             })
-            // The synced row is exposed under `record`, with no synthetic event.
-            expect(invocations[0].event).toBeUndefined()
+            // The synced row lives on `record`; the event is a stub with empty properties and
+            // no distinct_id, carrying a unique uuid so billing can dedup per row.
+            expect(invocations[0].event.event).toBe('$data_warehouse_row_synced')
+            expect(invocations[0].event.properties).toEqual({})
+            expect(invocations[0].event.distinct_id).toBe('')
+            expect(invocations[0].event.uuid).toEqual(expect.any(String))
         })
 
         it('should not parse events for teams without hog functions or flows', async () => {
@@ -293,15 +297,15 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                             timestamp: expect.any(String),
                         },
                     },
-                    // Billing is per-row, not per-destination. Rows have no event uuid, so the
-                    // billing record is keyed by the triggered invocation's id.
+                    // Billing is per-row, not per-destination. The stub event carries a unique
+                    // uuid per row, so billing dedups on it just like a captured event.
                     {
                         key: null,
                         topic: 'clickhouse_app_metrics2_test',
                         value: {
                             app_source: 'hog_function',
                             app_source_id: '_event_trigger',
-                            instance_id: invocations[0].id,
+                            instance_id: globals.event.uuid,
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
@@ -337,7 +341,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             expect(billingMetrics).toHaveLength(1)
             expect(billingMetrics[0].value).toMatchObject({
                 app_source_id: '_event_trigger',
-                instance_id: expect.any(String),
+                instance_id: globals.event.uuid,
                 metric_name: 'billable_invocation',
             })
         })

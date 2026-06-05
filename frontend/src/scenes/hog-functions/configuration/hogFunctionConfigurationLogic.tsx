@@ -840,10 +840,20 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     url: currentUrl,
                 }
 
-                // Data-warehouse table rows have no captured event — expose the synced row
-                // under `record` so templates reference {record.<column>} rather than an event.
+                // Data-warehouse table rows expose the synced row under `record` so templates
+                // reference {record.<column>}. The accompanying event is a stub with empty
+                // properties (the data lives in `record`).
                 if (configuration?.filters?.source === 'data-warehouse-table') {
                     return {
+                        event: {
+                            uuid: eventId,
+                            event: '$data_warehouse_row_synced',
+                            distinct_id: '',
+                            properties: {},
+                            elements_chain: '',
+                            timestamp: dayjs().toISOString(),
+                            url: '',
+                        },
                         record: {
                             id: uuid(),
                             // Replace these with your synced table's columns
@@ -986,9 +996,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
                 const baseGlobals = sampleGlobals ?? exampleInvocationGlobals
 
-                // Data-warehouse table rows receive `record` (the synced row), `project` and
-                // `source` at runtime — never an event/person. Use the example globals (which
-                // are already record-shaped) so templates can't reference event/person.
+                // Data-warehouse table rows carry their columns under `record`; the runtime event
+                // is a stub with empty properties. Expose only `record`/`project`/`source` so
+                // templates reference {record.<column>} rather than the empty event or a person.
                 if (configuration?.filters?.source === 'data-warehouse-table') {
                     return {
                         project: exampleInvocationGlobals.project,

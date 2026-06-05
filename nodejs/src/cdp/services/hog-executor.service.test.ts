@@ -157,7 +157,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            invocation.state.globals.event!.timestamp = '2024-06-07T12:00:00.000Z'
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
 
             const result = await executor.execute(invocation)
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
@@ -196,7 +196,7 @@ describe('Hog Executor', () => {
                 },
             })
 
-            invocation.state.globals.event!.timestamp = '2024-06-07T12:00:00.000Z'
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
 
             const result = await executor.execute(invocation)
             expect(result.invocation.queueParameters).toMatchInlineSnapshot(`
@@ -237,7 +237,7 @@ describe('Hog Executor', () => {
 
         it('queues up an async function call', async () => {
             const invocation = createExampleInvocation(hogFunction)
-            invocation.state.globals.event!.timestamp = '2024-06-07T12:00:00.000Z'
+            invocation.state.globals.event.timestamp = '2024-06-07T12:00:00.000Z'
             const result = await executor.execute(invocation)
 
             expect(result.invocation).toMatchObject({

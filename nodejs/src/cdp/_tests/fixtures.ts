@@ -14,7 +14,6 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobQueueKind,
     DBHogFunctionTemplate,
-    HogFunctionInvocationGlobalEvent,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionTemplateCompiled,
@@ -228,7 +227,7 @@ export const insertIntegration = async (
 
 export const createHogExecutionGlobals = (
     data: Partial<HogFunctionInvocationGlobals> = {}
-): HogFunctionInvocationGlobals & { event: HogFunctionInvocationGlobalEvent } => {
+): HogFunctionInvocationGlobals => {
     return {
         groups: {},
         ...data,

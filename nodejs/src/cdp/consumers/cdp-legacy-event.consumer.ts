@@ -280,10 +280,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
 
     @instrumented('cdpLegacyEventsConsumer.processEvent')
     public async processEvent(invocation: HogFunctionInvocationGlobals) {
-        if (!invocation.event) {
-            // Legacy plugin events are always event-sourced; nothing to run without one.
-            return
-        }
         const event: PostIngestionEvent = {
             eventUuid: invocation.event.uuid,
             event: invocation.event.event,

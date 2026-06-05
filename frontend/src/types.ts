@@ -6762,9 +6762,7 @@ export type CyclotronJobInvocationGlobals = {
         name: string
         url: string
     }
-    // Not present for sources without a captured event (e.g. data-warehouse table rows,
-    // which expose their columns under `record` instead).
-    event?: {
+    event: {
         uuid: string
         event: string
         elements_chain: string
@@ -6774,6 +6772,8 @@ export type CyclotronJobInvocationGlobals = {
         url: string
     }
     // A synced data-warehouse table row, keyed by column name. Set for data-warehouse-table sources.
+    // The accompanying event is a stub ($data_warehouse_row_synced) with empty properties; the row's
+    // columns live here so templates reference {record.<column>}.
     record?: Record<string, any>
     person?: {
         id: string

@@ -223,33 +223,31 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
 }
 
 export function convertToHogFunctionFilterGlobal(
-    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables'>
+    globals: Pick<HogFunctionInvocationGlobals, 'event' | 'person' | 'groups' | 'variables' | 'record'>
 ): HogFunctionFilterGlobals {
-    // Sources without a captured event (e.g. data-warehouse table rows) filter on their own
-    // matchers rather than event fields, so the event-derived fields default to empty here.
-    const event = globals.event
-    const elementsChain = event ? (event.elements_chain ?? event.properties['$elements_chain']) : ''
+    const elementsChain = globals.event.elements_chain ?? globals.event.properties['$elements_chain']
 
     const response: HogFunctionFilterGlobals = {
-        event: event?.event ?? '',
-        uuid: event?.uuid ?? '',
+        event: globals.event.event,
+        uuid: globals.event.uuid,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
         elements_chain_ids: [] as string[],
         elements_chain_elements: [] as string[],
-        timestamp: event?.timestamp ?? '',
-        properties: event?.properties ?? {},
+        timestamp: globals.event.timestamp,
+        // Data-warehouse rows expose their columns under `record` (the stub event keeps empty
+        // properties to avoid doubling the payload), so filters resolve against `record` first.
+        properties: globals.record ?? globals.event.properties,
         person: globals.person ? { id: globals.person.id, properties: globals.person.properties } : null,
-        pdi:
-            globals.person && event
-                ? {
-                      distinct_id: event.distinct_id,
-                      person_id: globals.person.id,
-                      person: { id: globals.person.id, properties: globals.person.properties },
-                  }
-                : null,
-        distinct_id: event?.distinct_id ?? '',
+        pdi: globals.person
+            ? {
+                  distinct_id: globals.event.distinct_id,
+                  person_id: globals.person.id,
+                  person: { id: globals.person.id, properties: globals.person.properties },
+              }
+            : null,
+        distinct_id: globals.event.distinct_id,
         $group_0: null,
         $group_1: null,
         $group_2: null,

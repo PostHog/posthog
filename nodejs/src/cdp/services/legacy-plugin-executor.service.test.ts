@@ -199,8 +199,8 @@ describe('LegacyPluginExecutorService', () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
-            invocation.state.globals.event!.event = 'mycustomevent'
-            invocation.state.globals.event!.properties = {
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -301,8 +301,8 @@ describe('LegacyPluginExecutorService', () => {
 
             const invocation = createExampleInvocation(fn, globals)
             invocation.hogFunction.name = 'My function [CDP-TEST-HIDDEN]'
-            invocation.state.globals.event!.event = 'mycustomevent'
-            invocation.state.globals.event!.properties = {
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -330,8 +330,8 @@ describe('LegacyPluginExecutorService', () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
             const invocation = createExampleInvocation(fn, globals)
-            invocation.state.globals.event!.event = 'mycustomevent'
-            invocation.state.globals.event!.properties = {
+            invocation.state.globals.event.event = 'mycustomevent'
+            invocation.state.globals.event.properties = {
                 email: 'test@posthog.com',
             }
 
@@ -405,8 +405,8 @@ describe('LegacyPluginExecutorService', () => {
 
             it('should not drop if event is returned', async () => {
                 const invocation = createExampleInvocation(fn, globals)
-                invocation.state.globals.event!.event = 'dont-drop-me'
-                invocation.state.globals.event!.properties = {
+                invocation.state.globals.event.event = 'dont-drop-me'
+                invocation.state.globals.event.properties = {
                     email: 'test@posthog.com',
                 }
 
@@ -433,8 +433,8 @@ describe('LegacyPluginExecutorService', () => {
 
             it('should drop if event is dropped', async () => {
                 const invocation = createExampleInvocation(fn, globals)
-                invocation.state.globals.event!.event = 'drop-me'
-                invocation.state.globals.event!.properties = {
+                invocation.state.globals.event.event = 'drop-me'
+                invocation.state.globals.event.properties = {
                     email: 'test@posthog.com',
                 }
 
@@ -458,7 +458,7 @@ describe('LegacyPluginExecutorService', () => {
 
             it('should modify the event', async () => {
                 const invocation = createExampleInvocation(fn, globals)
-                invocation.state.globals.event!.properties = {
+                invocation.state.globals.event.properties = {
                     version: '1.12.20',
                 }
 
@@ -525,7 +525,7 @@ describe('LegacyPluginExecutorService', () => {
         it.each(testCasesDestination)('should run the destination plugin: %s', async ({ name, plugin }) => {
             const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
-            invocation.state.globals.event!.event = '$identify' // Many plugins filter for this
+            invocation.state.globals.event.event = '$identify' // Many plugins filter for this
 
             if (plugin.template.id === 'plugin-customerio-plugin') {
                 invocation.state.globals.inputs.legacy_plugin_config_id = pluginConfigId
@@ -543,7 +543,7 @@ describe('LegacyPluginExecutorService', () => {
             const invocation = buildInvocation(plugin)
             invocation.hogFunction.name = name
             invocation.hogFunction.type = 'transformation'
-            invocation.state.globals.event!.event = '$pageview'
+            invocation.state.globals.event.event = '$pageview'
             const res = await service.execute(invocation)
             expect(getLogMessages(res.logs)).toMatchSnapshot()
         })

@@ -267,11 +267,6 @@ export class LegacyPluginExecutorService {
             const start = performance.now()
             const globals = invocation.state.globals
 
-            if (!globals.event) {
-                // Legacy plugins are event-sourced only; an event is always present here.
-                throw new Error('Cannot execute a legacy plugin without an event')
-            }
-
             const event = {
                 distinct_id: globals.event.distinct_id,
                 ip: globals.event.properties.$ip,

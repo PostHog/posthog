@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
@@ -7,6 +8,7 @@ import { HealthCheckResult, PluginsServerConfig, Team } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { UUIDT } from '../../utils/utils'
 import { CdpDataWarehouseEvent, CdpDataWarehouseEventSchema } from '../schema'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -137,16 +139,29 @@ function convertDataWarehouseEventToHogFunctionInvocationGlobals(
     team: Team,
     siteUrl: string
 ): HogFunctionInvocationGlobals {
+    const data = event.properties
     const projectUrl = `${siteUrl}/project/${team.id}`
 
-    // A synced warehouse row has no captured event — expose its columns under `record`
-    // so templates reference {record.<column>} rather than a synthetic event.
+    // A synced warehouse row has no captured event. To avoid the optional-event noise
+    // across every consumer/executor we still hand back a stub event, but the row's
+    // columns live on `record` (templates reference {record.<column>}); the event keeps
+    // empty properties so we don't double the serialized payload. The per-row uuid lets
+    // billing dedup per trigger via the normal event-uuid path.
     return {
         project: {
             id: team.id,
             name: team.name,
             url: projectUrl,
         },
-        record: event.properties,
+        event: {
+            uuid: new UUIDT().toString(),
+            event: '$data_warehouse_row_synced',
+            elements_chain: '',
+            distinct_id: '', // No person is ever attached to a synced row
+            properties: {},
+            timestamp: DateTime.now().toISO(),
+            url: '',
+        },
+        record: data,
     }
 }

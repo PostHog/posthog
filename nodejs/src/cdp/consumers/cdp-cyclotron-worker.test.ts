@@ -310,7 +310,7 @@ describe('CdpCyclotronWorker', () => {
                         internal_partner_action: 'trackEvent',
                     },
                     event: {
-                        ...globals.event!,
+                        ...globals.event,
                         captured_at: capturedAt,
                     },
                 })
@@ -339,7 +339,7 @@ describe('CdpCyclotronWorker', () => {
                 const pluginInvocation = createExampleInvocation(pluginFn, {
                     ...globals,
                     event: {
-                        ...globals.event!,
+                        ...globals.event,
                         captured_at: capturedAt,
                     },
                 })
@@ -368,7 +368,7 @@ describe('CdpCyclotronWorker', () => {
                 const nativeInvocation = createExampleInvocation(nativeFn, {
                     ...globals,
                     event: {
-                        ...globals.event!,
+                        ...globals.event,
                         captured_at: capturedAt,
                     },
                 })
@@ -396,7 +396,7 @@ describe('CdpCyclotronWorker', () => {
                 const hogInvocation = createExampleInvocation(hogFn, {
                     ...globals,
                     event: {
-                        ...globals.event!,
+                        ...globals.event,
                         captured_at: capturedAt,
                     },
                 })

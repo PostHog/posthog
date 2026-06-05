@@ -90,7 +90,9 @@ export class CdpCyclotronWorker<
 
                 await Promise.all([
                     this.groupsManager.addGroupsToGlobals(hogFuncState.globals),
-                    !hogFuncState.globals.person && hogFuncState.globals.event
+                    // Data-warehouse rows carry a `record` and a stub event with no distinct_id —
+                    // never a person — so skip person enrichment for them.
+                    !hogFuncState.globals.person && !hogFuncState.globals.record
                         ? this.personsManager
                               .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
                               .then((person) => {

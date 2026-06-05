@@ -102,6 +102,49 @@ describe('hog-function-filtering', () => {
                 }
             `)
         })
+
+        it('should resolve properties from record when set (data-warehouse rows)', () => {
+            const globals: HogFunctionInvocationGlobals = {
+                project: { id: 1, name: 'Test Project', url: 'http://example.com' },
+                event: {
+                    uuid: 'row_uuid',
+                    event: '$data_warehouse_row_synced',
+                    distinct_id: '',
+                    properties: {},
+                    elements_chain: '',
+                    timestamp: '2025-01-01T00:00:00.000Z',
+                    url: '',
+                },
+                record: { customer_id: 42, email: 'test@posthog.com' },
+            }
+
+            const response = convertToHogFunctionFilterGlobal(globals)
+
+            // The row's columns back filters even though the stub event keeps empty properties.
+            expect(response.properties).toEqual({ customer_id: 42, email: 'test@posthog.com' })
+            expect(response.event).toBe('$data_warehouse_row_synced')
+            expect(response.person).toBeNull()
+            expect(response.pdi).toBeNull()
+        })
+
+        it('should fall back to event.properties when no record is set', () => {
+            const globals: HogFunctionInvocationGlobals = {
+                project: { id: 1, name: 'Test Project', url: 'http://example.com' },
+                event: {
+                    uuid: 'event_uuid',
+                    event: 'test_event',
+                    distinct_id: 'user_123',
+                    properties: { $current_url: 'https://posthog.com' },
+                    elements_chain: '',
+                    timestamp: '2025-01-01T00:00:00.000Z',
+                    url: 'http://example.com/event',
+                },
+            }
+
+            const response = convertToHogFunctionFilterGlobal(globals)
+
+            expect(response.properties).toEqual({ $current_url: 'https://posthog.com' })
+        })
     })
     describe('convertClickhouseRawEventToFilterGlobals', () => {
         it('should convert RawClickHouseEvent to HogFunctionFilterGlobals with basic event data', () => {

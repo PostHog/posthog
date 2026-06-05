@@ -266,8 +266,8 @@ describe('survey utils', () => {
                 distinctId: 'person-distinct-id',
             })
 
-            expect(globals.event!.event).toEqual(SurveyEventName.SENT)
-            expect(globals.event!.properties).toEqual({
+            expect(globals.event.event).toEqual(SurveyEventName.SENT)
+            expect(globals.event.properties).toEqual({
                 $survey_id: 'survey-123',
                 $survey_name: 'Onboarding survey',
                 $survey_completed: true,

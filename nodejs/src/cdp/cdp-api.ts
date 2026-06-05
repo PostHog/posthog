@@ -449,9 +449,6 @@ export class CdpApi {
                     logs: logs,
                 })
             } else if (compoundConfiguration.type === 'transformation') {
-                if (!triggerGlobals.event) {
-                    return res.status(400).json({ error: 'Transformations require an event to be provided' })
-                }
                 // NOTE: We override the ID so that the transformer doesn't cache the result
                 // TODO: We could do this with a "special" ID to indicate no caching...
                 compoundConfiguration.id = new UUIDT().toString()

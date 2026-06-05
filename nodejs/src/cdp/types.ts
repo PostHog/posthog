@@ -96,13 +96,13 @@ export type HogFunctionInvocationGlobals = {
         name: string
         url: string
     }
-    // Optional: not present for sources that don't originate from a captured event
-    // (e.g. data-warehouse table rows, which expose their columns under `record` instead).
-    event?: HogFunctionInvocationGlobalEvent
+    event: HogFunctionInvocationGlobalEvent
     person?: CyclotronPerson
     groups?: Record<string, GroupType>
 
     // A synced data-warehouse table row, keyed by column name. Set for data-warehouse-table sources.
+    // Purely a UX alias: the row's columns also back filters via convertToHogFunctionFilterGlobal,
+    // while the accompanying event is a stub ($data_warehouse_row_synced) with empty properties.
     record?: Record<string, unknown>
 
     // Unique to sources - will be modified later

@@ -19,7 +19,6 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionInputSchemaType,
-    HogFunctionInvocationGlobalEvent,
     HogFunctionInvocationGlobals,
     HogFunctionInvocationGlobalsWithInputs,
     HogFunctionTemplate,
@@ -61,7 +60,7 @@ export function propagateTemplatingFromSchema(template: any, input: any): any {
 }
 
 export type DeepPartialHogFunctionInvocationGlobals = {
-    event?: Partial<HogFunctionInvocationGlobalEvent>
+    event?: Partial<HogFunctionInvocationGlobals['event']>
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
     request?: HogFunctionInvocationGlobals['request']

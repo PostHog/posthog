@@ -271,8 +271,8 @@ export class SegmentDestinationExecutorService {
                         // If it's retriable and we have retries left, we can trigger a retry, otherwise we just pass through to the function
                         if (retriesPossible || (options?.throwHttpErrors ?? true)) {
                             throw new SegmentFetchError(
-                                `Error executing function on trigger ${
-                                    invocation.state.globals.event?.uuid ?? invocation.id
+                                `Error executing function on event ${
+                                    invocation.state.globals.event.uuid
                                 }: Request failed with status ${fetchResponse?.status} (${
                                     fetchResponseText ?? 'unknown'
                                 })`

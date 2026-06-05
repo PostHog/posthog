@@ -385,7 +385,7 @@ describe('CdpLegacyEventsConsumer', () => {
             jest.spyOn(customerIoPlugin, 'onEvent')
 
             // Execute the invocation with the legacy plugin executor
-            invocation.event!.event = '$identify'
+            invocation.event.event = '$identify'
 
             mockFetch.mockResolvedValue({
                 status: 200,

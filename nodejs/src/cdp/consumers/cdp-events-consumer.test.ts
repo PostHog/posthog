@@ -161,7 +161,7 @@ describe('CdpEventsConsumer', () => {
                     },
                     state: {
                         globals: {
-                            event: globals.event!,
+                            event: globals.event,
                         },
                     },
                 }
@@ -222,7 +222,7 @@ describe('CdpEventsConsumer', () => {
                     expect(billingMetrics[0].value).toMatchObject({
                         app_source: 'hog_function',
                         app_source_id: '_event_trigger',
-                        instance_id: globals.event!.uuid,
+                        instance_id: globals.event.uuid,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
                         team_id: 2,
@@ -231,7 +231,7 @@ describe('CdpEventsConsumer', () => {
             })
 
             it("should filter out functions that don't match the filter", async () => {
-                globals.event!.properties.$current_url = 'https://nomatch.com'
+                globals.event.properties.$current_url = 'https://nomatch.com'
 
                 const { invocations } = await processor.processBatch([globals])
 
@@ -278,7 +278,7 @@ describe('CdpEventsConsumer', () => {
                         value: {
                             app_source: 'hog_function',
                             app_source_id: '_event_trigger',
-                            instance_id: globals.event!.uuid,
+                            instance_id: globals.event.uuid,
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
@@ -360,7 +360,7 @@ describe('CdpEventsConsumer', () => {
                             expect.objectContaining({
                                 value: expect.objectContaining({
                                     app_source_id: '_event_trigger',
-                                    instance_id: globals.event!.uuid,
+                                    instance_id: globals.event.uuid,
                                     metric_name: 'billable_invocation',
                                 }),
                             }),
@@ -657,7 +657,7 @@ describe('hog flow processing', () => {
                 {
                     ...globals,
                     event: {
-                        ...globals.event!,
+                        ...globals.event,
                         event: 'not-a-pageview',
                     },
                 },
@@ -676,7 +676,7 @@ describe('hog flow processing', () => {
                 queue: 'hogflow',
                 queuePriority: 1,
                 state: {
-                    event: globals.event!,
+                    event: globals.event,
                     actionStepCount: 0,
                 },
                 teamId: 2,
@@ -1104,7 +1104,7 @@ describe('hog flow processing', () => {
         it('should have empty groups when event has no $groups property', async () => {
             await setupGroups()
 
-            globals.event!.properties = {
+            globals.event.properties = {
                 $current_url: 'https://posthog.com',
                 $lib_version: '1.0.0',
             }

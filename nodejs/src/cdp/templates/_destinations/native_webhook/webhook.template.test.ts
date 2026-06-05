@@ -106,7 +106,7 @@ describe(`${template.name} template`, () => {
               },
               {
                 "level": "error",
-                "message": "Function failed: Error executing function on trigger event-id: Request failed with status 400 ({"status":"ERROR"})",
+                "message": "Function failed: Error executing function on event event-id: Request failed with status 400 ({"status":"ERROR"})",
                 "timestamp": "2025-01-01T00:00:00.000Z",
               },
             ]
