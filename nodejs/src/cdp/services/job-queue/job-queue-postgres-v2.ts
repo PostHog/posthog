@@ -9,7 +9,7 @@ import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
-import { JobQueue } from './job-queue.interface'
+import { ConsumerOptions, JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 const pendingJobsGauge = new Gauge({
@@ -65,7 +65,8 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        options?: ConsumerOptions
     ): Promise<void> {
         if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
             throw new Error('Cyclotron V2 database URL not set')
@@ -73,11 +74,14 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
         await this.startAsProducer()
 
+        const batchMaxSize = options?.batchMaxSize ?? this.consumerBatchSize
+        const pollDelayMs = options?.pollDelayMs ?? this.config.CDP_CYCLOTRON_BATCH_DELAY_MS
+
         this.worker = new CyclotronV2Worker({
             pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL },
             queueName: queue,
-            batchMaxSize: this.consumerBatchSize,
-            pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            batchMaxSize,
+            pollDelayMs,
             includeEmptyBatches: true,
         })
 
@@ -95,7 +99,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 queue,
                 source: 'postgres-v2',
                 batchSize: invocations.length,
-                maxBatchSize: this.consumerBatchSize,
+                maxBatchSize: batchMaxSize,
             })
 
             await consumeBatch(invocations)

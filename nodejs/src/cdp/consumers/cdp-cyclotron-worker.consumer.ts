@@ -3,7 +3,7 @@ import { instrumented } from '~/common/tracing/tracing-utils'
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { ConsumerOptions, JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -172,10 +172,23 @@ export class CdpCyclotronWorker<
         await this.cyclotronJobQueue.queueInvocationResults(invocations)
     }
 
+    /**
+     * Subclasses can override to constrain dequeue batch size + empty-queue poll
+     * cadence. Used by the SES email worker to pace sends against AWS's per-second
+     * cap. Default returns undefined, meaning "use whatever the queue's defaults are."
+     */
+    protected getConsumerOptions(): ConsumerOptions | undefined {
+        return undefined
+    }
+
     public override async start() {
         await super.start()
         await this.cyclotronJobQueue.startAsProducer()
-        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch))
+        await this.cyclotronJobQueue.startAsConsumer(
+            this.queue,
+            (batch) => this.processBatch(batch),
+            this.getConsumerOptions()
+        )
     }
 
     public override async stop() {

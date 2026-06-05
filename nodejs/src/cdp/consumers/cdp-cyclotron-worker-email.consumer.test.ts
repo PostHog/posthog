@@ -5,37 +5,9 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { createHogExecutionGlobals } from '../_tests/fixtures'
-import { EMAIL_RATE_LIMITER_KEY, EMAIL_RATE_LIMITER_NAME } from '../services/messaging/email-rate-limiter.service'
-import { CyclotronJobInvocation } from '../types'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
 jest.setTimeout(5000)
-
-const KEY_PREFIX = `@posthog-test/${EMAIL_RATE_LIMITER_NAME}/tokens/${EMAIL_RATE_LIMITER_KEY}`
-
-const createEmailInvocation = (id: string, teamId: number): CyclotronJobInvocation =>
-    ({
-        id,
-        teamId,
-        functionId: 'function-1',
-        queue: 'email',
-        queuePriority: 0,
-        queueParameters: {
-            type: 'email',
-            to: { email: 'user@example.com' },
-            from: { email: 'noreply@posthog.com', integrationId: 1 },
-            subject: 'Test',
-            text: 'Hello',
-            html: '<p>Hello</p>',
-        } as any,
-        state: {
-            globals: createHogExecutionGlobals({}),
-            vmState: null,
-            timings: [],
-            attempts: 0,
-        } as any,
-    }) as CyclotronJobInvocation
 
 describe('CdpCyclotronWorkerEmail', () => {
     let hub: Hub
@@ -47,193 +19,80 @@ describe('CdpCyclotronWorkerEmail', () => {
     })
 
     afterEach(async () => {
-        jest.setTimeout(10000)
         await closeHub(hub)
     })
 
-    it('should set queue to email', () => {
+    it('uses the email queue', () => {
         const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
         expect(worker['queue']).toBe('email')
     })
 
-    it('should extend CdpCyclotronWorkerHogFlow', () => {
+    it('extends CdpCyclotronWorkerHogFlow', () => {
         const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
         expect(worker['name']).toBe('CdpCyclotronWorkerEmail')
     })
 
-    describe('rate limiting', () => {
-        const enableRateLimit = (overrides: Partial<Hub> = {}): Hub =>
-            ({
-                ...hub,
-                CDP_EMAIL_VALKEY_HOST: hub.CDP_REDIS_HOST,
-                CDP_EMAIL_VALKEY_PORT: hub.CDP_REDIS_PORT,
-                CDP_EMAIL_VALKEY_PASSWORD: '',
-                CDP_EMAIL_VALKEY_TLS: false,
-                CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 500,
-                CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 500,
-                ...overrides,
-            }) as Hub
+    describe('pacing', () => {
+        const buildWorker = (overrides: Partial<Hub> = {}) => {
+            const config = { ...hub, ...overrides } as Hub
+            return new CdpCyclotronWorkerEmail(config, createCdpConsumerDeps(hub), createMockJobQueue())
+        }
 
-        afterEach(async () => {
-            // Flush the rate-limit key so each test starts with a fresh bucket. A
-            // throwaway worker gives us a Valkey pool aimed at the same instance the
-            // production code would use under these env vars.
-            const cleanup = new CdpCyclotronWorkerEmail(
-                enableRateLimit(),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-            await cleanup['emailValkey']!.useClient({ name: 'rate-limit-cleanup' }, async (client) => {
-                await client.del(KEY_PREFIX)
+        it('passes batch size + min interval as consumer options to the queue', () => {
+            const worker = buildWorker({
+                CDP_EMAIL_BATCH_SIZE: 250,
+                CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 250,
+            })
+
+            expect(worker['getConsumerOptions']()).toEqual({
+                batchMaxSize: 250,
+                pollDelayMs: 250,
             })
         })
 
-        it('does not create a rate limiter when the valkey host is unset', () => {
-            const worker = new CdpCyclotronWorkerEmail(
-                { ...hub, CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 500, CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 500 },
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
+        it('holds the tick open when processing finishes faster than MIN_BATCH_INTERVAL_MS', async () => {
+            const worker = buildWorker({ CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 100 })
 
-            expect(worker['emailRateLimiter']).toBeNull()
-        })
-
-        it.each([
-            { label: 'refill rate missing', overrides: { CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0 } },
-            { label: 'bucket size missing', overrides: { CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 0 } },
-        ])('does not create a rate limiter when $label', ({ overrides }) => {
-            const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit(overrides as Partial<Hub>),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-            expect(worker['emailRateLimiter']).toBeNull()
-        })
-
-        it('creates a rate limiter when valkey host + bucket + refill are all set', () => {
-            const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit(),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-            expect(worker['emailRateLimiter']).not.toBeNull()
-        })
-
-        it('passes the whole batch through when rate limiting is disabled', async () => {
-            const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
-
-            const parentSpy = jest
-                .spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations')
-                .mockResolvedValue([{ finished: true }, { finished: true }, { finished: true }] as any)
-
-            const invocations = [
-                createEmailInvocation('email-1', 1),
-                createEmailInvocation('email-2', 1),
-                createEmailInvocation('email-3', 1),
-            ]
-
-            const results = await worker.processInvocations(invocations)
-
-            expect(parentSpy).toHaveBeenCalledWith(invocations)
-            expect(results).toHaveLength(3)
-        })
-
-        it('defers the excess when the batch exceeds the bucket', async () => {
-            const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 2, CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 1 }),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-
-            const parentSpy = jest
-                .spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations')
-                .mockResolvedValue([])
-
-            const invocations = [
-                createEmailInvocation('email-1', 1),
-                createEmailInvocation('email-2', 1),
-                createEmailInvocation('email-3', 1),
-            ]
-
-            const results = await worker.processInvocations(invocations)
-
-            // 2 processed, 1 deferred (rescheduled with queueScheduledAt)
-            expect(parentSpy).toHaveBeenCalledWith(invocations.slice(0, 2))
-            const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
-            expect(deferred).toHaveLength(1)
-        })
-
-        it('defers the entire batch when the bucket is empty', async () => {
-            // Use bucketSize=2 + a batch-of-2 warmup so the warmup itself genuinely
-            // succeeds (cost==available is a success per the V2 Lua) and the bucket
-            // is provably empty before the asserted call. With bucketSize=1 + warmup
-            // of 1 the test passed for the wrong reason (the exact-drain bug).
-            const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 2, CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0.0001 }),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-
-            const parentSpy = jest
-                .spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations')
-                .mockResolvedValue([])
-
-            // Drain both tokens.
-            await worker.processInvocations([
-                createEmailInvocation('warmup-1', 1),
-                createEmailInvocation('warmup-2', 1),
-            ])
-
-            parentSpy.mockClear()
-
-            const results = await worker.processInvocations([
-                createEmailInvocation('email-1', 1),
-                createEmailInvocation('email-2', 1),
-            ])
-
-            // Bucket genuinely empty → nothing should reach the parent, both deferred.
-            expect(parentSpy).not.toHaveBeenCalled()
-            const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
-            expect(deferred).toHaveLength(2)
-        })
-
-        it('staggers deferred reschedules with jitter to avoid thundering herd', async () => {
-            const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit({ CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 0.0001, CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0.0001 }),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
-            )
-
+            // Stub parent processInvocations as immediate (0ms work).
             jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue([])
 
-            const invocations = Array.from({ length: 20 }, (_, i) => createEmailInvocation(`email-${i}`, 1))
-            const results = await worker.processInvocations(invocations)
+            const t0 = Date.now()
+            await worker.processInvocations([])
+            const elapsed = Date.now() - t0
 
-            const deferred = results.filter((r) => !r.finished && r.invocation.queueScheduledAt)
-            expect(deferred.length).toBeGreaterThan(0)
-
-            const delays = new Set(deferred.map((r) => r.invocation.queueScheduledAt!.toMillis()))
-            // Jitter range is 0–200ms — across 20 invocations we expect at least a few distinct delays.
-            expect(delays.size).toBeGreaterThan(1)
+            // Should be very close to 100ms (the safety belt). Allow generous
+            // upper bound for CI scheduler jitter.
+            expect(elapsed).toBeGreaterThanOrEqual(95)
+            expect(elapsed).toBeLessThan(250)
         })
 
-        it('fails open and processes the whole batch when the rate limiter throws', async () => {
-            const worker = new CdpCyclotronWorkerEmail(
-                enableRateLimit(),
-                createCdpConsumerDeps(hub),
-                createMockJobQueue()
+        it('does not add extra delay when processing already took longer than MIN_BATCH_INTERVAL_MS', async () => {
+            const worker = buildWorker({ CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 50 })
+
+            // Parent takes 150ms — already longer than the 50ms interval.
+            jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockImplementation(
+                () => new Promise((r) => setTimeout(() => r([]), 150))
             )
 
-            const parentSpy = jest
-                .spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations')
-                .mockResolvedValue([{ finished: true }, { finished: true }] as any)
-            jest.spyOn(worker['emailRateLimiter']!, 'decide').mockRejectedValue(new Error('valkey down'))
+            const t0 = Date.now()
+            await worker.processInvocations([])
+            const elapsed = Date.now() - t0
 
-            const invocations = [createEmailInvocation('email-1', 1), createEmailInvocation('email-2', 1)]
-            const results = await worker.processInvocations(invocations)
+            // Should be ~150ms (parent's time), not 150 + 50.
+            expect(elapsed).toBeGreaterThanOrEqual(145)
+            expect(elapsed).toBeLessThan(250)
+        })
 
-            expect(parentSpy).toHaveBeenCalledWith(invocations)
-            expect(results).toHaveLength(2)
+        it('returns the parent result unchanged', async () => {
+            const worker = buildWorker({ CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 0 })
+
+            const expected = [{ finished: true } as any, { finished: false } as any]
+            jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue(
+                expected
+            )
+
+            const results = await worker.processInvocations([])
+            expect(results).toBe(expected)
         })
     })
 })

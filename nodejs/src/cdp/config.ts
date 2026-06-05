@@ -55,24 +55,13 @@ export type CdpConfig = ClickhouseConfig & {
     //           '123,*:0.05' (team 123 + 5% of rest), '*' (all traffic)
     CDP_EMAIL_QUEUE_ROUTING: string
 
-    // Dedicated Valkey instance for the SES email rate limiter. Kept separate from
-    // CDP_REDIS_* (CPU-bound) and CDP_VALKEY_* (HogWatcher shadow load-test) so the
-    // email worker can't be starved by hot-key contention elsewhere. When the host
-    // is unset, the email rate limiter is disabled regardless of bucket/refill.
-    CDP_EMAIL_VALKEY_HOST: string
-    CDP_EMAIL_VALKEY_PORT: number
-    CDP_EMAIL_VALKEY_PASSWORD: string
-    // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
-    CDP_EMAIL_VALKEY_TLS: boolean
-    // Global SES rate limit (token bucket). Both must be > 0 to enable.
-    // Example: bucket=500, refill=500 → max 500 emails/sec sustained, 500 burst.
-    CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: number
-    CDP_EMAIL_RATE_LIMIT_REFILL_RATE: number
-    // Reschedule delay for deferred (rate-limited) email invocations. Final delay
-    // is `RETRY_BASE_MS + random(0, JITTER_MS)` to break thundering-herd patterns
-    // when many workers defer batches simultaneously.
-    CDP_EMAIL_RATE_LIMIT_RETRY_BASE_MS: number
-    CDP_EMAIL_RATE_LIMIT_JITTER_MS: number
+    // SES rate-limit knobs for the dedicated email worker. The product of these
+    // two — BATCH_SIZE × 1000 / MIN_BATCH_INTERVAL_MS — is the effective sends/sec
+    // ceiling. Defaults pace at 1000/sec (matches typical SES production tier).
+    // The worker enforces MIN_BATCH_INTERVAL_MS itself; without that, cyclotron's
+    // pollDelayMs only paces empty-queue backoff, not non-empty batches.
+    CDP_EMAIL_BATCH_SIZE: number
+    CDP_EMAIL_MIN_BATCH_INTERVAL_MS: number
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -189,14 +178,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
         CDP_EMAIL_QUEUE_ROUTING: '',
 
-        CDP_EMAIL_VALKEY_HOST: '',
-        CDP_EMAIL_VALKEY_PORT: 6379,
-        CDP_EMAIL_VALKEY_PASSWORD: '',
-        CDP_EMAIL_VALKEY_TLS: false,
-        CDP_EMAIL_RATE_LIMIT_BUCKET_SIZE: 0,
-        CDP_EMAIL_RATE_LIMIT_REFILL_RATE: 0,
-        CDP_EMAIL_RATE_LIMIT_RETRY_BASE_MS: 500,
-        CDP_EMAIL_RATE_LIMIT_JITTER_MS: 200,
+        CDP_EMAIL_BATCH_SIZE: 100,
+        CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 100,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
