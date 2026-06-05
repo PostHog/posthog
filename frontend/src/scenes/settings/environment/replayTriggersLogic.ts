@@ -41,14 +41,7 @@ export function legacyConditionsAreInactive(webVersions: string[]): boolean {
             return true
         }
     }
-    const isNew = (v: string): boolean => {
-        try {
-            return compareVersion(v, TRIGGER_GROUPS_MIN_SDK_VERSION) >= 0
-        } catch {
-            return false
-        }
-    }
-    return webVersions.some(isNew) && !webVersions.some(isOld)
+    return !webVersions.some(isOld)
 }
 
 function ensureAnchored(url: string): string {
