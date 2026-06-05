@@ -56,8 +56,10 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-    await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
-    bundleClient.destroy()
+    if (bundleClient) {
+        await wipeTestPrefix(bundleClient, bundlePrefix).catch(() => undefined)
+        bundleClient.destroy()
+    }
 })
 
 function session(label: string): AgentSession {

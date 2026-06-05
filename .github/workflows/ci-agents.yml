@@ -124,12 +124,17 @@ jobs:
         # agents-image and agent-chat have no tests; covered by typecheck.
         env:
             COMPOSE_FILE: docker-compose.dev.yml
-            # agent-shared, agent-janitor, and agent-tools have suites that
-            # exercise the S3MemoryStore against real SeaweedFS by design
-            # (see services/agent-shared/CLAUDE.md). Bring it up for every
-            # matrix entry — startup is cheap and uniform setup beats per-
-            # workspace conditionals.
+            # Unit suites in the agent services now run against the same
+            # real backing services prod uses — PG (`agent_runtime_queue_test`),
+            # Redis (`RedisSessionEventBus`), Kafka (`KafkaLogSink`), and
+            # SeaweedFS (`S3BundleStore` + `S3MemoryStore`). The in-memory
+            # variants were deleted to stop dev/prod silently diverging
+            # (see services/agent-shared/CLAUDE.md). Startup is cheap and
+            # uniform setup beats per-workspace conditionals.
+            AGENT_TEST_DB_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
             AGENT_MEMORY_TEST_S3_ENDPOINT: 'http://localhost:8333'
+            REDIS_URL: 'redis://localhost:6379'
+            KAFKA_HOSTS: 'localhost:9092'
         strategy:
             fail-fast: false
             matrix:
@@ -146,17 +151,17 @@ jobs:
               with:
                   clean: false
 
-            - name: Stop/Start SeaweedFS via docker compose
+            - name: Stop/Start backing services via docker compose
               env:
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
-              run: bin/ci-wait-for-docker launch --down seaweedfs
+              run: bin/ci-wait-for-docker launch --down db redis7 kafka seaweedfs
 
-            - name: Wait for SeaweedFS
-              run: bin/ci-wait-for-docker wait --only seaweedfs
+            - name: Wait for backing services
+              run: bin/ci-wait-for-docker wait --only db redis7 kafka seaweedfs
 
             - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 seaweedfs" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
@@ -177,12 +182,20 @@ jobs:
                   npm_config_fetch_retry_maxtimeout: 60000
               run: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
 
+            - name: Create empty test database
+              # Schema lives in @posthog/agent-migrations; tests call
+              # `reset()` per file (see vitest.config.ts fileParallelism:false)
+              # so we just need an empty DB to drop into.
+              run: |
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS agent_runtime_queue_test;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE agent_runtime_queue_test;"
+
             - name: Run unit tests
               run: pnpm --filter="${{ matrix.workspace }}" test
 
     e2e-tests:
         if: needs.changes.outputs.agents == 'true'
-        name: agent-tests e2e (Postgres + SeaweedFS)
+        name: agent-tests e2e (Postgres + Redis + Kafka + SeaweedFS)
         needs: changes
         runs-on: depot-ubuntu-latest-4
         timeout-minutes: 25 # vitest runs file-serial; ~100s locally
@@ -193,23 +206,25 @@ jobs:
             AGENT_SKIP_REAL_INFERENCE: '1'
             AGENT_TEST_DB_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
             AGENT_MEMORY_TEST_S3_ENDPOINT: 'http://localhost:8333'
+            REDIS_URL: 'redis://localhost:6379'
+            KAFKA_HOSTS: 'localhost:9092'
         steps:
             - name: Code check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
 
-            - name: Stop/Start Postgres + SeaweedFS via docker compose
+            - name: Stop/Start Postgres + Redis + Kafka + SeaweedFS via docker compose
               env:
                   WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
-              run: bin/ci-wait-for-docker launch --down db seaweedfs
+              run: bin/ci-wait-for-docker launch --down db redis7 kafka seaweedfs
 
             - name: Wait for docker services
-              run: bin/ci-wait-for-docker wait --only db seaweedfs
+              run: bin/ci-wait-for-docker wait --only db redis7 kafka seaweedfs
 
             - name: Add service hostnames to /etc/hosts
-              run: echo "127.0.0.1 db seaweedfs" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8

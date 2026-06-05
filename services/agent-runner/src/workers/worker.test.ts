@@ -691,16 +691,21 @@ describe('Worker', () => {
 
         // The failure landed on all three surfaces:
         //   - DB row state = failed (pinned by the parameterized test above)
-        //   - Bus `failed` event with reason + source: pre_run_session
-        //   - Log entry with event: failed + level: error
+        //   - Bus `failed` event with an EMPTY payload — raw reason +
+        //     source must never reach the SSE wire because the bus fans
+        //     out to every chat client connected to the session
+        //   - Log entry with event: failed + level: error + full reason +
+        //     source: pre_run_session, for the agent owner to debug via
+        //     the session-detail page (which reads log_entries)
         const failedEvent = busPublishes.find((e) => e.kind === 'failed')
-        expect(failedEvent?.data).toMatchObject({
+        expect(failedEvent).not.toBeUndefined()
+        expect(failedEvent?.data).toEqual({})
+        const failedLog = logWrites.find((e) => e.event === 'failed')
+        expect(failedLog?.level).toBe('error')
+        expect(failedLog?.data).toMatchObject({
             reason: expect.stringContaining('Endpoint not found'),
             source: 'pre_run_session',
         })
-        const failedLog = logWrites.find((e) => e.event === 'failed')
-        expect(failedLog?.level).toBe('error')
-        expect(failedLog?.data).toMatchObject({ source: 'pre_run_session' })
     })
 
     it('main loop swallows transient claim() errors instead of crashing', async () => {
