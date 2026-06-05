@@ -16,6 +16,9 @@ import { WidgetCardContent } from './WidgetCardBody'
 export const TILE_WIDTH = 560
 export const TILE_HEIGHT = 480
 
+/** Freeze Storybook/VR "now" — keeps relative dates stable. Matches fixture timestamps in widgetOverviewStoryFixtures. */
+export const WIDGET_STORYBOOK_MOCK_DATE = '2026-05-26T10:00:00'
+
 export function WidgetTileFrame({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div

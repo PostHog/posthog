@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { withErrorTrackingProjectState } from '../../components/WidgetCard/widgetCardStoryFixtures'
+import {
+    WIDGET_STORYBOOK_MOCK_DATE,
+    withErrorTrackingProjectState,
+} from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { EditErrorTrackingWidgetModal } from './EditErrorTrackingWidgetModal'
@@ -40,6 +43,7 @@ const meta: Meta<typeof EditErrorTrackingWidgetModalStory> = {
     component: EditErrorTrackingWidgetModalStory,
     parameters: {
         layout: 'fullscreen',
+        mockDate: WIDGET_STORYBOOK_MOCK_DATE,
     },
     decorators: [],
     args: {
