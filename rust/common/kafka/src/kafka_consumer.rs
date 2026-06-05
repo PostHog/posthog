@@ -17,7 +17,7 @@ use tracing::warn;
 
 use crate::config::{ConsumerConfig, KafkaConfig};
 
-const LZ4_FRAME_MAGIC: &[u8; 4] = &[0x04, 0x22, 0x4d, 0x18];
+pub(crate) const LZ4_FRAME_MAGIC: &[u8; 4] = &[0x04, 0x22, 0x4d, 0x18];
 const MAX_DECOMPRESSED_KAFKA_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const KAFKA_LZ4_PAYLOADS_TOTAL: &str = "common_kafka_lz4_payloads_total";
 const KAFKA_LZ4_COMPRESSED_BYTES: &str = "common_kafka_lz4_compressed_bytes";

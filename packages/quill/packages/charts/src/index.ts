@@ -79,6 +79,10 @@ export type {
 } from './core/types'
 export { DEFAULT_Y_AXIS_ID } from './core/types'
 
+// Theme: read a ChartTheme from quill data-viz CSS vars (with a built-in fallback palette)
+export { themeFromCssVars, useChartTheme, DEFAULT_CHART_COLORS } from './core/theme'
+export type { ThemeFromCssOptions } from './core/theme'
+
 // Built-in tooltip (for reference or extension)
 export { DefaultTooltip } from './overlays/DefaultTooltip'
 

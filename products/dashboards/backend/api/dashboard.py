@@ -73,6 +73,8 @@ from posthog.rbac.user_access_control import UserAccessControl, UserAccessContro
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
+from posthog.slo.context import SloSpec, slo_operation
+from posthog.slo.types import SloArea, SloOperation
 from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import filters_override_requested_by_client, str_to_bool, variables_override_requested_by_client
 
@@ -82,7 +84,11 @@ from products.dashboards.backend.api.dashboard_ai import generate_refresh_analys
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
-from products.dashboards.backend.api.widget_openapi_serializers import DashboardWidgetConfigField
+from products.dashboards.backend.api.widget_openapi_serializers import (
+    WIDGET_BATCH_ADD_OPENAPI_HELP,
+    AddDashboardWidgetRequestOpenApi,
+    DashboardWidgetConfigField,
+)
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT, MAX_WIDGETS_BATCH_SIZE
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -172,25 +178,47 @@ class _RunWidgetQueryWorkItem(TypedDict):
     user: User | None
 
 
-def _run_widget_query(team: Team, work_item: _RunWidgetQueryWorkItem) -> dict[str, Any]:
+def _run_widget_query(
+    team: Team,
+    work_item: _RunWidgetQueryWorkItem,
+    *,
+    dashboard_id: int,
+    distinct_id: str,
+) -> dict[str, Any]:
     tile_id = work_item["tile_id"]
     widget_type = work_item["widget_type"]
-    try:
-        result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
-        return {
-            "tile_id": tile_id,
+
+    with slo_operation(
+        spec=SloSpec(
+            distinct_id=distinct_id,
+            area=SloArea.ANALYTIC_PLATFORM,
+            operation=SloOperation.DASHBOARD_WIDGET_DELIVERY,
+            team_id=team.id,
+            resource_id=str(tile_id),
+        ),
+        properties={
             "widget_type": widget_type,
-            "result": result,
-            "error": None,
-        }
-    except Exception:
-        logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
-        return {
+            "dashboard_id": dashboard_id,
             "tile_id": tile_id,
-            "widget_type": widget_type,
-            "result": None,
-            "error": "Widget query failed. Please try again later.",
-        }
+        },
+    ) as slo:
+        try:
+            result = work_item["query_fn"](team, work_item["config"], user=work_item["user"])
+            return {
+                "tile_id": tile_id,
+                "widget_type": widget_type,
+                "result": result,
+                "error": None,
+            }
+        except Exception:
+            logger.exception("dashboard_run_widgets_failed", tile_id=tile_id, widget_type=widget_type)
+            slo.fail()
+            return {
+                "tile_id": tile_id,
+                "widget_type": widget_type,
+                "result": None,
+                "error": "Widget query failed. Please try again later.",
+            }
 
 
 def _tile_rects_overlap(rect_a: dict[str, int], rect_b: dict[str, int]) -> bool:
@@ -474,8 +502,8 @@ class MoveTileRequestSerializer(serializers.Serializer):
 
 
 class DashboardWidgetCoreRequestSerializer(serializers.Serializer):
-    widget_type = serializers.CharField(
-        max_length=64,
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
         help_text=WIDGET_TYPE_API_HELP,
     )
     config = DashboardWidgetConfigField(
@@ -519,8 +547,8 @@ class AddDashboardWidgetRequestSerializer(DashboardWidgetCoreRequestSerializer):
 
 
 class DashboardPatchWidgetSerializer(DashboardWidgetCoreRequestSerializer):
-    widget_type = serializers.CharField(
-        max_length=64,
+    widget_type = serializers.ChoiceField(
+        choices=sorted(EXPECTED_WIDGET_TYPES),
         required=False,
         help_text=WIDGET_TYPE_API_HELP,
     )
@@ -538,6 +566,17 @@ class AddDashboardWidgetsBatchRequestSerializer(serializers.Serializer):
         help_text=(
             f"Widget tiles to add atomically (1–{MAX_WIDGETS_BATCH_SIZE}). Use a single-element list to add one widget."
         ),
+    )
+
+
+class AddDashboardWidgetsBatchRequestOpenApiSerializer(serializers.Serializer):
+    """OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents."""
+
+    widgets = serializers.ListField(
+        child=AddDashboardWidgetRequestOpenApi,
+        min_length=1,
+        max_length=MAX_WIDGETS_BATCH_SIZE,
+        help_text=f"{WIDGET_BATCH_ADD_OPENAPI_HELP} (1–{MAX_WIDGETS_BATCH_SIZE} per request).",
     )
 
 
@@ -677,6 +716,36 @@ class DashboardWidgetSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
+class SharedDashboardWidgetMetadataSerializer(serializers.ModelSerializer):
+    """Tile header metadata for shared dashboards — no user fields or live query results."""
+
+    widget_type = serializers.CharField(
+        max_length=64,
+        help_text="Widget type identifier from the dashboard widget catalog.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional custom display name for this widget tile. Falls back to the widget catalog label when unset.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional markdown description shown on the dashboard tile when enabled.",
+    )
+    config = DashboardWidgetConfigField(
+        required=False,
+        help_text="Widget-specific configuration JSON for this widget type.",
+    )
+
+    class Meta:
+        model = DashboardWidget
+        fields = ["id", "widget_type", "name", "description", "config"]
+        read_only_fields = ["id", "widget_type", "name", "description", "config"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
@@ -704,8 +773,10 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     def to_representation(self, instance: DashboardTile):
         representation = super().to_representation(instance)
 
-        if self.context.get("is_shared") and representation.get("widget"):
-            representation["widget"] = None
+        if self.context.get("is_shared") and instance.widget_id is not None:
+            representation["widget"] = SharedDashboardWidgetMetadataSerializer(
+                instance.widget, context=self.context
+            ).data
 
         representation["order"] = self.context.get("order", None)
 
@@ -1118,7 +1189,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 "from_template": bool(use_template),
                 "template_key": use_template,
                 "duplicated": bool(use_dashboard),
-                "dashboard_id": use_dashboard,
+                "duplicated_from_dashboard_id": use_dashboard,
             },
             team=dashboard.team,
             request=request,
@@ -2587,6 +2658,7 @@ class DashboardsViewSet(
 
         dashboard = self.get_object()
         user_access_control = UserAccessControl(user=cast(User, request.user), team=self.team)
+        distinct_id = str(cast(User, request.user).distinct_id)
 
         tiles_by_id = {
             tile.id: tile
@@ -2665,7 +2737,13 @@ class DashboardsViewSet(
             max_workers = min(RUN_WIDGETS_QUERY_CONCURRENCY, len(query_work_items))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
-                    executor.submit(_run_widget_query, self.team, work_item): work_item["tile_id"]
+                    executor.submit(
+                        _run_widget_query,
+                        self.team,
+                        work_item,
+                        dashboard_id=dashboard.id,
+                        distinct_id=distinct_id,
+                    ): work_item["tile_id"]
                     for work_item in query_work_items
                 }
                 for future in as_completed(futures):
@@ -2683,7 +2761,7 @@ class DashboardsViewSet(
         return Response({"results": get_widget_catalog_entries()})
 
     @extend_schema(
-        request=AddDashboardWidgetsBatchRequestSerializer,
+        request=AddDashboardWidgetsBatchRequestOpenApiSerializer,
         responses={201: AddDashboardWidgetsBatchResponseSerializer},
     )
     @action(methods=["POST"], detail=True, url_path="widgets/batch", required_scopes=["dashboard:write"])
@@ -2844,7 +2922,6 @@ class DashboardsViewSet(
                     "template_key": dashboard_template.template_name,
                     **template_scope_props,
                     "duplicated": False,
-                    "dashboard_id": dashboard.pk,
                     "creation_context": creation_context,
                 },
                 team=dashboard.team,

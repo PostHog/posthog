@@ -3,52 +3,45 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
-      (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign),
-      conv.id,
-      conv.source
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign),
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -56,52 +49,45 @@
   '''
   
   SELECT
-      conv.campaign AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      conv.campaign AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    conv.campaign AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    conv.campaign AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
-      (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      conv.campaign,
-      conv.id,
-      conv.source
-  
+    conv.campaign,
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -109,52 +95,45 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
-      (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign),
-      conv.id,
-      conv.source
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign),
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -162,52 +141,45 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
-      (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign),
-      conv.id,
-      conv.source
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign),
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -215,128 +187,111 @@
   '''
   
   SELECT
-      conv.campaign AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      conv.campaign AS match_key,
-      sum(conv.conversion_0) AS conversion_0,
-      sum(conv.conversion_1) AS conversion_1,
-      sum(conv.conversion_2) AS conversion_2
-  
+    conv.campaign AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    conv.campaign AS match_key,
+    sum(conv.conversion_0) AS conversion_0,
+    sum(conv.conversion_1) AS conversion_1,
+    sum(conv.conversion_2) AS conversion_2
   FROM
-      (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0,
-          0 AS conversion_1,
-          0 AS conversion_2
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
-  GROUP BY
-          campaign,
-          id,
-          source
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0,
+      0 AS conversion_1,
+      0 AS conversion_2
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source
       UNION ALL
-      
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          0 AS conversion_0,
-          count() AS conversion_1,
-          0 AS conversion_2
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
-  GROUP BY
-          campaign,
-          id,
-          source
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      0 AS conversion_0,
+      count() AS conversion_1,
+      0 AS conversion_2
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source
       UNION ALL
-      
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          0 AS conversion_0,
-          0 AS conversion_1,
-          count() AS conversion_2
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      0 AS conversion_0,
+      0 AS conversion_1,
+      count() AS conversion_2
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      conv.campaign,
-      conv.id,
-      conv.source
-  
+    conv.campaign,
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -344,89 +299,77 @@
   '''
   
   SELECT
-      conv.campaign AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      conv.campaign AS match_key,
-      sum(conv.conversion_0) AS conversion_0,
-      sum(conv.conversion_1) AS conversion_1
-  
+    conv.campaign AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    conv.campaign AS match_key,
+    sum(conv.conversion_0) AS conversion_0,
+    sum(conv.conversion_1) AS conversion_1
   FROM
-      (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0,
-          0 AS conversion_1
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
-  GROUP BY
-          campaign,
-          id,
-          source
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0,
+      0 AS conversion_1
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source
       UNION ALL
-      
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          0 AS conversion_0,
-          count() AS conversion_1
-      
-  FROM
-          (
-  SELECT
-              person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      0 AS conversion_0,
+      count() AS conversion_1
+    FROM
+    (
+      SELECT
+        person_id,
+        campaign_name,
+        source_name,
+        medium_name,
+        content_name,
+        term_name,
+        referring_domain_name,
+        gclid_name,
+        fbclid_name,
+        gad_source_name,
+        '-' AS campaign_id,
+        multiply(conversion_value, touchpoint_weight) AS conversion_value
+      FROM
+        conversion_goal_attributed_preaggregated
+      WHERE
+        and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      conv.campaign,
-      conv.id,
-      conv.source
-  
+    conv.campaign,
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
