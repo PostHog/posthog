@@ -194,15 +194,30 @@ jobs:
         outputs:
             run_id: ${{ steps.create.outputs.run_id }}
         steps:
+            # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
+            # built from the base branch below.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   sparse-checkout: |
                       .nvmrc
+                      frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            # Build the VR CLI from the base branch, not the PR head. A workflow edit
+            # reaches every open PR immediately (it runs PR-merged-with-base), but a CLI
+            # change only lands on a branch once it rebases — so building from head can
+            # feed an old binary flags this workflow added (e.g. --partial), failing the
+            # run. Pinning to base.ref keeps the CLI in lockstep with the workflow. The
+            # tsconfig rootDir is the parent dir, so the generated types must come along.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  sparse-checkout: |
                       products/visual_review/cli
                       products/visual_review/frontend/generated/api.schemas.ts
-                      frontend/snapshots.yml
                   sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
@@ -222,7 +237,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Create VR run
               id: create
@@ -399,10 +414,21 @@ jobs:
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }}
                   fi
 
-            # Upload snapshots to Visual Review (runs in parallel across shards)
+            # Upload snapshots to Visual Review (runs in parallel across shards).
+            # Build the CLI from the base branch (see vr-setup for the rationale).
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: always() && needs.vr-setup.outputs.run_id != ''
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  sparse-checkout: |
+                      products/visual_review/cli
+                      products/visual_review/frontend/generated/api.schemas.ts
+                  sparse-checkout-cone-mode: false
+
             - name: Install VR CLI
               if: always() && needs.vr-setup.outputs.run_id != ''
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Upload snapshots to Visual Review
               if: always() && needs.vr-setup.outputs.run_id != ''
@@ -543,15 +569,26 @@ jobs:
         needs: [visual-regression, vr-setup]
         if: needs.vr-setup.outputs.run_id != '' && needs.visual-regression.result == 'success'
         steps:
+            # Head checkout supplies the PR's snapshot baseline; the VR CLI itself is
+            # built from the base branch below.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.sha || github.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   sparse-checkout: |
                       .nvmrc
+                      frontend/snapshots.yml
+                  sparse-checkout-cone-mode: false
+
+            # Build the VR CLI from the base branch, not the PR head (see vr-setup
+            # for the rationale).
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref || github.sha }}
+                  path: vr-cli
+                  sparse-checkout: |
                       products/visual_review/cli
                       products/visual_review/frontend/generated/api.schemas.ts
-                      frontend/snapshots.yml
                   sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
@@ -571,7 +608,7 @@ jobs:
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
-              run: cd products/visual_review/cli && npm ci && npm run build && npm link
+              run: cd vr-cli/products/visual_review/cli && npm ci && npm run build && npm link
 
             - name: Complete Visual Review run
               # On master pushes the run was created with --purpose observe (tracking-only),
