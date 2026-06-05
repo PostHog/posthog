@@ -20,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
 import requests
 import structlog
@@ -67,7 +68,10 @@ AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
 DEEP_LINK_CACHE_PREFIX = "provisioning_deep_link:"
-SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
+DEEP_LINK_MAX_PATH_LENGTH = 2000
+# Control chars, whitespace, and backslashes never appear in a legitimate in-app path; they are the
+# building blocks of header-injection and backslash-host open-redirect tricks, so reject them outright.
+DEEP_LINK_DISALLOWED_PATH_CHARS = re.compile(r"[\x00-\x20\x7f-\x9f\\]")
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
@@ -2043,18 +2047,17 @@ def deep_links(request: Request) -> Response:
             status=403,
         )
 
+    # `purpose` is a free-form label retained for analytics. `path` is the generic
+    # destination: any in-app path the partner wants the user to land on after login.
     purpose = request.data.get("purpose", "dashboard")
-    if purpose not in SUPPORTED_DEEP_LINK_PURPOSES:
+    path = request.data.get("path")
+    if path and not _is_safe_deep_link_path(path):
         _capture_provisioning_event(
-            "deep_link_created", "unsupported_purpose", partner=access_token.application, purpose=purpose
+            "deep_link_created", "invalid_path", partner=access_token.application, purpose=purpose
         )
-        return Response(
-            {
-                "error": {
-                    "code": "unsupported_purpose",
-                    "message": f"Unsupported purpose: {purpose}. Supported: {', '.join(sorted(SUPPORTED_DEEP_LINK_PURPOSES))}",
-                }
-            },
+        return _error_response(
+            "invalid_path",
+            "path must be a relative in-app path beginning with a single '/'",
             status=400,
         )
 
@@ -2072,6 +2075,7 @@ def deep_links(request: Request) -> Response:
             "user_id": access_token.user_id,
             "team_id": team_id,
             "purpose": purpose,
+            "path": path or None,
         },
         timeout=DEEP_LINK_TTL_SECONDS,
     )
@@ -2426,6 +2430,7 @@ def agentic_login(request: Any) -> HttpResponseBase:
     user_id = link_data.get("user_id")
     team_id = link_data.get("team_id")
     purpose = link_data.get("purpose", "dashboard")
+    path = link_data.get("path")
 
     if not user_id:
         _capture_deep_link_event("invalid_token_data")
@@ -2452,11 +2457,31 @@ def agentic_login(request: Any) -> HttpResponseBase:
     _capture_deep_link_event("success", user_id=user_id, team_id=team_id, purpose=purpose)
     logger.info("agentic_login.success", user_id=user_id, team_id=team_id, purpose=purpose)
 
-    redirect_path = _deep_link_redirect_path(purpose, team_id)
+    redirect_path = _deep_link_redirect_path(purpose, team_id, path)
     return HttpResponseRedirect(redirect_path)
 
 
-def _deep_link_redirect_path(purpose: str, team_id: int | None) -> str:
+def _is_safe_deep_link_path(path: object) -> bool:
+    """Allow only relative, same-origin in-app paths so a deep link can't become an open redirect."""
+    return (
+        isinstance(path, str)
+        and 0 < len(path) <= DEEP_LINK_MAX_PATH_LENGTH
+        # Reject control chars, whitespace, and backslashes (the `/\` backslash-host form included).
+        and not DEEP_LINK_DISALLOWED_PATH_CHARS.search(path)
+        and path.startswith("/")
+        # Reject protocol-relative (`//`) forms; a single leading `/` keeps it same-origin.
+        and not path.startswith("//")
+        and url_has_allowed_host_and_scheme(path, allowed_hosts=None)
+    )
+
+
+def _deep_link_redirect_path(purpose: str, team_id: int | None, path: str | None = None) -> str:
+    if path and _is_safe_deep_link_path(path):
+        return path
+    if path:
+        # Unreachable in normal operation (mint-time validation already ran); a hit here means
+        # cache tampering or a mint-side regression.
+        logger.warning("agentic_login.unsafe_path_in_cache", path=path)
     if team_id and Team.objects.filter(id=team_id).exists():
         return f"/project/{team_id}"
     return "/"

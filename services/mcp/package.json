@@ -45,6 +45,7 @@
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@posthog/mcp-analytics": "npm:@posthog/mcp@0.0.9",
         "@posthog/quill": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "@toon-format/toon": "^2.1.0",
         "agents": "0.10.2",
         "ai": "^6.0.0",

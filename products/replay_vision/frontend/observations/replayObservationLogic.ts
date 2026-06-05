@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
+import { scheduleObservationPoll } from '../logics/observationPolling'
 import { observationProgressLogic } from './observationProgressLogic'
 import type { replayObservationLogicType } from './replayObservationLogicType'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -47,7 +48,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         ],
     }),
 
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, cache }) => ({
         loadObservation: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -65,6 +66,14 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 lemonToast.error(`Failed to load observation: ${String(error)}`)
                 actions.loadObservationFailure()
             }
+        },
+
+        loadObservationSuccess: ({ observation }) => {
+            // SSE flips us to the result instantly when our listener catches `streamCompleted`, but the
+            // stream is a shared keyed logic — if the dock started and finished it before this page opened,
+            // the past event isn't replayed here. Poll while in flight as a fallback so we still land the result.
+            const inFlight = observation.status === 'pending' || observation.status === 'running'
+            scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         },
 
         // When the stream reports the observation has settled, reload once to render the final result.
