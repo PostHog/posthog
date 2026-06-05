@@ -47,7 +47,7 @@ def acquire_v3_pipeline_lock_activity(inputs: AcquireV3LockActivityInputs) -> Ac
     logger = LOGGER.bind()
 
     try:
-        source = ExternalDataSource.objects.only("source_type").get(id=inputs.source_id)
+        source = ExternalDataSource.objects.get(id=inputs.source_id)
     except ExternalDataSource.DoesNotExist:
         return AcquireV3LockActivityOutputs(acquired=True, is_v3=False, token="")
 

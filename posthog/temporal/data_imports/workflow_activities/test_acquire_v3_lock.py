@@ -42,7 +42,7 @@ class TestAcquireV3PipelineLockActivity:
     ) -> None:
         mock_source = MagicMock()
         mock_source.source_type = "Stripe"
-        mock_source_model.objects.only.return_value.get.return_value = mock_source
+        mock_source_model.objects.get.return_value = mock_source
 
         result = acquire_v3_pipeline_lock_activity(_make_inputs())
 
@@ -75,7 +75,7 @@ class TestAcquireV3PipelineLockActivity:
     ) -> None:
         mock_source = MagicMock()
         mock_source.source_type = "Stripe"
-        mock_source_model.objects.only.return_value.get.return_value = mock_source
+        mock_source_model.objects.get.return_value = mock_source
         mock_activity.info.return_value.workflow_run_id = WORKFLOW_RUN_ID
         mock_acquire.return_value = lock_acquired
 
@@ -96,7 +96,7 @@ class TestAcquireV3PipelineLockActivity:
         mock_source_model: MagicMock,
     ) -> None:
         mock_source_model.DoesNotExist = type("DoesNotExist", (Exception,), {})
-        mock_source_model.objects.only.return_value.get.side_effect = mock_source_model.DoesNotExist
+        mock_source_model.objects.get.side_effect = mock_source_model.DoesNotExist
 
         result = acquire_v3_pipeline_lock_activity(_make_inputs())
 
