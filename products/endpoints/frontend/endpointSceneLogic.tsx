@@ -22,15 +22,28 @@ const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
 // Query types that support user-configurable breakdown filtering
 const BREAKDOWN_SUPPORTED_QUERY_TYPES = new Set([NodeKind.TrendsQuery, NodeKind.RetentionQuery])
 
-function getSingleBreakdownProperty(breakdownFilter: any): string | null {
-    if (breakdownFilter?.breakdown) {
-        return breakdownFilter.breakdown
+export function extractBreakdownPropertyNames(query: unknown): string[] {
+    // Single source of truth for reading breakdown property names out of a query on the
+    // frontend — mirrors the backend's canonical extractor, including the legacy list form.
+    if (!query || typeof query !== 'object') {
+        return []
     }
-    const breakdowns = breakdownFilter?.breakdowns || []
-    if (breakdowns.length === 1) {
-        return breakdowns[0]?.property
+    const breakdownFilter = (
+        query as { breakdownFilter?: { breakdown?: unknown; breakdowns?: { property?: unknown }[] } | null }
+    ).breakdownFilter
+    if (!breakdownFilter) {
+        return []
     }
-    return null
+    const legacy = breakdownFilter.breakdown
+    if (Array.isArray(legacy)) {
+        return legacy.filter((b): b is string => typeof b === 'string' && !!b)
+    }
+    if (typeof legacy === 'string' && legacy) {
+        return [legacy]
+    }
+    return (breakdownFilter.breakdowns ?? [])
+        .map((b) => (typeof b?.property === 'string' ? b.property : null))
+        .filter((p): p is string => !!p)
 }
 
 export function generateEndpointPayload(endpoint: EndpointVersionType | null): Record<string, any> {
@@ -65,10 +78,10 @@ export function generateEndpointPayload(endpoint: EndpointVersionType | null): R
 
         // Only include breakdown for query types that support it
         if (queryKind && BREAKDOWN_SUPPORTED_QUERY_TYPES.has(queryKind as NodeKind)) {
-            const breakdownFilter = (query as any).breakdownFilter || {}
-            const breakdown = getSingleBreakdownProperty(breakdownFilter)
-            if (breakdown) {
-                variablesValues[breakdown] = ''
+            const breakdownNames = extractBreakdownPropertyNames(query)
+            // The legacy playground payload only supports a single breakdown variable.
+            if (breakdownNames.length === 1) {
+                variablesValues[breakdownNames[0]] = ''
             }
         }
 
@@ -136,6 +149,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
         setBucketOverride: (column: string, bucketFn: string) => ({ column, bucketFn }),
         resetBucketOverrides: (overrides: Record<string, string>) => ({ overrides }),
+        toggleBreakdownOptional: (property: string) => ({ property }),
+        resetOptionalBreakdownProperties: (props: string[]) => ({ props }),
         setDebugMode: (debugMode: boolean) => ({ debugMode }),
         setDebugInfoExpanded: (debugInfoExpanded: boolean) => ({ debugInfoExpanded }),
         loadMaterializationPreview: true,
@@ -223,6 +238,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 setBucketOverride: (state, { column, bucketFn }) => ({ ...state, [column]: bucketFn }),
                 resetBucketOverrides: (_, { overrides }) => overrides,
                 loadEndpointSuccess: (_, { endpoint }) => endpoint?.bucket_overrides ?? {},
+            },
+        ],
+        optionalBreakdownProperties: [
+            [] as string[],
+            {
+                toggleBreakdownOptional: (state, { property }) =>
+                    state.includes(property) ? state.filter((p) => p !== property) : [...state, property],
+                resetOptionalBreakdownProperties: (_, { props }) => props,
+                loadEndpointSuccess: (_, { endpoint }) => endpoint?.optional_breakdown_properties ?? [],
             },
         ],
         // Clear stale playground results when switching endpoints
@@ -346,6 +370,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
             actions.setDataFreshness(endpoint?.data_freshness_seconds ?? DEFAULT_DATA_FRESHNESS_SECONDS)
+            actions.resetOptionalBreakdownProperties(endpoint?.optional_breakdown_properties ?? [])
 
             const { searchParams, hashParams } = router.values
 
@@ -415,6 +440,11 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
 
             // Reset bucket overrides to viewed version's values
             actions.resetBucketOverrides(version?.bucket_overrides ?? values.endpoint?.bucket_overrides ?? {})
+
+            // Reset optional breakdowns to viewed version's value (or endpoint's if going back to current)
+            actions.resetOptionalBreakdownProperties(
+                version?.optional_breakdown_properties ?? values.endpoint?.optional_breakdown_properties ?? []
+            )
 
             // Reset data freshness to viewed version's value (or endpoint's if going back to current)
             actions.setDataFreshness(

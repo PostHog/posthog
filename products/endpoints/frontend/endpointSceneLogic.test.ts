@@ -112,4 +112,53 @@ describe('endpointSceneLogic', () => {
             version: 2,
         })
     })
+
+    describe('optionalBreakdownProperties reducer', () => {
+        it('seeds from the loaded endpoint', async () => {
+            const endpointWithOptional = { ...endpoint, optional_breakdown_properties: ['$browser'] }
+            await expectLogic(logic, () => {
+                logic.actions.loadEndpointSuccess(endpointWithOptional)
+            }).toFinishAllListeners()
+
+            expect(logic.values.optionalBreakdownProperties).toEqual(['$browser'])
+        })
+
+        it('toggleBreakdownOptional flips a single property both ways', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: ['$browser'] })
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: [] })
+        })
+
+        it('toggleBreakdownOptional preserves order across independent properties', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+                logic.actions.toggleBreakdownOptional('$os')
+            }).toMatchValues({ optionalBreakdownProperties: ['$browser', '$os'] })
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: ['$os'] })
+        })
+
+        it('resetOptionalBreakdownProperties wins on version switch', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: ['$browser'] })
+
+            const versionData = {
+                ...endpoint,
+                version: 2,
+                optional_breakdown_properties: ['$os'],
+            }
+            await expectLogic(logic, () => {
+                logic.actions.setViewingVersion(versionData)
+            }).toFinishAllListeners()
+
+            expect(logic.values.optionalBreakdownProperties).toEqual(['$os'])
+        })
+    })
 })
