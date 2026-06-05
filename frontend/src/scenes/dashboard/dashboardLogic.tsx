@@ -1919,6 +1919,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
         },
+        scheduleRefreshDashboardWidgets: ({ tileId }) => {
+            if (!cache.widgetTileRefreshScheduler) {
+                cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
+                    actions.refreshDashboardWidgets({ tileIds: [id], forceRefresh: true })
+                )
+            }
+            cache.widgetTileRefreshScheduler.schedule(tileId)
+        },
     })),
     sharedListeners(({ values, props, actions }) => ({
         reportRefreshTiming: ({ shortId }) => {
