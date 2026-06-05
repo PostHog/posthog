@@ -196,6 +196,18 @@ export type ExternalDataSchemaApiAvailableColumnsItem = {
     is_nullable?: boolean
 }
 
+/**
+ * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+ * @nullable
+ */
+export type ExternalDataSchemaApiSource = {
+    readonly id?: string
+    readonly source_type?: string
+    readonly supports_column_selection?: boolean
+    /** @nullable */
+    readonly user_access_level?: string | null
+} | null
+
 export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
@@ -275,6 +287,11 @@ export interface ExternalDataSchemaApi {
     enabled_columns?: string[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    readonly source: ExternalDataSchemaApiSource
 }
 
 export interface PaginatedExternalDataSchemaListApi {
@@ -296,6 +313,18 @@ export type PatchedExternalDataSchemaApiAvailableColumnsItem = {
     data_type?: string
     is_nullable?: boolean
 }
+
+/**
+ * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+ * @nullable
+ */
+export type PatchedExternalDataSchemaApiSource = {
+    readonly id?: string
+    readonly source_type?: string
+    readonly supports_column_selection?: boolean
+    /** @nullable */
+    readonly user_access_level?: string | null
+} | null
 
 export interface PatchedExternalDataSchemaApi {
     readonly id?: string
@@ -376,6 +405,11 @@ export interface PatchedExternalDataSchemaApi {
     enabled_columns?: string[] | null
     /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
+    /**
+     * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
+     * @nullable
+     */
+    readonly source?: PatchedExternalDataSchemaApiSource
 }
 
 /**
@@ -410,6 +444,7 @@ export const CreatedViaEnumApi = {
  * `Chargebee` - Chargebee
  * `Clerk` - Clerk
  * `GoogleAds` - GoogleAds
+ * `GoogleSearchConsole` - GoogleSearchConsole
  * `TemporalIO` - TemporalIO
  * `DoIt` - DoIt
  * `GoogleSheets` - GoogleSheets
@@ -562,6 +597,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Chargebee: 'Chargebee',
     Clerk: 'Clerk',
     GoogleAds: 'GoogleAds',
+    GoogleSearchConsole: 'GoogleSearchConsole',
     TemporalIO: 'TemporalIO',
     DoIt: 'DoIt',
     GoogleSheets: 'GoogleSheets',
@@ -808,6 +844,7 @@ export interface ExternalDataSourceCreateApi {
   * `Chargebee` - Chargebee
   * `Clerk` - Clerk
   * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
   * `TemporalIO` - TemporalIO
   * `DoIt` - DoIt
   * `GoogleSheets` - GoogleSheets
@@ -1117,6 +1154,7 @@ export interface DatabaseSchemaRequestApi {
   * `Chargebee` - Chargebee
   * `Clerk` - Clerk
   * `GoogleAds` - GoogleAds
+  * `GoogleSearchConsole` - GoogleSearchConsole
   * `TemporalIO` - TemporalIO
   * `DoIt` - DoIt
   * `GoogleSheets` - GoogleSheets

@@ -37,6 +37,7 @@ const visionObservationsList = (): ToolBase<
             query: {
                 limit: params.limit,
                 offset: params.offset,
+                order_by: params.order_by,
                 session_id: params.session_id,
             },
         })
@@ -195,12 +196,14 @@ const visionScannersList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/`,
             query: {
+                created_by: params.created_by,
                 emits_signals: params.emits_signals,
                 enabled: params.enabled,
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
                 scanner_type: params.scanner_type,
+                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/replay-vision')
@@ -246,7 +249,9 @@ const visionScannersObservationsList = (): ToolBase<
                 order_by: params.order_by,
                 session_id: params.session_id,
                 status: params.status,
+                tags: params.tags,
                 triggered_by: params.triggered_by,
+                verdict: params.verdict,
             },
         })
         return await withPostHogUrl(context, result, '/replay-vision')

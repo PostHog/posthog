@@ -66,8 +66,16 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     let $set: Record<string, any> | undefined
     let $set_once: Record<string, any> | undefined
 
+    // Server-side SDKs set $is_server: true. Don't lift their host $os/$os_version onto the person
+    // (it poisons the sticky $initial_os). Client events omit $is_server (or set it false).
+    const skipServerHostOs = properties.$is_server === true
+
     for (const key of eventToPersonProperties) {
         if (!(key in properties)) {
+            continue
+        }
+
+        if (skipServerHostOs && (key === '$os' || key === '$os_version')) {
             continue
         }
 
@@ -100,7 +108,7 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     // For the purposes of $initial properties, $os_name is treated as a fallback alias of $os, starting August 2024
     // It's a special case due to _some_ SDKs using $os_name: https://github.com/PostHog/posthog-js-lite/issues/244
     const osName = properties.$os_name
-    if (osName !== undefined) {
+    if (osName !== undefined && !skipServerHostOs) {
         if (!('$os' in properties)) {
             properties.$os = osName
         }

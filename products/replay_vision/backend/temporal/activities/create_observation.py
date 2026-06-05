@@ -19,10 +19,6 @@ from products.replay_vision.backend.temporal.types import (
 )
 
 
-def _emits_embeddings(scanner_config: dict) -> bool:
-    return bool(scanner_config.get("emits_embeddings", False))
-
-
 def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
     return ScannerSnapshot(
         name=scanner.name,
@@ -94,12 +90,10 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
             observation_id=existing.id,
             was_created=False,
             scanner_type=existing_snapshot.scanner_type,
-            emits_embeddings=_emits_embeddings(existing_snapshot.scanner_config),
         )
 
     return CreateObservationOutput(
         observation_id=observation.id,
         was_created=True,
         scanner_type=scanner.scanner_type,
-        emits_embeddings=_emits_embeddings(scanner.scanner_config),
     )
