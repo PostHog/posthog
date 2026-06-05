@@ -751,6 +751,8 @@ def _handle_new_user(
         is_organization_first_user=True,
         backend_processor="AgenticProvisioning",
         social_provider=partner.name if partner else "",
+        user_analytics_metadata=user.get_analytics_metadata(),
+        org_analytics_metadata=organization.get_analytics_metadata(),
     )
 
     try:
