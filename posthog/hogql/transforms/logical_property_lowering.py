@@ -15,8 +15,6 @@ preserving):
   the cast `Call` simply ends up wrapping the `JSONFieldAccess` and is preserved automatically.
 - Access control (restricted-key drop) — the `JSONFieldAccess.expr` is the blob `Field`, which the ClickHouse printer
   still `JSONDropKeys`-wraps in `visit_field_type`, so the restricted value collapses to `''` exactly as on master.
-
-Gated by `context.lower_property_access` (default off, §12.8): off keeps output byte-identical to master.
 """
 
 from typing import cast
@@ -96,7 +94,7 @@ class LogicalPropertyLowering(CloningVisitor):
 
 
 def lower_property_access(node: _T_AST, context: HogQLContext) -> _T_AST:
-    """Lower JSON-blob property reads to `JSONFieldAccess`. No-op unless `context.lower_property_access` is set (§12.8)."""
+    """Lower JSON-blob property reads to `JSONFieldAccess`. A no-op for the within-non-HogQL (lightweight-DELETE) path."""
     # within_non_hogql_query (legacy filters; the lightweight-DELETE predicate path) requires *unqualified* column
     # references — the printer's within_non_hogql path drops the table prefix, but the synthetic fields a lowered read
     # would build are always table-qualified. So leave those queries entirely on the printer path (§8.4); the

@@ -71,24 +71,6 @@ def create_default_modifiers_for_team(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
-    # Printer rearchitecture: gradual, per-organization rollout of the new property-lowering path. Left unset (not
-    # False) when the flag is off so it never overrides the gate — only an explicit True switches the org over.
-    # Cloud-only: per-org rollout is a Cloud concept, and `only_evaluate_locally` returns None off-Cloud anyway — gating
-    # on `is_cloud()` keeps the flag eval (and its feature_enabled call) out of the broadly-invoked, widely-mocked
-    # modifier path everywhere else, matching how `propertyGroupsMode` is gated below.
-    if modifiers.propertyLowering is None and team.organization_id is not None and is_cloud():
-        modifiers.propertyLowering = (
-            posthoganalytics.feature_enabled(
-                "hogql-property-lowering",
-                str(team.organization_id),
-                groups={"organization": str(team.organization_id)},
-                group_properties={"organization": {"id": str(team.organization_id)}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-            or None
-        )
-
     set_default_modifier_values(modifiers, team)
 
     return modifiers
