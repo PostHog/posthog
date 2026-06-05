@@ -1210,7 +1210,8 @@ export function MarkdownNotebook({
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
         const lastNode = nodes[nodes.length - 1]
-        if (isTextBlockNode(lastNode) && !getInlineText(lastNode.children).trim()) {
+        const isLastNodeAIThinking = insertMenu?.mode === 'thinking' && insertMenu.nodeId === lastNode?.id
+        if (isTextBlockNode(lastNode) && !getInlineText(lastNode.children).trim() && !isLastNodeAIThinking) {
             const element = blockRefs.current[lastNode.id]
             if (element) {
                 element.focus()
@@ -1232,7 +1233,7 @@ export function MarkdownNotebook({
             nodes: [...currentDocument.nodes, insertedNode],
         })
         return true
-    }, [commitDocument, focusLowestNotebookRow])
+    }, [commitDocument, focusLowestNotebookRow, insertMenu])
 
     const moveFocusToAdjacentNode = useCallback(
         (nodeId: string, direction: InsertMenuSelectionDirection, offset: number): boolean => {

@@ -804,6 +804,48 @@ Third paragraph`,
         expect(onChange).toHaveBeenLastCalledWith('')
     })
 
+    it('creates a blank row below an AI thinking placeholder when clicking below the canvas', () => {
+        const onAskAI = jest.fn()
+        const onChange = jest.fn()
+        const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI, onChange }))
+        const row = container.querySelector('.MarkdownNotebook__row')
+
+        fireEvent.mouseEnter(row as HTMLElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__line-insert-menu-button') as HTMLButtonElement)
+        fireEvent.click(container.querySelector('.MarkdownNotebook__insert-item') as HTMLButtonElement)
+
+        const editableTextBlock = container.querySelector('[contenteditable="true"]') as HTMLElement
+        editableTextBlock.textContent = 'Add a summary here'
+        fireEvent.input(editableTextBlock)
+        fireEvent.keyDown(editableTextBlock, { key: 'Enter' })
+
+        const main = container.querySelector('.MarkdownNotebook__main') as HTMLElement
+        const canvas = container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+
+        Object.defineProperty(canvas, 'getBoundingClientRect', {
+            configurable: true,
+            value: () => ({
+                bottom: 100,
+                height: 50,
+                left: 0,
+                right: 500,
+                top: 50,
+                width: 500,
+                x: 0,
+                y: 50,
+                toJSON: () => ({}),
+            }),
+        })
+
+        fireEvent.mouseDown(main, { button: 0, clientY: 140 })
+
+        const textBlocks = Array.from(container.querySelectorAll('[contenteditable="true"]')) as HTMLElement[]
+        expect(container.querySelector('.MarkdownNotebook__ai-prompt-tag')?.textContent).toEqual('Thinking ...')
+        expect(textBlocks).toHaveLength(1)
+        expect(document.activeElement).toEqual(textBlocks[0])
+        expect(window.getSelection()?.focusOffset).toEqual(0)
+    })
+
     it('turns an Ask AI prompt back into regular text when backspacing at the start', () => {
         const onAskAI = jest.fn()
         const { container } = render(createElement(MarkdownNotebook, { value: '', onAskAI }))
