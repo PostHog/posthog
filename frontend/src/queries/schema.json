@@ -4620,7 +4620,7 @@
             ]
         },
         "BingAdsDefaultSources": {
-            "enum": ["bing", "microsoft"],
+            "enum": ["bing", "microsoft", "msads", "bing_video"],
             "type": "string"
         },
         "BingAdsTableExclusions": {
@@ -26515,10 +26515,18 @@
                                 {
                                     "const": "microsoft",
                                     "type": "string"
+                                },
+                                {
+                                    "const": "msads",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "bing_video",
+                                    "type": "string"
                                 }
                             ],
-                            "maxItems": 2,
-                            "minItems": 2,
+                            "maxItems": 4,
+                            "minItems": 4,
                             "type": "array"
                         },
                         "idField": {

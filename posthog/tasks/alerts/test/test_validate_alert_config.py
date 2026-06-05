@@ -27,8 +27,9 @@ def _base_query(series_count: int = 1, display: str | None = None) -> dict[str, 
 
 def _base_threshold(type: str = "absolute", bounds: dict[str, Any] | None = None) -> dict[str, Any]:
     config: dict[str, Any] = {"type": type}
-    if bounds is not None:
-        config["bounds"] = bounds
+    if bounds is None:
+        bounds = {"upper": 1.0}
+    config["bounds"] = bounds
     return config
 
 
@@ -261,3 +262,33 @@ class TestValidateAlertConfig:
         else:
             with pytest.raises(ValueError, match=expected_error_fragment):
                 validate_alert_config(query, condition, config, threshold_config, calculation_interval)
+
+    def test_threshold_alert_requires_at_least_one_bound(self) -> None:
+        with pytest.raises(ValueError, match="At least one threshold bound"):
+            validate_alert_config(
+                _base_query(),
+                _base_condition(),
+                _base_config(),
+                _base_threshold(bounds={}),
+                "daily",
+            )
+
+    def test_detector_alert_allows_empty_threshold_bounds(self) -> None:
+        validate_alert_config(
+            _base_query(),
+            _base_condition(),
+            _base_config(),
+            _base_threshold(bounds={}),
+            "daily",
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+        )
+
+    def test_skips_threshold_bounds_when_not_required(self) -> None:
+        validate_alert_config(
+            _base_query(),
+            _base_condition(),
+            _base_config(),
+            _base_threshold(bounds={}),
+            "daily",
+            require_threshold_bounds=False,
+        )

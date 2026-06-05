@@ -128,7 +128,9 @@ class AmazonAdsSourceConfig(config.Config):
 
 @config.config
 class AmplitudeSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -399,7 +401,8 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GongSourceConfig(config.Config):
-    pass
+    access_key: str
+    access_key_secret: str
 
 
 @config.config
@@ -643,7 +646,8 @@ class PayPalSourceConfig(config.Config):
 
 @config.config
 class PendoSourceConfig(config.Config):
-    pass
+    integration_key: str
+    region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
 
 
 @config.config
@@ -759,7 +763,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SalesLoftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -880,7 +884,8 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class TrelloSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_token: str
 
 
 @config.config
