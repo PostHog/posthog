@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field as PydanticField,
+    PrivateAttr,
 )
 
 from posthog.hogql.base import Expr
@@ -238,12 +239,25 @@ class TableNode(BaseModel):
     # When True, the table is reachable by the resolver (so other tables can reference it
     # via subqueries) but is omitted from the SQL editor schema and autocomplete lists.
     hidden: bool = False
+    # Deferred builder: when set, the table is constructed lazily on first get(). Lets warehouse
+    # tables register by name without paying their (CPU-heavy) hogql_definition build until a query
+    # actually references them. Private so pydantic doesn't validate/serialize the closure.
+    _table_factory: Callable[[], FieldOrTable] | None = PrivateAttr(default=None)
+
+    def has_table(self) -> bool:
+        """True if this node yields a table — already built, or buildable via a deferred factory."""
+        return self.table is not None or self._table_factory is not None
 
     def get(self) -> FieldOrTable:
         """
         Evaluates and returns the table currently associated with this node.
-        Raises `ResolutionError` if the table is not set.
+        Builds it from the deferred factory on first access. Raises `ResolutionError` if neither
+        a table nor a factory is set.
         """
+        if self.table is None and self._table_factory is not None:
+            self.table = self._table_factory()
+            self._table_factory = None
+
         if self.table is None:
             raise ResolutionError(f"Table is not set at `{self.name}`")
 
@@ -253,7 +267,7 @@ class TableNode(BaseModel):
     # is a valid path to a child table - not just any path.
     def has_child(self, path: list[str]) -> bool:
         if len(path) == 0:
-            return self.table is not None
+            return self.has_table()
 
         first, *rest_of_path = path
         if first not in self.children:
@@ -300,12 +314,16 @@ class TableNode(BaseModel):
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
-        if other.table is not None:
-            if self.table is None:  # Easy case, just set it
+        if other.has_table():
+            # Copy table and factory together so the "built table" / "deferred factory" invariant is
+            # preserved (exactly one of them is set on a well-formed node).
+            if not self.has_table():  # Easy case, just set it
                 self.table = other.table
+                self._table_factory = other._table_factory
             else:  # We have a conflict so check conflict mode to decide what to do here
                 if table_conflict_mode == "override":
                     self.table = other.table
+                    self._table_factory = other._table_factory
                 elif table_conflict_mode == "ignore":
                     pass
 
@@ -317,7 +335,7 @@ class TableNode(BaseModel):
     def resolve_all_table_names(self) -> list[str]:
         names: list[str] = []
 
-        if self.table is not None:
+        if self.has_table():
             names.append(self.name)
 
         for child in self.children.values():
@@ -341,7 +359,7 @@ class TableNode(BaseModel):
         """
         names: list[str] = []
 
-        if self.table is not None and not self.hidden:
+        if self.has_table() and not self.hidden:
             names.append(self.name)
 
         for child in self.children.values():
@@ -357,8 +375,14 @@ class TableNode(BaseModel):
         return names
 
     @staticmethod
-    def create_nested_for_chain(chain: list[str], table: Table) -> "TableNode":
+    def create_nested_for_chain(
+        chain: list[str],
+        table: Optional["Table"] = None,
+        *,
+        table_factory: Callable[[], "FieldOrTable"] | None = None,
+    ) -> "TableNode":
         assert len(chain) > 0
+        assert table is not None or table_factory is not None, "Provide either a table or a table_factory"
 
         # Create a deeply nested table node structure
         start: TableNode = TableNode(name=chain[0])
@@ -368,8 +392,11 @@ class TableNode(BaseModel):
             current.add_child(child)
             current = child
 
-        # Add the table at the end
-        current.table = table
+        # Add the table (or its deferred builder) at the end
+        if table is not None:
+            current.table = table
+        else:
+            current._table_factory = table_factory
 
         return start
 

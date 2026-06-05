@@ -552,8 +552,9 @@ class Database(BaseModel):
     def prune_to_table_names(self, allowed_table_names: set[str]) -> None:
         def prune_node(node: TableNode, chain: list[str]) -> bool:
             full_name = ".".join(chain)
-            keep_table = node.table is not None and (
-                full_name in allowed_table_names or (len(chain) > 0 and self._is_helper_function_table(node.table))
+            keep_table = node.has_table() and (
+                full_name in allowed_table_names
+                or (len(chain) > 0 and node.table is not None and self._is_helper_function_table(node.table))
             )
 
             pruned_children: dict[str, TableNode] = {}
