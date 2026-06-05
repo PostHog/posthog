@@ -15,6 +15,7 @@ import {
     personPropertyKeyUpdateCounter,
 } from './metrics'
 import { fromInternalPerson } from './person-update-batch'
+import { BatchBoundPersonsStore } from './persons-store-for-batch'
 
 // Mock the ingestion warnings module
 jest.mock('../../../ingestion/common/ingestion-warnings', () => ({
@@ -3119,6 +3120,22 @@ describe('BatchWritingPersonStore', () => {
             personStore.releaseBatch(0)
 
             expect(personStore.getPersonlessBatchResult(teamId, 'user-a')).toBeUndefined()
+        })
+
+        it('evicts personlessBatchResults written via addPersonlessDistinctIdForMerge after batch release', async () => {
+            // addPersonlessDistinctIdForMerge writes to personlessBatchResults during a merge,
+            // but (unlike processPersonlessDistinctIdsBatch) it must also register the distinct ID
+            // for batch eviction. Driving it through the batch-bound view binds batchId 0, so the
+            // entry should be evicted when batch 0 is released — otherwise it leaks for the
+            // worker's lifetime when no other batch-tracked call touches the same distinct ID.
+            const batchStore = new BatchBoundPersonsStore(personStore, 0)
+
+            await batchStore.addPersonlessDistinctIdForMerge(teamId, 'lonely-merge-distinct')
+            expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBe(true)
+
+            personStore.releaseBatch(0)
+
+            expect(personStore.getPersonlessBatchResult(teamId, 'lonely-merge-distinct')).toBeUndefined()
         })
 
         it('only evicts entries for the released batch, leaving other batch entries intact', () => {
