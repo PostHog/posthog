@@ -3,7 +3,7 @@ import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } fro
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
-import { Spinner } from 'lib/lemon-ui/Spinner'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -90,9 +90,7 @@ export function InsightAsScene({ insightId, attachTo, tabId }: InsightAsScenePro
 
                 {isDataVisualizationNode(query) && insightLoading ? (
                     // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
-                    <div className="flex items-center justify-center border rounded p-6 min-h-100">
-                        <Spinner className="text-3xl" />
-                    </div>
+                    <LemonSkeleton className="h-100 w-full" />
                 ) : (
                     <Query
                         attachTo={attachTo}
