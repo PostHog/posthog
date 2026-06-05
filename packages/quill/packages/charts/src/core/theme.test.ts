@@ -39,7 +39,7 @@ describe('chart theme', () => {
         expect(theme.backgroundColor).toBe('#f0f0f0')
     })
 
-    it.each([
+    it.each<{ name: string; vars: Record<string, string>; expected: string }>([
         {
             name: 'prefers the quill token over the app compat name',
             vars: { '--background': '#quill0', '--color-bg-surface-primary': '#app000' },
