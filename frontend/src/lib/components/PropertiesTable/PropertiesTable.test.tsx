@@ -174,4 +174,32 @@ describe('PropertiesTable inline editor', () => {
             expect(screen.getByRole('textbox')).toBeInTheDocument()
         })
     })
+
+    describe('search by humanized label', () => {
+        const renderSearchable = (type: PropertyDefinitionType): void => {
+            render(
+                <Provider>
+                    <PropertiesTable type={type} properties={{ $geoip_city_name: 'London' }} searchable />
+                </Provider>
+            )
+        }
+
+        const search = (term: string): void => {
+            fireEvent.change(screen.getByPlaceholderText('Search property keys and values'), {
+                target: { value: term },
+            })
+        }
+
+        it('matches person properties by their person-group label ("Latest city name")', () => {
+            renderSearchable(PropertyDefinitionType.Person)
+            search('latest')
+            expect(screen.getByText('London')).toBeInTheDocument()
+        })
+
+        it('matches event properties by their event-group label ("City name")', () => {
+            renderSearchable(PropertyDefinitionType.Event)
+            search('city')
+            expect(screen.getByText('London')).toBeInTheDocument()
+        })
+    })
 })
