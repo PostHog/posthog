@@ -73,6 +73,7 @@ the row lists both.
 | freshdesk        | HTTP                        | requests                                                        | ✅                          |
 | freshsales       | HTTP                        | requests                                                        | ✅                          |
 | eventbrite       | HTTP                        | requests                                                        | ✅                          |
+| front            | HTTP                        | requests                                                        | ✅                          |
 | github           | HTTP                        | requests                                                        | ✅                          |
 | google_ads       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_sheets    | HTTP (vendor SDK)           | gspread                                                         | ✅                          |
@@ -188,7 +189,6 @@ doesn't conflict with concurrent PRs.
 - elasticsearch
 - facebook_pages
 - firebase
-- front
 - fullstory
 - gitlab
 - gong
