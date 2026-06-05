@@ -178,25 +178,6 @@ class PostgresProducer:
                 is_final_batch=False,
             )
 
-    def has_pending_batches(self) -> bool:
-        """True if prior-run batches are still pending for this (team_id, schema_id)."""
-        row = self._conn.execute(
-            f"""
-            SELECT EXISTS (
-                SELECT 1
-                FROM {BATCH_TABLE} b
-                LEFT JOIN v_latest_source_batch_status s ON b.id = s.batch_id
-                WHERE b.team_id = %(team_id)s
-                    AND b.schema_id = %(schema_id)s
-                    AND b.created_at > now() - interval '14 days'
-                    AND (s.batch_id IS NULL OR s.job_state NOT IN ('succeeded', 'failed'))
-            )
-            """,
-            {"team_id": self._team_id, "schema_id": self._schema_id},
-        )
-        result = row.fetchone()
-        return bool(result and result[0])
-
     def flush(self, timeout: Optional[float] = None) -> int:
         """No-op — inserts are durable on commit. Returns count of batches sent since last flush."""
         count = self._batches_sent
