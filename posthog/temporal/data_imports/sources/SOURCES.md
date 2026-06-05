@@ -100,6 +100,7 @@ the row lists both.
 | omnisend         | HTTP                        | requests                                                        | ✅                          |
 | paddle           | HTTP                        | requests                                                        | ✅                          |
 | pagerduty        | HTTP                        | requests                                                        | ✅                          |
+| pendo            | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads    | HTTP                        | requests                                                        | ✅                          |
 | pipedrive        | HTTP                        | requests                                                        | ✅                          |
 | plain            | HTTP                        | requests                                                        | ✅                          |
