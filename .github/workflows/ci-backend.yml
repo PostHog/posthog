@@ -991,6 +991,12 @@ jobs:
 
             - name: Run migration risk analysis and post comment
               if: github.event_name == 'pull_request'
+              # Step timeout: an analyzer hang fails THIS step (a failure, which
+              # !cancelled() still publishes as a definitive verdict) instead of
+              # running out the 20-min job timeout — a job timeout counts as a
+              # cancellation, which the publish step now skips, silently stranding
+              # the consumer. Normal analysis finishes in well under a minute.
+              timeout-minutes: 5
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
