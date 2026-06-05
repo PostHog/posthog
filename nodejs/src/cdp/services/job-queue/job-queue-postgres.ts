@@ -22,7 +22,7 @@ import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { ConsumerOptions, JobQueue } from './job-queue.interface'
+import { JobQueue } from './job-queue.interface'
 import { createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 /**
@@ -81,8 +81,7 @@ export class CyclotronJobQueuePostgres implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        options?: ConsumerOptions
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
         this.queue = queue
         this.consumeBatch = consumeBatch
@@ -99,8 +98,8 @@ export class CyclotronJobQueuePostgres implements JobQueue {
             },
             queueName: queue,
             includeVmState: true, // NOTE: We used to omit the vmstate but given we can requeue to kafka we need it
-            batchMaxSize: options?.batchMaxSize ?? this.consumerBatchSize,
-            pollDelayMs: options?.pollDelayMs ?? this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
+            batchMaxSize: this.consumerBatchSize, // Use the common value
+            pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
             shouldCompressVmState: this.config.CDP_CYCLOTRON_COMPRESS_VM_STATE,
         })

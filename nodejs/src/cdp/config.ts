@@ -55,14 +55,6 @@ export type CdpConfig = ClickhouseConfig & {
     //           '123,*:0.05' (team 123 + 5% of rest), '*' (all traffic)
     CDP_EMAIL_QUEUE_ROUTING: string
 
-    // SES rate-limit knobs for the dedicated email worker. The product of these
-    // two — BATCH_SIZE × 1000 / MIN_BATCH_INTERVAL_MS — is the effective sends/sec
-    // ceiling. Defaults pace at 1000/sec (matches typical SES production tier).
-    // The worker enforces MIN_BATCH_INTERVAL_MS itself; without that, cyclotron's
-    // pollDelayMs only paces empty-queue backoff, not non-empty batches.
-    CDP_EMAIL_BATCH_SIZE: number
-    CDP_EMAIL_MIN_BATCH_INTERVAL_MS: number
-
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
     CDP_LEGACY_EVENT_CONSUMER_INCLUDE_WEBHOOKS: boolean
@@ -177,9 +169,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
         CDP_EMAIL_QUEUE_ROUTING: '',
-
-        CDP_EMAIL_BATCH_SIZE: 100,
-        CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 100,
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,

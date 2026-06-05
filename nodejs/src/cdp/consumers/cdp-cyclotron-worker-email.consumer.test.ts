@@ -38,20 +38,8 @@ describe('CdpCyclotronWorkerEmail', () => {
             return new CdpCyclotronWorkerEmail(config, createCdpConsumerDeps(hub), createMockJobQueue())
         }
 
-        it('passes batch size + min interval as consumer options to the queue', () => {
-            const worker = buildWorker({
-                CDP_EMAIL_BATCH_SIZE: 250,
-                CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 250,
-            })
-
-            expect(worker['getConsumerOptions']()).toEqual({
-                batchMaxSize: 250,
-                pollDelayMs: 250,
-            })
-        })
-
-        it('holds the tick open when processing finishes faster than MIN_BATCH_INTERVAL_MS', async () => {
-            const worker = buildWorker({ CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 100 })
+        it('holds the tick open when processing finishes faster than CDP_CYCLOTRON_BATCH_DELAY_MS', async () => {
+            const worker = buildWorker({ CDP_CYCLOTRON_BATCH_DELAY_MS: 100 })
 
             // Stub parent processInvocations as immediate (0ms work).
             jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue([])
@@ -66,8 +54,8 @@ describe('CdpCyclotronWorkerEmail', () => {
             expect(elapsed).toBeLessThan(250)
         })
 
-        it('does not add extra delay when processing already took longer than MIN_BATCH_INTERVAL_MS', async () => {
-            const worker = buildWorker({ CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 50 })
+        it('does not add extra delay when processing already took longer than CDP_CYCLOTRON_BATCH_DELAY_MS', async () => {
+            const worker = buildWorker({ CDP_CYCLOTRON_BATCH_DELAY_MS: 50 })
 
             // Parent takes 150ms — already longer than the 50ms interval.
             jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockImplementation(
@@ -84,7 +72,7 @@ describe('CdpCyclotronWorkerEmail', () => {
         })
 
         it('returns the parent result unchanged', async () => {
-            const worker = buildWorker({ CDP_EMAIL_MIN_BATCH_INTERVAL_MS: 0 })
+            const worker = buildWorker({ CDP_CYCLOTRON_BATCH_DELAY_MS: 0 })
 
             const expected = [{ finished: true } as any, { finished: false } as any]
             jest.spyOn(Object.getPrototypeOf(Object.getPrototypeOf(worker)), 'processInvocations').mockResolvedValue(

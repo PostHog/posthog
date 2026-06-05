@@ -13,7 +13,7 @@ import { parseJSON } from '../../../utils/json-parse'
 import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
-import { ConsumerOptions, JobQueue } from './job-queue.interface'
+import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
 export class CyclotronJobQueueKafka implements JobQueue {
@@ -46,11 +46,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
-        _options?: ConsumerOptions
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
     ) {
-        // Kafka backend doesn't expose batch/poll knobs the same way; ignore the
-        // overrides. Only the postgres-v2 worker honours them today.
         this.queue = queue
         this.consumeBatch = consumeBatch
 
