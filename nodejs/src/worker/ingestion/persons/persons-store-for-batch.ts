@@ -136,8 +136,8 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
             isIdentified,
             uuid,
             primaryDistinctId,
-            extraDistinctIds,
-            this.batchId
+            this.batchId,
+            extraDistinctIds
         )
     }
 
@@ -181,7 +181,7 @@ class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBat
         distinctId: string,
         limit?: number
     ): Promise<MoveDistinctIdsResult> {
-        return this.tx.moveDistinctIds(source, target, distinctId, limit, this.batchId)
+        return this.tx.moveDistinctIds(source, target, distinctId, this.batchId, limit)
     }
 
     updateCohortsAndFeatureFlagsForMerge(
@@ -238,14 +238,14 @@ export class BatchBoundPersonsStore implements PersonsStoreForBatch {
             isIdentified,
             uuid,
             primaryDistinctId,
+            this.batchId,
             extraDistinctIds,
-            undefined,
-            this.batchId
+            undefined
         )
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
-        return this.store.addDistinctId(person, distinctId, version, undefined, this.batchId)
+        return this.store.addDistinctId(person, distinctId, version, this.batchId, undefined)
     }
 
     moveDistinctIds(

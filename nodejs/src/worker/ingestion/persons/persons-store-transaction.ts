@@ -28,8 +28,8 @@ export class PersonsStoreTransaction {
         isIdentified: boolean,
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
-        extraDistinctIds?: { distinctId: string; version?: number }[],
-        batchId?: number
+        batchId: number,
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         return await this.store.createPerson(
             createdAt,
@@ -41,9 +41,9 @@ export class PersonsStoreTransaction {
             isIdentified,
             uuid,
             primaryDistinctId,
+            batchId,
             extraDistinctIds,
-            this.tx,
-            batchId
+            this.tx
         )
     }
 
@@ -82,17 +82,17 @@ export class PersonsStoreTransaction {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        batchId?: number
+        batchId: number
     ): Promise<PersonMessage[]> {
-        return await this.store.addDistinctId(person, distinctId, version, this.tx, batchId)
+        return await this.store.addDistinctId(person, distinctId, version, batchId, this.tx)
     }
 
     async moveDistinctIds(
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        limit?: number,
-        batchId?: number
+        batchId: number,
+        limit?: number
     ): Promise<MoveDistinctIdsResult> {
         return await this.store.moveDistinctIds(source, target, distinctId, limit, this.tx, batchId)
     }

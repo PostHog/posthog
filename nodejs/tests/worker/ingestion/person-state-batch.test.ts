@@ -12,7 +12,7 @@ import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
-import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
+import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
 
 import {
     ClickHousePerson,
@@ -221,7 +221,7 @@ describe('PersonState.processEvent()', () => {
             timestampParam,
             processPerson,
             createPersonOutputs(kafkaProducer),
-            personsStore,
+            new BatchBoundPersonsStore(personsStore, 0),
             0,
             createDefaultSyncMergeMode(),
             false,
@@ -258,7 +258,7 @@ describe('PersonState.processEvent()', () => {
             timestampParam,
             processPerson,
             createPersonOutputs(kafkaProducer),
-            personsStore,
+            new BatchBoundPersonsStore(personsStore, 0),
             0,
             createDefaultSyncMergeMode(),
             false,
@@ -299,7 +299,7 @@ describe('PersonState.processEvent()', () => {
             timestampParam,
             processPerson,
             createPersonOutputs(kafkaProducer),
-            personsStore,
+            new BatchBoundPersonsStore(personsStore, 0),
             0,
             mergeMode,
             false,
@@ -1368,7 +1368,7 @@ describe('PersonState.processEvent()', () => {
                     timestamp,
                     true,
                     createPersonOutputs(kafkaProducer),
-                    sharedPersonsStore,
+                    new BatchBoundPersonsStore(sharedPersonsStore, 0),
                     0,
                     createDefaultSyncMergeMode(),
                     false,
@@ -1542,7 +1542,7 @@ describe('PersonState.processEvent()', () => {
                     timestamp,
                     true,
                     createPersonOutputs(kafkaProducer),
-                    sharedPersonsStore,
+                    new BatchBoundPersonsStore(sharedPersonsStore, 0),
                     0,
                     createDefaultSyncMergeMode(),
                     false,
@@ -1655,7 +1655,7 @@ describe('PersonState.processEvent()', () => {
                     timestamp,
                     true,
                     createPersonOutputs(kafkaProducer),
-                    sharedPersonsStore,
+                    new BatchBoundPersonsStore(sharedPersonsStore, 0),
                     0,
                     createDefaultSyncMergeMode(),
                     false,
@@ -3438,7 +3438,7 @@ describe('PersonState.processEvent()', () => {
             // Mock the batch store method which is what gets called through the transaction wrapper
             const moveDistinctIdsSpy = jest
                 .spyOn(batchStore, 'moveDistinctIds')
-                .mockImplementation(async (source, target, distinctId, limit, tx) => {
+                .mockImplementation(async (source, target, distinctId, limit, tx, batchId) => {
                     moveDistinctIdsCalls++
                     if (moveDistinctIdsCalls === 1) {
                         // Simulate the race condition: move firstUserDistinctId to person3
@@ -3456,7 +3456,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds(source, target, distinctId, limit, tx)
+                    return originalMoveDistinctIds(source, target, distinctId, limit, tx, batchId)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
@@ -4316,7 +4316,7 @@ describe('PersonState.processEvent()', () => {
                         timestamp,
                         true, // processPerson
                         createPersonOutputs(kafkaProducer),
-                        personsStore,
+                        new BatchBoundPersonsStore(personsStore, 0),
                         0,
                         mergeMode
                     )

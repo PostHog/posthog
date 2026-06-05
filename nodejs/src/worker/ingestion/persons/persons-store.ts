@@ -28,13 +28,13 @@ export interface PersonsStore extends BatchWritingStore {
      * Fetches a person by team ID and distinct ID for checking existence
      * Uses read replica when available
      */
-    fetchForChecking(teamId: number, distinctId: string, batchId?: number): Promise<InternalPerson | null>
+    fetchForChecking(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
 
     /**
      * Fetches a person by team ID and distinct ID with a row-level lock
      * Always uses primary database
      */
-    fetchForUpdate(teamId: number, distinctId: string, batchId?: number): Promise<InternalPerson | null>
+    fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null>
 
     /**
      * Creates a new person
@@ -49,9 +49,9 @@ export interface PersonsStore extends BatchWritingStore {
         isIdentified: boolean,
         uuid: string,
         primaryDistinctId: { distinctId: string; version?: number },
+        batchId: number,
         extraDistinctIds?: { distinctId: string; version?: number }[],
-        tx?: PersonRepositoryTransaction,
-        batchId?: number
+        tx?: PersonRepositoryTransaction
     ): Promise<CreatePersonResult>
 
     /**
@@ -89,8 +89,8 @@ export interface PersonsStore extends BatchWritingStore {
         person: InternalPerson,
         distinctId: string,
         version: number,
-        tx?: PersonRepositoryTransaction,
-        batchId?: number
+        batchId: number,
+        tx?: PersonRepositoryTransaction
     ): Promise<PersonMessage[]>
 
     /**
@@ -102,7 +102,7 @@ export interface PersonsStore extends BatchWritingStore {
         distinctId: string,
         limit: number | undefined,
         tx: PersonRepositoryTransaction,
-        batchId?: number
+        batchId: number
     ): Promise<MoveDistinctIdsResult>
 
     /**
@@ -162,7 +162,7 @@ export interface PersonsStore extends BatchWritingStore {
      * @param teamDistinctIds - A list of team IDs and distinct IDs to prefetch
      * @param batchId - Optional batch ID for cache eviction tracking
      */
-    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[], batchId?: number): Promise<void>
+    prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[], batchId: number): Promise<void>
 
     /**
      * Batch-inserts personless distinct IDs for events where no person exists.
@@ -170,10 +170,7 @@ export interface PersonsStore extends BatchWritingStore {
      * @param entries - A list of team IDs and distinct IDs to insert
      * @param batchId - Optional batch ID for cache eviction tracking
      */
-    processPersonlessDistinctIdsBatch(
-        entries: { teamId: number; distinctId: string }[],
-        batchId?: number
-    ): Promise<void>
+    processPersonlessDistinctIdsBatch(entries: { teamId: number; distinctId: string }[], batchId: number): Promise<void>
 
     /**
      * Gets the is_merged result from batch personless insert.
