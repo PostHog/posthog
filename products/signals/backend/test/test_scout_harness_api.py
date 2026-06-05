@@ -370,9 +370,6 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
     """
 
     def _list_url(self) -> str:
-        # The viewset exposes the singleton via an explicit `@action(url_path="current")`
-        # (not `list()`), so the route is /project_profile/current/. Generated TS clients
-        # call /current/; tests must match or the requests 404 and never exercise the view.
         return f"/api/projects/{self.team.id}/signals/scout/project_profile/current/"
 
     def _seed_profile(self, *, team: Team | None = None) -> str:

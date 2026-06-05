@@ -14,10 +14,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
-import { ChartParams, type FunnelStepWithConversionMetrics } from '~/types'
+import { ChartParams } from '~/types'
 
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
-import { buildFunnelStepsBarData, type FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
+import {
+    buildFunnelStepsBarData,
+    type FunnelStepsBarSeriesMeta,
+    resolveFunnelStepClick,
+} from './funnelStepsBarTransforms'
 
 const BASE_STEP_WIDTH_PX = 240
 const PER_BAR_WIDTH_PX = 20
@@ -86,13 +90,11 @@ export function FunnelStepsBarChart({
 
     const onPointClick = useCallback(
         (clickData: PointClickData<FunnelStepsBarSeriesMeta>): void => {
-            const step = steps[clickData.dataIndex]
-            if (!step) {
+            const target = resolveFunnelStepClick(steps, clickData)
+            if (!target) {
                 return
             }
-            const breakdownIndex = clickData.series.meta?.breakdownIndex ?? 0
-            const variant: FunnelStepWithConversionMetrics = step.nested_breakdown?.[breakdownIndex] ?? step
-            openPersonsModalForSeries({ step, series: variant, converted: true })
+            openPersonsModalForSeries(target)
         },
         [steps, openPersonsModalForSeries]
     )
