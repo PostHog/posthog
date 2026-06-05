@@ -60,7 +60,9 @@ FRESHNESS_LAG_DAYS = 3  # GSC publishes data with a 2-3 day lag
 # HTTP 403 (not 429) with domain `usageLimits`. These are transient — back off
 # and retry rather than failing the whole job.
 # Quotas: https://developers.google.com/webmaster-tools/limits#qps-quota
-QUOTA_ERROR_REASONS = frozenset({"quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded", "dailyLimitExceeded"})
+QUOTA_ERROR_REASONS = frozenset({"quotaExceeded", "rateLimitExceeded", "userRateLimitExceeded"})
+# dailyLimitExceeded resets at midnight, so let Temporal retry the activity instead of blocking inline.
+DAILY_QUOTA_REASONS = frozenset({"dailyLimitExceeded"})
 QUOTA_MAX_RETRIES = 5
 QUOTA_BACKOFF_BASE_SECONDS = 2.0  # exponential: ~2, 4, 8, 16, 32s — QPS windows reset within seconds
 
@@ -147,6 +149,16 @@ def _is_quota_error(response: requests.Response) -> bool:
     return any(e.get("domain") == "usageLimits" or e.get("reason") in QUOTA_ERROR_REASONS for e in errors)
 
 
+def _is_daily_quota_error(response: requests.Response) -> bool:
+    if response.status_code != 403:
+        return False
+    try:
+        errors = response.json().get("error", {}).get("errors", [])
+    except ValueError:
+        return False
+    return any(e.get("reason") in DAILY_QUOTA_REASONS for e in errors)
+
+
 def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
     """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
     retry_after = response.headers.get("Retry-After")
@@ -191,6 +203,11 @@ def _query_search_analytics(
             status_code=response.status_code,
             body=response.text,
         )
+
+        if _is_daily_quota_error(response):
+            raise GoogleSearchConsoleQuotaExceededError(
+                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
+            )
 
         if not _is_quota_error(response):
             # Permission / other errors are fatal — let the HTTPError bubble up so

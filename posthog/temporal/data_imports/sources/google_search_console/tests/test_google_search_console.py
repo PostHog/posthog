@@ -14,6 +14,7 @@ from posthog.temporal.data_imports.sources.google_search_console.google_search_c
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
     _initial_start_date,
+    _is_daily_quota_error,
     _is_quota_error,
     _iter_dates,
     _query_search_analytics,
@@ -282,6 +283,7 @@ def _fake_response(status_code: int, json_body: dict | None = None, headers: dic
 
 _QUOTA_BODY = {"error": {"code": 403, "errors": [{"domain": "usageLimits", "reason": "quotaExceeded"}]}}
 _PERMISSION_BODY = {"error": {"code": 403, "errors": [{"domain": "global", "reason": "forbidden"}]}}
+_DAILY_QUOTA_BODY = {"error": {"code": 403, "errors": [{"domain": "usageLimits", "reason": "dailyLimitExceeded"}]}}
 
 
 @pytest.mark.parametrize(
@@ -298,6 +300,19 @@ _PERMISSION_BODY = {"error": {"code": 403, "errors": [{"domain": "global", "reas
 )
 def test_is_quota_error(response, expected):
     assert _is_quota_error(response) is expected
+
+
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (_fake_response(403, _DAILY_QUOTA_BODY), True),
+        (_fake_response(403, _QUOTA_BODY), False),
+        (_fake_response(429), False),
+        (_fake_response(200, {"rows": []}), False),
+    ],
+)
+def test_is_daily_quota_error(response, expected):
+    assert _is_daily_quota_error(response) is expected
 
 
 def test_quota_backoff_prefers_retry_after_header():
@@ -340,6 +355,19 @@ def test_query_raises_quota_error_after_max_retries(monkeypatch):
 
     # Initial attempt + QUOTA_MAX_RETRIES retries.
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
+def test_query_daily_quota_raises_without_retry(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(403, _DAILY_QUOTA_BODY)
+
+    with pytest.raises(GoogleSearchConsoleQuotaExceededError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == 1
 
 
 def test_query_permission_error_is_not_retried(monkeypatch):
