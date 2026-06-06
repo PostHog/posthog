@@ -1,7 +1,6 @@
 import { actions, kea, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { urls } from 'scenes/urls'
 
@@ -17,7 +16,6 @@ export interface ReplayScannerSceneLogicProps {
 export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannerSceneLogic']),
     props({} as ReplayScannerSceneLogicProps),
-    tabAwareScene(),
 
     actions({
         setScannerId: (scannerId: string) => ({ scannerId }),
