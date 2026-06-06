@@ -70,7 +70,7 @@ const meta: Meta = {
 }
 export default meta
 
-function DashboardScene(): JSX.Element {
+export function WebAnalyticsDashboard(): JSX.Element {
     const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
 
     useEffect(() => {
@@ -84,16 +84,19 @@ function DashboardScene(): JSX.Element {
     return <App />
 }
 
-export function WebAnalyticsDashboard(): JSX.Element {
-    return <DashboardScene />
-}
-
 WebAnalyticsDashboardMetricCards.parameters = {
     ...meta.parameters,
     featureFlags: [...((meta.parameters?.featureFlags as string[]) ?? []), FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
 }
 export function WebAnalyticsDashboardMetricCards(): JSX.Element {
-    return <DashboardScene />
+    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+
+    useEffect(() => {
+        setSourceTab(SourceTab.REFERRING_DOMAIN)
+        setDeviceTab(DeviceTab.BROWSER)
+    }, [setDeviceTab, setSourceTab])
+
+    return <App />
 }
 
 WebAnalyticsDashboardLoading.parameters = {
