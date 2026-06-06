@@ -49,11 +49,6 @@ export type DashboardWidgetCatalogEntry = {
     headerTitle?: string
     /** When set, the widget title links here on private dashboard placements for users with access. */
     titleHref?: string
-    /** Copy for shared/public dashboard placeholders when live widget data is not loaded. */
-    sharedPlaceholder?: {
-        title: string
-        message: string
-    }
     /** Optional project setup requirement surfaced in widget runtime when unmet (see `widgetAvailability.ts`). */
     availability?: WidgetAvailabilityConfig
 }
@@ -71,10 +66,6 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
         productAccess: 'error_tracking',
         titleHref: urls.errorTracking(),
-        sharedPlaceholder: {
-            title: 'Top issues',
-            message: 'Log in to PostHog to see which errors are affecting your users.',
-        },
     },
     session_replay_list: {
         groupId: 'session_replay',
@@ -87,10 +78,6 @@ export const DASHBOARD_WIDGET_CATALOG = {
         defaultLayout: { w: 6, h: 5, minW: 6, minH: 3 },
         productAccess: 'session_recording',
         titleHref: urls.replay(),
-        sharedPlaceholder: {
-            title: 'Recent recordings',
-            message: 'Log in to PostHog to watch session replays from this dashboard.',
-        },
         availability: {
             requirement: 'session_replay_enabled',
             unavailableTitle: 'Session replay is not enabled',
@@ -139,11 +126,6 @@ export function tryGetDashboardWidgetCatalogEntry(widgetType: string): ResolvedD
     return resolveDashboardWidgetCatalogEntry(DASHBOARD_WIDGET_CATALOG[widgetType as DashboardWidgetCatalogKey])
 }
 
-export const DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER = {
-    title: 'Widget data',
-    message: "Log in to PostHog to see this widget's data.",
-} as const
-
 export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): ResolvedDashboardWidgetCatalogEntry {
     return {
         groupId: widgetType,
@@ -154,7 +136,6 @@ export function getUnknownDashboardWidgetCatalogFallback(widgetType: string): Re
         headerTitle: widgetType,
         headerLayout: DEFAULT_DASHBOARD_WIDGET_HEADER_LAYOUT,
         headerMeta: DEFAULT_DASHBOARD_WIDGET_HEADER_META,
-        sharedPlaceholder: DEFAULT_SHARED_DASHBOARD_WIDGET_PLACEHOLDER,
     }
 }
 

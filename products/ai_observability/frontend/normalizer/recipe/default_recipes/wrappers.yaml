@@ -4,6 +4,7 @@
 # so an output-side wrapper stays `assistant`.
 
 id: wrappers
+priority: 90
 
 rules:
     - on:

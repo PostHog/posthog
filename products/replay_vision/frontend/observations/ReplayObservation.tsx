@@ -28,10 +28,8 @@ import {
     readConfig,
     readResult,
 } from '../components/ObservationCard'
-import { ObservationProgressBar } from '../components/ObservationProgressBar'
 import {
     failureKindDescription,
-    ineligibleKindDescription,
     modelLabel,
     parseFailureReason,
     parseIneligibleReason,
@@ -100,7 +98,7 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
 
     const { observation, observationLoading } = useValues(observationLogic)
 
-    if (observationLoading && !observation) {
+    if (observationLoading) {
         return (
             <SceneContent>
                 <SceneTitleSection name="Loading…" resourceType={{ type: 'replay_vision' }} />
@@ -182,6 +180,125 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                 description={`Observation of session ${observation.session_id}`}
                 resourceType={{ type: 'replay_vision' }}
             />
+
+            <div className={scannerType === 'summarizer' ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
+                <section className="border rounded p-4 bg-surface-primary space-y-3">
+                    <div className="text-sm font-medium">Result</div>
+
+                    {observation.status === 'failed' && observation.error_reason && (
+                        <div className="flex flex-col gap-3">
+                            {scannerType && (
+                                <LabeledRow label="Type">
+                                    <LemonTag type="option" className="self-start">
+                                        {scannerTypeLabel(scannerType)}
+                                    </LemonTag>
+                                </LabeledRow>
+                            )}
+                            {prompt && (
+                                <LabeledRow label="Prompt">
+                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
+                                </LabeledRow>
+                            )}
+                            <LabeledRow label="Reason">
+                                <LemonTag type="danger" className="self-start">
+                                    {failedParsed?.label ?? 'Failed'}
+                                </LemonTag>
+                            </LabeledRow>
+                            {failedParsed && (
+                                <LabeledRow label="What this means">
+                                    <p className="text-sm text-default m-0 leading-snug">
+                                        {failureKindDescription(failedParsed.kind)}
+                                    </p>
+                                </LabeledRow>
+                            )}
+                            {failedMessage && (
+                                <LabeledRow label="Details">
+                                    <p className="text-sm text-default m-0 leading-snug font-mono">{failedMessage}</p>
+                                </LabeledRow>
+                            )}
+                        </div>
+                    )}
+
+                    {observation.status === 'ineligible' && observation.error_reason && (
+                        <div className="flex flex-col gap-3">
+                            {scannerType && (
+                                <LabeledRow label="Type">
+                                    <LemonTag type="option" className="self-start">
+                                        {scannerTypeLabel(scannerType)}
+                                    </LemonTag>
+                                </LabeledRow>
+                            )}
+                            {prompt && (
+                                <LabeledRow label="Prompt">
+                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
+                                </LabeledRow>
+                            )}
+                            <LabeledRow label="Reason">
+                                <LemonTag type="muted" className="self-start">
+                                    {ineligibleParsed?.label ?? 'Ineligible'}
+                                </LemonTag>
+                            </LabeledRow>
+                            {ineligibleMessage && (
+                                <LabeledRow label="Details">
+                                    <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
+                                </LabeledRow>
+                            )}
+                        </div>
+                    )}
+
+                    {observation.status === 'succeeded' && snapshot && result && (
+                        <div className="flex flex-col gap-3">
+                            {scannerType && (
+                                <LabeledRow label="Type">
+                                    <LemonTag type="option" className="self-start">
+                                        {scannerTypeLabel(scannerType)}
+                                    </LemonTag>
+                                </LabeledRow>
+                            )}
+                            {prompt && scannerType !== 'summarizer' && (
+                                <LabeledRow label="Prompt">
+                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
+                                </LabeledRow>
+                            )}
+                            <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
+                                <ObservationPrimaryOutput
+                                    observation={observation}
+                                    showPrompt={false}
+                                    onSeek={seekEmbeddedPlayer}
+                                />
+                            </LabeledRow>
+                            {observation.completed_at && (
+                                <LabeledRow label="Event">
+                                    <Link to={urls.event(observation.id, observation.completed_at)}>
+                                        $recording_observed
+                                    </Link>
+                                </LabeledRow>
+                            )}
+                        </div>
+                    )}
+
+                    {(observation.status === 'pending' || observation.status === 'running') && (
+                        <div className="text-muted text-sm">
+                            {observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}
+                        </div>
+                    )}
+                </section>
+
+                {scannerType !== 'summarizer' && (
+                    <section className="border rounded p-4 bg-surface-primary space-y-2">
+                        <div className="text-sm font-medium">Reasoning</div>
+                        {reasoning ? (
+                            <p className="text-sm whitespace-pre-wrap m-0">
+                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
+                            </p>
+                        ) : (
+                            <p className="text-muted text-sm m-0">
+                                {observation.status === 'succeeded' ? 'No reasoning provided.' : 'N/A'}
+                            </p>
+                        )}
+                    </section>
+                )}
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <LemonCard className="p-4" hoverEffect={false}>
@@ -337,120 +454,6 @@ export function ReplayObservationSceneComponent({ tabId }: { tabId: string }): J
                         )}
                     </div>
                 </LemonCard>
-            </div>
-
-            <div className={scannerType === 'summarizer' ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-4'}>
-                <section className="border rounded p-4 bg-surface-primary space-y-3">
-                    <div className="text-sm font-medium">Result</div>
-
-                    {observation.status === 'failed' && observation.error_reason && (
-                        <div className="flex flex-col gap-3">
-                            {scannerType && (
-                                <LabeledRow label="Type">
-                                    <LemonTag type="option" className="self-start">
-                                        {scannerTypeLabel(scannerType)}
-                                    </LemonTag>
-                                </LabeledRow>
-                            )}
-                            <LabeledRow label="Reason">
-                                <p className="text-sm text-default m-0 leading-snug">
-                                    {failedParsed
-                                        ? failureKindDescription(failedParsed.kind)
-                                        : observation.error_reason}
-                                </p>
-                            </LabeledRow>
-                            {failedParsed && failedMessage && (
-                                <LabeledRow label="Details">
-                                    <p className="text-sm text-default m-0 leading-snug font-mono">{failedMessage}</p>
-                                </LabeledRow>
-                            )}
-                        </div>
-                    )}
-
-                    {observation.status === 'ineligible' && observation.error_reason && (
-                        <div className="flex flex-col gap-3">
-                            {scannerType && (
-                                <LabeledRow label="Type">
-                                    <LemonTag type="option" className="self-start">
-                                        {scannerTypeLabel(scannerType)}
-                                    </LemonTag>
-                                </LabeledRow>
-                            )}
-                            <LabeledRow label="Reason">
-                                <p className="text-sm text-default m-0 leading-snug">
-                                    {ineligibleParsed
-                                        ? ineligibleKindDescription(ineligibleParsed.kind)
-                                        : observation.error_reason}
-                                </p>
-                            </LabeledRow>
-                            {ineligibleParsed && ineligibleMessage && (
-                                <LabeledRow label="Details">
-                                    <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
-                                </LabeledRow>
-                            )}
-                        </div>
-                    )}
-
-                    {observation.status === 'succeeded' && snapshot && result && (
-                        <div className="flex flex-col gap-3">
-                            {scannerType && (
-                                <LabeledRow label="Type">
-                                    <LemonTag type="option" className="self-start">
-                                        {scannerTypeLabel(scannerType)}
-                                    </LemonTag>
-                                </LabeledRow>
-                            )}
-                            {prompt && scannerType !== 'summarizer' && (
-                                <LabeledRow label="Prompt">
-                                    <p className="text-sm text-default m-0 leading-snug">{prompt}</p>
-                                </LabeledRow>
-                            )}
-                            <LabeledRow label={scannerType ? SUCCEEDED_OUTPUT_LABEL[scannerType] : ''}>
-                                <ObservationPrimaryOutput
-                                    observation={observation}
-                                    showPrompt={false}
-                                    onSeek={seekEmbeddedPlayer}
-                                />
-                            </LabeledRow>
-                            {observation.completed_at && (
-                                <LabeledRow label="Event">
-                                    <Link to={urls.event(observation.id, observation.completed_at)}>
-                                        $recording_observed
-                                    </Link>
-                                </LabeledRow>
-                            )}
-                        </div>
-                    )}
-
-                    {(observation.status === 'pending' || observation.status === 'running') && (
-                        <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} />
-                    )}
-                </section>
-
-                {scannerType !== 'summarizer' && (
-                    <section
-                        className={`border rounded p-4 space-y-2 ${
-                            reasoning ? 'bg-surface-primary' : 'bg-surface-secondary opacity-60'
-                        }`}
-                    >
-                        <div className="text-sm font-medium">Model reasoning</div>
-                        {reasoning ? (
-                            <p className="text-sm whitespace-pre-wrap m-0">
-                                <CitedText text={reasoning} segments={reasoningSegments} onSeek={seekEmbeddedPlayer} />
-                            </p>
-                        ) : (
-                            <p className="text-muted text-sm m-0 italic">
-                                {observation.status === 'ineligible'
-                                    ? 'The model was not invoked.'
-                                    : observation.status === 'failed'
-                                      ? 'No reasoning available — the observation failed before completion.'
-                                      : observation.status === 'succeeded'
-                                        ? 'No reasoning provided.'
-                                        : 'Awaiting model output…'}
-                            </p>
-                        )}
-                    </section>
-                )}
             </div>
 
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>

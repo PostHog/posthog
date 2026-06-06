@@ -840,12 +840,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
     await logger.adebug(f"Running count query: {printed}")
 
     async with get_client() as client:
-        async with client.apost_query(
-            query=printed,
-            query_parameters=context.values,
-            query_id=str(uuid.uuid4()),
-        ) as response:
-            result = await response.content.read()
+        result = await client.read_query(printed, query_parameters=context.values)
         count = int(result.decode("utf-8").strip())
         return count
 

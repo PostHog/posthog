@@ -22,7 +22,6 @@ export function AccountsTabFilters(): JSX.Element {
         setAccountExecutiveFilter,
         setAccountOwnerFilter,
         refresh,
-        reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
 
@@ -49,10 +48,7 @@ export function AccountsTabFilters(): JSX.Element {
                             allowCustomValues
                             value={tagsFilter}
                             options={(tagsAvailable || []).map((t: string) => ({ key: t, label: t }))}
-                            onChange={(tags) => {
-                                setTagsFilter(tags)
-                                reportFilterChange('tag')
-                            }}
+                            onChange={setTagsFilter}
                             placeholder="Select or type tags..."
                             data-attr="accounts-tags-filter"
                         />
@@ -68,47 +64,27 @@ export function AccountsTabFilters(): JSX.Element {
                     type="secondary"
                     size="small"
                     icon={<IconX />}
-                    onClick={() => {
-                        setTagsFilter([])
-                        reportFilterChange('tag')
-                    }}
+                    onClick={() => setTagsFilter([])}
                     tooltip="Clear tag filter"
                 />
             )}
 
-            <RolePicker
-                label="CSM"
-                value={csmFilter}
-                onChange={(value) => {
-                    setCsmFilter(value)
-                    reportFilterChange('csm')
-                }}
-                dataAttr="accounts-csm-filter"
-            />
+            <RolePicker label="CSM" value={csmFilter} onChange={setCsmFilter} dataAttr="accounts-csm-filter" />
             <RolePicker
                 label="AE"
                 value={accountExecutiveFilter}
-                onChange={(value) => {
-                    setAccountExecutiveFilter(value)
-                    reportFilterChange('account_executive')
-                }}
+                onChange={setAccountExecutiveFilter}
                 dataAttr="accounts-ae-filter"
             />
             <RolePicker
                 label="Owner"
                 value={accountOwnerFilter}
-                onChange={(value) => {
-                    setAccountOwnerFilter(value)
-                    reportFilterChange('account_owner')
-                }}
+                onChange={setAccountOwnerFilter}
                 dataAttr="accounts-owner-filter"
             />
             <LemonCheckbox
                 checked={allRolesUnassigned}
-                onChange={(value) => {
-                    setAllRolesUnassigned(value)
-                    reportFilterChange('unassigned_only')
-                }}
+                onChange={setAllRolesUnassigned}
                 label="Unassigned only"
                 disabledReason={accountsLoading ? 'Loading…' : undefined}
                 data-attr="accounts-unassigned-filter"

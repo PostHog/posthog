@@ -5,9 +5,7 @@ Sibling doc: [README.md](./README.md) — read that first for the product pictur
 
 ## 1. Purpose
 
-Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) through **named, typed read endpoints** that run curated HogQL privately. **MCP is the official surface** (the endpoints are exposed as MCP tools); a read-only UI consumes the same endpoints. Nothing is registered as a global HogQL view, so the product stays isolated and off the per-query catalog hot path — core imports only the viewset, exactly like `visual_review`. Consumers and motivations are in the README.
-
-The **goal** is to surface these as **Signals** for PostHog Code: valuable CI conditions are emitted into PostHog's [Signals](../signals) product, grouped and researched against the repository, and acted on autonomously when a finding is actionable. The read substrate + MCP serve that goal directly — what counts as a valuable CI Signal is defined once in `logic/` over the read layer, reused by both the surface and the emitter — and the UI is a showcase over the same layer.
+Engineering contract for the `products/engineering_analytics/` product. The product surfaces PR + CI lifecycle data from the warehouse (`github_pull_requests`, `github_workflow_runs`) as MCP tools and DRF endpoints. Consumers and motivations are in the README.
 
 ## 2. Non-goals
 
@@ -18,50 +16,51 @@ The **goal** is to surface these as **Signals** for PostHog Code: valuable CI co
 
 ## 3. Architecture
 
-One general **curated read layer** that every surface composes. The curated query builders are the deep, reusable layer where all domain knowledge lives once; the named endpoints, MCP, and the UI are thin consumers above it. Crucially the product runs this layer **privately** — it is never registered as a global HogQL view, so core's HogQL layer never imports it and no per-team query pays for it. The only core→product edge is the viewset registration in `posthog/api/`, the standard product edge that every viewset has. (APOSD: general-purpose lower layer, thin surfaces, domain rules defined once.)
-
 ```mermaid
 graph TB
     subgraph Consumers
-        MCP[MCP clients — Claude Code / Cursor / PostHog AI]
-        UI[Read-only UI — React + kea]
-        Other[PostHog Code & other agent-driven callers]
+        MCP[MCP clients - Claude Code / Cursor / PostHog AI]
+        UI[Read-only demo UI - React + kea]
+        Other[PostHog Code and other agent-driven callers]
     end
 
-    subgraph "Surface (thin)"
-        Endpoints["named typed DRF endpoints<br/>ci_cards / pull_requests / workflow_health / pr_lifecycle<br/>@extend_schema → OpenAPI → MCP tools + UI client"]
+    subgraph "Surface (autogen)"
+        Tools["MCP tools<br/>(tools.yaml -> codegen)"]
+        DRF["DRF viewsets<br/>(@extend_schema)"]
     end
 
-    subgraph "Curated read layer (domain rules defined ONCE)"
-        Sys["curated query builders — build_query()<br/>embedded as subqueries, run via execute_hogql_query<br/>NOT registered as global views"]
+    subgraph Domain
+        Facade["facade/api.py<br/>(public interface, canonical types)"]
+        Logic["logic/<br/>(metric definitions)"]
+        Queries["logic/queries/<br/>(HogQL queries, GitHub-shaped)"]
     end
 
     subgraph Storage
         WH[(warehouse<br/>github_pull_requests<br/>github_workflow_runs)]
-        EV[(events — PR as group type<br/>destination, deferred)]
     end
 
-    MCP --> Endpoints
-    UI --> Endpoints
-    Other --> Endpoints
-    Endpoints --> Sys
-    Sys --> WH
-    Sys -. future .-> EV
+    MCP --> Tools
+    UI --> DRF
+    Other --> Tools
+    Tools --> DRF
+    DRF --> Facade
+    Facade --> Logic
+    Logic --> Queries
+    Queries --> WH
 ```
 
 Rules:
 
-- **Curated read layer = curated query builders** over the warehouse tables: `backend/logic/views/{pull_requests,workflow_runs}.py` each expose `build_query()` returning a curated `SELECT` over the raw `github_*` table. Query modules (`backend/logic/queries/`) embed those as parenthesised subqueries (via `_curated`) and run them with `execute_hogql_query`. Repo identity (`base.repo.full_name`), labels, `is_bot`, and the PR↔CI head-SHA join are mapped here **from the JSON the source already lands — no new ingestion**. Domain rules (bot detection, default exclusions, the join, honest metric naming) are defined exactly **once**, here. **Nothing is registered in `Database.create_for`** — the product is not a global-catalog citizen, which keeps it off the per-query hot path and means `posthog/hogql` never imports it (the viewset registration in `posthog/api/` is the normal product edge, loaded once at URL-conf time).
-- **MCP is the official surface, via named typed endpoints.** Each capability is a DRF action with `@extend_schema` that flows to an MCP tool through OpenAPI codegen (`ci_cards`, `pull_requests`, `workflow_health`, `pr_lifecycle`). This is the `visual_review` shape: core imports only the viewset; everything else stays in the product.
-- **The UI reads the same endpoints** via the generated typed API client (kea loaders) — not client-side HogQL, and not bespoke report endpoints distinct from the MCP ones. One endpoint set, two consumers.
-- HogQL only, via `execute_hogql_query`. No raw ClickHouse `sync_execute()`. No product Postgres DB.
-- The curated builders (and `logic/queries/`) are the only place that names warehouse tables or GitHub-shaped columns. Canonical types stay above them.
-- Every named-tool PR ships a matching `skills/<name>/SKILL.md` teaching tool selection and carrying the metric caveats — same pattern as `products/visual_review/skills/triaging-visual-review-runs/`.
-- Provider abstraction (`CodeHostProvider` Protocol) is **deferred**. GitHub-specific HogQL lives in the curated builders; when a second provider lands, the Protocol is extracted then. See §7.
+- HogQL via `execute_hogql_query()` is the only data access pattern. No raw ClickHouse `sync_execute()`.
+- Django ORM is not used by this product. There is no product Postgres DB in v1 — see README → Locked decisions.
+- `logic/queries/` is the only module that names warehouse tables (`github_pull_requests`, `github_workflow_runs`). Logic and facade work with canonical types only.
+- One contract feeds both surfaces: DRF viewsets with `@extend_schema` produce OpenAPI → TypeScript types AND MCP tool descriptions. Logic functions are called by both.
+- Every MCP-tools PR ships with a matching in-product skill at `skills/<name>/SKILL.md` so the dogfooder has an installed playbook for chaining tool calls — same pattern as `products/visual_review/skills/triaging-visual-review-runs/`.
+- Provider abstraction (`CodeHostProvider` Protocol) is **deferred**. GitHub-specific HogQL lives in `logic/queries/` directly; when a second provider lands, the Protocol is extracted then. See §7.
 
 ## 4. Canonical types
 
-Defined in `backend/facade/contracts.py` as `pydantic.dataclasses.dataclass(frozen=True)` — same `is_dataclass()` semantics as the stdlib variant (so `DataclassSerializer` works) but with runtime validation at construction. No Django imports. These back **every endpoint** and any cross-product use — the named endpoints return these typed contracts (objects or lists), so there is no untyped row surface.
+Defined in `backend/facade/contracts.py` as `pydantic.dataclasses.dataclass(frozen=True)` — same `is_dataclass()` semantics as the stdlib variant (so `DataclassSerializer` works) but with runtime validation at construction. No Django imports.
 
 ```mermaid
 classDiagram
@@ -118,66 +117,44 @@ classDiagram
     WorkflowRun --> WorkflowConclusion
 ```
 
-`is_bot` on `Author` is set inside the read layer: `is_bot = handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
+`is_bot` on `Author` is set inside the query / mapping layer:
+`is_bot = handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`.
 
-`pr_lifecycle` returns a `metric_quality` field where the caveat is load-bearing (`partial`). The aggregate endpoints carry their caveats in **honest field names** (`open_to_merge_seconds`) plus serializer/tool docs (see §7).
+Tool-specific return types (`WorkflowReport`, `TimeToMerge`, `PRLifecycle`) live in `facade/contracts.py` alongside the canonical types. They wrap rows + a `metric_quality` field per README → Locked decisions.
 
-Types named in the README but not yet modeled (reviewers, deploys, file paths) wait until the corresponding data lands.
+Types named in the README but not in v1 contracts (reviewers, deploys, file paths) wait until the corresponding warehouse data lands.
 
-## 5. Curated read layer & surface
+## 5. v1 tool catalog
 
-### Curated read layer
+Tools live in `products/engineering_analytics/mcp/tools.yaml`. Each tool description is prompt-engineered — it explains to the calling LLM **when** and **why** to call it, not just the parameter list. Tool return shapes are typed contracts, not free-form prose (README → Locked decisions).
 
-Two curated `build_query()` SELECTs over the existing warehouse data — columns mapped from JSON we already store, **no new ingestion, no global view registration**. Column names encode caveats so a misread is defined out of existence (`open_to_merge_seconds`, never `cycle_time`).
+| Tool              | Source data            | Returns                                                                                                    | Quality                                                |
+| ----------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `workflow_report` | `github_workflow_runs` | `list[WorkflowReportRow]` — workflow name, total runs, success rate, median + p95 duration, last failed at | precise                                                |
+| `time_to_merge`   | `github_pull_requests` | `list[TimeToMergeRow]` — `bucket` (overall or per author), pr_count, median + p95 seconds                  | coarse (combines draft + ready-for-review time)        |
+| `pr_lifecycle`    | both                   | `PRLifecycle` — PR header + timeline of CI run events                                                      | partial (no reviews/comments until reviews data lands) |
 
-- pull-requests builder — `number`, `title`, `author_handle`, `is_bot`, `repo_owner` / `repo_name` (from `base.repo.full_name`), `labels`, `state`, `is_draft`, `created_at`, `merged_at`, `closed_at`, `head_sha`, `open_to_merge_seconds` (coarse — see §7).
-- workflow-runs builder — `workflow_name`, `head_sha`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
+All tools accept `date_from` / `date_to` per PostHog convention (relative `-7d` or ISO8601). Optional `repo` filter on the first two.
 
-A PR's current CI status is the head-SHA join between the two (the `ci_rollup` CTE in `_curated`); defined once.
-
-### Surface
-
-**MCP (official):** named typed tools, each a DRF endpoint returning a typed contract:
-
-- `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
-- `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window. Capped (newest first) and returned as `{items, truncated, limit}` so the page never silently under-counts against `ci_cards`.
-- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window.
-- `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
-
-**UI:** a read-only scene on the same endpoints via the generated API client — a PR list (CI status, CI duration, age), the count cards (open / stuck >7d / failing CI), and a workflow-health view. Read-only; **no saved views or stateful filters in this phase** (persisted/stateful surfaces are a later, separate decision). Columns that need deferred data — time-in-review, reviewers/approvals, per-check counts, DORA — are out until the event substrate lands (§9).
-
-All time-windowed access uses `date_from` / `date_to` per PostHog convention (relative `-30d` or ISO8601).
+UI: one read-only scene rendering `workflow_report` as a horizontal bar chart of slowest workflows. Design system showcase only. No filters, no kea forms, no saved views.
 
 ## 6. Delivery shape
 
-Vertical slices, each independently mergeable. The near-term path:
-
-1. scaffold — **done**.
-2. `github_workflow_runs` warehouse source — **done**.
-3. **curated read layer + named endpoints** (`ci_cards` / `pull_requests` / `workflow_health` / `pr_lifecycle`), run privately — no global registration — plus the in-product skill.
-4. read-only UI scene on those endpoints (PR list + cards + workflow health).
-5. destination: GitHub webhooks → events (PR as group type) — unlocks the deferred columns (§9).
-
-The earlier explorations — three bespoke `*_report` RPC tools, then a generic `query` / `execute_sql` surface over globally-registered views — are **superseded** by named typed endpoints that run the curated builders privately. The named endpoints serve both MCP and the UI, keep domain rules defined once, and (unlike registered views) leave the product isolated and off the per-query hot path. See §7 for why.
-
-The goal these slices build toward: emit valuable CI Signals from the curated read layer into the Signals product for PostHog Code. That emission rides on the curated builders — it does not wait on the events destination — and reuses the `logic/` detection that backs the MCP surface.
+Vertical slices, each independently mergeable — a feature PR delivers a complete read path (HogQL → logic → facade → DRF → MCP), not a horizontal layer. The near-term path: this scaffold, then the `github_workflow_runs` source, then the first MCP tools (`workflow_report` + `time_to_merge` + `pr_lifecycle`) with a matching `skills/<name>/SKILL.md`, then the read-only UI scene. Beyond that, sequencing follows the data — see §9.
 
 ## 7. Locked decisions
 
 Engineering-specific decisions. Product-level decisions live in README → Locked decisions. If you want to change one, do it in a separate PR with a written reason.
 
-- **Signals emission for PostHog Code is the goal; the substrate is shaped for it.** Valuable CI conditions are surfaced as Signals via the Signals product's `emit_signal()` for PostHog Code to act on. Detection of what counts as a valuable Signal is defined once in `logic/` over the read layer, so the emitter and the MCP/SQL surface share one definition — never re-derived in the UI. The emission contract (source taxonomy, thresholds, autonomy priority) is owned by the Signals product; nothing in the read substrate or surfaces may foreclose it.
-- **Curated read layer, run privately; MCP is the official surface via named typed endpoints.** _(Changed — reason:)_ registering the curated views in the global HogQL catalog (`Database.create_for`, the `revenue_analytics` precedent) inverts the dependency — core imports the product — and runs on the per-query hot path for **every** team. Running the curated `build_query()` as subqueries from the product's own DRF endpoints keeps domain rules defined once while leaving the product isolated and off the hot path: core imports only the viewset, exactly like `visual_review`. The endpoints back both the MCP tools and the UI, so there is no parallel read path. (This restructure is the written reason for changing the prior "registered substrate + generic SQL surface" decision.)
-- **`metric_quality` is a typed field on `pr_lifecycle`; aggregate endpoints carry caveats in field names + docs.** _(Changed — reason:)_ the aggregate endpoints return typed lists, so the coarse/staleness caveats ride in honest field names (`open_to_merge_seconds`) and serializer/tool descriptions — structurally hard to misread. `pr_lifecycle` keeps the typed `metric_quality` field (`partial`) where the assembly's incompleteness is load-bearing.
-- **No new ingestion to support v1 UI.** Repo identity, labels, and `is_bot` are mapped from the warehouse JSON already landed; the PR↔CI status is a head-SHA join. All in the read layer.
 - **HogQL only for analytics data.** No raw ClickHouse.
-- **No product Postgres DB.** Tool calls are stateless; saved/stateful state is a later, separate decision. No `db_routing.yaml` entry — analytics data lives in the warehouse / ClickHouse. If a product-config model is ever needed, it goes on the **main** DB as a team-scoped model (`TeamScopedRootMixin`), not a separate DB.
-- **Provider abstraction deferred.** No `CodeHostProvider` Protocol in v1. GitHub-shaped HogQL lives in the read layer; that boundary is the future Protocol seam — keep canonical types above it, GitHub-isms below.
-- **Canonical types live in `facade/contracts.py`** as frozen dataclasses (for the named deep tools). No Django imports, no provider-specific fields.
-- **CI granularity = workflow level** (`github_workflow_runs`). Per-check/job breakdown requires a new warehouse endpoint and is deferred.
-- **Bot detection** defined once in the read layer: `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist for v1; per-team config deferred.
-- **Bots and drafts excluded by default** in throughput / cycle-time recipes (an explicit column flag + a default filter the skill applies). First-class in any future bot-impact analysis — don't strip them at the substrate.
-- **Time to merge v1** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (combines draft + ready-for-review time). The precise companion lands with state-transition data.
+- **No product Postgres DB.** Saved state lives in the agent's memory; tool calls are stateless. No `db_routing.yaml` entry — analytics data is in the warehouse / ClickHouse (shared infra, nothing to provision). If a product-config model is ever needed, it goes on the **main** DB as a team-scoped model (`TeamScopedRootMixin`), not a separate DB.
+- **Provider abstraction deferred.** No `CodeHostProvider` Protocol in v1. GitHub-shaped HogQL lives in `logic/queries/`. The boundary between `logic/queries/` and `logic/` is the future Protocol seam — keep canonical types above it, GitHub-isms below.
+- **Canonical types live in `facade/contracts.py`** as frozen dataclasses. No Django imports, no provider-specific fields.
+- **CI granularity = workflow level** (`github_workflow_runs`). Job-level breakdown requires a new warehouse endpoint and is deferred.
+- **Bot detection** lives in the query / mapping layer: `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist for v1; per-team config deferred.
+- **Bots and drafts excluded by default** in PR-listing / cycle-time tools. They are first-class in any future bot-impact analysis (don't strip them everywhere).
+- **`time_to_merge` v1** = `merged_at - created_at`. Marked `metric_quality = "coarse"`. Precise companion lands when state-transition data exists.
+- **Tool return shapes** = typed pydantic / dataclasses with explicit `metric_quality` marker (`"precise" | "coarse" | "partial"`). Repo convention.
 
 ## 8. Deferred (engineering) decisions
 
@@ -188,27 +165,22 @@ Use the current default; revisit when the relevant data lands (§9).
 - Deploy definition (deployment events vs named workflow vs tag push) — decide when deploy data lands.
 - Path-based filtering (which files a PR touched) — not in the current snapshot; comes with the lifecycle-event data.
 - Commits-till-merged — same; comes with the lifecycle-event data.
-- Provider Protocol — wait for a second provider. The read-layer boundary is already drawn to make extraction mechanical.
-- Stateful / persisted UI (saved views, persisted filters) — a separate decision once the read-only scene proves out.
+- Provider Protocol — wait for a second provider. The query-layer boundary is already drawn to make extraction mechanical.
 
 ## 9. Data sources
 
-Available now (warehouse snapshots, read via the curated query builders):
+Available now (warehouse snapshots, queried via HogQL):
 
-- `github_pull_requests` — PR snapshot: number, title, author, state, created_at, merged_at, closed_at, draft flag, base/head refs, **labels and `base.repo.full_name` in the raw JSON** (mapped in the read layer, not new ingestion). Current state only — transitions are overwritten on update.
+- `github_pull_requests` — PR snapshot: number, title, author, state, created_at, merged_at, closed_at, draft flag, base/head refs. Current state only — transitions are overwritten on update.
 - `github_workflow_runs` — CI runs: workflow name, status, conclusion, run_started_at, updated_at, head SHA. Each run is immutable, so durations and their trends are precise.
 
 These bound v1 to coarse PR timing (no transition history) and workflow-level CI (no per-check detail).
 
-**Freshness caveat:** `github_workflow_runs` syncs on a `created_at` watermark and does not refresh the conclusion of a run that completes after newer runs land — so a PR's "failing / running" CI status can be stale until the `workflow_run` webhook ships. The read layer should surface the run's `status` honestly rather than imply a settled conclusion.
-
-Beyond v1 the product needs lifecycle data the snapshots can't hold: PR state transitions (draft↔ready), reviews and approvals, per-check/job CI, and deploys. The likely path is **GitHub webhooks → PostHog events, with the PR as a group type** — one mechanism that delivers all of these as immutable timestamped events, while the warehouse snapshots stay as the current-state/backfill layer. PostHog already runs a GitHub App webhook receiver, so this is an analytics handler on existing infra, not new infra. When it lands, the deferred UI columns (time-in-review, reviewers/approvals, per-check, DORA) become available on the same read layer. A per-primitive warehouse-source poll is the heavier alternative and still can't recover transition timing, so it's not the plan. See README → "v1 vs the destination".
+Beyond v1 the product needs lifecycle data the snapshots can't hold: PR state transitions (draft↔ready), reviews and approvals, per-check/job CI, and deploys. The likely path is **GitHub webhooks → PostHog events, with the PR as a group type** — one mechanism that delivers all of these as immutable timestamped events, while the warehouse snapshots stay as the current-state/backfill layer. PostHog already runs a GitHub App webhook receiver, so this is an analytics handler on existing infra, not new infra. A per-primitive warehouse-source poll is the heavier alternative and still can't recover transition timing, so it's not the plan. See README → "v1 vs the destination".
 
 ## 10. Reference reading
 
 - [README.md](./README.md) — product picture, motivations, locked decisions, glossary (read this first)
-- `docs/published/handbook/engineering/ai/implementing-mcp-tools.md` — MCP tool design (DRF endpoint → OpenAPI → MCP tool)
-- `products/visual_review/backend/presentation/` — the precedent for a facade product whose DRF endpoints back both MCP tools and the UI, with core importing only the viewset (no global-catalog registration)
-- `posthog/hogql/query.py` (`execute_hogql_query`) — how the product runs its curated HogQL privately, without a `Database.create_for` registration
 - `products/architecture.md` — folder structure, isolation rules, tach + import-linter
+- `products/README.md` — how to scaffold a product
 - `posthog/models/scoping/README.md` — `TeamScopedRootMixin` contract (main-DB team-scoped model, for whenever the first config model lands)

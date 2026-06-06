@@ -4,6 +4,7 @@
 # block plus a synthetic tool_calls message) via delegateEach + followups.
 
 id: anthropic
+priority: 50
 
 rules:
     - on:

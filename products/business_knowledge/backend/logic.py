@@ -4,6 +4,7 @@ Business logic for business_knowledge.
 All ORM access, chunking, quota enforcement, and search queries.
 """
 
+import re
 import uuid
 import datetime
 from dataclasses import dataclass
@@ -12,7 +13,6 @@ from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
     transaction,
@@ -23,7 +23,6 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.helpers.full_text_search import process_query
 from posthog.models.scoping import with_team_scope
 from posthog.security.url_validation import is_url_allowed
 
@@ -160,7 +159,7 @@ def _bulk_create_chunks(
     team_id: int,
     chunks: list[_Chunk],
 ) -> None:
-    created = KnowledgeChunk.objects.bulk_create(
+    KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
                 id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
@@ -175,14 +174,6 @@ def _bulk_create_chunks(
             for c in chunks
         ]
     )
-    # Populate the FTS vector here (the single chunk-creation choke point) so it
-    # stays correct everywhere — including the test schema, which is built from
-    # model state with migrations disabled and so would never run a DB trigger.
-    # Computed in Postgres via `to_tsvector('english', content)`.
-    if created:
-        KnowledgeChunk.objects.filter(team_id=team_id, id__in=[c.id for c in created]).update(
-            content_search_vector=SearchVector("content", config="english")
-        )
 
 
 # --- Quota enforcement -------------------------------------------------------
@@ -1473,6 +1464,8 @@ def has_ready_sources(team_id: int) -> bool:
 
 _SEARCH_LIMIT_CAP = 20
 
+_WORD_RE = re.compile(r"\w{2,}", re.UNICODE)
+
 
 @dataclass(frozen=True)
 class KnowledgeSearchResult:
@@ -1497,49 +1490,34 @@ def search_knowledge(
     limit: int = 10,
 ) -> list[KnowledgeSearchResult]:
     """
-    Full-text relevance search over chunks belonging to READY sources.
+    Word-level ILIKE search over chunks belonging to READY sources.
 
-    Builds an `english`-config `tsquery` from the user query (stemming +
-    stopword removal + prefix match on the last term, via `process_query`) with
-    OR semantics, and matches it against the chunk `content_search_vector` using
-    the GIN index. The top `limit` matches by `ts_rank` (so chunks hitting more
-    query terms rank first) anchor the result; each anchor is expanded to its
-    ordinal-adjacent neighbours (ordinal n-1, n, n+1 within the same document)
-    so the agent gets continuous context instead of isolated fragments.
-    `ordinal` is document-global and contiguous, so neighbours never cross into
-    a different document.
+    Splits the query into words (>=2 chars) and matches chunks containing
+    ANY of them (OR). Uses the GIN trigram index for performance. The top
+    `limit` matches (shortest, most focused chunks first) anchor the result;
+    each anchor is expanded to its ordinal-adjacent neighbours (ordinal n-1,
+    n, n+1 within the same document) so the agent gets continuous context
+    instead of isolated fragments. `ordinal` is document-global and
+    contiguous, so neighbours never cross into a different document.
     """
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
-    # `process_query` strips tsquery metacharacters and joins terms with a
-    # trailing prefix match; returns None only when the result is an empty
-    # string (i.e. the query contained nothing but unsafe characters).
-    # Stopword-only inputs are not caught here — they pass through as a
-    # non-empty string and PostgreSQL discards the stopwords inside
-    # to_tsquery, yielding no matches.
-    processed = process_query(query)
-    if processed is None:
+    words = _WORD_RE.findall(query)
+    if not words:
         return []
-    # OR rather than AND the terms: the agent sends natural-language questions,
-    # and AND drops any chunk missing a single term (e.g. "can a customer get a
-    # refund within 30 days" wouldn't match a focused refund chunk). `ts_rank`
-    # still surfaces chunks matching more terms first. `process_query` only ever
-    # inserts " & " as a separator, so the replace is unambiguous.
-    processed = processed.replace(" & ", " | ")
-    search_query = SearchQuery(processed, config="english", search_type="raw")
+
+    word_filters = reduce(or_, (Q(content__icontains=w) for w in words))
 
     anchors = list(
         KnowledgeChunk.objects.filter(
+            word_filters,
             team_id=team_id,
             source__status=SourceStatus.READY,
             document__tombstoned_at__isnull=True,
             document__safety_verdict=SafetyVerdict.SAFE,
-            content_search_vector=search_query,
         )
-        .annotate(rank=SearchRank(F("content_search_vector"), search_query))
         .only("id", "document_id", "ordinal", "char_count")
-        # `id` is the final tiebreaker so rank+length ties order deterministically.
-        .order_by("-rank", "char_count", "id")[:limit]
+        .order_by("char_count")[:limit]
     )
     if not anchors:
         return []

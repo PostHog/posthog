@@ -18,12 +18,12 @@ export type EnabledFilter = 'enabled' | 'disabled'
 
 export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
 
-const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: string }> = {
-    no_recording: { label: 'No recording', description: 'No recording was found for this session.' },
-    too_short: { label: 'Too short', description: 'The session was too short to analyze.' },
-    too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
-    too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
-    no_events: { label: 'No events', description: 'The session had no events to analyze.' },
+const INELIGIBLE_KIND_LABELS: Record<IneligibleKind, string> = {
+    no_recording: 'No recording',
+    too_short: 'Too short',
+    too_inactive: 'Too inactive',
+    too_long: 'Too long',
+    no_events: 'No events',
 }
 
 export type FailureKind =
@@ -59,42 +59,39 @@ const FAILURE_KINDS: Record<FailureKind, { label: string; description: string }>
     },
 }
 
+const FAILURE_KIND_LABELS = Object.fromEntries(
+    Object.entries(FAILURE_KINDS).map(([kind, meta]) => [kind, meta.label])
+) as Record<FailureKind, string>
+
 export type ParsedReason<K extends string> = { kind: K; label: string; message: string }
 
-function parseKindReason<K extends string>(
-    error_reason: string,
-    kinds: Record<K, { label: string }>
-): ParsedReason<K> | null {
+function parseKindReason<K extends string>(error_reason: string, labels: Record<K, string>): ParsedReason<K> | null {
     // The backend formats `error_reason` as `kind:human message`; fall back to a generic label on drift.
     const idx = error_reason.indexOf(':')
     if (idx <= 0) {
         return null
     }
     const kind = error_reason.slice(0, idx)
-    if (!(kind in kinds)) {
+    if (!(kind in labels)) {
         return null
     }
     return {
         kind: kind as K,
-        label: kinds[kind as K].label,
+        label: labels[kind as K],
         message: error_reason.slice(idx + 1).trim(),
     }
 }
 
 export function parseIneligibleReason(error_reason: string): ParsedReason<IneligibleKind> | null {
-    return parseKindReason(error_reason, INELIGIBLE_KINDS)
+    return parseKindReason(error_reason, INELIGIBLE_KIND_LABELS)
 }
 
 export function parseFailureReason(error_reason: string): ParsedReason<FailureKind> | null {
-    return parseKindReason(error_reason, FAILURE_KINDS)
+    return parseKindReason(error_reason, FAILURE_KIND_LABELS)
 }
 
 export function failureKindDescription(kind: FailureKind): string {
     return FAILURE_KINDS[kind].description
-}
-
-export function ineligibleKindDescription(kind: IneligibleKind): string {
-    return INELIGIBLE_KINDS[kind].description
 }
 
 export const DEFAULT_PROVIDER = 'google'
@@ -124,9 +121,7 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
 }
 
-export function createdByLabel(
-    user: { id: number; first_name?: string; last_name?: string; email?: string } | null
-): string {
+export function createdByLabel(user: ReplayScanner['created_by']): string {
     if (!user) {
         return ''
     }

@@ -202,67 +202,6 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert test_annotation.scope == "organization"
         assert test_annotation.date_marker is None
 
-    @parameterized.expand(
-        [
-            ("simple_emoji", "🚀", "🚀"),
-            ("zwj_sequence", "👨‍👩‍👦", "👨‍👩‍👦"),
-            ("max_length_boundary", "🚀" * 16, "🚀" * 16),
-            ("blank_normalised_to_null", "", None),
-        ]
-    )
-    def test_creating_annotation_emoji(self, _name: str, emoji: str, expected: Optional[str]) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/annotations/",
-            {
-                "content": "Release shipped",
-                "scope": "project",
-                "date_marker": "2020-01-01T00:00:00.000000Z",
-                "emoji": emoji,
-            },
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json()["emoji"] == expected
-        instance = Annotation.objects.get(pk=response.json()["id"])
-        assert instance.emoji == expected
-
-    def test_creating_annotation_with_too_long_emoji_is_rejected(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/annotations/",
-            {
-                "content": "Release shipped",
-                "scope": "project",
-                "date_marker": "2020-01-01T00:00:00.000000Z",
-                "emoji": "🚀" * 17,  # 17 code points exceeds the 16-char limit
-            },
-        )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["attr"] == "emoji"
-        assert response.json()["code"] == "max_length"
-
-    def test_updating_and_clearing_annotation_emoji(self) -> None:
-        test_annotation = Annotation.objects.create(
-            organization=self.organization,
-            team=self.team,
-            created_by=self.user,
-            content="hello world!",
-        )
-
-        set_response = self.client.patch(
-            f"/api/projects/{self.team.id}/annotations/{test_annotation.pk}/",
-            {"emoji": "🎉"},
-        )
-        assert set_response.status_code == status.HTTP_200_OK
-        test_annotation.refresh_from_db()
-        assert test_annotation.emoji == "🎉"
-
-        clear_response = self.client.patch(
-            f"/api/projects/{self.team.id}/annotations/{test_annotation.pk}/",
-            {"emoji": None},
-        )
-        assert clear_response.status_code == status.HTTP_200_OK
-        test_annotation.refresh_from_db()
-        assert test_annotation.emoji is None
-
     def test_deleting_annotation(self) -> None:
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 

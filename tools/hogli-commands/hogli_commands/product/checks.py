@@ -503,9 +503,6 @@ class MisplacedFilesCheck(ProductCheck):
     # `templates` is allowed because Django's app_directories loader requires
     # the folder to live at <app>/templates/, and templates aren't Python
     # imports so import-linter contracts don't apply.
-    # `hogql_queries` is the established home for HogQL query runners across
-    # products (web_analytics, revenue_analytics, product_analytics), so it is
-    # allowed in isolated products too rather than forcing query code into logic/.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -516,7 +513,6 @@ class MisplacedFilesCheck(ProductCheck):
         "management",
         "models",
         "logic",
-        "hogql_queries",
         "templates",
         "__pycache__",
     }

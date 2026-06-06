@@ -432,16 +432,3 @@ class TestMSSQLSourceNonRetryableErrors:
     def test_data_shape_errors_are_non_retryable(self, error_msg):
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            # Real pymssql DB-Lib error 20009 for an unreachable host.
-            "DB-Lib error message 20009, severity 9:\nUnable to connect: Adaptive Server is "
-            "unavailable or does not exist (cplapps.example.us-east-2.rds.amazonaws.com)",
-            "Login failed for user 'reporting'.",
-        ],
-    )
-    def test_connection_errors_are_non_retryable(self, error_msg):
-        non_retryable = MSSQLSource().get_non_retryable_errors()
-        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg

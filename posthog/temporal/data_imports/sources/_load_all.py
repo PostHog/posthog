@@ -63,7 +63,6 @@ from .gong.source import GongSource
 from .google_ads.source import GoogleAdsSource
 from .google_analytics.source import GoogleAnalyticsSource
 from .google_drive.source import GoogleDriveSource
-from .google_search_console.source import GoogleSearchConsoleSource
 from .google_sheets.source import GoogleSheetsSource
 from .gorgias.source import GorgiasSource
 from .granola.source import GranolaSource

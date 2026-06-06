@@ -21,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { FilterPill } from '../components/FilterPill'
 import { VisionMetrics } from './components/VisionMetrics'
-import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
+import { replayScannersLogic } from './replayScannersLogic'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
@@ -29,6 +29,7 @@ import {
     SCANNER_TYPE_TAG_TYPE,
     ScannerType,
     ReplayScanner,
+    createdByLabel,
     scannerTypeLabel,
 } from './types'
 
@@ -45,11 +46,9 @@ export const scene: SceneExport = {
 
 export function ReplayScannersScene(): JSX.Element {
     const {
+        filteredScanners,
         scanners,
         scannersLoading,
-        scannersPage,
-        scannersTotal,
-        scannersSort,
         togglingIds,
         search,
         enabledFilter,
@@ -57,17 +56,25 @@ export function ReplayScannersScene(): JSX.Element {
         createdByFilter,
         createdByOptions,
         hasActiveFilters,
-        scannerStats,
     } = useValues(replayScannersLogic)
-    const { loadScanners, deleteScanner, duplicateScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
-        useActions(replayScannersLogic)
+    const {
+        loadScanners,
+        deleteScanner,
+        duplicateScanner,
+        toggleScannerEnabled,
+        setSearch,
+        setEnabledFilter,
+        setScannerTypeFilter,
+        setCreatedByFilter,
+        clearFilters,
+    } = useActions(replayScannersLogic)
     const { push } = useActions(router)
 
     const columns: LemonTableColumns<ReplayScanner> = [
         {
             title: 'Name',
             key: 'name',
-            sorter: true,
+            sorter: (a, b) => a.name.localeCompare(b.name),
             render: (_, scanner) => (
                 <div className="flex flex-col">
                     <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
@@ -98,7 +105,7 @@ export function ReplayScannersScene(): JSX.Element {
                     </span>
                 </div>
             ),
-            sorter: true,
+            sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
         },
         {
             title: 'Type',
@@ -108,7 +115,7 @@ export function ReplayScannersScene(): JSX.Element {
                     {scannerTypeLabel(scanner.scanner_type)}
                 </LemonTag>
             ),
-            sorter: true,
+            sorter: (a, b) => a.scanner_type.localeCompare(b.scanner_type),
         },
         {
             title: 'Description',
@@ -121,13 +128,13 @@ export function ReplayScannersScene(): JSX.Element {
         },
         {
             title: 'Sampling',
-            key: 'sampling_rate',
+            key: 'sampling',
             render: (_, scanner) => (
                 <span className="text-sm tabular-nums">
                     {(scanner.sampling_rate * 100).toFixed(scanner.sampling_rate < 0.1 ? 2 : 1)}%
                 </span>
             ),
-            sorter: true,
+            sorter: (a, b) => a.sampling_rate - b.sampling_rate,
         },
         {
             title: 'Created by',
@@ -138,7 +145,7 @@ export function ReplayScannersScene(): JSX.Element {
                 ) : (
                     <span className="text-muted">—</span>
                 ),
-            sorter: true,
+            sorter: (a, b) => createdByLabel(a.created_by).localeCompare(createdByLabel(b.created_by)),
         },
         {
             title: 'Actions',
@@ -216,7 +223,7 @@ export function ReplayScannersScene(): JSX.Element {
                 action={() => push(urls.replayVisionTemplates())}
             />
 
-            {(scannerStats?.total ?? 0) > 0 && <VisionMetrics />}
+            {scanners.length > 0 && <VisionMetrics />}
 
             <SceneSection
                 title="Scanners"
@@ -241,7 +248,7 @@ export function ReplayScannersScene(): JSX.Element {
                         type="search"
                         placeholder="Search scanners..."
                         value={search}
-                        onChange={(v) => setScannersFilters({ search: v })}
+                        onChange={setSearch}
                         prefix={<IconSearch />}
                         className="max-w-sm"
                     />
@@ -250,19 +257,19 @@ export function ReplayScannersScene(): JSX.Element {
                             label="Status"
                             options={ENABLED_OPTIONS}
                             value={enabledFilter}
-                            onChange={(v) => setScannersFilters({ enabledFilter: v })}
+                            onChange={setEnabledFilter}
                         />
                         <FilterPill<ScannerType>
                             label="Type"
                             options={TYPE_OPTIONS}
                             value={scannerTypeFilter}
-                            onChange={(v) => setScannersFilters({ scannerTypeFilter: v })}
+                            onChange={setScannerTypeFilter}
                         />
                         <FilterPill<string>
                             label="Created by"
                             options={createdByOptions}
                             value={createdByFilter}
-                            onChange={(v) => setScannersFilters({ createdByFilter: v })}
+                            onChange={setCreatedByFilter}
                         />
                         {hasActiveFilters && (
                             <LemonButton type="tertiary" size="small" onClick={() => clearFilters()}>
@@ -277,24 +284,13 @@ export function ReplayScannersScene(): JSX.Element {
 
                 <LemonTable
                     columns={columns}
-                    dataSource={scanners}
+                    dataSource={filteredScanners}
                     loading={scannersLoading}
                     rowKey="id"
-                    pagination={{
-                        controlled: true,
-                        pageSize: SCANNERS_PAGE_SIZE,
-                        currentPage: scannersPage,
-                        entryCount: scannersTotal,
-                        onForward: () => setScannersFilters({ page: scannersPage + 1 }),
-                        onBackward: () => setScannersFilters({ page: scannersPage - 1 }),
-                    }}
-                    sorting={scannersSort}
-                    onSort={(next) => setScannersFilters({ sort: next as ScannersSorting | null })}
-                    noSortingCancellation
-                    useURLForSorting={false}
+                    pagination={{ pageSize: 50 }}
                     nouns={['scanner', 'scanners']}
                     emptyState={
-                        scannersTotal === 0 && !hasActiveFilters ? (
+                        scanners.length === 0 ? (
                             <div className="flex flex-col items-center gap-3 p-8 text-center">
                                 <div className="text-muted">No scanners yet.</div>
                                 <LemonButton type="primary" icon={<IconPlus />} to={urls.replayVisionTemplates()}>

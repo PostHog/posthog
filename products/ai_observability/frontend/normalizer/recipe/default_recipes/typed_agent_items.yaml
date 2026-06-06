@@ -5,6 +5,7 @@
 # tool_call / tool_result items match nothing and fall to cajole's stringify.
 
 id: typed_agent_items
+priority: 42
 
 rules:
     - on:

@@ -51,10 +51,6 @@ class GoogleAdsSource(
             # has been revoked, expired, or is otherwise rejected by Google's token endpoint.
             # Retrying cannot recover — the user must reconnect their Google Ads account.
             "invalid_grant": "Your Google Ads connection has expired or been revoked. Please reconnect your Google Ads account.",
-            # google.auth.exceptions.RefreshError raised when the user's Google Workspace admin
-            # has restricted third-party API access for this app (org policy / app not approved).
-            # Retrying cannot recover — an admin must grant access before the user reconnects.
-            "access_not_configured": "Your Google Workspace administrator has restricted API access for this app. Ask your admin to approve it, then reconnect your Google Ads account.",
         }
 
     # TODO: clean up google ads source to not have two auth config options

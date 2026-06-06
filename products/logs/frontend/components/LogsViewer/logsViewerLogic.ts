@@ -517,9 +517,6 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         copyLinkToLog: ({ logId }) => {
             posthog.capture('logs link copied')
             const url = new URL(window.location.href)
-            // Linked logs only open in the Viewer tab, so always point the shared link there
-            // regardless of which tab the link was copied from.
-            url.searchParams.set('activeTab', 'viewer')
             url.searchParams.set('linkToLogId', logId)
             if (values.visibleLogsTimeRange) {
                 url.searchParams.set(

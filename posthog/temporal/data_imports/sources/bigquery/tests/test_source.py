@@ -3,14 +3,12 @@ from freezegun import freeze_time
 from unittest import mock
 
 from dateutil import parser
-from google.api_core.exceptions import Forbidden, NotFound
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
     BigQueryImplementation,
     _bq_select_clause,
     _get_query,
-    delete_all_temp_destination_tables,
 )
 from posthog.temporal.data_imports.sources.bigquery.source import BigQuerySource
 from posthog.temporal.data_imports.sources.common.sql.identifiers import InvalidIdentifierError
@@ -191,55 +189,3 @@ def test_bigquery_select_clause_rejects_injection_attempts(malicious_column):
     """`enabled_columns` flows from user config — must be allowlisted before backtick quoting."""
     with pytest.raises(InvalidIdentifierError):
         _bq_select_clause([malicious_column], primary_keys=None, incremental_field=None)
-
-
-def _run_delete_all_temp_destination_tables(side_effect, logger):
-    bq = mock.MagicMock()
-    bq.list_tables.side_effect = side_effect
-    client_cm = mock.MagicMock()
-    client_cm.__enter__.return_value = bq
-
-    with (
-        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_client", return_value=client_cm),
-        mock.patch("posthog.temporal.data_imports.sources.bigquery.bigquery.capture_exception") as mock_capture,
-    ):
-        delete_all_temp_destination_tables(
-            dataset_id="dataset-id",
-            table_prefix="prefix_",
-            project_id="project-id",
-            location=None,
-            dataset_project_id=None,
-            private_key="private-key",
-            private_key_id="private-key-id",
-            client_email="client-email",
-            token_uri="token-uri",
-            logger=logger,
-        )
-    return mock_capture
-
-
-@pytest.mark.parametrize(
-    "exception",
-    [
-        Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
-        NotFound("Dataset not found (or it may not exist)"),
-    ],
-)
-def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions or a deleted dataset during best-effort cleanup must NOT be
-    captured to error tracking — it's expected and fires on every sync otherwise."""
-    logger = mock.MagicMock()
-
-    mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
-
-    mock_capture.assert_not_called()
-    logger.warning.assert_called_once()
-
-
-def test_delete_all_temp_destination_tables_captures_unexpected_errors():
-    """Genuinely unexpected errors are still captured so we don't lose visibility."""
-    logger = mock.MagicMock()
-
-    mock_capture = _run_delete_all_temp_destination_tables(RuntimeError("boom"), logger)
-
-    mock_capture.assert_called_once()

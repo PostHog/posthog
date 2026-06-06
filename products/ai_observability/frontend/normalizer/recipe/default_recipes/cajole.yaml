@@ -2,6 +2,7 @@
 # so brand-new shapes still surface in telemetry. Highest priority so it runs last.
 
 id: cajole
+priority: 1000
 capture: llma message normalization failed
 
 rules:

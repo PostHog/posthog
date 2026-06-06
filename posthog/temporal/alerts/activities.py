@@ -166,7 +166,6 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     alert.config,
                     threshold_config,
                     alert.calculation_interval,
-                    detector_config=alert.detector_config,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))

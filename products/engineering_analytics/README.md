@@ -67,7 +67,7 @@ PostHog Code              engineering_analytics            PostHog product analy
 (generates code,      →   (CI / review / merge / deploy) →  (events, errors, flags,
  opens PRs)                                                  surveys, replays)
         ↑                                                            │
-        └───────────  Signals feed back to PostHog Code  ───────────┘
+        └───────────  signals feed back to PostHog Code  ───────────┘
 ```
 
 The middle — what happens to code between "PR opened" and "running in production" — is invisible to both ends today. Engineering analytics fills it, serving two consumers with the same tools:
@@ -75,27 +75,7 @@ The middle — what happens to code between "PR opened" and "running in producti
 - **Engineers** driving an agent (Claude Code, Cursor, PostHog AI) asking about their monorepo. We dogfood on `PostHog/posthog` from day one.
 - **PostHog Code** itself, autonomously, calling the same tools on its own PRs — to diagnose why a PR is stuck, decide whether to retry, and eventually see how a merged change behaved in production.
 
-Tool return shapes must be legible to an autonomous agent, not just renderable in chat: typed contracts whose caveats ride in honest field names and a `metric_quality` marker where load-bearing, never free-form prose an LLM might paraphrase wrong.
-
-## Goal: surface CI Signals for PostHog Code
-
-The product drives toward one outcome: turn the curated CI/PR read layer into
-**Signals** — emitted into PostHog's [Signals](../signals) product, grouped and
-researched against the repository, and, when a finding is actionable, handed to
-PostHog Code for autonomous remediation. "CI slowed down on workflow X", "this PR is
-wedged on a failing required check", "this check is flaky" become first-class Signals
-an agent acts on — not dashboards a human has to watch.
-
-The two read surfaces exist to serve that goal, in priority order:
-
-1. **MCP tools — the official surface.** Engineers query the monorepo through PostHog
-   MCP, and agents (including PostHog Code) call the same tools. Detection of what
-   counts as a valuable CI Signal lives in `logic/` over the read layer, so the same
-   definitions back the MCP tools and the Signal emitter.
-2. **Read-only UI — a showcase** over the same endpoints. Useful, but secondary.
-
-Shortening ready-for-review-to-merge is the headline _metric_ this serves; emitting
-actionable CI Signals to PostHog Code is the _goal_ that metric ladders up to.
+Tool return shapes must be legible to an autonomous agent, not just renderable in chat: typed contracts with explicit `metric_quality` markers, never prose an LLM might paraphrase wrong.
 
 ## v1 vs the destination
 
@@ -114,35 +94,35 @@ Change one only in a separate PR with a written reason. Engineering-level decisi
 - Two consumer classes: human-driven agents (primary) and agent-driven agents like PostHog Code (secondary, designed-for-now).
 - Unit of value = the open PR.
 - Phase model: draft (experimentation, low rigor) vs ready-for-review (high stakes).
-- North star: surface actionable CI Signals for PostHog Code, emitted into the Signals product. Shortening ready-for-review-to-merge is the headline metric it serves, not the end in itself.
+- North star: shorten ready-for-review-to-merge without removing useful friction.
 - Wedge = end-to-end code visibility, served as MCP tools to PostHog Code (autonomous) and engineers using PostHog MCP (human-driven).
-- Surface = MCP is the official surface, delivered as named typed endpoints that run the curated read layer privately (no global HogQL view; off the per-query hot path; core imports only the viewset). `metric_quality` is a typed field on `pr_lifecycle`; aggregate endpoints carry caveats in honest field names + tool docs — never free-form prose an LLM might paraphrase wrong. See [SPEC.md](./SPEC.md) §3 / §7.
-- UI = read-only analytics surface on the **same** endpoints (PR list, CI health, workflow health) — a real read surface, not only a design-system showcase. No saved views or stateful filters in this phase; persisted/stateful surfaces are a later, separate decision.
+- Tool return shapes = typed Python (pydantic / dataclasses) with explicit `metric_quality` markers (`precise | coarse | partial`). Not free-form prose.
+- Validation UI = demo surface. Read-only. Capped at the design-system showcase. No saved views — saved state lives in agent memory, not Postgres.
 - v1 data path = HogQL on warehouse. Event ingestion deferred. Product Postgres DB stays empty.
 - Author identity = `Author{handle, display_name, avatar_url, is_bot}`. No PostHog-user mapping in v1.
 - Bots and drafts excluded by default in throughput / cycle-time tools; bots are first-class in bot-impact analysis (don't strip them everywhere).
 - Bot detection = `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`. Hardcoded allowlist for v1.
-- Time to merge v1 = the read layer's `open_to_merge_seconds` column = `merged_at - created_at` (draft + ready-for-review combined). Coarse — encoded in the column name, never named cycle/review time.
+- `time_to_merge` v1 = `merged_at - created_at` (draft + ready-for-review combined), marked coarse on the return shape.
 - CI granularity = workflow level (`github_workflow_runs`). Job-level is a later add.
 - `pull_request_reviews` warehouse source deferred until the wedge tool is built.
 - No privacy guardrails in v1; revisit if scope widens beyond the team-devex maintainer.
 
 ## Glossary
 
-| Term                             | Definition                                                                                                                                                                                  |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **PR (unit of value)**           | An open GitHub pull request, draft or ready-for-review — the atomic thing this product measures                                                                                             |
-| **Draft phase**                  | Experimentation. Low-rigor measurement. Selective tests + advisory bots are OK                                                                                                              |
-| **Ready-for-review phase**       | High-stakes. Where DevEx measures aggressively                                                                                                                                              |
-| **Good friction**                | Tests / bots / checks that catch real problems. Kept and optimized                                                                                                                          |
-| **Bad friction**                 | Tests / bots / checks that engineers ignore or that fail for unrelated reasons. Removed                                                                                                     |
-| **Wedge**                        | End-to-end code visibility: code tracked from written → CI / review → live, served via MCP to PostHog Code and engineers using PostHog MCP                                                  |
-| **MCP tool**                     | A function the agent calls. Its description is a production prompt                                                                                                                          |
-| **Surface**                      | Primary = MCP tools; secondary = read-only demo UI                                                                                                                                          |
-| **Human-driven agent**           | Claude Code / Cursor / PostHog AI invoked by an engineer typing                                                                                                                             |
-| **Agent-driven agent**           | An autonomous agent (e.g. PostHog Code) invoking MCP tools without a human in the loop                                                                                                      |
-| **The AI-to-prod loop**          | PostHog Code → engineering_analytics → PostHog product analytics → feedback to PostHog Code. The full lifecycle of agent-generated code, instrumented                                       |
-| **The dark middle**              | The CI / review / merge / deploy steps between PostHog Code and PostHog product analytics, currently invisible to both                                                                      |
-| **`open_to_merge_seconds` (v1)** | The read layer's coarse time-to-merge column: `merged_at - created_at`. PR open to merge — combines draft + ready-for-review until state-transition data lands. The name encodes the caveat |
-| **Workflow**                     | A GitHub Actions workflow run on a PR's head commit. One row in `github_workflow_runs`. v1 CI granularity; job-level is a later add                                                         |
-| **Bot**                          | An `Author` with `is_bot = True`. Detection: `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`                                                                                      |
+| Term                       | Definition                                                                                                                                            |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **PR (unit of value)**     | An open GitHub pull request, draft or ready-for-review — the atomic thing this product measures                                                       |
+| **Draft phase**            | Experimentation. Low-rigor measurement. Selective tests + advisory bots are OK                                                                        |
+| **Ready-for-review phase** | High-stakes. Where DevEx measures aggressively                                                                                                        |
+| **Good friction**          | Tests / bots / checks that catch real problems. Kept and optimized                                                                                    |
+| **Bad friction**           | Tests / bots / checks that engineers ignore or that fail for unrelated reasons. Removed                                                               |
+| **Wedge**                  | End-to-end code visibility: code tracked from written → CI / review → live, served via MCP to PostHog Code and engineers using PostHog MCP            |
+| **MCP tool**               | A function the agent calls. Its description is a production prompt                                                                                    |
+| **Surface**                | Primary = MCP tools; secondary = read-only demo UI                                                                                                    |
+| **Human-driven agent**     | Claude Code / Cursor / PostHog AI invoked by an engineer typing                                                                                       |
+| **Agent-driven agent**     | An autonomous agent (e.g. PostHog Code) invoking MCP tools without a human in the loop                                                                |
+| **The AI-to-prod loop**    | PostHog Code → engineering_analytics → PostHog product analytics → feedback to PostHog Code. The full lifecycle of agent-generated code, instrumented |
+| **The dark middle**        | The CI / review / merge / deploy steps between PostHog Code and PostHog product analytics, currently invisible to both                                |
+| **`time_to_merge` (v1)**   | `merged_at - created_at`. PR open to merge — combines draft + ready-for-review until state-transition data lands. Marked coarse on the return shape   |
+| **Workflow**               | A GitHub Actions workflow run on a PR's head commit. One row in `github_workflow_runs`. v1 CI granularity; job-level is a later add                   |
+| **Bot**                    | An `Author` with `is_bot = True`. Detection: `handle.endswith("[bot]") OR handle in KNOWN_BOT_HANDLES`                                                |

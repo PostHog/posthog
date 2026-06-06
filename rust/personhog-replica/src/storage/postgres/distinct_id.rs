@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt, TryStreamExt};
 
-use personhog_common::grpc::{current_client_name, current_method_name};
+use personhog_common::grpc::current_client_name;
 
 use super::{
     ConsistencyLevel, PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED,
@@ -20,7 +20,6 @@ impl DistinctIdLookup for PostgresStorage {
         limit: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdWithVersion>> {
         let client = current_client_name();
-        let method = current_method_name();
         let pool_label = PostgresStorage::pool_label(consistency);
         let labels = [
             (
@@ -29,7 +28,6 @@ impl DistinctIdLookup for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
-            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -77,7 +75,6 @@ impl DistinctIdLookup for PostgresStorage {
                     "get_distinct_ids_for_person".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
-                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );
@@ -97,7 +94,6 @@ impl DistinctIdLookup for PostgresStorage {
         }
 
         let client = current_client_name();
-        let method = current_method_name();
         let pool_label = PostgresStorage::bulk_pool_label(consistency);
         let labels = [
             (
@@ -106,7 +102,6 @@ impl DistinctIdLookup for PostgresStorage {
             ),
             ("pool".to_string(), pool_label.to_string()),
             ("client".to_string(), client.to_string()),
-            ("method".to_string(), method.to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
@@ -179,7 +174,6 @@ impl DistinctIdLookup for PostgresStorage {
                     "get_distinct_ids_for_persons".to_string(),
                 ),
                 ("client".to_string(), client.to_string()),
-                ("method".to_string(), method.to_string()),
             ],
             rows.len() as f64,
         );

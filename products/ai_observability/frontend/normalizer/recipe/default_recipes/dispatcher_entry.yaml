@@ -2,6 +2,7 @@
 # the lowest priority so envelopes are peeled before any provider rule matches.
 
 id: dispatcher_entry
+priority: 1
 
 rules:
     - on:

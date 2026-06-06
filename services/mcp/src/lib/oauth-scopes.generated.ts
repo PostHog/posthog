@@ -57,8 +57,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'early_access_feature:write',
     'endpoint:read',
     'endpoint:write',
-    'engineering_analytics:read',
-    'engineering_analytics:write',
     'error_tracking:read',
     'error_tracking:write',
     'evaluation:read',

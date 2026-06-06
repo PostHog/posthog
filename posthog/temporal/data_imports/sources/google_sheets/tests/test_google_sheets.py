@@ -101,18 +101,3 @@ def test_permission_error_is_non_retryable():
     error_msg = str(raised)
 
     assert any(key in error_msg for key in non_retryable_errors)
-
-
-def test_not_found_api_error_is_non_retryable():
-    """gspread raises a 404 APIError when the spreadsheet has been deleted/moved — it
-    must match a non-retryable pattern so we stop retrying a permanent failure."""
-    mock_response = mock.MagicMock()
-    mock_response.json.return_value = {
-        "error": {"code": 404, "message": "Requested entity was not found.", "status": "NOT_FOUND"}
-    }
-    error_msg = str(gspread.exceptions.APIError(mock_response))
-
-    non_retryable_errors = GoogleSheetsSource().get_non_retryable_errors()
-    assert any(key in error_msg for key in non_retryable_errors), (
-        f"Google Sheets 404 error {error_msg!r} did not match any non-retryable pattern"
-    )

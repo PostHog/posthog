@@ -1,7 +1,6 @@
 from typing import Literal, get_args
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
-MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]

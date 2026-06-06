@@ -39,9 +39,6 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             "SpreadsheetNotFound": None,
             "must be real number, not str": "Import failed: a numeric column contains a non-numeric value. Ensure every cell in numeric columns is stored as a plain number.",
             "Spreadsheet access denied": "Import failed: PostHog does not have access to this spreadsheet. Please share it with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
-            # gspread raises APIError "[404]: Requested entity was not found." when the
-            # spreadsheet has been deleted or is otherwise unreachable. Retrying cannot recover.
-            "Requested entity was not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
         }
 
     def get_schemas(

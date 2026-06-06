@@ -55,7 +55,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "updated_at",
             "deleted",
             "scope",
-            "emoji",
         ]
         read_only_fields = [
             "id",
@@ -92,17 +91,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
                     "`recording` is deprecated and rejected."
                 ),
             },
-            "emoji": {
-                "help_text": "Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.",
-                "required": False,
-                "allow_null": True,
-                "allow_blank": True,
-            },
         }
-
-    def validate_emoji(self, value: str | None) -> str | None:
-        # Normalise blank strings to None so the DB has a single canonical "no emoji" state.
-        return value or None
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]

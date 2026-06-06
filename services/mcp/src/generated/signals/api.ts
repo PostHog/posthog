@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 17 enabled ops
+ * PostHog API - MCP 14 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -24,12 +24,6 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
-        ),
-    priority: zod
-        .string()
-        .optional()
-        .describe(
-            'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
         ),
     search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
     source_product: zod
@@ -437,50 +431,6 @@ export const SignalsSourceConfigsListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const SignalsSourceConfigsCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SignalsSourceConfigsCreateBody = /* @__PURE__ */ zod.object({
-    source_product: zod
-        .enum([
-            'session_replay',
-            'llm_analytics',
-            'github',
-            'linear',
-            'zendesk',
-            'conversations',
-            'error_tracking',
-            'pganalyze',
-            'signals_scout',
-            'logs',
-        ])
-        .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs'
-        ),
-    source_type: zod
-        .enum([
-            'session_analysis_cluster',
-            'evaluation',
-            'issue',
-            'ticket',
-            'issue_created',
-            'issue_reopened',
-            'issue_spiking',
-            'cross_source_issue',
-            'alert_state_change',
-        ])
-        .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change'
-        ),
-    enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
-})
-
 export const SignalsSourceConfigsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this signal source config.'),
     project_id: zod
@@ -488,96 +438,4 @@ export const SignalsSourceConfigsRetrieveParams = /* @__PURE__ */ zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
-})
-
-export const SignalsSourceConfigsUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this signal source config.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SignalsSourceConfigsUpdateBody = /* @__PURE__ */ zod.object({
-    source_product: zod
-        .enum([
-            'session_replay',
-            'llm_analytics',
-            'github',
-            'linear',
-            'zendesk',
-            'conversations',
-            'error_tracking',
-            'pganalyze',
-            'signals_scout',
-            'logs',
-        ])
-        .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs'
-        ),
-    source_type: zod
-        .enum([
-            'session_analysis_cluster',
-            'evaluation',
-            'issue',
-            'ticket',
-            'issue_created',
-            'issue_reopened',
-            'issue_spiking',
-            'cross_source_issue',
-            'alert_state_change',
-        ])
-        .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change'
-        ),
-    enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
-})
-
-export const SignalsSourceConfigsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this signal source config.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SignalsSourceConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    source_product: zod
-        .enum([
-            'session_replay',
-            'llm_analytics',
-            'github',
-            'linear',
-            'zendesk',
-            'conversations',
-            'error_tracking',
-            'pganalyze',
-            'signals_scout',
-            'logs',
-        ])
-        .optional()
-        .describe(
-            '* `session_replay` - Session replay\n* `llm_analytics` - LLM analytics\n* `github` - GitHub\n* `linear` - Linear\n* `zendesk` - Zendesk\n* `conversations` - Conversations\n* `error_tracking` - Error tracking\n* `pganalyze` - pganalyze\n* `signals_scout` - Signals scout\n* `logs` - Logs'
-        ),
-    source_type: zod
-        .enum([
-            'session_analysis_cluster',
-            'evaluation',
-            'issue',
-            'ticket',
-            'issue_created',
-            'issue_reopened',
-            'issue_spiking',
-            'cross_source_issue',
-            'alert_state_change',
-        ])
-        .optional()
-        .describe(
-            '* `session_analysis_cluster` - Session analysis cluster\n* `evaluation` - Evaluation\n* `issue` - Issue\n* `ticket` - Ticket\n* `issue_created` - Issue created\n* `issue_reopened` - Issue reopened\n* `issue_spiking` - Issue spiking\n* `cross_source_issue` - Cross source issue\n* `alert_state_change` - Alert state change'
-        ),
-    enabled: zod.boolean().optional(),
-    config: zod.unknown().optional(),
 })

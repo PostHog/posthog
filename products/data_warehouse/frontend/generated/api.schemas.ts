@@ -444,7 +444,6 @@ export const CreatedViaEnumApi = {
  * `Chargebee` - Chargebee
  * `Clerk` - Clerk
  * `GoogleAds` - GoogleAds
- * `GoogleSearchConsole` - GoogleSearchConsole
  * `TemporalIO` - TemporalIO
  * `DoIt` - DoIt
  * `GoogleSheets` - GoogleSheets
@@ -597,7 +596,6 @@ export const ExternalDataSourceTypeEnumApi = {
     Chargebee: 'Chargebee',
     Clerk: 'Clerk',
     GoogleAds: 'GoogleAds',
-    GoogleSearchConsole: 'GoogleSearchConsole',
     TemporalIO: 'TemporalIO',
     DoIt: 'DoIt',
     GoogleSheets: 'GoogleSheets',
@@ -844,7 +842,6 @@ export interface ExternalDataSourceCreateApi {
   * `Chargebee` - Chargebee
   * `Clerk` - Clerk
   * `GoogleAds` - GoogleAds
-  * `GoogleSearchConsole` - GoogleSearchConsole
   * `TemporalIO` - TemporalIO
   * `DoIt` - DoIt
   * `GoogleSheets` - GoogleSheets
@@ -1154,7 +1151,6 @@ export interface DatabaseSchemaRequestApi {
   * `Chargebee` - Chargebee
   * `Clerk` - Clerk
   * `GoogleAds` - GoogleAds
-  * `GoogleSearchConsole` - GoogleSearchConsole
   * `TemporalIO` - TemporalIO
   * `DoIt` - DoIt
   * `GoogleSheets` - GoogleSheets

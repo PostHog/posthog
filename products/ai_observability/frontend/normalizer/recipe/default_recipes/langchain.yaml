@@ -2,6 +2,7 @@
 # object, so it goes through `stringify` (strings/arrays pass through unchanged).
 
 id: langchain
+priority: 20
 
 rules:
     - on:

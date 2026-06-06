@@ -191,8 +191,12 @@ function IntentStep({ template }: { template: SelectedTemplate }): JSX.Element {
 }
 
 export function FeatureFlagTemplatesScene(): JSX.Element {
-    const { intentsEnabled, selectedTemplate } = useValues(featureFlagTemplatesSceneLogic)
+    const { featureFlagsV2Enabled, intentsEnabled, selectedTemplate } = useValues(featureFlagTemplatesSceneLogic)
     const { selectTemplate } = useActions(featureFlagTemplatesSceneLogic)
+
+    if (!featureFlagsV2Enabled) {
+        return <></>
+    }
 
     return (
         <div className="flex flex-col items-center justify-center py-8 min-h-[80vh]">

@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -45,6 +45,10 @@ export const featureFlagTemplatesSceneLogic = kea<featureFlagTemplatesSceneLogic
         ],
     }),
     selectors({
+        featureFlagsV2Enabled: [
+            (s) => [s.featureFlags],
+            (featureFlags) => !!featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_V2],
+        ],
         intentsEnabled: [
             (s) => [s.featureFlags],
             (featureFlags) => !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS],
@@ -61,4 +65,10 @@ export const featureFlagTemplatesSceneLogic = kea<featureFlagTemplatesSceneLogic
             }
         },
     })),
+    afterMount(({ values }) => {
+        if (!values.featureFlagsV2Enabled) {
+            const { searchParams } = router.values
+            router.actions.replace(combineUrl(urls.featureFlag('new'), searchParams).url)
+        }
+    }),
 ])

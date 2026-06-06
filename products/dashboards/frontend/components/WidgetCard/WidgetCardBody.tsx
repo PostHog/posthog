@@ -4,7 +4,6 @@ import React from 'react'
 import { IconLock } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { GraphsHog } from 'lib/components/hedgehogs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 
@@ -209,30 +208,5 @@ export function WidgetCardContent({ children, footer, className }: WidgetCardCon
                 </div>
             ) : null}
         </div>
-    )
-}
-
-export type WidgetCardSharedPlaceholderCopy = {
-    title: string
-    message: string
-}
-
-/** Shared/public dashboard placeholder when live widget data is not loaded. */
-export function WidgetCardSharedPlaceholderBody({ copy }: { copy: WidgetCardSharedPlaceholderCopy }): JSX.Element {
-    return (
-        <WidgetCardBody>
-            <WidgetCardContent>
-                <WidgetCardBodyMessage>
-                    <div
-                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
-                        data-attr="shared-dashboard-widget-placeholder"
-                    >
-                        <GraphsHog className="size-20 shrink-0" />
-                        <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
-                        <p className="m-0 text-sm text-muted">{copy.message}</p>
-                    </div>
-                </WidgetCardBodyMessage>
-            </WidgetCardContent>
-        </WidgetCardBody>
     )
 }

@@ -1,12 +1,9 @@
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
 import structlog
-
-# DRF's ValidationError (not Django's) so save() raise sites surface as 400s via the DRF exception
-# handler — Django's variant falls through to the unhandled-exception path and returns a 500.
-from rest_framework.exceptions import ValidationError
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel

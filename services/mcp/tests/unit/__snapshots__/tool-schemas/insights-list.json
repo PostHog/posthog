@@ -55,7 +55,7 @@
             "type": "boolean"
         },
         "search": {
-            "description": "Search term matched across name, derived_name, description, and tag names. Returns case-insensitive substring matches and fuzzy trigram matches together in one list, ordered exact-first; each result's `search_match_type` is `exact` or `similar`.",
+            "description": "Case-insensitive substring match across name, derived_name, description, and tag names.",
             "type": "string"
         },
         "short_id": {

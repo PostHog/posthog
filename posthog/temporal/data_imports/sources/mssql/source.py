@@ -42,11 +42,6 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Adaptive Server connection failed": None,
-            # pymssql DB-Lib error 20009 — the server host can't be reached for the whole
-            # connection attempt. On a managed instance this is a persistent connectivity issue
-            # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
-            # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
-            "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
             "Login failed for user": None,
             "Cannot find the CREDENTIAL": "Cannot find the credential - check that it exists and you have permission to access it",
             # Raised from the shared `_decimal_array_from_values` fallback in

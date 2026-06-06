@@ -5,11 +5,6 @@ import { initKeaTests } from '~/test/init'
 
 import { logsIngestionLogic } from './logsIngestionLogic'
 
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
-    delay: () => Promise.resolve(),
-}))
-
 describe('logsIngestionLogic', () => {
     let logic: ReturnType<typeof logsIngestionLogic.build>
 

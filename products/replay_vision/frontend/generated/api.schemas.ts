@@ -453,14 +453,6 @@ export interface ObservationStatsApi {
 }
 
 /**
- * Distinct creators across all scanners on the team — feeds the `Created by` filter dropdown.
- */
-export interface ScannerCreatorsResponseApi {
-    /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
-    creators: UserBasicApi[]
-}
-
-/**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
 export interface EstimateRequestApi {
@@ -488,38 +480,6 @@ export interface EstimateResponseApi {
     sampling_rate: number
 }
 
-/**
- * Per-scanner-type count of enabled vs total scanners.
- */
-export interface ScannerTypeStatsApi {
-    /** Number of enabled scanners of this type. */
-    enabled: number
-    /** Number of scanners of this type (enabled + disabled). */
-    total: number
-}
-
-/**
- * One `ScannerTypeStats` per scanner type — explicit fields give callers a typed shape, not `Record<string, …>`.
- */
-export interface ScannerStatsByTypeApi {
-    monitor: ScannerTypeStatsApi
-    classifier: ScannerTypeStatsApi
-    scorer: ScannerTypeStatsApi
-    summarizer: ScannerTypeStatsApi
-}
-
-/**
- * Team-wide scanner counts independent of any list-filter state.
- */
-export interface ScannerStatsResponseApi {
-    /** Total scanners on the team. */
-    total: number
-    /** Number of enabled scanners on the team. */
-    enabled: number
-    /** Per-scanner-type breakdown (monitor / classifier / scorer / summarizer). */
-    by_type: ScannerStatsByTypeApi
-}
-
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -541,17 +501,13 @@ export type VisionObservationsListParams = {
 
 export type VisionScannersListParams = {
     /**
-     * Filter to scanners created by the given user IDs (comma-separated).
-     */
-    created_by?: string
-    /**
      * Filter to scanners that emit Signals.
      */
     emits_signals?: boolean
     /**
-     * Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.
+     * Filter to enabled vs disabled scanners.
      */
-    enabled?: string
+    enabled?: boolean
     /**
      * Number of results to return per page.
      */
@@ -561,18 +517,29 @@ export type VisionScannersListParams = {
      */
     offset?: number
     /**
-     * Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.
+     * Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.
      */
     order_by?: string
     /**
-     * Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.
-     */
-    scanner_type?: string
-    /**
-     * Case-insensitive substring match across name, description, and the prompt in scanner_config.
-     */
-    search?: string
+ * Filter by scanner type (monitor, classifier, scorer, summarizer).
+
+* `monitor` - Monitor
+* `classifier` - Classifier
+* `scorer` - Scorer
+* `summarizer` - Summarizer
+ */
+    scanner_type?: VisionScannersListScannerType
 }
+
+export type VisionScannersListScannerType =
+    (typeof VisionScannersListScannerType)[keyof typeof VisionScannersListScannerType]
+
+export const VisionScannersListScannerType = {
+    Classifier: 'classifier',
+    Monitor: 'monitor',
+    Scorer: 'scorer',
+    Summarizer: 'summarizer',
+} as const
 
 export type VisionScannersObservationsListParams = {
     /**

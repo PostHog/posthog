@@ -69,7 +69,6 @@ from products.batch_exports.backend.service import (
     BatchExportWithNoEndNotAllowedError,
     backfill_export,
     cancel_running_batch_export_run,
-    coerce_config_to_declared_types,
     delete_batch_export,
     pause_batch_export,
     sync_batch_export,
@@ -575,8 +574,7 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
 
             return target
 
-        config = remove_secret_fields_recursive(data["config"])
-        data["config"] = coerce_config_to_declared_types(instance.type, config)
+        data["config"] = remove_secret_fields_recursive(data["config"])
 
         return data
 

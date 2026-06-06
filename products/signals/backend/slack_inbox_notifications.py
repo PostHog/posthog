@@ -1,19 +1,30 @@
 """Slack notifications for signals inbox items.
 
-Each suggested reviewer on a ready report is routed to exactly one Slack channel:
-their own configured channel if they set one (filtered by their min-priority),
-otherwise the team-default channel, otherwise nowhere. Reviewers sharing a channel —
-notably everyone falling back to the team default — get a single post that mentions
-only the reviewers routed there. A report with no resolvable reviewers posts nothing.
-All sends are best-effort.
+When a report transitions to READY (a new inbox item lands), we look up the
+suggested reviewers from its `suggested_reviewers` artefact, resolve them to
+PostHog users, and dispatch a Slack message for each user that has configured a
+Slack channel and integration in their `SignalUserAutonomyConfig`.
+
+Reviewers are grouped by their resolved Slack channel so each channel receives a
+single message — when several reviewers point at the same channel, that one
+message tags all of them rather than posting once per reviewer.
+
+Each user's `slack_notification_min_priority` filters out reports below the
+configured threshold (P0 is highest). Reports with pending actionability or
+priority judgments are not dispatchable until those judgments are persisted.
+
+Messages are framed for public channels: each post names the suggested reviewers
+(Slack @mention when email matches the workspace, otherwise their PostHog name).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 
 from django.conf import settings
+from django.db.models import Q
 
 from slack_sdk.errors import SlackApiError
 
@@ -26,9 +37,9 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalSourceConfig,
-    SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
     normalized_github_logins_from_suggested_reviewer_artefacts,
@@ -39,14 +50,9 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
-# Bound message size / avoid pinging a crowd.
-_MAX_REVIEWER_MENTIONS = 5
 
 # Deep link opened by the PostHog Code desktop app. Override via env for dev (`posthog-code-dev`).
 POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code")
-
-# Wire contract with products/slack_app/backend/api.py — keep this action_id in sync.
-SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
 
 # Priority ranking — lower index is higher priority. Index used for threshold comparison.
 _PRIORITY_ORDER: tuple[str, ...] = (
@@ -102,22 +108,7 @@ def _meets_min_priority(report_priority: str | None, min_priority: str | None) -
     return report_rank <= min_rank
 
 
-def _report_repository(report: SignalReport) -> str | None:
-    """The repository the report's research selected, from the latest repo_selection artefact."""
-    art = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.REPO_SELECTION).order_by("-created_at").first()
-    if art is None:
-        return None
-    try:
-        data = json.loads(art.content)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    repo = data.get("repository")
-    return repo.strip() if isinstance(repo, str) and repo.strip() else None
-
-
-def _latest_priority(report: SignalReport) -> str | None:
+def _get_latest_priority(report: SignalReport) -> str | None:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT)
         .order_by("-created_at")
@@ -133,6 +124,32 @@ def _latest_priority(report: SignalReport) -> str | None:
         return None
     value = data.get("priority")
     return value if isinstance(value, str) else None
+
+
+def _get_latest_actionability(report: SignalReport) -> str | None:
+    art = (
+        report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
+        .order_by("-created_at")
+        .first()
+    )
+    if art is None:
+        return None
+    try:
+        data = json.loads(art.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("actionability")
+    return value if isinstance(value, str) else None
+
+
+@dataclass(frozen=True)
+class _RecipientPresentation:
+    # `<@U…>` mention if we resolved the user's Slack ID — only renders inside mrkdwn
+    # blocks (header blocks are plain_text and would show the raw `<@U…>` string).
+    slack_mention: str | None
+    plain_name: str
 
 
 def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
@@ -173,32 +190,18 @@ def _resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     return resolved_user_ids
 
 
-def _own_channel_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, SignalUserAutonomyConfig]:
-    """Per-user configs that name an own Slack channel on this team's integration.
+def _notification_targets_for_report(report: SignalReport) -> list[SignalUserAutonomyConfig]:
+    user_ids = _resolve_suggested_reviewer_user_ids(report)
+    if not user_ids:
+        return []
 
-    A reviewer absent from this map has no own channel and falls back to the team default.
-    """
-    configs = (
+    return list(
         SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids)
-        .filter(slack_notification_integration__team_id=team_id)
-        .exclude(slack_notification_channel__isnull=True)
+        .filter(slack_notification_integration__team_id=report.team_id)
+        .exclude(Q(slack_notification_integration__isnull=True) | Q(slack_notification_channel__isnull=True))
         .exclude(slack_notification_channel="")
         .select_related("slack_notification_integration")
     )
-    return {config.user_id: config for config in configs}
-
-
-def _get_team_slack_integration(team_id: int) -> Integration | None:
-    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
-
-
-def _team_notification_channel(team_id: int) -> str | None:
-    config = SignalTeamConfig.objects.filter(team_id=team_id).only("default_slack_notification_channel").first()
-    if config is None:
-        return None
-    channel = (config.default_slack_notification_channel or "").strip()
-    return channel or None
 
 
 def _channel_id_from_target(value: str) -> str:
@@ -250,17 +253,22 @@ def lookup_slack_user_id_by_email(slack: SlackIntegration, email: str) -> str | 
     return str(slack_user["id"])
 
 
-def _escape_mrkdwn(text: str) -> str:
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+def _recipient_presentation(
+    user: User,
+    slack: SlackIntegration,
+    integration: Integration,
+) -> _RecipientPresentation:
+    plain_name = _posthog_user_display_name(user)
+    slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
+    slack_mention = f"<@{slack_user_id}>" if slack_user_id else None
+    return _RecipientPresentation(slack_mention=slack_mention, plain_name=plain_name)
 
 
-def _resolve_reviewer_mentions(slack: SlackIntegration, reviewer_users: list[User]) -> list[str]:
-    # `<@U…>` mention when the reviewer's email resolves in this workspace, else escaped name.
-    mentions: list[str] = []
-    for user in reviewer_users[:_MAX_REVIEWER_MENTIONS]:
-        slack_user_id = lookup_slack_user_id_by_email(slack, user.email) if user.email else None
-        mentions.append(f"<@{slack_user_id}>" if slack_user_id else _escape_mrkdwn(_posthog_user_display_name(user)))
-    return mentions
+def _recipient_label(recipient: _RecipientPresentation) -> str:
+    # Mention pings the user inside mrkdwn; otherwise escape the plain name so it renders literally.
+    return recipient.slack_mention or recipient.plain_name.replace("&", "&amp;").replace("<", "&lt;").replace(
+        ">", "&gt;"
+    )
 
 
 def _format_source_product_labels(source_products: list[str]) -> str:
@@ -288,160 +296,65 @@ def _build_message_blocks(
     *,
     priority: str | None,
     source_products: list[str],
-    reviewer_mentions: list[str],
-    repository: str | None = None,
+    recipients: list[_RecipientPresentation],
     implementation_pr_url: str | None = None,
-    dismiss_button_value: str | None = None,
 ) -> tuple[list[dict], str]:
     title_line = report.title or "New signals inbox item"
     header_text = f"📬 {title_line}"
     if len(header_text) > _SLACK_HEADER_MAX_LEN:
         header_text = header_text[: _SLACK_HEADER_MAX_LEN - 3] + "..."
 
-    meta_parts: list[str] = []
+    recipient_label = ", ".join(_recipient_label(recipient) for recipient in recipients)
+    metadata_parts = [f"Matched to {recipient_label} per code"]
     if priority:
-        meta_parts.append(_slack_priority_label(priority))
-    sources_line = _format_source_product_labels(source_products)
-    if sources_line:
-        meta_parts.append(sources_line)
-    if repository:
-        # Escape LLM/user-derived strings before they enter mrkdwn so a crafted value can't
-        # inject `<!here>` / `<@U…>` mentions. Reviewer mentions are added pre-escaped elsewhere.
-        meta_parts.append(_escape_mrkdwn(repository))
+        metadata_parts.insert(0, _slack_priority_label(priority))
 
-    body_parts: list[str] = []
-    if meta_parts:
-        body_parts.append(f"*{' · '.join(meta_parts)}*")
+    body_parts: list[str] = [f"*{' • '.join(metadata_parts)}*"]
     summary_text = _summary_excerpt(report.summary or "")
     if summary_text:
-        body_parts.append(_escape_mrkdwn(summary_text))
-    if not body_parts:
-        body_parts.append(f"*{_escape_mrkdwn(title_line)}*")
+        body_parts.append(summary_text)
 
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": header_text}},
         {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(body_parts)}},
     ]
 
-    # Reviewer mentions sit in the context line — they still carry the `<@U…>` token so Slack pings them.
     context_parts: list[str] = []
     if report.signal_count:
         signal_label = "signal" if report.signal_count == 1 else "signals"
         context_parts.append(f"{report.signal_count} {signal_label}")
-    if reviewer_mentions:
-        context_parts.append(f"👤 Suggested reviewers: {' '.join(reviewer_mentions)}")
-    if context_parts:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(context_parts)}],
-            }
-        )
+    sources_line = _format_source_product_labels(source_products)
+    if sources_line:
+        context_parts.append(sources_line)
+    context_parts.append("Inbox")
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "  ·  ".join(context_parts)}],
+        }
+    )
 
-    action_elements: list[dict] = []
-    if implementation_pr_url:
-        action_elements.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Review PR", "emoji": True},
-                "url": implementation_pr_url,
-            }
-        )
-    action_elements.append(
+    action_elements: list[dict] = [
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Open in PostHog Code", "emoji": True},
             "url": f"{POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME}://inbox/{report.id}",
         }
-    )
-    if dismiss_button_value:
+    ]
+    if implementation_pr_url:
         action_elements.append(
             {
                 "type": "button",
-                "action_id": SIGNALS_DISMISS_REPORT_ACTION_ID,
-                "text": {"type": "plain_text", "text": "Dismiss", "emoji": True},
-                "value": dismiss_button_value,
-                "confirm": {
-                    "title": {"type": "plain_text", "text": "Dismiss this report?"},
-                    "text": {
-                        "type": "mrkdwn",
-                        "text": "This will dismiss the report for everyone. You can still find it in PostHog.",
-                    },
-                    "confirm": {"type": "plain_text", "text": "Dismiss"},
-                    "deny": {"type": "plain_text", "text": "Cancel"},
-                },
+                "text": {"type": "plain_text", "text": "Review PR in GitHub", "emoji": True},
+                "url": implementation_pr_url,
             }
         )
     blocks.append({"type": "actions", "elements": action_elements})
 
     priority_suffix = f" ({priority})" if priority else ""
-    fallback_text = f"Inbox item{priority_suffix}: {title_line}"
+    recipient_names = ", ".join(recipient.plain_name for recipient in recipients)
+    fallback_text = f"Inbox for {recipient_names}{priority_suffix}: {title_line}"
     return blocks, fallback_text
-
-
-class _ChannelRoute:
-    """One Slack channel and the reviewers routed to it (mentioned only there)."""
-
-    def __init__(self, integration: Integration, channel: str, *, is_team_channel: bool) -> None:
-        self.integration = integration
-        self.channel = channel
-        self.is_team_channel = is_team_channel
-        self.users: list[User] = []
-
-
-def _build_reviewer_routes(
-    report: SignalReport,
-    *,
-    priority: str | None,
-    team_integration: Integration | None,
-    team_channel: str | None,
-) -> list[_ChannelRoute]:
-    """Route each resolvable suggested reviewer to a single destination channel.
-
-    Own channel (filtered by the reviewer's min-priority) if set, else the team
-    default, else nowhere. A reviewer filtered out of their own channel does not fall
-    back to the team channel — that was their choice. Reviewers sharing a destination
-    are grouped so each channel is posted to once, mentioning only its own reviewers.
-    """
-    reviewer_user_ids = _resolve_suggested_reviewer_user_ids(report)
-    if not reviewer_user_ids:
-        return []
-
-    reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
-    own_configs = _own_channel_configs_by_user(report.team_id, reviewer_user_ids)
-
-    # Keyed by (integration_id, channel_id) so a reviewer's own channel and the team
-    # default collapse into one post when they resolve to the same Slack channel.
-    routes: dict[tuple[int, str], _ChannelRoute] = {}
-    for user_id in sorted(reviewer_user_ids):
-        user = reviewer_users.get(user_id)
-        if user is None:
-            continue
-
-        config = own_configs.get(user_id)
-        if config is not None:
-            if not _meets_min_priority(priority, config.slack_notification_min_priority):
-                continue
-            integration = config.slack_notification_integration
-            channel = config.slack_notification_channel
-            is_team_channel = False
-        elif team_integration is not None and team_channel:
-            integration = team_integration
-            channel = team_channel
-            is_team_channel = True
-        else:
-            continue
-
-        if integration is None or not channel:
-            continue
-        key = (integration.id, _channel_id_from_target(channel))
-        route = routes.get(key)
-        if route is None:
-            route = _ChannelRoute(integration, channel, is_team_channel=is_team_channel)
-            routes[key] = route
-        route.users.append(user)
-
-    return list(routes.values())
 
 
 def dispatch_inbox_item_notifications(
@@ -451,7 +364,7 @@ def dispatch_inbox_item_notifications(
 ) -> int:
     """Send Slack notifications for a newly-ready report. Returns count of messages sent.
 
-    Best-effort: per-destination Slack errors are logged, not raised.
+    Best-effort: per-target Slack errors are logged but do not raise.
     """
     try:
         report = SignalReport.objects.get(id=report_id, team_id=team_id)
@@ -462,57 +375,76 @@ def dispatch_inbox_item_notifications(
         )
         return 0
 
-    priority = _latest_priority(report)
-    # Don't notify until a priority is persisted — an unprioritised report isn't ready for the inbox.
+    if report.status != SignalReport.Status.READY:
+        return 0
+    if _get_latest_actionability(report) != ActionabilityChoice.IMMEDIATELY_ACTIONABLE:
+        return 0
+
+    priority = _get_latest_priority(report)
     if _priority_rank(priority) is None:
         return 0
 
-    team_integration = _get_team_slack_integration(team_id)
-    team_channel = _team_notification_channel(team_id) if team_integration is not None else None
-
-    routes = _build_reviewer_routes(
-        report,
-        priority=priority,
-        team_integration=team_integration,
-        team_channel=team_channel,
-    )
-    if not routes:
+    targets = _notification_targets_for_report(report)
+    if not targets:
         return 0
 
     sources = source_products or []
-    repository = _report_repository(report)
     implementation_pr_url = fetch_implementation_pr_urls_for_reports([str(report.id)]).get(str(report.id))
+    users_by_id = {user.id: user for user in User.objects.filter(id__in=[config.user_id for config in targets])}
+
+    # Several reviewers can resolve to the same channel — group them so each channel gets a
+    # single message that still tags every matched reviewer. Keyed by integration + channel id,
+    # since the same channel id under a different integration is a distinct destination.
+    channels: dict[tuple[int, str], list[SignalUserAutonomyConfig]] = {}
+    for config in targets:
+        if not _meets_min_priority(priority, config.slack_notification_min_priority):
+            continue
+        if config.user_id not in users_by_id:
+            logger.warning(
+                "signals_inbox_slack_notification_missing_user",
+                extra={"report_id": report_id, "team_id": team_id, "user_id": config.user_id},
+            )
+            continue
+        integration = config.slack_notification_integration
+        channel = config.slack_notification_channel
+        if integration is None or not channel:
+            continue
+        channels.setdefault((integration.id, _channel_id_from_target(channel)), []).append(config)
 
     sent = 0
-    for route in routes:
-        channel_id = _channel_id_from_target(route.channel)
-        log_context = {
-            "report_id": report_id,
-            "team_id": team_id,
-            "channel": _channel_display_name(route.channel),
-            "destination": "team" if route.is_team_channel else "user",
-        }
+    for configs in channels.values():
+        # All configs in a group share the same integration and resolved channel id.
+        integration = configs[0].slack_notification_integration
+        channel = configs[0].slack_notification_channel
+        if integration is None or not channel:
+            continue  # Needed to satisfy mypy
+
         try:
-            slack = SlackIntegration(route.integration)
-            mentions = _resolve_reviewer_mentions(slack, route.users)
-            dismiss_button_value = json.dumps(
-                {
-                    "integration_id": route.integration.id,
-                    "report_id": str(report.id),
-                    "team_id": team_id,
-                }
-            )
+            slack = SlackIntegration(integration)
+            recipients = [
+                _recipient_presentation(users_by_id[config.user_id], slack, integration) for config in configs
+            ]
             blocks, text = _build_message_blocks(
                 report,
                 priority=priority,
                 source_products=sources,
-                reviewer_mentions=mentions,
-                repository=repository,
+                recipients=recipients,
                 implementation_pr_url=implementation_pr_url,
-                dismiss_button_value=dismiss_button_value,
             )
-            slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
+            slack.client.chat_postMessage(
+                channel=_channel_id_from_target(channel),
+                blocks=blocks,
+                text=text,
+            )
             sent += 1
         except Exception:
-            logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
+            logger.exception(
+                "Failed to deliver signals inbox-item Slack notification",
+                extra={
+                    "report_id": report_id,
+                    "team_id": team_id,
+                    "user_ids": [config.user_id for config in configs],
+                    "channel": _channel_display_name(channel),
+                },
+            )
     return sent

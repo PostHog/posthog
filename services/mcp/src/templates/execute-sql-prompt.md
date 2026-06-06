@@ -39,41 +39,18 @@ Write SQL a human can scan: multi-line with indentation, one column/CTE per line
 
 Large JSON values in results (notably full `properties` objects) are truncated by default. If you anticipate a large result set, or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), dump the results to a file and process them with bash rather than returning them inline. Alternatively, cherry-pick specific keys (`properties.$browser`) instead of the whole object.
 
-### Large LLM trace fields live on the `posthog.ai_events` table, not `events.properties`
+### Large LLM trace fields are stripped from `events.properties`
 
-For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.) the heavy keys are **not stored on `events.properties`** — they live as native columns on a dedicated ClickHouse table. Like `posthog.trace_spans` / `posthog.metrics`, reference it as `posthog.ai_events` (a bare `FROM ai_events` errors with "Unknown table"):
+For LLM events (`$ai_generation`, `$ai_trace`, `$ai_span`, etc.), these specific keys with large values are stripped from `events.properties`:
 
-| `events` property    | `ai_events` column |
-| -------------------- | ------------------ |
-| `$ai_input`          | `input`            |
-| `$ai_output`         | `output`           |
-| `$ai_output_choices` | `output_choices`   |
-| `$ai_input_state`    | `input_state`      |
-| `$ai_output_state`   | `output_state`     |
-| `$ai_tools`          | `tools`            |
+- `properties.$ai_input`
+- `properties.$ai_output`
+- `properties.$ai_output_choices`
+- `properties.$ai_input_state`
+- `properties.$ai_output_state`
+- `properties.$ai_tools`
 
-Other AI properties (token counts, costs, model, `$ai_trace_id`) stay on `events` in all regimes and are safe to query there.
-
-`posthog.ai_events` is `ORDER BY (team_id, trace_id, timestamp)`, so **anchor on `trace_id`, never scan by `timestamp`**. Rows are dropped after the retention period (30 days by default), so older traces have no content. Nothing restricts which heavy columns an event can carry, but the typical shape is: `$ai_generation` carries `input` / `output_choices` / `tools` (embeddings carry `input`); `$ai_span` and `$ai_trace` carry `input_state` / `output_state`.
-
-- **Single trace** — `SELECT input, output_choices FROM posthog.ai_events WHERE trace_id = '<id>' ORDER BY timestamp`.
-- **Batch / analytics** — filter the timestamp-indexed `events` table first to get the trace IDs, then fetch heavy content from `posthog.ai_events` anchored on `trace_id`:
-
-  ```sql
-  WITH matching_traces AS (
-      SELECT DISTINCT properties.$ai_trace_id AS trace_id
-      FROM events
-      WHERE event = '$ai_generation'
-        AND timestamp >= now() - INTERVAL 7 DAY
-        AND properties.$ai_model = 'gpt-4o'
-  )
-  SELECT a.trace_id, a.span_id, a.model, a.input, a.output_choices
-  FROM posthog.ai_events AS a
-  WHERE a.trace_id IN (SELECT trace_id FROM matching_traces)
-  ORDER BY a.trace_id, a.timestamp
-  ```
-
-The `query-llm-trace` / `query-llm-traces-list` tools read `posthog.ai_events` for you; prefer them when a single trace's content is all you need.
+Prefer `query-llm-trace` / `query-llm-traces-list` whenever you need any of those six keys — they contain information on the proper read patterns to a dedicated AI events table which contains these fields. Other AI properties (token counts, costs, model, trace IDs) stay on `events` in all three regimes and are safe to query directly.
 
 ### Observability data-plane tables: `logs`, `posthog.trace_spans`, `posthog.metrics`
 

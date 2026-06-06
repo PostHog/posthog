@@ -1,13 +1,6 @@
-import type { PointClickData, Series } from '@posthog/quill-charts'
-
 import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 
-import {
-    buildFunnelStepsBarData,
-    FUNNEL_STEPS_SERIES_KEY_PREFIX,
-    type FunnelStepsBarSeriesMeta,
-    resolveFunnelStepClick,
-} from './funnelStepsBarTransforms'
+import { buildFunnelStepsBarData, FUNNEL_STEPS_SERIES_KEY_PREFIX } from './funnelStepsBarTransforms'
 
 type StepOverrides = Partial<FunnelStepWithConversionMetrics> & { fromBasisStep: number }
 
@@ -117,50 +110,5 @@ describe('buildFunnelStepsBarData', () => {
 
         expect(series).toEqual([])
         expect(labels).toEqual([])
-    })
-})
-
-function makeSeries(breakdownIndex: number): Series<FunnelStepsBarSeriesMeta> {
-    return {
-        key: `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${breakdownIndex}`,
-        label: 'series',
-        data: [],
-        meta: { breakdownIndex },
-    }
-}
-
-function makeClick(
-    overrides: Partial<Pick<PointClickData<FunnelStepsBarSeriesMeta>, 'dataIndex' | 'series' | 'inTrackArea'>>
-): Pick<PointClickData<FunnelStepsBarSeriesMeta>, 'dataIndex' | 'series' | 'inTrackArea'> {
-    return { dataIndex: 0, series: makeSeries(0), ...overrides }
-}
-
-describe('resolveFunnelStepClick', () => {
-    it.each<[string, boolean | undefined, boolean]>([
-        ['filled bar (inTrackArea false) opens converted', false, true],
-        ['track above the bar (inTrackArea true) opens drop-off', true, false],
-        ['non-grouped click (inTrackArea undefined) falls back to converted', undefined, true],
-    ])('%s', (_name, inTrackArea, expectedConverted) => {
-        const target = resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 1, inTrackArea }))
-
-        expect(target).not.toBeNull()
-        expect(target?.step).toBe(noBreakdownSteps[1])
-        expect(target?.series).toBe(noBreakdownSteps[1])
-        expect(target?.converted).toBe(expectedConverted)
-    })
-
-    it('resolves the breakdown variant via the series meta breakdownIndex', () => {
-        const target = resolveFunnelStepClick(
-            breakdownSteps,
-            makeClick({ dataIndex: 1, series: makeSeries(1), inTrackArea: false })
-        )
-
-        expect(target?.step).toBe(breakdownSteps[1])
-        expect(target?.series).toBe(breakdownSteps[1].nested_breakdown?.[1])
-        expect(target?.converted).toBe(true)
-    })
-
-    it('returns null when the clicked column has no step', () => {
-        expect(resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 99 }))).toBeNull()
     })
 })

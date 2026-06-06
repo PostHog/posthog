@@ -86,14 +86,6 @@ class StripeAuthMethodConfig(config.Config):
 
 
 @config.config
-class TwilioAuthMethodConfig(config.Config):
-    selection: Literal["api_key", "auth_token"] = "api_key"
-    api_key_sid: str | None = None
-    api_key_secret: str | None = None
-    auth_token: str | None = None
-
-
-@config.config
 class VitallyRegionConfig(config.Config):
     subdomain: str
     selection: Literal["EU", "US"] = "EU"
@@ -128,9 +120,7 @@ class AmazonAdsSourceConfig(config.Config):
 
 @config.config
 class AmplitudeSourceConfig(config.Config):
-    api_key: str
-    secret_key: str
-    region: Literal["us", "eu"] = config.value(default="us")
+    pass
 
 
 @config.config
@@ -145,12 +135,12 @@ class AppsFlyerSourceConfig(config.Config):
 
 @config.config
 class AsanaSourceConfig(config.Config):
-    access_token: str
+    pass
 
 
 @config.config
 class AshbySourceConfig(config.Config):
-    api_key: str
+    pass
 
 
 @config.config
@@ -208,8 +198,7 @@ class BraintreeSourceConfig(config.Config):
 
 @config.config
 class BrazeSourceConfig(config.Config):
-    api_key: str
-    url: str
+    pass
 
 
 @config.config
@@ -269,8 +258,7 @@ class ClickHouseSourceConfig(config.Config):
 
 @config.config
 class ClickUpSourceConfig(config.Config):
-    api_key: str
-    workspace_id: str
+    pass
 
 
 @config.config
@@ -285,9 +273,7 @@ class CockroachDBSourceConfig(config.Config):
 
 @config.config
 class ConfluenceSourceConfig(config.Config):
-    subdomain: str
-    email: str
-    api_token: str
+    pass
 
 
 @config.config
@@ -323,11 +309,7 @@ class CustomerIOSourceConfig(config.Config):
 
 @config.config
 class DatadogSourceConfig(config.Config):
-    api_key: str
-    application_key: str
-    site: Literal[
-        "datadoghq.com", "us3.datadoghq.com", "us5.datadoghq.com", "datadoghq.eu", "ap1.datadoghq.com", "ddog-gov.com"
-    ] = config.value(default="datadoghq.com")
+    pass
 
 
 @config.config
@@ -374,13 +356,12 @@ class FreshdeskSourceConfig(config.Config):
 
 @config.config
 class FreshsalesSourceConfig(config.Config):
-    domain: str
-    api_key: str
+    pass
 
 
 @config.config
 class FrontSourceConfig(config.Config):
-    api_token: str
+    pass
 
 
 @config.config
@@ -401,8 +382,7 @@ class GithubSourceConfig(config.Config):
 
 @config.config
 class GongSourceConfig(config.Config):
-    access_key: str
-    access_key_secret: str
+    pass
 
 
 @config.config
@@ -420,12 +400,6 @@ class GoogleAnalyticsSourceConfig(config.Config):
 @config.config
 class GoogleDriveSourceConfig(config.Config):
     pass
-
-
-@config.config
-class GoogleSearchConsoleSourceConfig(config.Config):
-    site_url: str
-    google_search_console_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config
@@ -447,7 +421,7 @@ class GranolaSourceConfig(config.Config):
 
 @config.config
 class GreenhouseSourceConfig(config.Config):
-    api_key: str
+    pass
 
 
 @config.config
@@ -473,13 +447,14 @@ class IntercomSourceConfig(config.Config):
 
 @config.config
 class IterableSourceConfig(config.Config):
-    api_key: str
-    region: Literal["us", "eu"] = config.value(default="us")
+    pass
 
 
 @config.config
 class JiraSourceConfig(config.Config):
-    pass
+    subdomain: str
+    email: str
+    api_token: str
 
 
 @config.config
@@ -494,7 +469,7 @@ class KlaviyoSourceConfig(config.Config):
 
 @config.config
 class LaunchDarklySourceConfig(config.Config):
-    access_token: str
+    pass
 
 
 @config.config
@@ -560,10 +535,7 @@ class MicrosoftTeamsSourceConfig(config.Config):
 
 @config.config
 class MixpanelSourceConfig(config.Config):
-    project_id: str
-    service_account_username: str
-    service_account_secret: str
-    region: Literal["us", "eu", "in"] = config.value(default="us")
+    pass
 
 
 @config.config
@@ -607,7 +579,7 @@ class OktaSourceConfig(config.Config):
 
 @config.config
 class OmnisendSourceConfig(config.Config):
-    api_key: str
+    pass
 
 
 @config.config
@@ -647,8 +619,7 @@ class PayPalSourceConfig(config.Config):
 
 @config.config
 class PendoSourceConfig(config.Config):
-    integration_key: str
-    region: Literal["us", "us1", "eu", "jp", "au"] = config.value(default="us")
+    pass
 
 
 @config.config
@@ -666,8 +637,7 @@ class PinterestAdsSourceConfig(config.Config):
 
 @config.config
 class PipedriveSourceConfig(config.Config):
-    company_domain: str
-    api_token: str
+    pass
 
 
 @config.config
@@ -704,7 +674,7 @@ class PostmarkSourceConfig(config.Config):
 
 @config.config
 class ProductboardSourceConfig(config.Config):
-    access_token: str
+    pass
 
 
 @config.config
@@ -764,7 +734,7 @@ class SFTPSourceConfig(config.Config):
 
 @config.config
 class SalesLoftSourceConfig(config.Config):
-    api_key: str
+    pass
 
 
 @config.config
@@ -774,7 +744,7 @@ class SalesforceSourceConfig(config.Config):
 
 @config.config
 class SendGridSourceConfig(config.Config):
-    api_key: str
+    pass
 
 
 @config.config
@@ -816,7 +786,7 @@ class SlackSourceConfig(config.Config):
 
 @config.config
 class SmartsheetSourceConfig(config.Config):
-    access_token: str
+    pass
 
 
 @config.config
@@ -885,14 +855,12 @@ class TikTokAdsSourceConfig(config.Config):
 
 @config.config
 class TrelloSourceConfig(config.Config):
-    api_key: str
-    api_token: str
+    pass
 
 
 @config.config
 class TwilioSourceConfig(config.Config):
-    account_sid: str
-    auth_method: TwilioAuthMethodConfig
+    pass
 
 
 @config.config
@@ -939,8 +907,7 @@ class WorkOSSourceConfig(config.Config):
 
 @config.config
 class WrikeSourceConfig(config.Config):
-    access_token: str
-    host: str
+    pass
 
 
 @config.config
@@ -967,9 +934,7 @@ class ZohoCRMSourceConfig(config.Config):
 
 @config.config
 class ZoomSourceConfig(config.Config):
-    account_id: str
-    client_id: str
-    client_secret: str
+    pass
 
 
 @config.config
@@ -1035,7 +1000,6 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GOOGLEADS: GoogleAdsSourceConfig,
         ExternalDataSourceType.GOOGLEANALYTICS: GoogleAnalyticsSourceConfig,
         ExternalDataSourceType.GOOGLEDRIVE: GoogleDriveSourceConfig,
-        ExternalDataSourceType.GOOGLESEARCHCONSOLE: GoogleSearchConsoleSourceConfig,
         ExternalDataSourceType.GOOGLESHEETS: GoogleSheetsSourceConfig,
         ExternalDataSourceType.GORGIAS: GorgiasSourceConfig,
         ExternalDataSourceType.GRANOLA: GranolaSourceConfig,

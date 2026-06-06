@@ -21,7 +21,6 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -1385,36 +1384,6 @@ async def test_apply_scanner_workflow_exits_when_create_returns_was_created_fals
 
     assert [fn for fn, _ in mocks.activity_calls] == [create_observation_activity]
     assert mocks.child_calls == []
-
-
-def test_workflow_get_progress_advances_through_phases() -> None:
-    workflow = ApplyScannerWorkflow()
-    assert workflow.get_progress() == {
-        "phase": "queued",
-        "step": 0,
-        "total_steps": 6,
-        "rasterizer_workflow_id": None,
-    }
-
-    workflow._advance_phase("rendering", rasterizer_workflow_id="rast-1")
-    progress = workflow.get_progress()
-    assert progress["phase"] == "rendering"
-    assert progress["step"] == 2
-    assert progress["rasterizer_workflow_id"] == "rast-1"
-
-    # A later phase without an id keeps the previously recorded rasterizer id.
-    workflow._advance_phase("analyzing")
-    assert workflow.get_progress()["phase"] == "analyzing"
-    assert workflow.get_progress()["rasterizer_workflow_id"] == "rast-1"
-
-
-async def test_progress_stream_completes_immediately_for_terminal_observation() -> None:
-    # Fast path: opening the stream for a settled observation emits a single complete event and closes.
-    observation = ReplayObservation(id=uuid.uuid4(), status=ObservationStatus.SUCCEEDED)
-    events = [event async for event in stream_observation_progress(observation)]
-    assert len(events) == 1
-    assert "event: observation-complete" in events[0]
-    assert '"status": "succeeded"' in events[0]
 
 
 @pytest.mark.asyncio

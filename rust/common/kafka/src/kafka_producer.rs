@@ -1,46 +1,14 @@
-use std::io::Write;
 use std::sync::Arc;
 
 use crate::config::KafkaConfig;
 use common_liveness::SyncLivenessReporter;
-use lz4::EncoderBuilder;
 use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::{ClientConfig, ClientContext};
 use serde::Serialize;
 use serde_json::error::Error as SerdeError;
 use thiserror::Error;
-use tracing::{debug, error, info, warn};
-
-const KAFKA_LZ4_COMPRESS_TOTAL: &str = "common_kafka_lz4_compress_total";
-const KAFKA_LZ4_COMPRESS_UNCOMPRESSED_BYTES: &str = "common_kafka_lz4_compress_uncompressed_bytes";
-const KAFKA_LZ4_COMPRESS_COMPRESSED_BYTES: &str = "common_kafka_lz4_compress_compressed_bytes";
-
-/// Envelope-level encoding applied to the serialized message value before it is
-/// produced, independent of the broker-level `compression.codec`. `Lz4` emits
-/// the LZ4 *frame* format, whose magic bytes let `SingleTopicConsumer`
-/// decompress transparently — so encoded and plain messages can coexist on a
-/// topic during rollout. Use `Lz4` only for topics consumed by
-/// `SingleTopicConsumer`, never for ones read by a ClickHouse Kafka engine
-/// table, which expects raw rows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum EnvelopeEncoding {
-    #[default]
-    None,
-    Lz4,
-}
-
-impl std::str::FromStr for EnvelopeEncoding {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_lowercase().as_ref() {
-            "none" => Ok(EnvelopeEncoding::None),
-            "lz4" => Ok(EnvelopeEncoding::Lz4),
-            _ => Err(format!("Unknown EnvelopeEncoding: {s}")),
-        }
-    }
-}
+use tracing::{debug, error, info};
 
 pub struct KafkaContext {
     liveness: Arc<dyn SyncLivenessReporter>,
@@ -186,31 +154,6 @@ where
         .await
 }
 
-/// Like `send_keyed_iter_to_kafka`, but applies the given envelope encoding to
-/// each serialized payload before producing. With `EnvelopeEncoding::Lz4` the
-/// frame magic bytes let `SingleTopicConsumer` decompress transparently, so
-/// encoded and plain messages can coexist on a topic during rollout.
-pub async fn send_keyed_iter_to_kafka_with_encoding<T, C: ClientContext>(
-    kafka_producer: &FutureProducer<C>,
-    topic: &str,
-    key_extractor: impl Fn(&T) -> Option<String>,
-    encoding: EnvelopeEncoding,
-    iter: impl IntoIterator<Item = T>,
-) -> Vec<Result<(), KafkaProduceError>>
-where
-    T: Serialize,
-{
-    send_keyed_iter_to_kafka_inner(
-        kafka_producer,
-        topic,
-        key_extractor,
-        |_| None,
-        iter,
-        encoding,
-    )
-    .await
-}
-
 pub async fn send_keyed_iter_to_kafka_with_headers<T, C: ClientContext>(
     kafka_producer: &FutureProducer<C>,
     topic: &str,
@@ -221,35 +164,13 @@ pub async fn send_keyed_iter_to_kafka_with_headers<T, C: ClientContext>(
 where
     T: Serialize,
 {
-    send_keyed_iter_to_kafka_inner(
-        kafka_producer,
-        topic,
-        key_extractor,
-        headers_extractor,
-        iter,
-        EnvelopeEncoding::None,
-    )
-    .await
-}
-
-async fn send_keyed_iter_to_kafka_inner<T, C: ClientContext>(
-    kafka_producer: &FutureProducer<C>,
-    topic: &str,
-    key_extractor: impl Fn(&T) -> Option<String>,
-    headers_extractor: impl Fn(&T) -> Option<rdkafka::message::OwnedHeaders>,
-    iter: impl IntoIterator<Item = T>,
-    encoding: EnvelopeEncoding,
-) -> Vec<Result<(), KafkaProduceError>>
-where
-    T: Serialize,
-{
     let mut results = Vec::new();
     let mut handles = Vec::new();
 
     for (index, item) in iter.into_iter().enumerate() {
         let key = key_extractor(&item);
         let headers = headers_extractor(&item);
-        let json = match serde_json::to_vec(&item)
+        let payload = match serde_json::to_string(&item)
             .map_err(|e| KafkaProduceError::SerializationError { error: e })
         {
             Ok(p) => p,
@@ -257,13 +178,6 @@ where
                 results.push((index, Err(e)));
                 continue;
             }
-        };
-
-        // On compression failure we fall back to the raw JSON: the consumer
-        // handles both, so failing open keeps the topic flowing.
-        let payload = match encoding {
-            EnvelopeEncoding::None => json,
-            EnvelopeEncoding::Lz4 => maybe_compress_lz4_frame(json, topic),
         };
 
         let record = FutureRecord {
@@ -305,93 +219,4 @@ where
     results.sort_by_key(|e| e.0);
 
     results.into_iter().map(|(_, r)| r).collect()
-}
-
-/// LZ4-frame-compress `payload`, falling back to the original bytes if the
-/// encoder errors (extremely unlikely with an in-memory writer). The frame
-/// magic bytes are what the consumer keys off to decompress transparently.
-fn maybe_compress_lz4_frame(payload: Vec<u8>, topic: &str) -> Vec<u8> {
-    match compress_lz4_frame(&payload) {
-        Ok(compressed) => {
-            metrics::counter!(
-                KAFKA_LZ4_COMPRESS_TOTAL,
-                "topic" => topic.to_string(),
-                "result" => "success",
-            )
-            .increment(1);
-            metrics::histogram!(KAFKA_LZ4_COMPRESS_UNCOMPRESSED_BYTES, "topic" => topic.to_string())
-                .record(payload.len() as f64);
-            metrics::histogram!(KAFKA_LZ4_COMPRESS_COMPRESSED_BYTES, "topic" => topic.to_string())
-                .record(compressed.len() as f64);
-            compressed
-        }
-        Err(e) => {
-            metrics::counter!(
-                KAFKA_LZ4_COMPRESS_TOTAL,
-                "topic" => topic.to_string(),
-                "result" => "failure",
-            )
-            .increment(1);
-            warn!(error = %e, topic, "failed to LZ4-compress Kafka payload, producing raw JSON");
-            payload
-        }
-    }
-}
-
-fn compress_lz4_frame(payload: &[u8]) -> std::io::Result<Vec<u8>> {
-    let mut encoder = EncoderBuilder::new().build(Vec::with_capacity(payload.len()))?;
-    encoder.write_all(payload)?;
-    let (compressed, result) = encoder.finish();
-    result?;
-    Ok(compressed)
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Read;
-
-    use lz4::Decoder;
-
-    use super::{compress_lz4_frame, maybe_compress_lz4_frame, EnvelopeEncoding};
-    use crate::kafka_consumer::LZ4_FRAME_MAGIC;
-
-    #[test]
-    fn lz4_frame_starts_with_magic_and_round_trips() {
-        let original = br#"{"team_id":1,"property_key":"$browser","property_value":"Chrome"}"#;
-
-        let compressed = compress_lz4_frame(original).unwrap();
-
-        assert!(
-            compressed.starts_with(LZ4_FRAME_MAGIC),
-            "compressed payload must carry the LZ4 frame magic so the consumer detects it"
-        );
-
-        let mut decoder = Decoder::new(compressed.as_slice()).unwrap();
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
-    fn maybe_compress_round_trips_for_lz4() {
-        let original = br#"{"team_id":42,"property_value":"x"}"#.to_vec();
-
-        let payload = maybe_compress_lz4_frame(original.clone(), "test-topic");
-
-        let mut decoder = Decoder::new(payload.as_slice()).unwrap();
-        let mut decompressed = Vec::new();
-        decoder.read_to_end(&mut decompressed).unwrap();
-        assert_eq!(decompressed, original);
-    }
-
-    #[test]
-    fn envelope_encoding_parses_from_str() {
-        assert_eq!(
-            "none".parse::<EnvelopeEncoding>(),
-            Ok(EnvelopeEncoding::None)
-        );
-        assert_eq!("LZ4".parse::<EnvelopeEncoding>(), Ok(EnvelopeEncoding::Lz4));
-        assert!(" lz4 ".parse::<EnvelopeEncoding>().is_ok());
-        assert!("gzip".parse::<EnvelopeEncoding>().is_err());
-    }
 }

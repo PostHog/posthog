@@ -98,28 +98,3 @@ def test_get_salesforce_access_token_from_code_raises_on_server_failure():
     assert exc.value.response == response
     assert "Server Error" in str(exc.value)
     assert response_body in str(exc.value)
-
-
-def test_expired_refresh_token_error_is_non_retryable():
-    """The SalesforceAuthRequestError raised for an expired refresh token must match a
-    non-retryable pattern, otherwise the job retries a permanent auth failure forever."""
-    from posthog.temporal.data_imports.sources.salesforce.source import SalesforceSource
-
-    response = requests.Response()
-    response.status_code = 400
-    response._content = json.dumps({"error_description": "expired access/refresh token"}).encode("utf-8")
-
-    with (
-        unittest.mock.patch(
-            "posthog.temporal.data_imports.sources.salesforce.auth.make_tracked_session",
-            return_value=type("_S", (), {"post": staticmethod(lambda *a, **k: response)})(),
-        ),
-        pytest.raises(auth.SalesforceAuthRequestError) as exc,
-    ):
-        _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
-
-    error_message = str(exc.value)
-    patterns = SalesforceSource().get_non_retryable_errors()
-    assert any(pattern in error_message for pattern in patterns), (
-        f"Salesforce auth error {error_message!r} did not match any non-retryable pattern"
-    )

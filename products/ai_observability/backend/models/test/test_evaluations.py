@@ -1,8 +1,9 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
+
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus, EvaluationStatusReason
 

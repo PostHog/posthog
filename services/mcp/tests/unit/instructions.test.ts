@@ -5,6 +5,7 @@ import {
     buildActiveEnvironmentContextPrompt,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
+    buildQueryToolsCompact,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     QueryToolCatalog,
@@ -57,7 +58,7 @@ describe('buildToolDomainsBlock', () => {
         expect(result).toContain('- survey')
     })
 
-    it('keeps a singleton tool whole but collapses siblings to a shared root', () => {
+    it('should list standalone tools as-is', () => {
         const tools = [
             { name: 'execute-sql', category: 'SQL' },
             { name: 'read-data-schema', category: 'Data schema' },
@@ -65,56 +66,19 @@ describe('buildToolDomainsBlock', () => {
         ]
         const result = buildToolDomainsBlock(tools)
         expect(result).toContain('- execute-sql')
-        // read-data-* siblings collapse to their shared prefix, not listed verbatim
-        expect(result).toContain('- read-data')
-        expect(result).not.toContain('- read-data-schema')
-        expect(result).not.toContain('- read-data-warehouse-schema')
+        expect(result).toContain('- read-data-schema')
+        expect(result).toContain('- read-data-warehouse-schema')
     })
 
-    it('splits an oversized family into sub-family roots, one level deep', () => {
-        // A flat CRUD family below the size cap stays whole; a large area is
-        // broken into searchable sub-roots instead of listing leaf tools verbatim.
-        const llma = [
-            'llma-personal-spend',
-            'llma-prompt-create',
-            'llma-prompt-get',
-            'llma-skill-archive',
-            'llma-skill-file-rename',
-            'llma-evaluation-config-set-active-key',
-            'llma-evaluation-judge-models',
-            'llma-evaluation-run',
-        ]
-        const tools = [
-            ...Array.from({ length: 30 }, (_, i) => ({ name: `llma-filler-${i}`, category: 'AI observability' })),
-            ...llma.map((name) => ({ name, category: 'AI observability' })),
-        ]
-        const result = buildToolDomainsCompact(tools)
-        const domains = result.split('|')
-        // sub-family roots, never the verbose leaf names
-        expect(domains).toContain('llma-prompt')
-        expect(domains).toContain('llma-skill')
-        expect(domains).toContain('llma-evaluation')
-        expect(result).not.toContain('llma-skill-file-rename')
-        expect(result).not.toContain('llma-evaluation-config-set-active-key')
-    })
-
-    it('collapses all query-* tools into a single "query" domain', () => {
+    it('should skip query-* tools', () => {
         const tools = [
             { name: 'query-trends', category: 'Query wrappers' },
             { name: 'query-funnel', category: 'Query wrappers' },
             { name: 'experiment-create', category: 'Experiments' },
         ]
         const result = buildToolDomainsBlock(tools)
-        expect(result).toContain('- query')
-        // never fragmented into per-insight roots
-        expect(result).not.toContain('query-trends')
-        expect(result).not.toContain('query-funnel')
-        expect(result).toContain('- experiment')
-    })
-
-    it('omits the "query" domain when no query-* tools are present', () => {
-        const result = buildToolDomainsBlock([{ name: 'experiment-create', category: 'Experiments' }])
         expect(result).not.toContain('query')
+        expect(result).toContain('- experiment')
     })
 
     it('should collapse plural/singular duplicates', () => {
@@ -227,6 +191,34 @@ describe('QueryToolCatalog', () => {
     it('buildQueryToolsBlock delegates to QueryToolCatalog.toMarkdown', () => {
         const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
         expect(buildQueryToolsBlock(tools)).toBe('- `query-trends` — time series')
+    })
+
+    describe('toCompact', () => {
+        it('renders names pipe-separated and strips the query- prefix', () => {
+            const tools: QueryToolInfo[] = [
+                { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
+                { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion' },
+                { name: 'query-lifecycle', title: 'Lifecycle' },
+            ]
+            expect(new QueryToolCatalog(tools).toCompact()).toBe('funnel|lifecycle|trends')
+        })
+
+        it('ignores non-query tools', () => {
+            const tools: QueryToolInfo[] = [
+                { name: 'query-trends', title: 'Trends' },
+                { name: 'dashboard-create', title: 'Create dashboard' },
+            ]
+            expect(new QueryToolCatalog(tools).toCompact()).toBe('trends')
+        })
+
+        it('returns empty string for empty input', () => {
+            expect(new QueryToolCatalog([]).toCompact()).toBe('')
+        })
+
+        it('buildQueryToolsCompact delegates to QueryToolCatalog.toCompact', () => {
+            const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends' }]
+            expect(buildQueryToolsCompact(tools)).toBe('trends')
+        })
     })
 })
 

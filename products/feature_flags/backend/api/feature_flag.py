@@ -53,6 +53,11 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.encrypted_flag_payloads import (
+    REDACTED_PAYLOAD_VALUE,
+    encrypt_flag_payloads,
+    get_decrypted_flag_payloads_protected,
+)
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -78,11 +83,6 @@ from posthog.views import format_bytes
 
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.encrypted_flag_payloads import (
-    REDACTED_PAYLOAD_VALUE,
-    encrypt_flag_payloads,
-    get_decrypted_flag_payloads_protected,
-)
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_status import FeatureFlagStatusChecker
 from products.feature_flags.backend.local_evaluation import (

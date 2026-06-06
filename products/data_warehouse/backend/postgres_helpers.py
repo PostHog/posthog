@@ -318,8 +318,6 @@ def reproject_direct_postgres_table(
             enabled_columns,
             schema_row.primary_key_columns,
             schema_row.incremental_field,
-            # Direct-postgres columns are keyed by raw, case-sensitive source names.
-            normalize=False,
         ),
         source_catalog=source_catalog,
         source_schema=source_schema,

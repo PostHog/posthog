@@ -1094,11 +1094,7 @@ def devbox_setup(
         return
 
     mutagen.ensure_mutagen_installed(verbose=verbose)
-    mutagen.ensure_daemon_with_shim()
-    click.echo(
-        "  Note: the mutagen daemon is left unregistered from login auto-start so devbox "
-        "sync can apply its ssh keepalive fix; it starts on demand the next time you sync."
-    )
+    mutagen.register_daemon()
     mutagen.ensure_user_mutagen_config()
     maybe_configure_ssh(
         configure_ssh=configure_ssh,

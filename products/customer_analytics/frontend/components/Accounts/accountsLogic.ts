@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
@@ -21,7 +21,6 @@ import { ACCOUNTS_HOGQL_DATA_NODE_KEY, CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } f
 import { ACCOUNTS_HOGQL_DEFAULT_SELECT, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsLogicType } from './accountsLogicType'
 import { accountsOverviewTilesLogic, TileFilter } from './accountsOverviewTilesLogic'
-import { AccountsEvents } from './constants'
 
 export const SEARCH_DEBOUNCE_MS = 300
 
@@ -50,8 +49,6 @@ function clearSortIfColumnRemoved(values: SortLikeValues, actions: SortLikeActio
 export type RoleFilterValue = number | null
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
-
-export type AccountFilterType = 'tag' | 'csm' | 'account_executive' | 'account_owner' | 'unassigned_only'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -129,10 +126,6 @@ export const accountsLogic = kea<accountsLogicType>([
         setSortOrder: (sortOrder: AccountSortOrder) => ({ sortOrder }),
         toggleSort: (column: AccountSortableColumn) => ({ column }),
         refresh: true,
-        // Dispatched by the filter controls on genuine user interaction only.
-        // The raw filter setters are also fired by URL sync and cross-filter
-        // cascades, so capturing analytics here keeps phantom events out.
-        reportFilterChange: (filterType: AccountFilterType) => ({ filterType }),
         updateAccountRole: (accountId: string, role: AccountRoleKey, user: UserBasicType | null) => ({
             accountId,
             role,
@@ -219,32 +212,6 @@ export const accountsLogic = kea<accountsLogicType>([
             (savingRoles: Record<string, true>) =>
                 (accountId: string, role: AccountRoleKey): boolean =>
                     !!savingRoles[savingRoleKey(accountId, role)],
-        ],
-        activeFilterCount: [
-            (s) => [
-                s.searchQuery,
-                s.tagsFilter,
-                s.csmFilter,
-                s.accountExecutiveFilter,
-                s.accountOwnerFilter,
-                s.allRolesUnassigned,
-            ],
-            (
-                searchQuery: string,
-                tagsFilter: string[],
-                csmFilter: RoleFilterValue,
-                accountExecutiveFilter: RoleFilterValue,
-                accountOwnerFilter: RoleFilterValue,
-                allRolesUnassigned: boolean
-            ): number =>
-                [
-                    !!searchQuery.trim(),
-                    tagsFilter.length > 0,
-                    csmFilter !== null,
-                    accountExecutiveFilter !== null,
-                    accountOwnerFilter !== null,
-                    allRolesUnassigned,
-                ].filter(Boolean).length,
         ],
         viewUrlState: [
             (s) => [
@@ -377,42 +344,6 @@ export const accountsLogic = kea<accountsLogicType>([
         setSearchInput: async ({ query }, breakpoint) => {
             await breakpoint(SEARCH_DEBOUNCE_MS)
             actions.setSearchQuery(query)
-            const trimmed = query.trim()
-            posthog.capture(AccountsEvents.Searched, {
-                query_length: trimmed.length,
-                has_query: !!trimmed,
-                active_filter_count: values.activeFilterCount,
-            })
-        },
-        reportFilterChange: ({ filterType }) => {
-            const properties: Record<string, unknown> = {
-                filter_type: filterType,
-                active_filter_count: values.activeFilterCount,
-            }
-            switch (filterType) {
-                case 'tag':
-                    properties.value = values.tagsFilter
-                    properties.tag_count = values.tagsFilter.length
-                    properties.is_cleared = values.tagsFilter.length === 0
-                    break
-                case 'csm':
-                    properties.value = values.csmFilter
-                    properties.is_cleared = values.csmFilter === null
-                    break
-                case 'account_executive':
-                    properties.value = values.accountExecutiveFilter
-                    properties.is_cleared = values.accountExecutiveFilter === null
-                    break
-                case 'account_owner':
-                    properties.value = values.accountOwnerFilter
-                    properties.is_cleared = values.accountOwnerFilter === null
-                    break
-                case 'unassigned_only':
-                    properties.value = values.allRolesUnassigned
-                    properties.is_cleared = !values.allRolesUnassigned
-                    break
-            }
-            posthog.capture(AccountsEvents.FilterChanged, properties)
         },
         setAllRolesUnassigned: ({ value }) => {
             if (value) {
@@ -453,10 +384,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 next = null
             }
             actions.setSortOrder(next)
-            posthog.capture(AccountsEvents.Sorted, {
-                column,
-                direction: next ? next.direction : 'cleared',
-            })
         },
         setSelectColumns: () => {
             clearSortIfColumnRemoved(values, actions)
@@ -468,11 +395,6 @@ export const accountsLogic = kea<accountsLogicType>([
             clearSortIfColumnRemoved(values, actions)
         },
         refresh: () => {
-            posthog.capture(AccountsEvents.Refreshed, {
-                has_search: !!values.searchQuery.trim(),
-                active_filter_count: values.activeFilterCount,
-                sort_column: values.sortOrder?.column ?? null,
-            })
             dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
         },
         updateAccountRole: async ({ accountId, role, user }) => {
@@ -489,12 +411,6 @@ export const accountsLogic = kea<accountsLogicType>([
                 }
                 const updated = await accountsPartialUpdate(projectId, accountId, { properties: nextProperties })
                 actions.replaceAccount(updated)
-                posthog.capture(AccountsEvents.RoleAssigned, {
-                    role,
-                    is_assigned: user !== null,
-                    assigned_user_id: user?.id ?? null,
-                    source: 'list_row',
-                })
                 dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
             } catch (error) {
                 posthog.captureException(error as Error, { scope: 'accountsLogic.updateAccountRole' })
@@ -504,9 +420,6 @@ export const accountsLogic = kea<accountsLogicType>([
             }
         },
     })),
-    afterMount(() => {
-        posthog.capture(AccountsEvents.ListViewed)
-    }),
     actionToUrl(({ values }) => {
         // Mirror the full view into the URL hash so the link is shareable.
         // Search params are preserved untouched — the parent scene owns those.

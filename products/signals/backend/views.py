@@ -53,7 +53,6 @@ from products.data_warehouse.backend.data_load.service import trigger_external_d
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
 from products.signals.backend.models import (
-    AutonomyPriority,
     InvalidStatusTransition,
     SignalReport,
     SignalReportArtefact,
@@ -397,7 +396,6 @@ class SignalReportViewSet(
         qs = self._annotate_latest_actionability_value(qs)
         qs = self._annotate_signal_report_status_rank(qs)
         qs = self._annotate_signal_report_priority(qs)
-        qs = self._apply_signal_report_priority_filter(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
         qs = self._annotate_is_suggested_reviewer(qs)
         if self.action != "list":
@@ -484,28 +482,6 @@ class SignalReportViewSet(
                 )
             )
         )
-
-    def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
-        # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
-        priority_filter = self.request.query_params.get("priority")
-        if not priority_filter:
-            return queryset
-
-        values = [p.strip().upper() for p in priority_filter.split(",") if p.strip()]
-        if not values:
-            return queryset
-
-        allowed = set(AutonomyPriority.values)
-        invalid = [v for v in values if v not in allowed]
-        if invalid:
-            raise serializers.ValidationError(
-                {
-                    "priority": f"Invalid priority value(s): {', '.join(sorted(set(invalid)))}. Allowed: {', '.join(sorted(allowed))}."
-                }
-            )
-
-        return queryset.filter(priority_rank__in=values)
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
@@ -722,16 +698,6 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers "
                     "include any of the given users."
-                ),
-            ),
-            OpenApiParameter(
-                name="priority",
-                type=OpenApiTypes.STR,
-                location=OpenApiParameter.QUERY,
-                required=False,
-                description=(
-                    "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
-                    "Reports without a priority assignment are excluded when this filter is set."
                 ),
             ),
             OpenApiParameter(

@@ -67,10 +67,6 @@ jest.mock('../../widget_types/catalog', () => ({
         label: 'Top issues',
         headerTitle: 'Top issues',
         headerMeta: { showWidgetType: true, showDateRange: true },
-        sharedPlaceholder: {
-            title: 'Top issues',
-            message: 'Log in to PostHog to see which errors are affecting your users.',
-        },
     })),
     getUnknownDashboardWidgetCatalogFallback: jest.fn((widgetType: string) => ({
         groupId: widgetType,
@@ -282,24 +278,6 @@ describe('DashboardWidgetItem', () => {
 
         expect(container.querySelector('[data-attr="widget-card-title"] .EditableField')).toBeNull()
         expect(container.querySelector('[data-attr="widget-card-title"]')).toHaveTextContent('My issues')
-    })
-
-    it('shows shared dashboard placeholder on public placement instead of widget data', () => {
-        const { container } = render(
-            <DashboardWidgetItem
-                tile={tile}
-                placement={DashboardPlacement.Public}
-                dashboardId={99}
-                result={{ results: [{ id: '1' }] }}
-                loading={false}
-                onRefresh={jest.fn()}
-            />
-        )
-
-        expect(within(container).getByText('My issues')).toBeInTheDocument()
-        expect(screen.getByTestId('shared-dashboard-widget-placeholder')).toBeInTheDocument()
-        expect(screen.getByText('Log in to PostHog to see which errors are affecting your users.')).toBeInTheDocument()
-        expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
     })
 
     it('contains unknown widget errors in the card body while keeping the header', () => {

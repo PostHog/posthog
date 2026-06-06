@@ -5,11 +5,6 @@ import { initKeaTests } from '~/test/init'
 
 import { tracingIngestionLogic } from './tracingIngestionLogic'
 
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
-    delay: () => Promise.resolve(),
-}))
-
 describe('tracingIngestionLogic', () => {
     let logic: ReturnType<typeof tracingIngestionLogic.build>
 

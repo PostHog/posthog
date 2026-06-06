@@ -59,12 +59,6 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'aider',
     'copilot',
     'gemini-cli',
-    // Devin self-reports `clientInfo.name` as `Devin`; it's a coding agent and
-    // benefits from the same single-exec mode.
-    'devin',
-    // LibreChat is a general MCP client, but benefits from the same CLI-shaped
-    // single-exec mode as coding agents.
-    'librechat',
     // Notion AI ships its own `notion-mcp-client` (not a coding agent per se,
     // but an LLM-driven consumer that benefits from the same single-exec mode
     // and formatted-text rendering as coding agents).

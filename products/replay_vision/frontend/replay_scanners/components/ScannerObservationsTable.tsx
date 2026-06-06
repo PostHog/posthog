@@ -175,7 +175,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
             <ScannerOverview scannerId={scannerId} tabId={tabId} />
             <div className="flex items-start justify-between gap-4">
                 <p className="text-muted text-sm m-0">
-                    Past observations made by this scanner. Each row is one observation.
+                    Past applications of this scanner to session recordings. Each row is one observation.
                 </p>
                 <div className="flex items-center gap-4">
                     {observationStats.total > 0 && (
@@ -231,7 +231,7 @@ export function ScannerObservationsTable({ scannerId, tabId }: { scannerId: stri
                     </Tooltip>
                 </div>
             </div>
-            {(observationStats.total > 0 || hasActiveObservationFilters) && (
+            {observationStats.total > 0 && (
                 <div className="flex flex-wrap items-center gap-2">
                     <FilterPill<ObservationStatusValue>
                         label="Status"

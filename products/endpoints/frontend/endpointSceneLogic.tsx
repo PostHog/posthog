@@ -148,7 +148,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setDebugInfoExpanded: (debugInfoExpanded: boolean) => ({ debugInfoExpanded }),
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
-        toggleMaterializationFromMenu: true,
     }),
     reducers({
         localQuery: [
@@ -357,8 +356,8 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
 
             const { searchParams, hashParams } = getTabSceneParams(props.tabId)
 
-            // Versions populate the File → Open version submenu, so always load them.
-            if (endpoint?.name) {
+            // Load tab-specific data
+            if (searchParams.tab === EndpointTab.VERSIONS && endpoint?.name) {
                 actions.loadVersions(endpoint.name)
             }
             if (searchParams.tab === EndpointTab.CONFIGURATION && endpoint?.name) {
@@ -397,24 +396,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         },
         setBucketOverride: () => {
             actions.loadMaterializationPreview()
-        },
-        toggleMaterializationFromMenu: () => {
-            if (!values.endpoint?.name) {
-                return
-            }
-            const baseIsMaterialized =
-                values.viewingVersion?.is_materialized ?? values.endpoint?.is_materialized ?? false
-            const effective = values.isMaterialized ?? baseIsMaterialized
-            actions.setActiveTab(EndpointTab.CONFIGURATION)
-            actions.setIsMaterialized(!effective)
-            // Drive the URL so Configuration is loaded if/when LemonTabs is gone.
-            const { searchParams, hashParams } = getTabSceneParams(props.tabId)
-            updateTabUrl(
-                props.tabId,
-                urls.endpoint(values.endpoint.name),
-                { ...searchParams, tab: EndpointTab.CONFIGURATION },
-                hashParams
-            )
         },
         setViewingVersion: ({ version }) => {
             // Reset local state so viewed version's data shows through

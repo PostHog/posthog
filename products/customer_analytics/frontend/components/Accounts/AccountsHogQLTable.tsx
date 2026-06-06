@@ -247,10 +247,8 @@ function useExpandable(): QueryContext<DataTableNode>['expandable'] {
             noIndent: true,
             expandedRowClassName: '[&>td]:overflow-visible!',
             expandedRowRender: ({ result }) => {
-                const cell = getNameCell(result, visibleColumnNames)
-                return cell ? (
-                    <AccountNotebooksExpansion accountId={cell.id} externalId={cell.external_id ?? ''} />
-                ) : null
+                const accountId = getNameCell(result, visibleColumnNames)?.id
+                return accountId ? <AccountNotebooksExpansion accountId={accountId} /> : null
             },
         }),
         [visibleColumnNames]

@@ -24,8 +24,9 @@ use crate::config::RetryConfig;
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// Static configuration for `LeaderBackend`. Bundles the knobs that come
-/// from `Config` so the constructor stays narrow as we add fields.
+/// Static configuration for `LeaderBackend`. Mirrors `ReplicaBackendConfig`
+/// in the same crate; bundles the knobs that come from `Config` so the
+/// constructor stays narrow as we add fields.
 pub struct LeaderBackendConfig {
     pub num_partitions: u32,
     pub timeout: Duration,

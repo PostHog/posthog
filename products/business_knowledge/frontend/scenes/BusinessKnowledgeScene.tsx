@@ -166,7 +166,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Business knowledge"
-                description="Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies."
+                description="Upload text, public URLs, or files your AI support agent can cite when answering customer tickets."
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBook /> }}
                 actions={
                     <LemonButton type="primary" icon={<IconPlusSmall />} onClick={openCreateModal}>

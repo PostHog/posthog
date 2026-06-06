@@ -35,11 +35,6 @@ locals {
       slo     = 99.95 # error budget = 0.05%
       regions = ["US", "EU"]
     }
-    dashboard_widget_delivery = {
-      name    = "Dashboard widget delivery"
-      slo     = 99.95 # error budget = 0.05%
-      regions = ["US", "EU"]
-    }
     query_service = {
       name    = "Query service"
       slo     = 99.95 # error budget = 0.05%

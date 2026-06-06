@@ -17,13 +17,8 @@ import {
     SignalsScoutScratchpadForgetBody,
     SignalsScoutScratchpadRememberBody,
     SignalsScoutScratchpadSearchQueryParams,
-    SignalsSourceConfigsCreateBody,
     SignalsSourceConfigsListQueryParams,
-    SignalsSourceConfigsPartialUpdateBody,
-    SignalsSourceConfigsPartialUpdateParams,
     SignalsSourceConfigsRetrieveParams,
-    SignalsSourceConfigsUpdateBody,
-    SignalsSourceConfigsUpdateParams,
 } from '@/generated/signals/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -45,7 +40,6 @@ const inboxReportsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 ordering: params.ordering,
-                priority: params.priority,
                 search: params.search,
                 source_product: params.source_product,
                 status: params.status,
@@ -132,35 +126,6 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
     },
 })
 
-const InboxSourceConfigsCreateSchema = SignalsSourceConfigsCreateBody
-
-const inboxSourceConfigsCreate = (): ToolBase<typeof InboxSourceConfigsCreateSchema, Schemas.SignalSourceConfig> => ({
-    name: 'inbox-source-configs-create',
-    schema: InboxSourceConfigsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_product !== undefined) {
-            body['source_product'] = params.source_product
-        }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        const result = await context.api.request<Schemas.SignalSourceConfig>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/`,
-            body,
-        })
-        return result
-    },
-})
-
 const InboxSourceConfigsListSchema = SignalsSourceConfigsListQueryParams
 
 const inboxSourceConfigsList = (): ToolBase<
@@ -197,40 +162,6 @@ const inboxSourceConfigsList = (): ToolBase<
     },
 })
 
-const InboxSourceConfigsPartialUpdateSchema = SignalsSourceConfigsPartialUpdateParams.omit({ project_id: true }).extend(
-    SignalsSourceConfigsPartialUpdateBody.shape
-)
-
-const inboxSourceConfigsPartialUpdate = (): ToolBase<
-    typeof InboxSourceConfigsPartialUpdateSchema,
-    Schemas.SignalSourceConfig
-> => ({
-    name: 'inbox-source-configs-partial-update',
-    schema: InboxSourceConfigsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_product !== undefined) {
-            body['source_product'] = params.source_product
-        }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        const result = await context.api.request<Schemas.SignalSourceConfig>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
 const InboxSourceConfigsRetrieveSchema = SignalsSourceConfigsRetrieveParams.omit({ project_id: true })
 
 const inboxSourceConfigsRetrieve = (): ToolBase<
@@ -244,37 +175,6 @@ const inboxSourceConfigsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.SignalSourceConfig>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const InboxSourceConfigsUpdateSchema = SignalsSourceConfigsUpdateParams.omit({ project_id: true }).extend(
-    SignalsSourceConfigsUpdateBody.shape
-)
-
-const inboxSourceConfigsUpdate = (): ToolBase<typeof InboxSourceConfigsUpdateSchema, Schemas.SignalSourceConfig> => ({
-    name: 'inbox-source-configs-update',
-    schema: InboxSourceConfigsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxSourceConfigsUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.source_product !== undefined) {
-            body['source_product'] = params.source_product
-        }
-        if (params.source_type !== undefined) {
-            body['source_type'] = params.source_type
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.config !== undefined) {
-            body['config'] = params.config
-        }
-        const result = await context.api.request<Schemas.SignalSourceConfig>({
-            method: 'PUT',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/source_configs/${encodeURIComponent(String(params.id))}/`,
-            body,
         })
         return result
     },
@@ -517,11 +417,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
-    'inbox-source-configs-create': inboxSourceConfigsCreate,
     'inbox-source-configs-list': inboxSourceConfigsList,
-    'inbox-source-configs-partial-update': inboxSourceConfigsPartialUpdate,
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
-    'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-emit-signal': signalsScoutEmitSignal,

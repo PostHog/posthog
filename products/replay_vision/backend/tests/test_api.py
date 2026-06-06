@@ -4,13 +4,12 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
@@ -312,14 +311,8 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("enabled", "disabled", 1),
-            ("enabled", "enabled,disabled", 2),
-            ("enabled", "true", 1),
             ("enabled", "false", 1),
-            ("enabled", "1", 1),
-            ("enabled", "0", 1),
             ("scanner_type", ScannerType.CLASSIFIER, 1),
-            ("scanner_type", f"{ScannerType.CLASSIFIER},{ScannerType.MONITOR}", 2),
             ("emits_signals", "true", 1),
         ]
     )
@@ -337,141 +330,12 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
 
-    @parameterized.expand(
-        [
-            ("enabled=bogus", "enabled"),
-            ("scanner_type=does_not_exist", "scanner_type"),
-            ("order_by=nope", "order_by"),
-            ("created_by=alice", "created_by"),
-        ]
-    )
-    def test_invalid_filter_or_order_returns_400(self, query: str, attr: str) -> None:
-        resp = self.client.get(f"{self.scanners_url}?{query}")
-        self.assertEqual(resp.status_code, 400)
-        self.assertEqual(resp.json().get("attr"), attr)
-
-    @parameterized.expand(
-        [
-            ("prompt match", "dead", ["beta"]),
-            ("description match", "first", ["alpha"]),
-            ("case-insensitive name match", "AmMa", ["gamma"]),
-        ]
-    )
-    def test_search_matches_name_description_or_prompt(
-        self, _label: str, query: str, expected_names: list[str]
-    ) -> None:
-        self._create_scanner(name="alpha", description="first scanner")
-        self._create_scanner(name="beta", description="something else", scanner_config={"prompt": "find dead ends"})
-        self._create_scanner(name="gamma", description="third")
-        resp = self.client.get(f"{self.scanners_url}?search={query}")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], expected_names)
-
-    def test_created_by_filter_multi_value(self) -> None:
-        other_user = User.objects.create_and_join(self.team.organization, "other@example.com", "pw")
-        a = self._create_scanner(name="a")
-        a.created_by = self.user
-        a.save(update_fields=["created_by"])
-        b = self._create_scanner(name="b")
-        b.created_by = other_user
-        b.save(update_fields=["created_by"])
-        self._create_scanner(name="c")
-        resp = self.client.get(f"{self.scanners_url}?created_by={self.user.id},{other_user.id}")
-        names = sorted(r["name"] for r in resp.json()["results"])
-        self.assertEqual(names, ["a", "b"])
-
     def test_order_by_descending(self) -> None:
         self._create_scanner(name="a-scanner")
         self._create_scanner(name="b-scanner")
         resp = self.client.get(f"{self.scanners_url}?order_by=-name")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual([r["name"] for r in resp.json()["results"]], ["b-scanner", "a-scanner"])
-
-    def test_order_by_sampling_rate(self) -> None:
-        self._create_scanner(name="low", sampling_rate=0.1)
-        self._create_scanner(name="mid", sampling_rate=0.5)
-        self._create_scanner(name="high", sampling_rate=1.0)
-        resp = self.client.get(f"{self.scanners_url}?order_by=sampling_rate")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["low", "mid", "high"])
-
-    def test_stats_endpoint_returns_team_wide_counts(self) -> None:
-        self._create_scanner(name="m1", scanner_type=ScannerType.MONITOR, enabled=True)
-        self._create_scanner(name="m2", scanner_type=ScannerType.MONITOR, enabled=False)
-        self._create_scanner(name="c1", scanner_type=ScannerType.CLASSIFIER, enabled=True)
-        self._create_scanner(name="s1", scanner_type=ScannerType.SCORER, enabled=False)
-        resp = self.client.get(f"{self.scanners_url}stats/?enabled=enabled&scanner_type=monitor")
-        self.assertEqual(resp.status_code, 200)
-        body = resp.json()
-        self.assertEqual(body["total"], 4)
-        self.assertEqual(body["enabled"], 2)
-        self.assertEqual(body["by_type"]["monitor"], {"enabled": 1, "total": 2})
-        self.assertEqual(body["by_type"]["classifier"], {"enabled": 1, "total": 1})
-        self.assertEqual(body["by_type"]["scorer"], {"enabled": 0, "total": 1})
-        self.assertEqual(body["by_type"]["summarizer"], {"enabled": 0, "total": 0})
-
-    def test_stats_endpoint_respects_per_scanner_access_control(self) -> None:
-        self._create_scanner(name="visible")
-        hidden = self._create_scanner(name="hidden")
-        with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
-        ):
-            resp = self.client.get(f"{self.scanners_url}stats/")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["total"], 1)
-
-    def test_creators_endpoint_respects_per_scanner_access_control(self) -> None:
-        other = User.objects.create_and_join(self.team.organization, "hidden@example.com", "pw")
-        visible = self._create_scanner(name="visible")
-        visible.created_by = self.user
-        visible.save(update_fields=["created_by"])
-        hidden = self._create_scanner(name="hidden")
-        hidden.created_by = other
-        hidden.save(update_fields=["created_by"])
-        with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=hidden.pk),
-        ):
-            resp = self.client.get(f"{self.scanners_url}creators/")
-        self.assertEqual(resp.status_code, 200)
-        ids = [u["id"] for u in resp.json()["creators"]]
-        self.assertEqual(ids, [self.user.id])
-
-    def test_creators_endpoint_returns_distinct_users(self) -> None:
-        other = User.objects.create_and_join(self.team.organization, "other@example.com", "pw")
-        a = self._create_scanner(name="a")
-        a.created_by = self.user
-        a.save(update_fields=["created_by"])
-        b = self._create_scanner(name="b")
-        b.created_by = other
-        b.save(update_fields=["created_by"])
-        c = self._create_scanner(name="c")
-        c.created_by = self.user
-        c.save(update_fields=["created_by"])
-        self._create_scanner(name="d")
-
-        resp = self.client.get(f"{self.scanners_url}creators/")
-        self.assertEqual(resp.status_code, 200)
-        ids = sorted(u["id"] for u in resp.json()["creators"])
-        self.assertEqual(ids, sorted([self.user.id, other.id]))
-
-    def test_order_by_created_by_falls_back_through_name_then_email(self) -> None:
-        alice = User.objects.create_and_join(self.organization, "alice@example.com", None, first_name="Alice")
-        bob = User.objects.create_and_join(
-            self.organization, "bob@example.com", None, first_name="", last_name="Bobson"
-        )
-        carol = User.objects.create_and_join(self.organization, "carol@example.com", None, first_name="", last_name="")
-        for owner, name in [(alice, "a"), (bob, "b"), (carol, "c")]:
-            s = self._create_scanner(name=name)
-            s.created_by = owner
-            s.save(update_fields=["created_by"])
-        resp = self.client.get(f"{self.scanners_url}?order_by=created_by")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["a", "b", "c"])
-
-    def test_order_by_enabled(self) -> None:
-        self._create_scanner(name="on")
-        self._create_scanner(name="off", enabled=False)
-        resp = self.client.get(f"{self.scanners_url}?order_by=-enabled")
-        self.assertEqual([r["name"] for r in resp.json()["results"]], ["on", "off"])
 
     def _patch_deny_session_recording(self):
         return patch(
@@ -543,21 +407,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(self.observations_url(str(self.scanner.id)))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), 2)
-
-    @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
-    @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
-    def test_progress_endpoint_accepts_event_stream_accept_header(self, mock_stream: MagicMock) -> None:
-        # The SSE client sends `Accept: text/event-stream`; without ServerSentEventRenderer on the action,
-        # DRF content negotiation rejects it with 406 before the view runs, so no progress ever reaches the
-        # page and it falls back to polling. Guard that the negotiated stream stays reachable.
-        mock_stream.return_value = iter(["event: observation-complete\ndata: {}\n\n"])
-        obs = self._create_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
-        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
-        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
-        # A 406 here would mean content negotiation rejected the SSE Accept header before the view ran.
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp["content-type"], "text/event-stream")
-        mock_stream.assert_called_once()
 
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
@@ -709,46 +558,6 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(body["monitor"], {"yes_total": 1, "no_total": 0, "inconclusive_total": 0})
         self.assertIsNone(body["classifier"])
         self.assertIsNone(body["scorer"])
-
-    def test_stats_status_counts_with_multiple_rows_per_status(self) -> None:
-        for i in range(5):
-            self._create_observation(session_id=f"p-{i}", status=ObservationStatus.PENDING)
-        for i in range(3):
-            self._create_observation(
-                session_id=f"yes-{i}",
-                status=ObservationStatus.SUCCEEDED,
-                completed_at=timezone.now(),
-                scanner_result={
-                    "model_output": {
-                        "scanner_type": "monitor",
-                        "verdict": "yes",
-                        "reasoning": "r",
-                        "confidence": 0.9,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        for i in range(2):
-            self._create_observation(
-                session_id=f"no-{i}",
-                status=ObservationStatus.SUCCEEDED,
-                completed_at=timezone.now(),
-                scanner_result={
-                    "model_output": {
-                        "scanner_type": "monitor",
-                        "verdict": "no",
-                        "reasoning": "r",
-                        "confidence": 0.9,
-                    },
-                    "signals_count": 0,
-                },
-            )
-        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
-        body = resp.json()
-        self.assertEqual(body["status_counts"]["total"], 10)
-        self.assertEqual(body["status_counts"]["succeeded"], 5)
-        self.assertEqual(body["status_counts"]["in_flight"], 5)
-        self.assertEqual(body["monitor"], {"yes_total": 3, "no_total": 2, "inconclusive_total": 0})
 
     def test_stats_classifier_tag_rankings(self) -> None:
         classifier = self._create_scanner(

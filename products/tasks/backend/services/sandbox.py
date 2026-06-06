@@ -76,7 +76,6 @@ class SandboxConfig(BaseModel):
     memory_gb: float = 16
     cpu_cores: float = 4
     disk_size_gb: float = 64
-    vm_runtime: bool = False
 
 
 WORKING_DIR = "/tmp/workspace"

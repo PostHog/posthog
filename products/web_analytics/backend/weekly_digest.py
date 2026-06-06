@@ -118,14 +118,13 @@ def _format_duration(seconds: float | None) -> str:
     return f"{minutes}m {secs}s"
 
 
-def get_top_pages(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
+def get_top_pages(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_pages")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.PAGE,
             dateRange=DateRange(date_from=f"-{days}d"),
-            compareFilter=CompareFilter(compare=compare),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -151,14 +150,13 @@ def get_top_pages(team: Team, limit: int = 5, days: int = 7, compare: bool = Tru
         return []
 
 
-def get_top_sources(team: Team, limit: int = 5, days: int = 7, compare: bool = True) -> list[dict]:
+def get_top_sources(team: Team, limit: int = 5, days: int = 7) -> list[dict]:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:top_sources")
 
     try:
         query = WebStatsTableQuery(
             breakdownBy=WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
             dateRange=DateRange(date_from=f"-{days}d"),
-            compareFilter=CompareFilter(compare=compare),
             limit=limit,
             orderBy=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC],
             filterTestAccounts=True,
@@ -220,8 +218,8 @@ def get_goals_for_team(team: Team, limit: int = 5, days: int = 7, compare: bool 
 
 def build_team_digest(team: Team, days: int = 7, compare: bool = True) -> dict:
     overview = get_overview_for_team(team, days=days, compare=compare)
-    top_pages = get_top_pages(team, days=days, compare=compare)
-    top_sources = get_top_sources(team, days=days, compare=compare)
+    top_pages = get_top_pages(team, days=days)
+    top_sources = get_top_sources(team, days=days)
     goals = get_goals_for_team(team, days=days, compare=compare)
 
     return {

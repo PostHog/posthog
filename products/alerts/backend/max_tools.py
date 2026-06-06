@@ -21,7 +21,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
-from posthog.tasks.alerts.utils import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
@@ -218,7 +217,7 @@ class UpsertAlertTool(MaxTool):
             user = self._user
 
             if action.upper_threshold is None and action.lower_threshold is None:
-                return THRESHOLD_BOUNDS_REQUIRED_MESSAGE, {
+                return "At least one threshold (upper or lower) must be provided.", {
                     "error": "validation_failed",
                 }
 

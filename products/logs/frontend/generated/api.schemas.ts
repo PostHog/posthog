@@ -1017,8 +1017,6 @@ export interface _LogsQueryBodyApi {
     limit?: number
     /** Pagination cursor from previous response. */
     after?: string
-    /** Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false. */
-    excludeAttributes?: boolean
 }
 
 export interface _LogsQueryRequestApi {

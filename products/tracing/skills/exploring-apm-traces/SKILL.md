@@ -100,7 +100,7 @@ To rebuild the tree:
 
 1. `print_summary.py` lists every span with `status_code == 2` (Error). Each entry shows service, span name, and parent context.
 2. Walk up the tree from an error span via `parent_span_id` to see what request path led there.
-3. Error detail lives in each span's `attributes` map (e.g. `exception.message`, `exception.type`), which **is** returned in the trace payload — read it directly off the error span. `apm-attribute-values-list` is for discovering values across spans, not a prerequisite for reading one span's attributes.
+3. `apm-attribute-values-list` is the only way to fetch error message attributes — they're not in the trace payload.
 
 ### "Did the request hit service X?"
 
@@ -114,9 +114,9 @@ To rebuild the tree:
 
 ### Searching by attribute (e.g. `http.method=POST`)
 
-Each span carries an `attributes` map (span-level OTel attributes like `http.method`, `db.statement`) **in the payload** — so for a span you already have, just read it. **Resource** attributes (k8s labels, `service.version`) are not in the payload. To filter the whole dataset by an attribute:
+The trace payload **does not contain attributes** — only the span's built-in fields. To filter or search by attributes:
 
-1. Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys and values (resource attributes especially).
+1. Use `apm-attributes-list` / `apm-attribute-values-list` to discover keys and values.
 2. Re-issue `query-apm-spans` with a `filterGroup` entry of type `span_attribute` or `span_resource_attribute`.
 
 ## Constructing UI links
@@ -192,9 +192,7 @@ results (array of span dicts)
         ├── status_code (int 0–2), is_root_span (bool)
         ├── timestamp, end_time (ISO 8601)
         ├── duration_nano (int, nanoseconds)
-        ├── attributes (map of span-level OTel attributes, e.g. db.statement, http.url)
-        └── matched_filter (0/1 — 1 if this span matched the query-apm-spans filter, 0 if it
-            only shares a trace with a match; always present, only meaningful from query-apm-spans)
+        └── matched_filter (bool — only meaningful when prefetching from query-apm-spans)
 ```
 
 ### Available scripts
@@ -211,6 +209,6 @@ results (array of span dicts)
 
 - Always set `dateRange` on `query-apm-spans` — queries without a time range are slow. Default is `-1h`; widen only when needed.
 - Always include the `_posthogUrl` in your response so the user can click through.
-- Span-level attributes **are** in the `apm-trace-get` / `query-apm-spans` payload (each span's `attributes` map). Resource attributes are not — use `apm-attributes-list` (type `resource`) and `apm-attribute-values-list` for those.
+- Attributes are not in the `apm-trace-get` payload — use `apm-attribute-values-list` for those.
 - `is_root_span` is the cheap way to find the trace entry — don't string-match `00000000…`.
 - For aggregates (p95 by operation, slowest children of a span), use `apm-spans-aggregate` for a flat view or `apm-spans-tree` for parent→child edges — don't reach for SQL.

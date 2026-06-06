@@ -1,7 +1,6 @@
 import type { Lifecycle } from './app'
 import type { RedisLike } from './cache/RedisCache'
 import { McpDispatcher } from './dispatcher'
-import { recordRateLimitBlock } from './rate-limit-telemetry'
 import { buildRateLimitResponse, DEFAULT_BURST_LIMIT, DEFAULT_SUSTAINED_LIMIT, RateLimiter } from './rate-limiter'
 import { authenticateAndParse, handleCatchError } from './request-utils'
 import { ToolCatalog } from './tool-catalog'
@@ -12,7 +11,7 @@ export class StreamableMcpHandler {
     private readonly rateLimiter: RateLimiter
 
     constructor(
-        private readonly redis: RedisLike,
+        redis: RedisLike,
         private readonly lifecycle: Lifecycle
     ) {
         this.dispatcher = new McpDispatcher(new ToolCatalog(), redis)
@@ -40,7 +39,6 @@ export class StreamableMcpHandler {
         // NATs shouldn't share buckets across unrelated users.
         const rateLimit = await this.rateLimiter.check(auth.props.userHash)
         if (rateLimit && !rateLimit.allowed) {
-            void recordRateLimitBlock(this.redis, auth.props, rateLimit).catch(() => {})
             return buildRateLimitResponse(rateLimit)
         }
 

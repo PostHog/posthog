@@ -9,10 +9,14 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.signals.backend.scout_harness.limits import WORKFLOW_HARD_CEILING_S
+from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S
 from products.signals.backend.scout_harness.runner import RunResult, arun_signals_scout
 
 logger = structlog.get_logger(__name__)
+
+# Hard activity timeout = budget runtime + slack so heartbeat-based failures surface
+# before Temporal's own timeout fires.
+_ACTIVITY_SLACK_S = 60
 
 
 @dataclass
@@ -87,7 +91,7 @@ class RunSignalsScoutWorkflow:
         return await temporalio.workflow.execute_activity(
             run_signals_scout_activity,
             input,
-            start_to_close_timeout=timedelta(seconds=WORKFLOW_HARD_CEILING_S),
+            start_to_close_timeout=timedelta(seconds=DEFAULT_MAX_RUNTIME_S + _ACTIVITY_SLACK_S),
             heartbeat_timeout=timedelta(minutes=2),
             # No retries: failures are persisted as `status='failed'` on the run row and
             # we don't want a bad skill / prompt to spin retry loops. The next scheduled

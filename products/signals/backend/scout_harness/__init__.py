@@ -9,10 +9,8 @@ from products.signals.backend.scout_harness.lazy_seed import (
     CanonicalSkillFile,
     CanonicalSkillParseError,
     SeedResult,
-    SyncResult,
     discover_canonical_skills,
     seed_canonical_skills,
-    sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillNotFoundError, load_skill_for_run
 
@@ -23,9 +21,7 @@ __all__ = [
     "LoadedSkill",
     "SeedResult",
     "SkillNotFoundError",
-    "SyncResult",
     "discover_canonical_skills",
     "load_skill_for_run",
     "seed_canonical_skills",
-    "sync_canonical_skills",
 ]

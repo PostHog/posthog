@@ -1,11 +1,9 @@
 // AUTO-GENERATED from products/tracing/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Schemas } from '@/api/generated'
 import {
     TracingSpansAggregateCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
-    TracingSpansCountCreateBody,
     TracingSpansQueryCreateBody,
     TracingSpansServiceNamesRetrieveQueryParams,
     TracingSpansTraceCreateBody,
@@ -103,27 +101,6 @@ const apmSpansAggregate = (): ToolBase<typeof ApmSpansAggregateSchema, unknown> 
     },
 })
 
-const ApmSpansCountSchema = TracingSpansCountCreateBody
-
-const apmSpansCount = (): ToolBase<typeof ApmSpansCountSchema, Schemas._TracingCountResponse> => ({
-    name: 'apm-spans-count',
-    schema: ApmSpansCountSchema,
-    handler: async (context: Context, params: z.infer<typeof ApmSpansCountSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.query !== undefined) {
-            body['query'] = params.query
-        }
-        const result = await context.api.request<Schemas._TracingCountResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/count/`,
-            body,
-        })
-        const filtered = pickResponseFields(result, ['count']) as typeof result
-        return filtered
-    },
-})
-
 const ApmSpansTreeSchema = TracingSpansTreeCreateBody
 
 const apmSpansTree = (): ToolBase<typeof ApmSpansTreeSchema, unknown> => ({
@@ -158,9 +135,6 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             const body: Record<string, unknown> = {}
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
-            }
-            if (params.excludeAttributes !== undefined) {
-                body['excludeAttributes'] = params.excludeAttributes
             }
             const result = await context.api.request<unknown>({
                 method: 'POST',
@@ -199,7 +173,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,
     'apm-spans-aggregate': apmSpansAggregate,
-    'apm-spans-count': apmSpansCount,
     'apm-spans-tree': apmSpansTree,
     'apm-trace-get': apmTraceGet,
     'query-apm-spans': queryApmSpans,

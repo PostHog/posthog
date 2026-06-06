@@ -1,11 +1,10 @@
-pub mod discovery;
 mod leader;
 mod replica;
 mod retry;
 mod stash;
 
 pub use leader::{AddressResolver, LeaderBackend, LeaderBackendConfig};
-pub use replica::{ReplicaBackend, ReplicaDnsConfig};
+pub use replica::{ReplicaBackend, ReplicaBackendConfig};
 pub use stash::{StashDecision, StashTable, StashedRequest};
 
 use async_trait::async_trait;

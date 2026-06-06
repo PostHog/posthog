@@ -6,4 +6,5 @@ Defined group types: organization, project
 
 # Tool domains
 
-dashboard|execute-sql|feature-flag|query
+dashboard|execute-sql|feature-flag
+query-*: funnel|trends

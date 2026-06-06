@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch
 
 import pyarrow as pa
 from parameterized import parameterized
@@ -149,56 +148,6 @@ class TestFilterDwhColumnsByEnabledColumns:
             self.dwh_columns, ["email"], ["id"], incremental_field="updated_at"
         )
         assert set(result.keys()) == {"id", "email", "updated_at"}
-
-    def test_uppercase_source_names_match_normalized_keys(self) -> None:
-        # Snowflake hands back uppercase identifiers in enabled_columns / PKs, but the Delta
-        # column keys are dlt-normalized to lowercase. They must still line up.
-        result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, ["EMAIL"], ["ID"])
-        assert set(result.keys()) == {"id", "email"}
-
-    def test_mixed_case_incremental_field_matches_normalized_key(self) -> None:
-        result = filter_dwh_columns_by_enabled_columns(
-            self.dwh_columns, ["EMAIL"], ["ID"], incremental_field="UpdatedAt"
-        )
-        assert set(result.keys()) == {"id", "email", "updated_at"}
-
-    def test_empty_projection_falls_back_to_all_columns(self) -> None:
-        # A selection that matches nothing (e.g. namespace mismatch or schema drift) must not
-        # wipe the table to zero columns — that leaves `SELECT *` returning no rows.
-        result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, ["does_not_exist"], None)
-        assert result == self.dwh_columns
-
-    def test_empty_input_stays_empty(self) -> None:
-        assert filter_dwh_columns_by_enabled_columns({}, ["email"], ["id"]) == {}
-
-    def test_source_namespace_keys_on_both_sides_still_filter(self) -> None:
-        # Direct-postgres callers pass raw source-namespace keys on both sides with normalize=False;
-        # an actual subset must filter cleanly without tripping the all-columns fallback.
-        source_keyed = {"ID": {"hogql": "Integer"}, "EMAIL": {"hogql": "String"}, "NAME": {"hogql": "String"}}
-        result = filter_dwh_columns_by_enabled_columns(source_keyed, ["EMAIL"], ["ID"], normalize=False)
-        assert set(result.keys()) == {"ID", "EMAIL"}
-
-    def test_normalize_false_preserves_case_sensitive_selection(self) -> None:
-        # Postgres allows `"Foo"` and `"foo"` in one table. With normalize=False (direct-postgres),
-        # selecting only `"Foo"` must not drag in `"foo"` by folding them to the same key.
-        case_collision = {"Foo": {"hogql": "String"}, "foo": {"hogql": "String"}}
-        result = filter_dwh_columns_by_enabled_columns(case_collision, ["Foo"], None, normalize=False)
-        assert set(result.keys()) == {"Foo"}
-
-    def test_normalize_true_collapses_case_collision(self) -> None:
-        # Warehouse path: source names fold into the stored normalized namespace, so a case-only
-        # difference is intentionally matched as the same column.
-        case_collision = {"Foo": {"hogql": "String"}, "foo": {"hogql": "String"}}
-        result = filter_dwh_columns_by_enabled_columns(case_collision, ["Foo"], None)
-        assert set(result.keys()) == {"Foo", "foo"}
-
-    def test_empty_projection_fallback_logs_warning(self) -> None:
-        # The all-columns fallback must be observable: an operator should be able to tell their
-        # selection was bypassed rather than silently applied.
-        with patch("posthog.temporal.data_imports.sources.common.sql.projection.logger") as mock_logger:
-            result = filter_dwh_columns_by_enabled_columns(self.dwh_columns, ["does_not_exist"], None)
-        assert result == self.dwh_columns
-        mock_logger.warning.assert_called_once()
 
 
 class TestPruneEnabledColumns:

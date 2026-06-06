@@ -9,7 +9,6 @@ from .evaluation_summary import LLMEvaluationSummaryViewSet
 from .evaluations import EvaluationViewSet
 from .models import LLMModelsViewSet
 from .offline_evaluations import AIObservabilityOfflineEvaluationsViewSet
-from .parser_recipes import ParserRecipeViewSet
 from .personal_spend import PersonalSpendViewSet
 from .provider_keys import LLMProviderKeyValidationViewSet, LLMProviderKeyViewSet
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
@@ -49,5 +48,4 @@ __all__ = [
     "PersonalSpendViewSet",
     "TaggerViewSet",
     "TraceReviewViewSet",
-    "ParserRecipeViewSet",
 ]

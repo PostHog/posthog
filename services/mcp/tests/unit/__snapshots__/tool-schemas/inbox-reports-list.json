@@ -13,10 +13,6 @@
             "description": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'.",
             "type": "string"
         },
-        "priority": {
-            "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
-            "type": "string"
-        },
         "search": {
             "description": "Case-insensitive substring match against report title and summary.",
             "type": "string"

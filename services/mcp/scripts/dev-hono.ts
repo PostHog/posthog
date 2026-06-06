@@ -6,11 +6,7 @@ import { context, type Plugin } from 'esbuild'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 
-import { copyInstructions } from './copy-instructions'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
-
-// Populate `shared/guidelines.md` so esbuild can inline it via `@shared/*`.
-copyInstructions()
 
 if (existsSync(resolve(process.cwd(), '.env'))) {
     process.loadEnvFile(resolve(process.cwd(), '.env'))

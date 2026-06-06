@@ -134,44 +134,6 @@ pub struct Config {
     #[envconfig(default = "")]
     pub internal_api_secret: String,
 
-    // ---- Worker health / registry ----
-    /// How often to probe each worker's /_ready endpoint (milliseconds).
-    #[envconfig(default = "5000")]
-    pub worker_probe_interval_ms: u64,
-
-    /// Time a worker must spend in Unhealthy before it is declared dead and
-    /// sticky pins are dropped (milliseconds).
-    #[envconfig(default = "15000")]
-    pub worker_dead_declaration_ms: u64,
-
-    /// Rolling window over which passive send outcomes are aggregated (milliseconds).
-    #[envconfig(default = "30000")]
-    pub worker_passive_window_ms: u64,
-
-    /// Error rate above which the passive signal promotes a worker toward Unhealthy.
-    /// Requires at least worker_passive_min_samples samples in the window.
-    #[envconfig(default = "0.2")]
-    pub worker_passive_error_threshold: f64,
-
-    /// Minimum number of samples in the passive window before the error rate triggers
-    /// a state transition. Prevents noise on low-traffic workers.
-    #[envconfig(default = "5")]
-    pub worker_passive_min_samples: usize,
-
-    /// How long a worker stays in Degraded after recovering from Unhealthy before
-    /// being promoted back to Healthy (milliseconds).
-    #[envconfig(default = "10000")]
-    pub worker_degraded_hold_ms: u64,
-
-    /// Minimum time a worker must remain in a state before any transition is allowed.
-    /// Prevents flapping (milliseconds).
-    #[envconfig(default = "2000")]
-    pub worker_min_state_duration_ms: u64,
-
-    /// Number of consecutive probe failures before a worker is marked Unhealthy.
-    #[envconfig(default = "2")]
-    pub worker_probe_failure_threshold: u32,
-
     // ---- Health/metrics server ----
     #[envconfig(default = "0.0.0.0")]
     pub bind_host: String,

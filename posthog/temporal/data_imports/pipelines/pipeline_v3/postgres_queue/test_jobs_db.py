@@ -196,58 +196,6 @@ class TestBatchQueueGetUnprocessed:
 
         assert len(batches) == 3
 
-    @pytest.mark.asyncio
-    async def test_excludes_schema_with_in_flight_batch(self, conn):
-        # A schema with an executing batch contributes no candidates, even for
-        # NULL-status batches from a different (later) run of the same schema.
-        executing_bid = await _insert_batch(conn, schema_id="busy", run_uuid="run-a", batch_index=0)
-        await _insert_batch(conn, schema_id="busy", run_uuid="run-b", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=executing_bid, job_state="executing", attempt=1)
-
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
-
-        assert batches == []
-
-    @pytest.mark.asyncio
-    async def test_in_flight_schema_does_not_starve_other_schemas(self, conn):
-        # Regression: a busy schema's older backlog (from a later run) must not fill
-        # the LIMIT window ahead of a different schema's claimable work.
-        a_exec = await _insert_batch(conn, schema_id="A", run_uuid="a-run-1", batch_index=0)
-        await BatchQueue.update_status(conn, batch_id=a_exec, job_state="executing", attempt=1)
-        for i in range(5):  # older than B, would fill limit=3 if not excluded
-            await _insert_batch(conn, schema_id="A", run_uuid="a-run-2", batch_index=i)
-        await _insert_batch(conn, schema_id="B", run_uuid="b-run-1", batch_index=0)  # newest
-
-        batches = await BatchQueue.get_unprocessed_and_lock(conn, limit=3)
-
-        assert [b.schema_id for b in batches] == ["B"]
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
-
-    @pytest.mark.asyncio
-    async def test_in_flight_gating_clears_after_terminal_status(self, conn):
-        # Once the executing batch is superseded by a terminal status, the schema's
-        # queued batches become selectable again.
-        exec_bid = await _insert_batch(conn, schema_id="S", run_uuid="run-1", batch_index=0)
-        await _insert_batch(conn, schema_id="S", run_uuid="run-2", batch_index=0)
-        # Explicit timestamps so the latest-status view is deterministic (ids are random uuids).
-        await conn.execute(
-            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
-            f"VALUES (%s, 'executing', 1, now() - interval '5 seconds')",
-            [exec_bid],
-        )
-
-        assert await BatchQueue.get_unprocessed_and_lock(conn) == []
-
-        await conn.execute(
-            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) VALUES (%s, 'succeeded', 1, now())",
-            [exec_bid],
-        )
-
-        batches = await BatchQueue.get_unprocessed_and_lock(conn)
-
-        assert [b.run_uuid for b in batches] == ["run-2"]
-        await BatchQueue.unlock_for_batches(conn, batches=batches)
-
 
 @pytest.mark.django_db(transaction=True)
 class TestBatchQueueUpdateStatus:

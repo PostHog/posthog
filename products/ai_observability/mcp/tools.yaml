@@ -17,21 +17,6 @@ tools:
     llm-analytics-offline-evaluations-experiment-items-create:
         operation: llm_analytics_offline_evaluations_experiment_items_create
         enabled: false
-    llm-analytics-parser-recipes-create:
-        operation: llm_analytics_parser_recipes_create
-        enabled: false
-    llm-analytics-parser-recipes-destroy:
-        operation: llm_analytics_parser_recipes_destroy
-        enabled: false
-    llm-analytics-parser-recipes-list:
-        operation: llm_analytics_parser_recipes_list
-        enabled: false
-    llm-analytics-parser-recipes-partial-update:
-        operation: llm_analytics_parser_recipes_partial_update
-        enabled: false
-    llm-analytics-parser-recipes-retrieve:
-        operation: llm_analytics_parser_recipes_retrieve
-        enabled: false
     llm-analytics-sentiment-generations-create:
         operation: llm_analytics_sentiment_generations_create
         enabled: false

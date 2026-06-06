@@ -134,12 +134,6 @@ export interface AnnotationApi {
   * `organization` - organization
   * `recording` - recording */
     scope?: AnnotationScopeEnumApi
-    /**
-     * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
-     * @maxLength 16
-     * @nullable
-     */
-    emoji?: string | null
 }
 
 export interface PaginatedAnnotationListApi {
@@ -195,12 +189,6 @@ export interface PatchedAnnotationApi {
   * `organization` - organization
   * `recording` - recording */
     scope?: AnnotationScopeEnumApi
-    /**
-     * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
-     * @maxLength 16
-     * @nullable
-     */
-    emoji?: string | null
 }
 
 export type AnnotationsListParams = {

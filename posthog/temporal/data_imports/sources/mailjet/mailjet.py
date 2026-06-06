@@ -8,6 +8,7 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -111,8 +112,9 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[MailjetResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-) -> Iterator[list[dict[str, Any]]]:
+) -> Iterator[Any]:
     config = MAILJET_ENDPOINTS[endpoint]
+    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
 
     # One tracked session for the whole sync — keeps urllib3's TLS connection warm
     # across pages, and every request inherits the basic-auth headers.
@@ -136,12 +138,16 @@ def get_rows(
         total = data.get("Total")
 
         if rows:
-            # Yield the page as-is and let the pipeline batch it. Persist state only after the
-            # yield so a crash re-yields the last page (deduped on the primary key via merge)
-            # rather than skipping it.
-            yield rows
+            batcher.batch(rows)
             offset += len(rows)
-            resumable_source_manager.save_state(MailjetResumeConfig(offset=offset, endpoint=endpoint))
+
+            if batcher.should_yield():
+                yield batcher.get_table()
+                # The batcher flushes its whole buffer into the yielded table, so once we've
+                # yielded, `offset` covers exactly the rows emitted to the pipeline. Persisting
+                # state only after a yield avoids skipping buffered-but-unyielded rows if the
+                # process stops mid-sync (a re-yielded row is deduped on merge).
+                resumable_source_manager.save_state(MailjetResumeConfig(offset=offset, endpoint=endpoint))
 
         # Terminate on a short/empty page, or once Total is reached (guards the
         # exact-multiple-of-Limit case so we issue at most one extra empty request).
@@ -149,6 +155,10 @@ def get_rows(
             break
         if total is not None and offset >= total:
             break
+
+    if batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+        resumable_source_manager.save_state(MailjetResumeConfig(offset=offset, endpoint=endpoint))
 
 
 def mailjet_source(

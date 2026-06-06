@@ -6,7 +6,6 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models import OrganizationMembership
 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties
@@ -226,21 +225,6 @@ def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
         loc = ".".join(str(part) for part in err["loc"])
         messages.append(f"{loc}: {err['msg']}" if loc else err["msg"])
     return messages
-
-
-class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
-    """Slim organization-member representation for Customer analytics account rows."""
-
-    user = UserBasicSerializer(
-        read_only=True,
-        help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
-    )
-
-    class Meta:
-        model = OrganizationMembership
-        fields = ["id", "user"]
-        read_only_fields = ["id", "user"]
-        extra_kwargs = {"id": {"help_text": "Organization membership ID."}}
 
 
 class AccountNotebookSerializer(serializers.ModelSerializer):

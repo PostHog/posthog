@@ -183,8 +183,7 @@ class SkillDiscoverer:
                         )
                 elif (
                     entry.is_file()
-                    # Convention docs that can live alongside skills — not skills themselves.
-                    and entry.name not in ("README.md", "AGENTS.md", "CLAUDE.md")
+                    and entry.name != "README.md"
                     and (entry.name.endswith(".md.j2") or entry.name.endswith(".md"))
                 ):
                     if entry.name.endswith(".md") and (entry.parent / (entry.name + ".j2")).exists():

@@ -24,15 +24,6 @@ logger = structlog.get_logger(__name__)
 MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
 
 
-def dismiss_report_from_slack(team_id: int, report_id: str, *, slack_user_id: str | None = None) -> bool:
-    """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
-    from products.signals.backend.report_actions import (
-        suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
-    )
-
-    return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id)
-
-
 def _get_field_values(field: pydantic.fields.FieldInfo) -> tuple[str, ...]:
     """Extract all possible values for a Pydantic field (Literal, StrEnum, or default)."""
     args = get_args(field.annotation)

@@ -185,21 +185,11 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["customer_name"] = traits.get("name", "")
     properties["customer_email"] = traits.get("email", "")
 
-    team = ticket.team
-    process_person = False
-    try:
-        process_person, groups = _resolve_org_groups(ticket, team)
-        if groups is not None:
-            properties["$groups"] = groups
-    except Exception:
-        logger.exception("message_received_person_lookup_failed", team_id=team.id, ticket_id=str(ticket.id))
-
     capture_internal(
-        token=team.api_token,
+        token=ticket.team.api_token,
         event_name="$conversation_message_received",
         event_source=EVENT_SOURCE,
         distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
-        process_person_profile=process_person,
     )

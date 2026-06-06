@@ -1,1 +1,1 @@
-0002_annotation_emoji
+0001_migrate_annotations_models

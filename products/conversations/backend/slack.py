@@ -9,7 +9,6 @@ Handles three triggers that create or update tickets from Slack:
 All three converge to create_or_update_slack_ticket().
 """
 
-import re
 from types import MappingProxyType
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -25,14 +24,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from .cache import (
-    get_cached_bot_user_id,
-    get_cached_slack_avatar,
-    get_cached_slack_user,
-    set_cached_bot_user_id,
-    set_cached_slack_avatar,
-    set_cached_slack_user,
-)
+from .cache import get_cached_slack_avatar, get_cached_slack_user, set_cached_slack_avatar, set_cached_slack_user
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
@@ -46,11 +38,6 @@ from .support_slack import (
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
-
-# Slack ID shapes — guard against malformed payloads before interpolating into mrkdwn.
-# Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
-_SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
-_SLACK_CHANNEL_ID_RE = re.compile(r"^[CGD][A-Z0-9_]+$")
 
 
 def _get_team_id(team: Team) -> int:
@@ -191,23 +178,6 @@ def get_bot_user_id(client: WebClient) -> str | None:
         return auth.get("user_id")
     except Exception:
         return None
-
-
-def get_bot_user_id_cached(team: Team, client: WebClient) -> str | None:
-    """Resolve the bot's own user ID, cached per team.
-
-    auth.test is Tier-1 rate-limited, so we cache the (stable) result to avoid a
-    round-trip per event. Only positive results are cached, so a transient
-    auth.test failure retries on the next event rather than being pinned for an hour.
-    """
-    team_id = _get_team_id(team)
-    cached = get_cached_bot_user_id(team_id)
-    if cached:
-        return cached
-    user_id = get_bot_user_id(client)
-    if user_id:
-        set_cached_bot_user_id(team_id, user_id)
-    return user_id
 
 
 def _is_allowed_slack_file_url(url: str) -> bool:
@@ -896,75 +866,3 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
 
     if ticket:
         _backfill_thread_replies(client, team, ticket, channel, message_ts)
-
-
-def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
-    """Post a join/leave alert to the configured alert channel.
-
-    Fires for any channel the bot is in (Slack only delivers member_joined_channel /
-    member_left_channel for channels the bot belongs to). Gated per-direction by the
-    team's settings.
-    """
-    settings_dict = team.conversations_settings or {}
-
-    toggle_key = "slack_notify_on_join" if joined else "slack_notify_on_leave"
-    if not settings_dict.get(toggle_key):
-        return
-
-    alert_channel = settings_dict.get("slack_alert_channel_id")
-    if not isinstance(alert_channel, str) or not alert_channel:
-        return
-
-    user = event.get("user")
-    channel = event.get("channel")
-    if not user or not channel:
-        return
-    if not _SLACK_USER_ID_RE.match(user) or not _SLACK_CHANNEL_ID_RE.match(channel):
-        logger.warning("slack_member_event_malformed_ids", user=user, channel=channel)
-        return
-
-    client = get_slack_client(team)
-
-    # If we can't resolve the bot's own ID (auth.test failed), bail — without it we can't tell
-    # the bot's own join apart from a real user's, and posting a self-referential alert is worse
-    # than skipping one alert during a transient auth outage.
-    own_bot_user_id = get_bot_user_id_cached(team, client)
-    if not own_bot_user_id:
-        logger.warning("slack_member_event_bot_id_unresolved", team_id=_get_team_id(team))
-        return
-
-    # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
-    if user == own_bot_user_id:
-        return
-
-    verb = "joined" if joined else "left"
-    message_kwargs: dict = {
-        "channel": alert_channel,
-        "text": f"<@{user}> {verb} <#{channel}>",
-    }
-    bot_display_name = settings_dict.get("slack_bot_display_name")
-    bot_icon_url = settings_dict.get("slack_bot_icon_url")
-    if bot_display_name:
-        message_kwargs["username"] = bot_display_name
-    if bot_icon_url:
-        message_kwargs["icon_url"] = bot_icon_url
-
-    try:
-        client.chat_postMessage(**message_kwargs)
-    except Exception:
-        logger.warning(
-            "slack_member_event_post_failed",
-            team_id=_get_team_id(team),
-            alert_channel=alert_channel,
-            joined=joined,
-        )
-
-
-def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
-    """Handle a Slack 'member_joined_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=True)
-
-
-def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:
-    """Handle a Slack 'member_left_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=False)

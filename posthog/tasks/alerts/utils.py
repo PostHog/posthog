@@ -6,7 +6,6 @@ from django.utils import timezone
 import pytz
 import structlog
 from dateutil.relativedelta import MO, relativedelta
-from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import (
     AlertCalculationInterval,
@@ -60,35 +59,12 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
     return display in NON_TIME_SERIES_DISPLAY_TYPES
 
 
-THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
-
-
-def insight_threshold_has_bounds(threshold_config: dict | None) -> bool:
-    if threshold_config is None:
-        return False
-    try:
-        threshold = InsightThreshold.model_validate(threshold_config)
-    except PydanticValidationError:
-        return False
-    bounds = threshold.bounds
-    if bounds is None:
-        return False
-    return bounds.lower is not None or bounds.upper is not None
-
-
-def validate_threshold_bounds_required(threshold_config: dict | None) -> None:
-    if not insight_threshold_has_bounds(threshold_config):
-        raise ValueError(THRESHOLD_BOUNDS_REQUIRED_MESSAGE)
-
-
 def validate_alert_config(
     query: dict,
     condition: dict | None,
     config: dict | None,
     threshold_config: dict | None = None,
     calculation_interval: str | None = None,
-    detector_config: dict | None = None,
-    require_threshold_bounds: bool = True,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure."""
     if not calculation_interval or not isinstance(calculation_interval, str):
@@ -158,9 +134,6 @@ def validate_alert_config(
                 raise ValueError(
                     f"check_ongoing_interval is only supported for alert condition {parsed_condition.type} when upper threshold is specified"
                 )
-
-    if require_threshold_bounds and detector_config is None:
-        validate_threshold_bounds_required(threshold_config)
 
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:

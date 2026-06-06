@@ -20,7 +20,6 @@ import { AnyPropertyFilter, Breadcrumb } from '~/types'
 
 import type { aiObservabilitySharedLogicType } from './aiObservabilitySharedLogicType'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
-import { parserRecipesLogic } from './settings/parserRecipesLogic'
 
 export const AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID = 'ai-observability-data'
 
@@ -111,9 +110,6 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             `${props?.personId || 'aiObservabilityScene'}::${props?.tabId || ''}`
     ),
     connect(() => ({
-        // Mount the parser-recipe logic so a team's custom recipes reach the trace-rendering
-        // normalizer on any AI observability page, not just the settings scene.
-        logic: [parserRecipesLogic],
         values: [
             sceneLogic,
             ['sceneKey'],

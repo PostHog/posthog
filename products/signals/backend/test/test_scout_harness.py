@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -314,63 +313,6 @@ async def test_skip_if_running_prevents_concurrent_runs(ateam, aerrors_skill):
     assert result.skip_reason is not None
     count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
     assert count == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_skip_if_running_lock_keys_on_team_and_skill_not_just_team(ateam, aerrors_skill):
-    """Different skills for the same team must be allowed to run concurrently — the
-    coordinator can dispatch several due scouts for one team in a single tick. The
-    skip-if-running guard locks on `(team, skill_name)` rather than `(team, config_id)`
-    so this works."""
-    config = await database_sync_to_async(SignalScoutConfig.objects.create)(team=ateam)
-    # A different skill for the same team is in flight — should NOT block. Run status lives
-    # on the linked TaskRun now, so stand up a real IN_PROGRESS TaskRun + bridge row.
-    other_task_run = await database_sync_to_async(_make_task_run)(ateam)
-    await database_sync_to_async(TaskRun.objects.filter(id=other_task_run.id).update)(status=TaskRun.Status.IN_PROGRESS)
-    await database_sync_to_async(SignalScoutRun.objects.create)(
-        task_run=other_task_run,
-        team=ateam,
-        scout_config=config,
-        skill_name="signals-scout-other",
-        skill_version=1,
-    )
-
-    spawn_calls: list[dict] = []
-
-    async def fake_spawn(**kwargs):
-        spawn_calls.append(kwargs)
-        return "ok"
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    # Spawn went through — the OTHER skill's RUNNING row didn't gate ours.
-    assert len(spawn_calls) == 1
-    assert result.run_id is not None
-    assert result.skip_reason is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_cancelled_run_re_raises(ateam, aerrors_skill):
-    """asyncio.CancelledError is BaseException, not Exception — the runner must let it
-    propagate so Temporal marks the activity failed, rather than swallowing it. Run status
-    now lives on the linked TaskRun (managed by MultiTurnSession); the bridge row is created
-    inside `_spawn_and_run`, so a cancellation that escapes before the session starts leaves
-    no orphaned bridge row.
-    """
-
-    async def fake_spawn(**_kwargs):
-        raise asyncio.CancelledError("worker is shutting down")
-
-    with patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn):
-        with pytest.raises(asyncio.CancelledError):
-            await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
-
-    # No bridge row orphaned — it's created inside the patched-out `_spawn_and_run`.
-    count = await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)()
-    assert count == 0
 
 
 @pytest.mark.asyncio

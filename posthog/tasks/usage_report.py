@@ -32,8 +32,8 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
-from posthog.models import OrganizationMembership, User
-from posthog.models.group_type_mapping import count_group_type_mappings_per_team, get_group_types_for_team
+from posthog.models import GroupTypeMapping, OrganizationMembership, User
+from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
@@ -238,13 +238,6 @@ class UsageReportCounters:
     logs_bytes_in_period: int
     logs_records_in_period: int
     logs_mb_in_period: int
-    # MB ingested while each retention tier was active. A team that changes retention mid-period has
-    # bytes under more than one tier. Each tier is floored to whole MB independently (bytes // 1_000_000),
-    # so the tiers sum to at most logs_mb_in_period and usually slightly less — every tier drops its own
-    # sub-MB remainder, so the totals only line up when each tier happens to be an exact MB multiple.
-    logs_retention_14d_mb_in_period: int
-    logs_retention_30d_mb_in_period: int
-    logs_retention_90d_mb_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
     # Web (browser) is intentionally absent: posthog-js doesn't set telemetry.sdk.name on logs yet.
@@ -1800,48 +1793,6 @@ def get_teams_with_logs_bytes_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_logs_retention_bytes_in_period(
-    begin: datetime,
-    end: datetime,
-) -> dict[str, list[tuple[int, int]]]:
-    """
-    Returns log bytes ingested while each retention tier (14d/30d/90d) was active, grouped by team.
-
-    The logs-ingestion consumer emits a per-tier `bytes_ingested_retention_{14,30,90}d` metric into
-    `app_metrics2` alongside the total `bytes_ingested`. Result is keyed by the short tier suffix
-    used on `UsageReportCounters` (`14d`, `30d`, `90d`); each value is a list of `(team_id, count)`
-    tuples ready for `convert_team_usage_rows_to_dict`. All tier bytes also flow into the total
-    `logs_mb_in_period`, but each tier is floored to whole MB independently, so the tiers sum to at
-    most `logs_mb_in_period` (and usually a little less, as each tier drops its own sub-MB remainder).
-    """
-    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
-        rows = sync_execute(
-            """
-            SELECT team_id, metric_name, SUM(count) as count
-            FROM app_metrics2
-            WHERE app_source='logs'
-              AND metric_name IN (
-                  'bytes_ingested_retention_14d', 'bytes_ingested_retention_30d', 'bytes_ingested_retention_90d'
-              )
-              AND timestamp >= %(begin)s AND timestamp < %(end)s
-            GROUP BY team_id, metric_name
-        """,
-            {"begin": begin, "end": end},
-            workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
-            ch_user=ClickHouseUser.BILLING,
-        )
-
-    by_tier: dict[str, list[tuple[int, int]]] = {"14d": [], "30d": [], "90d": []}
-    for team_id, metric_name, count in rows:
-        suffix = metric_name.removeprefix("bytes_ingested_retention_")
-        if suffix in by_tier:
-            by_tier[suffix].append((team_id, count))
-    return by_tier
-
-
-@timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_logs_records_in_period(
     begin: datetime,
     end: datetime,
@@ -2046,7 +1997,6 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
-        or report.logs_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
         or report.workflow_sms_sent_in_period > 0
@@ -2081,7 +2031,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     sdk_logs_by_suffix = get_teams_with_sdk_logs_records_in_period(
         period_start, period_end, team_ids_with_logs=team_ids_with_logs
     )
-    logs_retention_by_tier = get_teams_with_logs_retention_bytes_in_period(period_start, period_end)
     exception_metrics_by_library, exception_metrics = get_teams_with_exceptions_captured_in_period(
         period_start, period_end
     )
@@ -2140,7 +2089,11 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_local_evaluation_requests_count_in_period": get_teams_with_feature_flag_requests_count_in_period(
             period_start, period_end, FlagRequestType.LOCAL_EVALUATION
         ),
-        "teams_with_group_types_total": count_group_type_mappings_per_team(),
+        "teams_with_group_types_total": list(
+            GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+            .annotate(total=Count("id"))
+            .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+        ),
         "teams_with_dashboard_count": list(
             Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
@@ -2315,9 +2268,6 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
-        "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],
-        "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
-        "teams_with_logs_retention_90d_bytes_in_period": logs_retention_by_tier["90d"],
         "teams_with_logs_records_in_period": logs_records_rows,
         "teams_with_ios_logs_records_in_period": sdk_logs_by_suffix["ios"],
         "teams_with_react_native_logs_records_in_period": sdk_logs_by_suffix["react_native"],
@@ -2483,15 +2433,6 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),
-        logs_retention_14d_mb_in_period=int(
-            all_data["teams_with_logs_retention_14d_bytes_in_period"].get(team.id, 0) // 1_000_000
-        ),
-        logs_retention_30d_mb_in_period=int(
-            all_data["teams_with_logs_retention_30d_bytes_in_period"].get(team.id, 0) // 1_000_000
-        ),
-        logs_retention_90d_mb_in_period=int(
-            all_data["teams_with_logs_retention_90d_bytes_in_period"].get(team.id, 0) // 1_000_000
-        ),
         ios_logs_records_in_period=all_data["teams_with_ios_logs_records_in_period"].get(team.id, 0),
         react_native_logs_records_in_period=all_data["teams_with_react_native_logs_records_in_period"].get(team.id, 0),
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),

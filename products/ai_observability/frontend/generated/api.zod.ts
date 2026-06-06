@@ -105,12 +105,6 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
-export const evaluationsCreateBodyConditionsItemIdMax = 100
-
-export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
-export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
-export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
-
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -157,33 +151,10 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
-                        .string()
-                        .max(evaluationsCreateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsCreateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsCreateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsCreateBodyConditionsItemRolloutPercentageDefault)
-                        .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
-                        ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
-                        .optional()
-                        .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
-                        ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
+        .unknown()
         .optional()
         .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
         .union([
@@ -216,12 +187,6 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
 export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
-export const evaluationsUpdateBodyConditionsItemIdMax = 100
-
-export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
-export const evaluationsUpdateBodyConditionsItemRolloutPercentageMin = 0
-export const evaluationsUpdateBodyConditionsItemRolloutPercentageMax = 100
-
 export const evaluationsUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
@@ -268,33 +233,10 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
-                        .string()
-                        .max(evaluationsUpdateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsUpdateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsUpdateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsUpdateBodyConditionsItemRolloutPercentageDefault)
-                        .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
-                        ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
-                        .optional()
-                        .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
-                        ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
+        .unknown()
         .optional()
         .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
         .union([
@@ -327,12 +269,6 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
-export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
-
-export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
-export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
-export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
-
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -381,33 +317,10 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
     conditions: zod
-        .array(
-            zod
-                .object({
-                    id: zod
-                        .string()
-                        .max(evaluationsPartialUpdateBodyConditionsItemIdMax)
-                        .describe('Stable identifier for this condition set.'),
-                    rollout_percentage: zod
-                        .number()
-                        .min(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin)
-                        .max(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax)
-                        .default(evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault)
-                        .describe(
-                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
-                        ),
-                    properties: zod
-                        .array(zod.record(zod.string(), zod.unknown()))
-                        .optional()
-                        .describe(
-                            'Property filters (event or person) that scope which generations match this condition set.'
-                        ),
-                })
-                .describe('A trigger condition set controlling which generations an evaluation runs on.')
-        )
+        .unknown()
         .optional()
         .describe(
-            'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
+            'Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each.'
         ),
     model_configuration: zod
         .union([
@@ -974,27 +887,6 @@ export const LlmAnalyticsOfflineEvaluationsExperimentItemsCreateBody = /* @__PUR
         .string()
         .nullish()
         .describe('Upper bound on `timestamp` (ISO-8601). Omit to leave the upper bound open.'),
-})
-
-export const llmAnalyticsParserRecipesCreateBodyNameMax = 255
-
-export const LlmAnalyticsParserRecipesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(llmAnalyticsParserRecipesCreateBodyNameMax)
-        .describe('Human-readable recipe name shown in the editor.'),
-    source: zod.string().describe('Raw YAML recipe source, compiled and validated client-side.'),
-})
-
-export const llmAnalyticsParserRecipesPartialUpdateBodyNameMax = 255
-
-export const LlmAnalyticsParserRecipesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(llmAnalyticsParserRecipesPartialUpdateBodyNameMax)
-        .optional()
-        .describe('Human-readable recipe name shown in the editor.'),
-    source: zod.string().optional().describe('Raw YAML recipe source, compiled and validated client-side.'),
 })
 
 export const llmAnalyticsProviderKeysCreateBodyNameMax = 255

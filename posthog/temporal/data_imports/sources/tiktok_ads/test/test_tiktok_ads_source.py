@@ -14,7 +14,6 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInput
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
-from posthog.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsPaginator
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
@@ -39,44 +38,6 @@ class TestTikTokAdsSource:
     def test_source_type(self):
         """Test that source type is correctly identified."""
         assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
-
-    @parameterized.expand(
-        [
-            ("advertiser_deleted", 40001, "The advertiser 123 doesn't exist or has been deleted."),
-            ("invalid_parameter", 40002, "Invalid parameter"),
-        ]
-    )
-    def test_non_retryable_paginator_error_matches_source_pattern(self, name, api_code, message):
-        """The ValueError the paginator raises for non-retryable codes must match a
-        pattern in get_non_retryable_errors, otherwise the job retries forever."""
-        paginator = TikTokAdsPaginator()
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"code": api_code, "message": message, "data": {}}
-
-        with pytest.raises(ValueError) as exc_info:
-            paginator.update_state(mock_response)
-
-        error_message = str(exc_info.value)
-        patterns = self.source.get_non_retryable_errors()
-        assert any(pattern in error_message for pattern in patterns), (
-            f"TikTok non-retryable error '{error_message}' does not match any non-retryable pattern"
-        )
-
-    def test_retryable_paginator_error_does_not_match_source_pattern(self):
-        """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
-        paginator = TikTokAdsPaginator()
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"code": 50000, "message": "Internal server error", "data": {}}
-
-        # Retryable codes raise TikTokAdsAPIError, not ValueError; capture its message.
-        with pytest.raises(Exception) as exc_info:
-            paginator.update_state(mock_response)
-
-        error_message = str(exc_info.value)
-        patterns = self.source.get_non_retryable_errors()
-        assert not any(pattern in error_message for pattern in patterns)
 
     def test_get_source_config(self):
         """Test source configuration generation."""

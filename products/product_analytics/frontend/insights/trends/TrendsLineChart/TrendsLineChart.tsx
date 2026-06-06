@@ -268,7 +268,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
     }
 
-    const showAnnotations = !inSharedMode && trendsFilter?.showAnnotations !== false
+    const showAnnotations = !inSharedMode
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (

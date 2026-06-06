@@ -27,7 +27,6 @@ jest.mock('lib/api', () => ({
         endpoint: {
             get: jest.fn(),
             run: jest.fn(),
-            listVersions: jest.fn().mockResolvedValue({ results: [] }),
         },
     },
 }))

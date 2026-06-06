@@ -46,8 +46,7 @@ def compute_observation_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayO
 
 def _status_counts(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     counts: dict[str, int] = {}
-    # `.order_by()` so the parent ordering doesn't leak into GROUP BY.
-    for row in queryset.order_by().values("status").annotate(c=Count("*")):
+    for row in queryset.values("status").annotate(c=Count("*")):
         counts[row["status"]] = row["c"]
     succeeded = counts.get(ObservationStatus.SUCCEEDED, 0)
     failed = counts.get(ObservationStatus.FAILED, 0)
@@ -85,7 +84,6 @@ def _monitor_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
         queryset.filter(status=ObservationStatus.SUCCEEDED)
         .annotate(verdict=KeyTextTransform("verdict", KeyTextTransform("model_output", "scanner_result")))
         .filter(verdict__in=counts.keys())
-        .order_by()  # Don't let parent ordering leak into GROUP BY.
         .values("verdict")
         .annotate(c=Count("*"))
     )
@@ -99,8 +97,7 @@ def _monitor_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
 
 
 def _classifier_stats(queryset: QuerySet[ReplayObservation]) -> tuple[dict[str, Any], list[str]]:
-    # `.order_by()` skips a wasted sort inside the CTE; the outer aggregate doesn't need ordering.
-    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
+    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED)
     inner_sql, inner_params = succeeded.values("scanner_result").query.sql_with_params()
     # One query: per-bucket tag counts plus a sentinel `total` row counting observations that emitted any tag.
     with connection.cursor() as cursor:
@@ -154,8 +151,7 @@ def _rank_counts(counts: dict[str, int]) -> list[dict[str, Any]]:
 
 
 def _scorer_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    # `.order_by()` skips a wasted sort inside the subquery; the outer aggregate doesn't need ordering.
-    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED).order_by()
+    succeeded = queryset.filter(status=ObservationStatus.SUCCEEDED)
     inner_sql, inner_params = succeeded.values("scanner_result").query.sql_with_params()
     with connection.cursor() as cursor:
         cursor.execute(

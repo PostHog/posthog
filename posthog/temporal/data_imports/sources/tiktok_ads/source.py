@@ -23,7 +23,6 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.settings import TIKTOK_ADS_CONFIG
 from posthog.temporal.data_imports.sources.tiktok_ads.tiktok_ads import TikTokAdsResumeConfig, tiktok_ads_source
-from posthog.temporal.data_imports.sources.tiktok_ads.utils import TIKTOK_NON_RETRYABLE_ERROR_PREFIX
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -33,15 +32,6 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TIKTOKADS
-
-    def get_non_retryable_errors(self) -> dict[str, str | None]:
-        return {
-            # TikTok client errors not in the retryable code set (e.g. 40001 — the advertiser
-            # doesn't exist or has been deleted). The paginator raises these with this exact
-            # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
-            # the user-facing error since it names the specific advertiser and TikTok error code.
-            TIKTOK_NON_RETRYABLE_ERROR_PREFIX: None,
-        }
 
     @property
     def get_source_config(self) -> SourceConfig:

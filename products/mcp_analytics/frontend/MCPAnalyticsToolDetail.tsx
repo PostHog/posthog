@@ -5,7 +5,6 @@ import { LemonButton, LemonDivider, LemonSkeleton, Tooltip } from '@posthog/lemo
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -215,9 +214,7 @@ function DescriptionBlock({
     return (
         <div className="flex flex-col gap-1 max-w-3xl">
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
-            <LemonMarkdown className="text-sm leading-snug" lowKeyHeadings>
-                {latest.description}
-            </LemonMarkdown>
+            <p className="text-sm leading-snug m-0">{latest.description}</p>
             {older.length > 0 ? (
                 <Tooltip
                     title={
@@ -227,7 +224,7 @@ function DescriptionBlock({
                                     <div className="text-secondary mb-0.5">
                                         last seen <TZLabel time={d.last_seen} />
                                     </div>
-                                    <LemonMarkdown lowKeyHeadings>{d.description}</LemonMarkdown>
+                                    <div>{d.description}</div>
                                 </div>
                             ))}
                         </div>

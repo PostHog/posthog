@@ -46,7 +46,7 @@ from typing import Any, Literal
 from django.db.models import Count
 
 from posthog.constants import FlagRequestType
-from posthog.models.group_type_mapping import count_group_type_mappings_per_team
+from posthog.models import GroupTypeMapping
 from posthog.tasks.usage_report import (
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
@@ -70,7 +70,6 @@ from posthog.tasks.usage_report import (
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
     get_teams_with_logs_records_in_period,
-    get_teams_with_logs_retention_bytes_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_query_metric,
     get_teams_with_recording_bytes_in_period,
@@ -98,7 +97,11 @@ from products.surveys.backend.models import Survey
 
 
 def _group_types_total() -> list[dict[str, int]]:
-    return count_group_type_mappings_per_team()
+    return list(
+        GroupTypeMapping.objects.values("team_id")  # nosemgrep: no-direct-persons-db-orm
+        .annotate(total=Count("id"))
+        .order_by("team_id")  # nosemgrep: no-direct-persons-db-orm
+    )
 
 
 def _dashboard_count() -> list[dict[str, int]]:
@@ -461,16 +464,6 @@ QUERIES: list[QuerySpec] = [
             "react_native": "teams_with_react_native_logs_records_in_period",
             "android": "teams_with_android_logs_records_in_period",
             "flutter": "teams_with_flutter_logs_records_in_period",
-        },
-    ),
-    QuerySpec(
-        name="logs_retention_bytes",
-        fn=get_teams_with_logs_retention_bytes_in_period,
-        output="multi",
-        multi_keys_mapping={
-            "14d": "teams_with_logs_retention_14d_bytes_in_period",
-            "30d": "teams_with_logs_retention_30d_bytes_in_period",
-            "90d": "teams_with_logs_retention_90d_bytes_in_period",
         },
     ),
     # ---- Snapshot queries (kind="snapshot") ---------------------------------

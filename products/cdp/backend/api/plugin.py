@@ -406,16 +406,9 @@ class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def unused(self, request: request.Request, **kwargs):
-        ids = (
-            self.get_queryset()
-            .exclude(
-                id__in=PluginConfig.objects.filter(
-                    enabled=True, team__organization_id=self.organization_id
-                ).values_list("plugin_id", flat=True)
-            )
-            .order_by("id")
-            .values_list("id", flat=True)
-        )
+        ids = Plugin.objects.exclude(
+            id__in=PluginConfig.objects.filter(enabled=True).values_list("plugin_id", flat=True)
+        ).values_list("id", flat=True)
         return Response(ids)
 
     @action(methods=["GET"], detail=False)

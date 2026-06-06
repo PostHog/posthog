@@ -1,5 +1,3 @@
-import io
-import gzip
 import json
 
 from unittest.mock import MagicMock, patch
@@ -7,16 +5,11 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
-from urllib3.response import HTTPResponse
 
 from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
 from posthog.temporal.data_imports.sources.custom.source import (
-    MAX_MANIFEST_RESOURCES,
-    PROBE_ERROR_SNIPPET_BYTES,
-    PROBE_MAX_RESOURCES,
     CustomSource,
     ManifestValidationError,
-    _read_capped_text,
     is_custom_source_available_for_team,
     manifest_request_hosts,
     validate_manifest,
@@ -76,24 +69,6 @@ class TestValidateManifest(SimpleTestCase):
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
         assert "Duplicate" in str(ctx.exception)
-
-    def test_rejects_too_many_resources(self):
-        # An unbounded resource count turns the create-time probe into an outbound
-        # request amplifier — the manifest is capped at MAX_MANIFEST_RESOURCES.
-        manifest = _minimal_manifest()
-        manifest["resources"] = [
-            {"name": f"r{i}", "endpoint": {"path": f"/r{i}"}} for i in range(MAX_MANIFEST_RESOURCES + 1)
-        ]
-        with self.assertRaises(ManifestValidationError) as ctx:
-            validate_manifest(manifest)
-        assert "at most" in str(ctx.exception)
-
-    def test_accepts_resource_count_at_limit(self):
-        manifest = _minimal_manifest()
-        manifest["resources"] = [
-            {"name": f"r{i}", "endpoint": {"path": f"/r{i}"}} for i in range(MAX_MANIFEST_RESOURCES)
-        ]
-        validate_manifest(manifest)
 
     def test_rejects_unknown_auth_type(self):
         manifest = _minimal_manifest()
@@ -346,13 +321,13 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert ok, err
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probes_resources_until_auth_failure(self, mock_session):
-        # A later (within-cap) resource fails auth — validation must catch it, not stop at the first.
+    def test_probes_every_resource(self, mock_session):
+        # The second resource fails auth — validation must catch it, not stop at the first.
         manifest = _minimal_manifest()
         manifest["resources"].append({"name": "orders", "endpoint": {"path": "/orders"}})
         mock_session.return_value.request.side_effect = [
-            MagicMock(status_code=200),
-            MagicMock(status_code=403),
+            MagicMock(status_code=200, text="{}"),
+            MagicMock(status_code=403, text="forbidden"),
         ]
 
         source = CustomSource()
@@ -361,57 +336,6 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert not ok
         assert "orders" in (err or "")
         assert "403" in (err or "")
-
-    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_caps_resource_count(self, mock_session):
-        # The probe must hit at most PROBE_MAX_RESOURCES upstreams regardless of how many
-        # resources the manifest declares — so the endpoint can't fan out one request per resource.
-        manifest = _minimal_manifest()
-        manifest["resources"] = [
-            {"name": f"r{i}", "endpoint": {"path": f"/r{i}"}} for i in range(PROBE_MAX_RESOURCES + 3)
-        ]
-        mock_session.return_value.request.return_value = MagicMock(status_code=200)
-
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
-        assert ok, err
-        assert mock_session.return_value.request.call_count == PROBE_MAX_RESOURCES
-
-    @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
-    def test_probe_streams_and_caps_error_body(self, mock_session):
-        # The probe opens responses with stream=True and reads only a bounded slice
-        # of a 401/403 body for the error snippet — never buffering the full body.
-        response = MagicMock(status_code=403)
-        response.raw.read.return_value = b"forbidden: token expired"
-        mock_session.return_value.request.return_value = response
-
-        source = CustomSource()
-        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
-        ok, err = source.validate_credentials(config, team_id=999)
-        assert not ok
-        # The snippet came from the bounded raw read; had the code used response.text[:200]
-        # the message would contain a MagicMock repr instead of the decoded bytes.
-        assert "forbidden: token expired" in (err or "")
-        assert mock_session.return_value.request.call_args.kwargs["stream"] is True
-        response.close.assert_called_once()
-
-    def test_read_capped_text_is_decompression_bomb_proof(self):
-        # A gzip body that inflates ~1000x must not be materialized — reading the raw
-        # (undecoded) stream caps the snippet regardless of Content-Encoding.
-        payload = b"\x00" * (20 * 1024 * 1024)
-        compressed = gzip.compress(payload)
-        assert len(payload) / len(compressed) > 100  # it really is a decompression bomb
-
-        response = MagicMock()
-        response.raw = HTTPResponse(
-            body=io.BytesIO(compressed),
-            headers={"content-encoding": "gzip", "content-length": str(len(compressed))},
-            status=403,
-            preload_content=False,
-        )
-        snippet = _read_capped_text(response)
-        assert len(snippet) <= PROBE_ERROR_SNIPPET_BYTES
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probe_attaches_query_location_api_key(self, mock_session):

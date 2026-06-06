@@ -63,28 +63,20 @@ export const VisionScannersListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersListQueryParams = /* @__PURE__ */ zod.object({
-    created_by: zod.string().optional().describe('Filter to scanners created by the given user IDs (comma-separated).'),
     emits_signals: zod.boolean().optional().describe('Filter to scanners that emit Signals.'),
-    enabled: zod
-        .string()
-        .optional()
-        .describe('Filter by enabled state. Accepts a comma-separated list of `enabled`/`disabled`.'),
+    enabled: zod.boolean().optional().describe('Filter to enabled vs disabled scanners.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
         .string()
         .optional()
-        .describe(
-            'Sort scanners by name, created_at, updated_at, scanner_type, enabled, sampling_rate, or created_by. Prefix with `-` for descending.'
-        ),
+        .describe('Sort scanners by name, created_at, updated_at, or scanner_type. Prefix with `-` for descending.'),
     scanner_type: zod
-        .string()
+        .enum(['classifier', 'monitor', 'scorer', 'summarizer'])
         .optional()
-        .describe('Filter by scanner type (monitor, classifier, scorer, summarizer). Accepts a comma-separated list.'),
-    search: zod
-        .string()
-        .optional()
-        .describe('Case-insensitive substring match across name, description, and the prompt in scanner_config.'),
+        .describe(
+            'Filter by scanner type (monitor, classifier, scorer, summarizer).\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer'
+        ),
 })
 
 /**

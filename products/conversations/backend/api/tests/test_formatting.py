@@ -154,36 +154,9 @@ class TestSlackFormatting(SimpleTestCase):
         slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, "")
         content, parsed_rich_content = slack_to_content_and_rich_content(slack_text, slack_blocks)
 
-        assert content == "line1  \nline2\n\n  \n\n\nline3"
+        assert content == "line1  \nline2\n\nline3"
         assert parsed_rich_content is not None
-        # 3 paragraphs: original 2 + spacer section between them
-        assert len(parsed_rich_content["content"]) == 3
-
-    @parameterized.expand(
-        [
-            ("single_paragraph", 1, 1),
-            ("two_paragraphs", 2, 3),
-            ("three_paragraphs", 3, 5),
-        ]
-    )
-    def test_outbound_paragraph_spacer_sections(self, _name: str, para_count: int, expected_elements: int) -> None:
-        rich_content = {
-            "type": "doc",
-            "content": [
-                {"type": "paragraph", "content": [{"type": "text", "text": f"para{i + 1}"}]} for i in range(para_count)
-            ],
-        }
-
-        _, slack_blocks = rich_content_to_slack_payload(rich_content, "")
-        assert slack_blocks is not None
-
-        elements = slack_blocks[0]["elements"]
-        assert len(elements) == expected_elements
-        for i, el in enumerate(elements):
-            if i % 2 == 0:
-                assert el["elements"][0]["text"] == f"para{i // 2 + 1}"
-            else:
-                assert el["elements"][0]["text"] == "\n"
+        assert len(parsed_rich_content["content"]) == 2
 
     def test_outbound_excludes_images_from_text_when_requested(self) -> None:
         rich_content = {

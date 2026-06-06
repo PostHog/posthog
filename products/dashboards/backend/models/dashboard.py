@@ -155,7 +155,6 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         Returns serialized information about the object for analytics reporting.
         """
         return {
-            "dashboard_id": self.pk,
             "pinned": self.pinned,
             "item_count": self.tiles.exclude(insight=None).count(),
             "is_shared": self.is_sharing_enabled,

@@ -13,7 +13,7 @@ from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import seed_canonical_skills
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.temporal.agentic import (
@@ -86,15 +86,13 @@ async def arun_signals_scout(
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
-    # Sync canonical signals-scout-* skills before we resolve the skill the run asked for.
-    # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
-    # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
-    # crash the run — we log and continue with whatever skills the team already has.
+    # Lazy-seed canonical signals-scout-* skills if the team has none yet, so the run
+    # has something to load. Failures here are logged, not fatal.
     try:
-        await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team)
+        await database_sync_to_async(seed_canonical_skills, thread_sensitive=False)(team)
     except Exception:
         logger.exception(
-            "signals_scout: canonical skill sync failed; continuing with existing team skills",
+            "signals_scout: canonical skill seed failed; continuing with existing team skills",
             extra={"team_id": team_id},
         )
     skill = await database_sync_to_async(load_skill_for_run, thread_sensitive=False)(
@@ -102,18 +100,9 @@ async def arun_signals_scout(
     )
     config = await database_sync_to_async(_resolve_config, thread_sensitive=False)(team, skill.name)
 
-    # Hook for stale-run recovery — currently a no-op (see `_self_heal_stale_runs`). The
-    # partial unique index that made orphaned RUNNING rows block dispatch was dropped when
-    # `SignalScoutRun` became a `TaskRun` bridge (status now lives on `task_run.status`), so
-    # stale bridge rows no longer gate new runs at the DB level. Kept as a seam for the
-    # `task_run.status`-based recovery follow-up.
-    await database_sync_to_async(_self_heal_stale_runs, thread_sensitive=False)(team_id, skill_name)
-
-    # Skip-if-running guard, keyed on (team, skill_name). Different skills for the same
-    # team are allowed to run concurrently — the coordinator can dispatch several due
-    # scouts for one team in a single tick. Best-effort — there is a race window between
-    # this check and the bridge-row insert inside _spawn_and_run (a second trigger could
-    # land in between), which we accept until a claim/lease primitive lands.
+    # Skip-if-running guard. Best-effort — there is a race window between this check
+    # and the row insert below (a second trigger could land in between), which we
+    # accept until a claim/lease primitive lands.
     if await database_sync_to_async(_has_running_run, thread_sensitive=False)(
         team_id=team.parent_team_id or team.id, skill_name=skill.name
     ):
@@ -187,26 +176,6 @@ async def arun_signals_scout(
             skill_name=skill.name,
             skill_version=skill.version,
         )
-    except BaseException as exc:
-        # Cancellation / worker-shutdown / system-exit: re-raise so Temporal sees the
-        # activity as failed. Post-collapse the bridge row's status flows from its
-        # linked TaskRun (managed by MultiTurnSession), so we don't update anything
-        # here directly. A TaskRun stranded in IN_PROGRESS (e.g. SIGKILL before
-        # MultiTurnSession finalizes) blocks new runs for this (team, skill) via
-        # `_has_running_run` until it transitions out — active recovery is a deferred
-        # follow-up (see `_self_heal_stale_runs`).
-        runtime_s = time.monotonic() - started
-        logger.warning(
-            "signals_scout: run cancelled mid-flight",
-            extra={
-                "team_id": team_id,
-                "run_id": str(run_id),
-                "skill_name": skill.name,
-                "exception_type": type(exc).__name__,
-                "runtime_s": runtime_s,
-            },
-        )
-        raise
 
 
 async def _spawn_and_run(
@@ -318,7 +287,7 @@ def _resolve_config(team: Team, skill_name: str) -> SignalScoutConfig:
 
 def _has_running_run(*, team_id: int, skill_name: str) -> bool:
     # Locked on (canonical team, skill_name) — different skills for the same team are
-    # allowed to fan out (the coordinator can dispatch several due scouts per tick). Status flows
+    # allowed to fan out, which is the whole point of `runs_per_tick > 1`. Status flows
     # from the linked TaskRun now that SignalScoutRun is just a bridge; treat both QUEUED
     # and IN_PROGRESS as active, since a TaskRun sits in QUEUED before transitioning and a
     # second trigger landing in that window would otherwise slip past the guard. Not keyed
@@ -334,27 +303,6 @@ def _has_running_run(*, team_id: int, skill_name: str) -> bool:
         )
         .exists()
     )
-
-
-def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
-    """No-op pending the task_run-based partial unique index follow-up.
-
-    The original self-heal recovered RUNNING rows orphaned by a worker / sandbox
-    crash, because a DB-level partial unique index on
-    `(team_id, skill_name) WHERE status='running'` would otherwise block all
-    future dispatches for the same (team, skill). That index was dropped during
-    the 2026-05-21 restack — it referenced `SignalScoutRun.status`, which no
-    longer exists on the slim bridge row (status lives on `task_run.status`).
-
-    `_has_running_run` queries `task_run__status=IN_PROGRESS` so single-flighting
-    still works at the app layer; stale bridge rows no longer block dispatch,
-    they just take up space. The Tasks subsystem owns `task_run.status` and has
-    its own timeout / cleanup path, so cross-product writes from here would be
-    inappropriate. Restore real recovery logic once a `task_run.status`-based
-    DB constraint lands as a follow-up.
-    """
-    _ = team_id, skill_name
-    return
 
 
 def _create_run_row(

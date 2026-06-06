@@ -91,7 +91,6 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     snoozed_until = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
-    tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -399,22 +398,13 @@ class ExternalTicketView(APIView):
 
         if "tags" in serializer.validated_data:
             try:
-                tags_mode = serializer.validated_data.get("tags_mode", "add")
-                normalized_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
-
-                if tags_mode == "remove":
-                    ticket.tagged_items.filter(tag__name__in=normalized_tags).delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
-                elif tags_mode == "set":
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
-                    ticket.tagged_items.exclude(tag__name__in=normalized_tags).delete()
-                    Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
-                else:
-                    for tag_name in normalized_tags:
-                        tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
-                        ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                new_tags = list({tagify(t) for t in serializer.validated_data["tags"]})
+                for tag_name in new_tags:
+                    tag_instance, _ = Tag.objects.get_or_create(name=tag_name, team_id=team.id)
+                    ticket.tagged_items.get_or_create(tag_id=tag_instance.id)
+                for tagged_item in ticket.tagged_items.exclude(tag__name__in=new_tags):
+                    tagged_item.delete()
+                Tag.objects.filter(team_id=team.id, tagged_items__isnull=True).delete()
             except Exception as e:
                 capture_exception(e, {"ticket_id": str(ticket.id)})
                 return Response({"error": "Failed to update tags"}, status=status.HTTP_400_BAD_REQUEST)

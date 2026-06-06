@@ -38,8 +38,6 @@ export const AnnotationsCreateParams = /* @__PURE__ */ zod.object({
 
 export const annotationsCreateBodyContentMax = 8192
 
-export const annotationsCreateBodyEmojiMax = 16
-
 export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .string()
@@ -72,11 +70,6 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
-    emoji: zod
-        .string()
-        .max(annotationsCreateBodyEmojiMax)
-        .nullish()
-        .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
 })
 
 /**
@@ -104,8 +97,6 @@ export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 })
 
 export const annotationsPartialUpdateBodyContentMax = 8192
-
-export const annotationsPartialUpdateBodyEmojiMax = 16
 
 export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod
@@ -139,11 +130,6 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording'
         ),
-    emoji: zod
-        .string()
-        .max(annotationsPartialUpdateBodyEmojiMax)
-        .nullish()
-        .describe('Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.'),
 })
 
 /**

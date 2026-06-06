@@ -385,10 +385,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                     if(
                         empty(s.parent_span_id) OR isNull(p.timestamp),
                         toFloat(0),
-                        -- microsecond diff * 1000 → nanoseconds, mirroring how duration_nano is
-                        -- materialized on this table. toFloat(s.timestamp) - toFloat(p.timestamp)
-                        -- would give Unix *seconds* (the column is DateTime64), not nanos.
-                        toFloat(dateDiff('microsecond', p.timestamp, s.timestamp) * 1000)
+                        toFloat(s.timestamp) - toFloat(p.timestamp)
                     )
                 ) AS avg_start_offset_nano
             FROM spans AS s

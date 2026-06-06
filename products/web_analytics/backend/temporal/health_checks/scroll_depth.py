@@ -13,7 +13,7 @@ WHERE team_id IN %(team_ids)s
   AND event = '$pageleave'
   AND timestamp >= now() - INTERVAL %(lookback_days)s DAY
 GROUP BY team_id
-HAVING countIf(JSONHas(properties, '$prev_pageview_max_content_percentage')) = 0
+HAVING countIf(position(properties, '"$prev_pageview_max_content_percentage"') > 0) = 0
 """
 
 

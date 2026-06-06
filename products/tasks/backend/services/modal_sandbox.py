@@ -357,9 +357,6 @@ class ModalSandbox(SandboxBase):
                 "verbose": True,
             }
 
-            if config.vm_runtime:
-                create_kwargs["experimental_options"] = {"vm_runtime": True}
-
             if secrets:
                 create_kwargs["secrets"] = secrets
 

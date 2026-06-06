@@ -19,11 +19,7 @@ from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
-from posthog.temporal.data_imports.sources.meta_ads.meta_ads import (
-    META_AUTH_ERROR_MESSAGE,
-    MetaAdsResumeConfig,
-    meta_ads_source,
-)
+from posthog.temporal.data_imports.sources.meta_ads.meta_ads import MetaAdsResumeConfig, meta_ads_source
 from posthog.temporal.data_imports.sources.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
@@ -38,10 +34,6 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
-            # Permanent auth/permission failures from the Graph API (e.g. revoked or expired
-            # access tokens, checkpoint-required, invalidated sessions, permission denials).
-            # `meta_ads._raise_meta_api_error` prefixes these with this exact message.
-            META_AUTH_ERROR_MESSAGE: META_AUTH_ERROR_MESSAGE,
             "Ad account owner has NOT": None,
             "cannot be loaded due to missing permissions": None,
             # Meta returns this 500 when the requested query is too large for their backend to

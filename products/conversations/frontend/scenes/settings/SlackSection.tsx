@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonCheckbox, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -45,13 +44,7 @@ function SlackChannelSection(): JSX.Element {
         slackBotIconUrlValue,
         slackBotDisplayName,
         slackBotDisplayNameValue,
-        slackNotifyOnJoin,
-        slackNotifyOnLeave,
-        slackAlertChannelId,
-        currentTeamLoading,
     } = useValues(supportSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const memberAlertsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SLACK_NOTIFY_ON_MEMBERS]
     const {
         connectSlack,
         setSlackChannels,
@@ -61,9 +54,6 @@ function SlackChannelSection(): JSX.Element {
         setSlackBotIconUrlValue,
         setSlackBotDisplayNameValue,
         saveSlackBotSettings,
-        setSlackNotifyOnJoin,
-        setSlackNotifyOnLeave,
-        setSlackAlertChannel,
         disconnectSlack,
     } = useActions(supportSettingsLogic)
     const adminRestrictionReason = useRestrictedArea({
@@ -125,54 +115,6 @@ function SlackChannelSection(): JSX.Element {
                             </LemonButton>
                         </div>
                     </div>
-                    {memberAlertsEnabled && (
-                        <>
-                            <LemonDivider />
-                            <div className="flex flex-col gap-2">
-                                <div>
-                                    <label className="font-medium">Channel membership alerts</label>
-                                    <p className="text-xs text-muted-alt">
-                                        Notify a channel when someone joins or leaves any channel the SupportHog bot is
-                                        in.
-                                    </p>
-                                </div>
-                                <LemonCheckbox
-                                    checked={slackNotifyOnJoin}
-                                    onChange={setSlackNotifyOnJoin}
-                                    disabled={currentTeamLoading}
-                                    label="Alert when someone joins a channel"
-                                />
-                                <LemonCheckbox
-                                    checked={slackNotifyOnLeave}
-                                    onChange={setSlackNotifyOnLeave}
-                                    disabled={currentTeamLoading}
-                                    label="Alert when someone leaves a channel"
-                                />
-                                <div className="flex gap-2 items-center">
-                                    <LemonInputSelect
-                                        mode="single"
-                                        value={slackAlertChannelId ? [slackAlertChannelId] : []}
-                                        options={slackChannels.map((c: { id: string; name: string }) => ({
-                                            key: c.id,
-                                            label: `#${c.name}`,
-                                        }))}
-                                        onChange={(newValue: string[]) => setSlackAlertChannel(newValue[0] ?? null)}
-                                        loading={slackChannelsLoading}
-                                        disabled={currentTeamLoading || (!slackNotifyOnJoin && !slackNotifyOnLeave)}
-                                        placeholder="Select alerts channel"
-                                    />
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={loadSlackChannelsWithToken}
-                                        disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
-                                    >
-                                        Refresh
-                                    </LemonButton>
-                                </div>
-                            </div>
-                        </>
-                    )}
                     <LemonDivider />
                     <div className="flex items-center gap-4 justify-between">
                         <div>

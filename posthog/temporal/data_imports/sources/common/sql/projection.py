@@ -13,36 +13,11 @@ from __future__ import annotations
 
 from typing import TypeVar
 
-import structlog
-
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.sources.common.sql.identifiers import IdentifierQuoter
 from posthog.temporal.data_imports.sources.common.sql.types import Column, Table
 
-logger = structlog.get_logger(__name__)
-
 _TColumnValue = TypeVar("_TColumnValue")
 _ColumnT = TypeVar("_ColumnT", bound=Column)
-
-
-def _identity(name: str) -> str:
-    """Exact-match fold: source-keyed callers compare names verbatim."""
-    return name
-
-
-def _normalize_for_match(name: str) -> str:
-    """Fold a column name into the dlt-normalized namespace for comparison.
-
-    `enabled_columns` / primary keys / incremental fields arrive in the source
-    namespace (e.g. Snowflake's uppercase `HOUSEHOLD_ID`), while warehouse
-    `DataWarehouseTable.columns` keys are dlt-normalized (snake_cased + lowercased,
-    e.g. `household_id`). Matching either side raw drops every column. Normalizing
-    both sides lines them up; for already-normalized names it's a no-op.
-    """
-    try:
-        return NamingConvention.normalize_identifier(name)
-    except ValueError:
-        return name
 
 
 def compute_projected_columns(
@@ -105,50 +80,16 @@ def filter_dwh_columns_by_enabled_columns(
     enabled_columns: list[str] | None,
     primary_keys: list[str] | None,
     incremental_field: str | None = None,
-    *,
-    normalize: bool = True,
 ) -> dict[str, _TColumnValue]:
-    """Filter `DataWarehouseTable.columns`-shaped dict to the projection.
-
-    `enabled_columns` / primary keys / incremental field always arrive in the source
-    namespace. `columns` keys differ by caller, which `normalize` selects between:
-
-    - `normalize=True` (warehouse tables): keys are dlt-normalized (snake_cased +
-      lowercased), so both sides are folded through `_normalize_for_match` to line up.
-      A raw set-membership test silently drops every column when source names aren't
-      already lowercase (e.g. Snowflake's uppercase identifiers).
-    - `normalize=False` (direct-postgres callers): keys are raw, case-sensitive source
-      names — the same namespace as `enabled_columns`. Match exactly so two columns
-      that fold to the same key (Postgres allows `"Foo"` and `"foo"` in one table) stay
-      independently selectable instead of collapsing into one match.
-
-    If the projection would empty out an otherwise non-empty table, fall back to all
-    columns: an empty `columns` dict leaves the table unqueryable (`SELECT *` returns
-    no rows), which is never the intended result of a column selection. This mirrors
-    the empty-result fallback in `compute_projected_columns`. The fallback is logged
-    so an operator can tell their column selection was bypassed (namespace mismatch,
-    stale names after a source rename, or schema drift) rather than silently applied.
-    """
+    """Filter `DataWarehouseTable.columns`-shaped dict to the projection."""
     if enabled_columns is None:
         return columns
-    fold = _normalize_for_match if normalize else _identity
-    retained: set[str] = {fold(name) for name in enabled_columns}
+    retained: set[str] = set(enabled_columns)
     for pk in primary_keys or []:
-        retained.add(fold(pk))
+        retained.add(pk)
     if incremental_field:
-        retained.add(fold(incremental_field))
-    filtered = {name: column for name, column in columns.items() if fold(name) in retained}
-    if columns and not filtered:
-        logger.warning(
-            "filter_dwh_columns_by_enabled_columns.empty_projection_fallback",
-            enabled_columns=enabled_columns,
-            primary_keys=primary_keys,
-            incremental_field=incremental_field,
-            available_columns=list(columns.keys()),
-            normalize=normalize,
-        )
-        return columns
-    return filtered
+        retained.add(incremental_field)
+    return {name: column for name, column in columns.items() if name in retained}
 
 
 def project_arrow_columns(

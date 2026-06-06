@@ -18,7 +18,7 @@ function emitContent(content: unknown, input: unknown = INPUT): CompatMessage['c
 
 describe('compileRecipe', () => {
     it('compiles a full recipe into runnable rules', () => {
-        const recipe = compileRecipe({ id: 'greet', rules: [{ on: {}, emit: { content: 'hi' } }] })
+        const recipe = compileRecipe({ id: 'greet', priority: 5, rules: [{ on: {}, emit: { content: 'hi' } }] })
         expect(recipe.id).toBe('greet')
         const produced = recipe.rules[0].produce(Scope.forNode({}, 'user'), ENGINE, false, 0)
         expect(produced).toEqual([{ role: 'user', content: 'hi' }])
@@ -40,6 +40,10 @@ describe('compileRecipe', () => {
         const recipe = compileRecipe({ id: 't', rules: [{ on: { type: 'reasoning' }, emit: {} }] })
         expect(recipe.rules[0].on.matches({ type: 'reasoning' })).toBe(true)
         expect(recipe.rules[0].on.matches({ type: 'text' })).toBe(false)
+    })
+
+    it('priority defaults to 100 when omitted', () => {
+        expect(compileRecipe({ id: 't', rules: [{ on: {}, emit: {} }] }).priority).toBe(100)
     })
 
     it('literal: preserves a one-key object that collides with an operator name', () => {
