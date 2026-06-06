@@ -89,16 +89,8 @@ export function WebAnalyticsDashboard(): JSX.Element {
 }
 
 WebAnalyticsDashboardMetricCards.parameters = {
-    layout: 'fullscreen',
-    viewMode: 'story',
-    mockDate: '2023-02-01',
-    pageUrl: urls.webAnalytics(),
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_FILTERS_V2, FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
-    testOptions: {
-        includeNavigationInSnapshot: true,
-        waitForLoadersToDisappear: true,
-        waitForSelector: '[data-attr=trend-line-graph] > canvas',
-    },
+    ...meta.parameters,
+    featureFlags: [...((meta.parameters?.featureFlags as string[]) ?? []), FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
 }
 export function WebAnalyticsDashboardMetricCards(): JSX.Element {
     return <DashboardScene />

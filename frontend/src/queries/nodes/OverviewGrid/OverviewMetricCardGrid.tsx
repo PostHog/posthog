@@ -8,10 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { formatItem, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
-
-// The backend's change percentage uses this magnitude as a sentinel for "previous period was zero".
-const NO_BASELINE_CHANGE_SENTINEL = 999999
+import { formatItem, NO_BASELINE_CHANGE_SENTINEL, OverviewItem, SamplingNotice, SamplingRate } from './OverviewGrid'
 
 interface OverviewMetricCardGridProps {
     items: OverviewItem[]
