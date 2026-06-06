@@ -117,6 +117,7 @@ def _parse_signal_row(row: tuple) -> SignalData:
         weight=metadata.get("weight", 0.0),
         timestamp=timestamp_raw,
         extra=metadata.get("extra", {}),
+        remediation=metadata.get("remediation"),
     )
 
 

@@ -12,6 +12,9 @@ class EmitSignalInputs:
     description: str
     weight: float = 0.5
     extra: dict = field(default_factory=dict)
+    # Optional top-level fix hint (separate from `extra`). Surfaced to the investigating agent
+    # when present; not required by any source.
+    remediation: Optional[str] = None
 
 
 @dataclass
@@ -178,6 +181,8 @@ class SignalData:
     timestamp: datetime
     extra: dict = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Optional top-level fix hint (separate from `extra`); see EmitSignalInputs.remediation.
+    remediation: Optional[str] = None
 
 
 def _render_extra_to_text(extra: dict) -> list[str]:
@@ -204,6 +209,8 @@ def render_signal_to_text(
     lines.append(f"- Weight: {signal.weight}")
     lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
+    if signal.remediation:
+        lines.append(f"- Remediation (actionable — follow this and verify via the PostHog MCP): {signal.remediation}")
     if signal.extra:
         lines.extend(_render_extra_to_text(signal.extra))
     return "\n".join(lines)

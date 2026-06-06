@@ -260,6 +260,8 @@ def _render_signal_for_research(signal: SignalData, index: int, total: int) -> s
     lines.append(f"- **Weight:** {signal.weight}")
     lines.append(f"- **Timestamp:** {signal.timestamp}")
     lines.append(f"- **Description:** {signal.content}")
+    if signal.remediation:
+        lines.append(f"- **Remediation:** {signal.remediation}")
     if signal.extra:
         lines.append("#### Extras")
         lines.extend(_render_extra_to_text(signal.extra))
@@ -281,7 +283,9 @@ You have two investigation tools:
 1. **The codebase** — the full PostHog repository is available on disk. Use file search, grep, and code reading.
 2. **PostHog MCP** — you can query PostHog analytics data via MCP tools like `execute-sql`, `query-run`, `read-data-schema`, `insights-get-all`, `experiment-get`, `list-errors`, `feature-flag-get-all`, etc.
 
-When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence."""
+When a signal includes **Attached images**, the URLs are publicly reachable — fetch them directly to inspect screenshots, UI issues, or other visual evidence.
+
+When a signal includes a **`remediation`** field, it describes a concrete, known fix and where it lives — for instrumentation issues that is the repository where the PostHog SDK is initialized (or its dependency manifest); for PostHog-side issues it is project configuration. Treat such signals as actionable: locate that code or config, follow the remediation, and use the PostHog MCP to confirm the problem and verify the fix (e.g. query whether the expected events now arrive)."""
 
 _RESEARCH_PROTOCOL = """## Research protocol
 

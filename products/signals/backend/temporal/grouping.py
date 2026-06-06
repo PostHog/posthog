@@ -654,6 +654,7 @@ class AssignAndEmitSignalInput:
     match_result: MatchResult
     timestamp: Optional[datetime] = None
     updated_title: Optional[str] = None
+    remediation: Optional[str] = None
 
 
 @dataclass
@@ -696,6 +697,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                         "weight": input.weight,
                         "report_id": report_id,
                         "extra": input.extra,
+                        "remediation": input.remediation,
                         "deleted": True,
                     }
                     metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -760,6 +762,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 "weight": input.weight,
                 "report_id": report_id,
                 "extra": input.extra,
+                "remediation": input.remediation,
             }
 
             metadata["match_metadata"] = asdict(match_result.match_metadata)
@@ -1149,6 +1152,7 @@ async def _process_signal_batch(
                     embedding=signal_embeddings[i].embedding,
                     match_result=match_result,
                     updated_title=updated_title,
+                    remediation=signal.remediation,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),

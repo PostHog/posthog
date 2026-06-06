@@ -87,6 +87,7 @@ async def emit_signal(
     description: str,
     weight: float = 0.5,
     extra: dict | None = None,
+    remediation: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -107,6 +108,9 @@ async def emit_signal(
             `_telemetry_props_from_extra` — so per-source attribution (e.g. the scout harness's
             `scout_run_id` / `skill_name`) is queryable downstream without a schema change.
             Nested lists/dicts are never forwarded.
+        remediation: Optional top-level fix hint (separate from extra). When set, it is surfaced to the
+            investigating agent, which treats the signal as actionable and follows it. Not required by
+            any existing source.
 
     Example:
         await emit_signal(
@@ -157,16 +161,19 @@ async def emit_signal(
                 }
             ],
         )
-    variant_model.model_validate(
-        {
-            "source_product": source_product,
-            "source_type": source_type,
-            "source_id": source_id,
-            "description": description,
-            "weight": weight,
-            "extra": extra or {},
-        }
-    )
+    # `remediation` is an optional top-level field; only include it in the payload when set so
+    # variants that don't declare it (every source except health checks today) still validate.
+    payload_to_validate: dict = {
+        "source_product": source_product,
+        "source_type": source_type,
+        "source_id": source_id,
+        "description": description,
+        "weight": weight,
+        "extra": extra or {},
+    }
+    if remediation is not None:
+        payload_to_validate["remediation"] = remediation
+    variant_model.model_validate(payload_to_validate)
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
     # that don't go through the data-source pipeline still have a top-of-funnel event. The
@@ -202,6 +209,7 @@ async def emit_signal(
         description=description,
         weight=weight,
         extra=extra or {},
+        remediation=remediation,
     )
 
     # Ensure the buffer workflow is running (idempotent)

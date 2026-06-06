@@ -240,6 +240,7 @@ async def _process_signal(
             embedding=signal_embedding,
             match_result=match_result,
             updated_title=updated_title,
+            remediation=signal.remediation,
         ),
         start_to_close_timeout=timedelta(minutes=5),
         retry_policy=RetryPolicy(maximum_attempts=3),
