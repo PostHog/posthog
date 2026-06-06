@@ -6,11 +6,13 @@ from unittest import mock
 
 from posthog.temporal.data_imports.sources.gitlab import gitlab as gitlab_module
 from posthog.temporal.data_imports.sources.gitlab.gitlab import (
+    HOST_NOT_ALLOWED_ERROR,
     GitLabResumeConfig,
     _build_initial_params,
     _build_initial_url,
     _encode_project,
     _format_incremental_value,
+    _get_headers,
     _parse_next_url,
     get_rows,
     gitlab_source,
@@ -68,6 +70,15 @@ class TestNormalizeHost:
     )
     def test_normalize_host(self, raw, expected):
         assert normalize_host(raw) == expected
+
+
+class TestGetHeaders:
+    def test_uses_authorization_bearer_not_private_token(self):
+        # The token must ride the `Authorization` header so the tracked transport's sample scrubber
+        # redacts it; `PRIVATE-TOKEN` is not on the scrubber's denylist and would leak the token.
+        headers = _get_headers("glpat-secret")
+        assert headers["Authorization"] == "Bearer glpat-secret"
+        assert "PRIVATE-TOKEN" not in headers
 
 
 class TestEncodeProject:
@@ -223,21 +234,22 @@ class TestValidateCredentials:
             session.get.return_value = response
         return mock.patch.object(gitlab_module, "make_tracked_session", return_value=session)
 
-    def test_success(self):
-        with self._patch_session(_response(status_code=200)):
-            assert validate_credentials("https://gitlab.com", "tok", "group/project") == (True, None)
-
-    def test_invalid_token(self):
-        with self._patch_session(_response(status_code=401)):
+    @pytest.mark.parametrize(
+        "status_code, expected_valid, expected_msg_substr",
+        [
+            (200, True, None),
+            (401, False, "Invalid GitLab personal access token"),
+            (404, False, "not found"),
+        ],
+    )
+    def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
+        with self._patch_session(_response(status_code=status_code)):
             valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
-            assert valid is False
-            assert msg == "Invalid GitLab personal access token"
-
-    def test_project_not_found(self):
-        with self._patch_session(_response(status_code=404)):
-            valid, msg = validate_credentials("https://gitlab.com", "tok", "group/project")
-            assert valid is False
-            assert "not found" in (msg or "")
+            assert valid is expected_valid
+            if expected_msg_substr is None:
+                assert msg is None
+            else:
+                assert expected_msg_substr in (msg or "")
 
     @pytest.mark.parametrize(
         "host, token, project, expected_msg",
@@ -407,8 +419,20 @@ class TestGetRows:
     def test_does_not_follow_redirects(self):
         manager = mock.MagicMock()
         manager.can_resume.return_value = False
-        with pytest.raises(gitlab_module.GitLabHostNotAllowedError):
+        with pytest.raises(gitlab_module.GitLabHostNotAllowedError) as exc:
             self._run(manager, [_response(status_code=302)])
+        # Message carries the non-retryable marker so the workflow fails fast on SSRF/redirect.
+        assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
+
+    def test_unsafe_host_error_is_marked_non_retryable(self):
+        manager = mock.MagicMock()
+        manager.can_resume.return_value = False
+        with (
+            mock.patch.object(gitlab_module, "_is_host_safe", return_value=(False, "internal address")),
+            pytest.raises(gitlab_module.GitLabHostNotAllowedError) as exc,
+        ):
+            self._run(manager, [_response(json_data=[{"id": 1}])])
+        assert HOST_NOT_ALLOWED_ERROR in str(exc.value)
 
     def test_passes_allow_redirects_false(self):
         manager = mock.MagicMock()

@@ -70,8 +70,11 @@ def _encode_project(project: str) -> str:
 
 
 def _get_headers(personal_access_token: str) -> dict[str, str]:
+    # GitLab accepts a personal access token as a bearer token. We use `Authorization` rather than
+    # `PRIVATE-TOKEN` so the token is redacted by the tracked transport's sample scrubber, which
+    # masks `authorization` by name but not `private-token`.
     return {
-        "PRIVATE-TOKEN": personal_access_token,
+        "Authorization": f"Bearer {personal_access_token}",
         "Accept": "application/json",
     }
 
@@ -243,7 +246,9 @@ def get_rows(
     # to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
     host_ok, host_err = _is_host_safe(_host_only(host), team_id)
     if not host_ok:
-        raise GitLabHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
+        # Prefix with HOST_NOT_ALLOWED_ERROR so get_non_retryable_errors() matches and the workflow
+        # fails fast instead of retrying an SSRF/host failure (_is_host_safe returns its own message).
+        raise GitLabHostNotAllowedError(f"{HOST_NOT_ALLOWED_ERROR}: {host_err}" if host_err else HOST_NOT_ALLOWED_ERROR)
 
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -280,7 +285,8 @@ def get_rows(
 
         if response.is_redirect or response.is_permanent_redirect:
             raise GitLabHostNotAllowedError(
-                f"GitLab API returned an unexpected redirect (status={response.status_code}); refusing to follow it"
+                f"{HOST_NOT_ALLOWED_ERROR}: GitLab API returned an unexpected redirect "
+                f"(status={response.status_code}); refusing to follow it"
             )
 
         if not response.ok:
