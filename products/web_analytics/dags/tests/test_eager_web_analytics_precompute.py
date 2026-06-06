@@ -216,6 +216,16 @@ class TestEagerBaselineLogging(APIBaseTest):
         assert start[0]["teams"] == 1
         assert start[0]["gate_reason"] == "ok"
 
+        # Per-tile lifecycle: one start + one done line per tile, so the full
+        # matrix is followable in the Dagster UI / Loki.
+        tile_start = self._events(cap_logs, "eager_baseline_warming_tile_start")
+        assert len(tile_start) == _QUERIES_PER_TEAM
+        assert {t["tile"] for t in tile_start} == set(range(1, _QUERIES_PER_TEAM + 1))
+
+        tile_done = self._events(cap_logs, "eager_baseline_warming_tile_done")
+        assert len(tile_done) == _QUERIES_PER_TEAM
+        assert all(t["status"] == "warmed" and "duration_ms" in t for t in tile_done)
+
         team_logs = self._events(cap_logs, "eager_baseline_warming_team")
         assert len(team_logs) == 1
         assert team_logs[0]["team_id"] == self.team.pk
@@ -248,6 +258,11 @@ class TestEagerBaselineLogging(APIBaseTest):
         assert len(failed) == _QUERIES_PER_TEAM
         assert all(f["error_type"] == "RuntimeError" for f in failed)
         assert all(f["team_id"] == self.team.pk for f in failed)
+        assert all(f["status"] == "failed" and "duration_ms" in f for f in failed)
+
+        # Every tile still emits a start even when its query fails.
+        assert len(self._events(cap_logs, "eager_baseline_warming_tile_start")) == _QUERIES_PER_TEAM
+        assert self._events(cap_logs, "eager_baseline_warming_tile_done") == []
 
 
 class TestJobConfiguration:
