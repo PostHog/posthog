@@ -39,7 +39,15 @@ class Gateway(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     slug = models.CharField(max_length=64, validators=[validate_gateway_slug])
     is_default = models.BooleanField(default=False)
 
+    # `objects` (fail-closed TeamScopedManager) comes from TeamScopedRootMixin and is
+    # what app code reaches for. Django framework internals (admin form widgets, the
+    # reverse O2O accessors on PersonalAPIKey/OAuthApplication, prefetch_related, DRF
+    # default querysets) read through `_default_manager`, which must not fail closed —
+    # point it at this unscoped sibling, mirroring ProductTeamModel.
+    all_teams = models.Manager()  # noqa: DJ012 — both are managers, ruff misclassifies this
+
     class Meta:
+        default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "slug"], name="unique_gateway_slug_per_team"),
             models.UniqueConstraint(

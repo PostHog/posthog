@@ -109,6 +109,18 @@ class OAuthApplication(AbstractApplication):
         help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
     )
 
+    # The first-party gateway this app's tokens are bound to. Bound on the
+    # application, not the access token, so it survives token rotation; the
+    # gateway's slug is the $ai_gateway_slug attribution value for its pha_ tokens.
+    # A gateway can have many applications/keys.
+    gateway = models.ForeignKey(
+        "posthog.Gateway",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="oauth_applications",
+    )
+
     # CIMD (Client ID Metadata Document) fields — draft-ietf-oauth-client-id-metadata-document-00
     is_cimd_client: models.BooleanField = models.BooleanField(
         default=False,
