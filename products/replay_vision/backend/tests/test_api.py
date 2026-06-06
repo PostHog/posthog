@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -542,6 +543,21 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(self.observations_url(str(self.scanner.id)))
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), 2)
+
+    @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
+    @patch("products.replay_vision.backend.api.observations.stream_observation_progress")
+    def test_progress_endpoint_accepts_event_stream_accept_header(self, mock_stream: MagicMock) -> None:
+        # The SSE client sends `Accept: text/event-stream`; without ServerSentEventRenderer on the action,
+        # DRF content negotiation rejects it with 406 before the view runs, so no progress ever reaches the
+        # page and it falls back to polling. Guard that the negotiated stream stays reachable.
+        mock_stream.return_value = iter(["event: observation-complete\ndata: {}\n\n"])
+        obs = self._create_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        url = f"/api/projects/{self.team.id}/vision/observations/{obs.id}/progress/"
+        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        # A 406 here would mean content negotiation rejected the SSE Accept header before the view ran.
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["content-type"], "text/event-stream")
+        mock_stream.assert_called_once()
 
     def test_malformed_scanner_id_returns_404(self) -> None:
         resp = self.client.get(self.observations_url("not-a-uuid"))
