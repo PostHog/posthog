@@ -4,7 +4,7 @@ from posthog.dags.common.owners import JobOwners
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
+from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 
@@ -15,6 +15,23 @@ class AuthorizedUrlsCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "15 8 * * *"
     active_since_days = 30
+    remediation = Remediation(
+        human="""
+            Go to Project settings → Authorized URLs (also reachable from the Web analytics health page)
+            and add each domain you run on, including staging and any subdomains (for example
+            https://example.com and https://app.example.com). Wildcards are supported for dynamic
+            subdomains.
+        """,
+        agent="""
+            This is a PostHog project setting (the team's `app_urls`), not a codebase change — and you can
+            fix it directly. Use `execute-sql` on recent $pageview events' `properties.$host` /
+            `properties.$current_url` to list the domains the project actually sends events from
+            (`SELECT properties.$host, count() FROM events WHERE event = '$pageview' AND timestamp > now()
+            - INTERVAL 7 DAY GROUP BY 1 ORDER BY 2 DESC`). Then call `project-get` to read the current
+            settings and `project-settings-update` to set `app_urls` to those domains (append, don't
+            clobber existing entries). The issue resolves once at least one authorized URL is set.
+        """,
+    )
 
     @classmethod
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
