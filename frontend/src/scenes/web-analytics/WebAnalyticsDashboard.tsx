@@ -671,8 +671,6 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
 
     return (
         <>
@@ -681,7 +679,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
-            {showLiveTiles && <LiveBotTiles />}
+            <LiveBotTiles />
             <Tiles tiles={tiles} />
         </>
     )
@@ -712,11 +710,7 @@ const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] =>
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
-        return []
-    }
-
+const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.LIVE,
@@ -857,7 +851,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
-                ...liveTab(featureFlags),
+                ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
                 ...healthTab(),
             ]}
