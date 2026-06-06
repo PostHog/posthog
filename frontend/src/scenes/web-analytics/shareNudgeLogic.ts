@@ -59,7 +59,10 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                 return hasColleagues && typeof flag === 'string' ? flag : null
             },
         ],
-        showBanner: [(s) => [s.variant], (variant): boolean => variant === 'banner'],
+        showBanner: [
+            (s) => [s.variant, s.sessionDismissed],
+            (variant, sessionDismissed): boolean => variant === 'banner' && !sessionDismissed,
+        ],
         emphasizeShareButton: [(s) => [s.variant], (variant): boolean => variant === 'button'],
         intentPromptEnabled: [(s) => [s.variant], (variant): boolean => variant === 'prompt'],
     }),
@@ -101,12 +104,10 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                     actions.showPrompt({ x: rect.left, y: rect.bottom })
                 }
 
-                const onMouseOver = (event: MouseEvent): void => {
-                    if (!shouldTrigger()) {
-                        return
-                    }
+                const onMouseMove = (event: MouseEvent): void => {
                     const target = event.target as HTMLElement | null
-                    if (!target?.closest?.(DASHBOARD_SELECTOR)) {
+                    if (!shouldTrigger() || !target?.closest?.(DASHBOARD_SELECTOR)) {
+                        cache.disposables.dispose('shareNudgeHoverDwell')
                         return
                     }
                     const x = event.clientX
@@ -122,10 +123,10 @@ export const shareNudgeLogic = kea<shareNudgeLogicType>([
                 }
 
                 document.addEventListener('mouseup', onMouseUp)
-                document.addEventListener('mouseover', onMouseOver)
+                document.addEventListener('mousemove', onMouseMove)
                 return () => {
                     document.removeEventListener('mouseup', onMouseUp)
-                    document.removeEventListener('mouseover', onMouseOver)
+                    document.removeEventListener('mousemove', onMouseMove)
                     cache.disposables.dispose('shareNudgeHoverDwell')
                 }
             }, 'shareNudgeIntentListeners')
