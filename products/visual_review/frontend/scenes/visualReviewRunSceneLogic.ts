@@ -65,6 +65,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
         markThumbnailFailed: (identifier: string) => ({ identifier }),
+        toggleQuarantinedThumbnails: true,
     }),
     reducers({
         selectedSnapshotId: [
@@ -107,6 +108,12 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 },
             },
         ],
+        showQuarantinedThumbnails: [
+            false,
+            {
+                toggleQuarantinedThumbnails: (state) => !state,
+            },
+        ],
     }),
     loaders(({ props, values }) => ({
         run: [
@@ -123,6 +130,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 loadSnapshots: async () => {
                     const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
                         limit: 10000,
+                        include_quarantined: true,
                     })
                     return response.results
                 },

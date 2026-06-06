@@ -402,14 +402,26 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
     return _to_run(run, user_basic_infos)
 
 
-def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[contracts.Snapshot]:
+def get_run_snapshots(
+    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+) -> contracts.RunSnapshots:
     snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
-        return []
+        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
     repo_id = snapshots[0].run.repo_id
+    run_type = snapshots[0].run.run_type
+    quarantined_identifiers = (
+        {q.identifier for q in logic.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
+        if team_id is not None
+        else set()
+    )
     user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    return [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
+    dtos = [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
+    quarantined_count = sum(1 for d in dtos if d.identifier in quarantined_identifiers)
+    if not include_quarantined:
+        dtos = [d for d in dtos if d.identifier not in quarantined_identifiers]
+    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
 def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[contracts.SnapshotHistoryEntry]:
