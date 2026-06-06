@@ -150,6 +150,7 @@ function QuarantinedThumbnailsToggle({
         <button
             type="button"
             onClick={onClick}
+            aria-expanded={isExpanded}
             data-attr="visual-review-toggle-quarantined-thumbnails"
             className="flex flex-col items-center justify-center shrink-0 rounded p-1.5 w-[100px] h-full text-warning-dark border border-dashed border-warning hover:bg-warning/10 transition-colors"
         >

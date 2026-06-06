@@ -403,7 +403,7 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
 
 
 def get_run_snapshots(
-    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+    run_id: UUID, team_id: int | None = None, include_quarantined: bool = False
 ) -> contracts.RunSnapshots:
     snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
