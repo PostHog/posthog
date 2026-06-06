@@ -71,6 +71,22 @@ def reproject_user_first_party_policies_task(user_id: int) -> None:
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
+@skip_team_scope_audit
+def reproject_gateway_first_party_policies_task(gateway_id: str) -> None:
+    """Re-project every credential bound to a gateway after its slug changed."""
+    for pak in PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
+        gateway_id=gateway_id, scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE]
+    ):
+        project_first_party_policy(pak)
+    for token in OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
+        application__gateway_id=gateway_id,
+        scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
+        application_id__isnull=False,
+    ):
+        project_first_party_policy(token)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
 def refresh_first_party_gateway_policies() -> None:
     """Hourly: re-project every credential granted llm_gateway:read so the cache
     stays warm. This only refreshes still-eligible credentials, so it heals missed

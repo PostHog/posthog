@@ -338,18 +338,18 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
     @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
     @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
     @patch("posthog.storage.first_party_gateway_policy_signal_handlers.reproject_user_first_party_policies_task.delay")
-    def test_user_team_change_reprojects(self, mock_delay, mock_settings, mock_transaction):
+    def test_user_team_change_does_not_reproject(self, mock_delay, mock_settings, mock_transaction):
+        # team_id comes from the bound gateway now, so a current-team switch
+        # doesn't affect any blob — no reprojection.
         mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
         mock_transaction.on_commit.side_effect = lambda fn: fn()
 
         other_team = Team.objects.create(organization=self.organization, name="Other team")
-        # Re-fetch so post_init snapshots current_team_id under the patched setting
-        # (the BaseTest-loaded self.user was snapshotted with the URL unset).
         user = User.objects.get(pk=self.user.pk)
         user.current_team = other_team
         user.save()
 
-        mock_delay.assert_called_with(user.pk)
+        mock_delay.assert_not_called()
 
     @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
     def test_pak_delete_clears_cache(self, mock_settings):
@@ -406,3 +406,33 @@ class TestFirstPartyPolicySignals(FirstPartyPolicyTestMixin):
         deferred.save()
 
         self.assertIsNone(self._read_blob(old_hash))
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    @patch(
+        "posthog.storage.first_party_gateway_policy_signal_handlers.reproject_gateway_first_party_policies_task.delay"
+    )
+    def test_gateway_slug_change_reprojects(self, mock_delay, mock_settings, mock_transaction):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        gateway = Gateway.all_teams.create(team=self.team, slug="wizard")
+        reloaded = Gateway.all_teams.get(pk=gateway.pk)  # snapshot old slug under patched setting
+        reloaded.slug = "wizard_v2"
+        reloaded.save()
+
+        mock_delay.assert_called_with(str(gateway.pk))
+
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.transaction")
+    @patch("posthog.storage.first_party_gateway_policy_signal_handlers.settings")
+    def test_gateway_delete_clears_bound_credential_blobs(self, mock_settings, mock_transaction):
+        mock_settings.AI_GATEWAY_REDIS_URL = "redis://localhost"
+        mock_transaction.on_commit.side_effect = lambda fn: fn()
+
+        pak, _ = self._make_pak([GATEWAY_SCOPE])
+        project_first_party_policy(pak)
+        cache_hash = credential_hash(pak)
+        assert self._read_blob(cache_hash) is not None
+
+        self.gateway.delete()
+        self.assertIsNone(self._read_blob(cache_hash))

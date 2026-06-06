@@ -30,6 +30,7 @@ from django.db.models.signals import post_init, post_save, pre_delete, pre_save
 
 import structlog
 
+from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -41,6 +42,7 @@ from posthog.storage.first_party_gateway_policy_cache import (
 )
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.first_party_gateway_policy import (
+    reproject_gateway_first_party_policies_task,
     reproject_user_first_party_policies_task,
     update_first_party_policy_cache_task,
 )
@@ -51,8 +53,8 @@ _NAMESPACE = "first_party_gateway_policy"
 
 _LOADED_HASH_ATTR = "_fp_loaded_hash"
 _LOADED_ELIGIBLE_ATTR = "_fp_loaded_eligible"
-_LOADED_CURRENT_TEAM_ATTR = "_fp_loaded_current_team_id"
 _LOADED_IS_ACTIVE_ATTR = "_fp_loaded_is_active"
+_LOADED_GATEWAY_SLUG_ATTR = "_fp_loaded_gateway_slug"
 
 _PAK_KIND = "personal_api_key"
 _OAUTH_KIND = "oauth_access_token"
@@ -89,10 +91,7 @@ def _snapshot_oauth(sender: type[OAuthAccessToken], instance: OAuthAccessToken, 
 def _snapshot_user(sender: type[User], instance: User, **kwargs: Any) -> None:
     if not settings.AI_GATEWAY_REDIS_URL:
         return
-    deferred = instance.get_deferred_fields()
-    if "current_team_id" not in deferred:
-        instance.__dict__[_LOADED_CURRENT_TEAM_ATTR] = instance.current_team_id
-    if "is_active" not in deferred:
+    if "is_active" not in instance.get_deferred_fields():
         instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
 
 
@@ -187,24 +186,71 @@ def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccess
 
 
 def _reproject_user_on_save(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
-    # A credential row doesn't change when the user switches default team or is
-    # deactivated, so reproject on either. A team change re-points
-    # team_id/project_token; deactivation makes _policy_for_credential return
-    # Missing, so the same task clears the blobs (and reactivation re-grants).
+    # team_id now comes from the bound gateway, not the user's current team, so a
+    # team switch no longer affects the blob. Deactivation still must clear it:
+    # _policy_for_credential returns Missing for an inactive user (reactivation
+    # re-grants), and the credential row itself doesn't change on is_active flips.
     if not settings.AI_GATEWAY_REDIS_URL or created:
         return
-    old_team_id = instance.__dict__.get(_LOADED_CURRENT_TEAM_ATTR)
     old_is_active = instance.__dict__.get(_LOADED_IS_ACTIVE_ATTR)
-    instance.__dict__[_LOADED_CURRENT_TEAM_ATTR] = instance.current_team_id
     instance.__dict__[_LOADED_IS_ACTIVE_ATTR] = instance.is_active
-
-    team_changed = old_team_id is not None and old_team_id != instance.current_team_id
-    active_changed = old_is_active is not None and old_is_active != instance.is_active
-    if not (team_changed or active_changed):
+    if old_is_active is None or old_is_active == instance.is_active:
         return
 
     user_id = instance.pk
     transaction.on_commit(lambda: reproject_user_first_party_policies_task.delay(user_id))
+
+
+def _snapshot_gateway(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    if "slug" not in instance.get_deferred_fields():
+        instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = instance.slug
+
+
+def _reproject_gateway_on_save(sender: type[Gateway], instance: Gateway, created: bool, **kwargs: Any) -> None:
+    # The slug is the attribution value; on change, re-project every bound
+    # credential so its blob carries the new slug. Binding/unbinding a credential
+    # fires that credential's own save signal, so it's covered elsewhere.
+    if not settings.AI_GATEWAY_REDIS_URL or created:
+        return
+    old_slug = instance.__dict__.get(_LOADED_GATEWAY_SLUG_ATTR)
+    instance.__dict__[_LOADED_GATEWAY_SLUG_ATTR] = instance.slug
+    if old_slug is None or old_slug == instance.slug:
+        return
+
+    gateway_id = str(instance.pk)
+    transaction.on_commit(lambda: reproject_gateway_first_party_policies_task.delay(gateway_id))
+
+
+def _bound_credential_hashes(gateway_id: object) -> list[str]:
+    """Cache-key hashes of the gateway-scoped credentials bound to a gateway."""
+    hashes = [
+        secure_value
+        for secure_value in PersonalAPIKey.objects.filter(
+            gateway_id=gateway_id, scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE]
+        ).values_list("secure_value", flat=True)
+        if secure_value
+    ]
+    hashes += [
+        f"{SHA256_HASH_PREFIX}{checksum}"
+        for checksum in OAuthAccessToken.objects.filter(
+            application__gateway_id=gateway_id, scope__iregex=r"(^|\s)llm_gateway:read(\s|$)"
+        ).values_list("token_checksum", flat=True)
+        if checksum
+    ]
+    return hashes
+
+
+def _clear_gateway_on_delete(sender: type[Gateway], instance: Gateway, **kwargs: Any) -> None:
+    # gateway FK is SET_NULL, so after delete the bound credentials are unbound and
+    # would fail closed anyway — clear their blobs now, while the hashes are still
+    # reachable through the binding.
+    if not settings.AI_GATEWAY_REDIS_URL:
+        return
+    hashes = _bound_credential_hashes(instance.pk)
+    if hashes:
+        transaction.on_commit(lambda: [clear_first_party_policy(h) for h in hashes])
 
 
 def connect_signal_handlers() -> None:
@@ -220,3 +266,7 @@ def connect_signal_handlers() -> None:
 
     post_init.connect(_snapshot_user, sender=User)
     post_save.connect(_reproject_user_on_save, sender=User)
+
+    post_init.connect(_snapshot_gateway, sender=Gateway)
+    post_save.connect(_reproject_gateway_on_save, sender=Gateway)
+    pre_delete.connect(_clear_gateway_on_delete, sender=Gateway)
