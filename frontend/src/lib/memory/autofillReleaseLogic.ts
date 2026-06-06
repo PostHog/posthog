@@ -46,6 +46,10 @@ export const autofillReleaseLogic = kea<autofillReleaseLogicType>([
         // hidden — pauseOnPageHidden would tear it down and recreate it on show
         cache.disposables.add(
             () => {
+                // evict any sink left behind by a previous instance whose
+                // cleanup was missed (e.g. an HMR module swap), so we never
+                // append a second element with the same id
+                document.getElementById(SINK_ID)?.remove()
                 const sink = document.createElement('input')
                 sink.id = SINK_ID
                 sink.type = 'text'

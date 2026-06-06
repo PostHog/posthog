@@ -21,9 +21,20 @@ describe('autofillReleaseLogic', () => {
     })
 
     it('mounts a sink input and removes it on unmount', () => {
-        expect(document.querySelector(SINK_SELECTOR)).not.toBeNull()
+        expect(document.querySelectorAll(SINK_SELECTOR)).toHaveLength(1)
         logic.unmount()
         expect(document.querySelector(SINK_SELECTOR)).toBeNull()
+    })
+
+    it('evicts a stale sink left by a previous instance instead of duplicating it', () => {
+        logic.unmount()
+        const orphan = document.createElement('input')
+        orphan.id = 'autofill-release-sink'
+        document.body.appendChild(orphan)
+
+        logic.mount()
+
+        expect(document.querySelectorAll(SINK_SELECTOR)).toHaveLength(1)
     })
 
     it.each([
