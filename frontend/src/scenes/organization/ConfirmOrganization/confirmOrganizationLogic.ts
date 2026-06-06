@@ -41,7 +41,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
         ],
     }),
 
-    forms(() => ({
+    forms(({ values }) => ({
         confirmOrganization: {
             defaults: {} as ConfirmOrganizationFormValues,
             errors: ({ organization_name, first_name }) => ({
@@ -55,11 +55,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
                         ...formValues,
                     })
                     .then(() => {
-                        const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
-
-                        // this url is validated in getRelativeNextPath as either being relative or on the same origin
+                        // `next` is already sanitized to a same-origin relative path by getRelativeNextPath in urlToAction
                         // nosemgrep: javascript.browser.security.open-redirect.js-open-redirect
-                        location.href = nextUrl || '/'
+                        location.href = values.next || '/'
                     })
                     .catch((error: any) => {
                         console.error('error', error)
