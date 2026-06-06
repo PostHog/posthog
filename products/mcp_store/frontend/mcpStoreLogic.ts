@@ -18,6 +18,29 @@ export type ToolApprovalState = 'approved' | 'needs_approval' | 'do_not_use'
 
 export type McpSceneView = 'marketplace' | 'detail'
 
+/**
+ * Servers PostHog Code injects into every agent session automatically (see
+ * `get_sandbox_ph_mcp_configs` in products/tasks). They are not user
+ * installations — there is no DB row, and nothing to connect, enable, or
+ * remove — so we surface them as read-only synthetic cards in the Installed
+ * list to reflect that they're always on.
+ */
+export interface BuiltinServer {
+    id: string
+    name: string
+    description: string
+    icon_key: string
+}
+
+export const BUILTIN_SERVERS: BuiltinServer[] = [
+    {
+        id: 'builtin:posthog',
+        name: 'PostHog',
+        description: 'Query analytics, insights, flags, experiments, and more. Always on in every session.',
+        icon_key: 'posthog',
+    },
+]
+
 export interface CustomServerFormValues {
     name: string
     url: string
@@ -312,6 +335,19 @@ export const mcpStoreLogic = kea<mcpStoreLogicType>([
                     (installation) =>
                         installation.name.toLowerCase().includes(q) ||
                         (installation.description ?? '').toLowerCase().includes(q)
+                )
+            },
+        ],
+        filteredBuiltinServers: [
+            (s) => [s.searchQuery],
+            (searchQuery: string): BuiltinServer[] => {
+                const q = searchQuery.trim().toLowerCase()
+                if (!q) {
+                    return BUILTIN_SERVERS
+                }
+                return BUILTIN_SERVERS.filter(
+                    (server) =>
+                        server.name.toLowerCase().includes(q) || server.description.toLowerCase().includes(q)
                 )
             },
         ],

@@ -1,5 +1,6 @@
 import { IconServer } from '@posthog/icons'
 
+import IconPostHogService from 'public/posthog-icon.svg'
 import IconAirOpsService from 'public/services/airops.png'
 import IconAtlassianService from 'public/services/atlassian.svg'
 import IconAttioService from 'public/services/attio.png'
@@ -65,6 +66,7 @@ const SERVER_ICONS: Record<string, string> = {
     notion: IconNotionService,
     pagerduty: IconPagerDutyService,
     planetscale: IconPlanetScaleService,
+    posthog: IconPostHogService,
     postman: IconPostmanService,
     prisma: IconPrismaService,
     render: IconRenderService,
