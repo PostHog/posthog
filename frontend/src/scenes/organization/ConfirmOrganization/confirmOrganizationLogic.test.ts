@@ -35,25 +35,19 @@ describe('confirmOrganizationLogic', () => {
                 })
         })
 
-        it('captures a relative next path so users can log in with another account', async () => {
+        it.each([
+            ['preserves a relative path', '/project/177329/replay/home', '/project/177329/replay/home'],
+            ['rejects an absolute off-origin URL', 'https://evil.com/steal', null],
+            ['rejects a protocol-relative URL', '//evil.com/steal', null],
+            ['falls back to null when next is absent', undefined, null],
+        ])('next handling: %s', async (_label, next, expected) => {
             router.actions.push('/organization/confirm-creation', {
                 email: 'spike@spike.com',
-                next: '/project/177329/replay/home',
+                ...(next !== undefined ? { next } : {}),
             })
 
             await expectLogic(logic).toDispatchActions(['setNext']).toMatchValues({
-                next: '/project/177329/replay/home',
-            })
-        })
-
-        it('rejects an absolute next path pointing at another origin', async () => {
-            router.actions.push('/organization/confirm-creation', {
-                email: 'spike@spike.com',
-                next: 'https://evil.com/steal',
-            })
-
-            await expectLogic(logic).toDispatchActions(['setNext']).toMatchValues({
-                next: null,
+                next: expected,
             })
         })
     })
