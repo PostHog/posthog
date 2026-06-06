@@ -14,7 +14,7 @@ import {
     selectors,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { type IRange, Uri, editor } from 'monaco-editor'
 import posthog from 'posthog-js'
@@ -27,9 +27,8 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { objectsEqual, slugify } from 'lib/utils'
@@ -2089,7 +2088,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         syncUrlWithQuery: () => {
             if (values.isEmbeddedMode) {
                 return
@@ -2109,7 +2108,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene)) {
                 return

@@ -6,7 +6,7 @@ description: >
   (signals-scout-llm-analytics, -logs, -error-tracking, -revenue-analytics, -surveys,
   -observability-gaps, -csp-violations) cover individual product surfaces; this
   scout looks for cross-product correlations and explores what specialists don't
-  cover. Each scout runs on its own schedule (default daily), so general fires
+  cover. Each scout runs on its own schedule (default hourly), so general fires
   independently of the specialists over time.
 compatibility: >
   Runs as the PostHog Signals scout in a Claude sandbox with PostHog MCP scopes: signal_scout:read + signal_scout_internal:write (for

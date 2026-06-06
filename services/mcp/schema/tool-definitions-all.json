@@ -263,7 +263,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds. For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nNote: subscribed_users only controls email recipients. For Slack or HTTPS webhook delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -319,7 +319,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection, or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -333,7 +333,7 @@
         }
     },
     "alerts-list": {
-        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID via query parameter. Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
+        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold or detector configuration, timing information, and firing check history. Supports filtering by insight ID (`insight_id`), fuzzy name search (`search`), and creator (`created_by` user UUID). Alerts can use either threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "List alerts",
@@ -467,6 +467,21 @@
         "feature": "tracing",
         "summary": "Aggregate span statistics",
         "title": "Aggregate span statistics",
+        "required_scopes": ["tracing:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "tracing"
+    },
+    "apm-spans-count": {
+        "description": "Return a scalar count of trace spans matching a filter set. Use this as a cheap pre-flight before `query-apm-spans` — if the count is large, narrow the filters (or set `excludeAttributes`) before pulling rows.\n\nAll parameters must be nested inside a `query` object.\n\n# When to use\n\n- Before `query-apm-spans`, to confirm the filter set returns a tractable number of spans rather than pulling rows blind.\n- When the user asks \"how many X spans are there?\" and you don't need to see individual spans.\n- To check whether a filter combination matches anything at all before committing to a full query.\n\nThis counts **spans**, not traces. A single trace contains many spans, so a count of matching spans will exceed the number of matching traces.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.dateRange\n\nDate range for the count. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nFilter by service names. Unlike `query-apm-spans`, an unfiltered count is cheap and useful for sizing up a filter before narrowing. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by HTTP status codes (list of integers).\n\n## query.filterGroup\n\nProperty filters to narrow the count. Same format as `query-apm-spans` filters — each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`.\n\n# Examples\n\n## Count error spans in a service over the last day\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"statusCodes\": [500, 503],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Count how many spans match a name before fetching them\n\n```json\n{\n  \"query\": {\n    \"filterGroup\": [{ \"key\": \"name\", \"operator\": \"exact\", \"type\": \"span\", \"value\": \"redis_cluster.discovery\" }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```",
+        "category": "Tracing",
+        "feature": "tracing",
+        "summary": "Count spans",
+        "title": "Count spans",
         "required_scopes": ["tracing:read"],
         "annotations": {
             "destructiveHint": false,
@@ -4179,6 +4194,111 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "marketing-analytics-conversion-goals": {
+        "description": "List the configured marketing conversion goals for the current project. Each goal returns its kind (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count may differ from the dashboard's attribution-windowed number.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "List conversion goals",
+        "title": "List conversion goals",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-data-sources": {
+        "description": "List the platform-side health of every native marketing integration: connected/not, last sync time and status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "List marketing data sources health",
+        "title": "List marketing data sources health",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-diagnose": {
+        "description": "READ-ONLY end-to-end diagnostic of Marketing analytics for the current project. Returns per-integration overall_status (healthy / sync_broken / events_broken / events_unmatched / events_only / schema_misconfigured / not_connected), sync state, attribution state (UTM-tagged events arriving, matched vs likely-yours-but-unmatched), conversion goals with last-30d performance and misconfig flags, and recommended next actions each pointing to the right follow-up tool. USE THIS TOOL FIRST whenever the user asks why marketing analytics looks wrong, missing, or broken. Do NOT speculate about causes before calling this tool.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Diagnose marketing analytics setup",
+        "title": "Diagnose marketing analytics setup",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-explain-conversion-goal": {
+        "description": "Break down the events that COUNT toward a conversion goal by their own utm_source, utm_campaign, and matched integration. Returns recent sample events for inspection. This is a flat per-event breakdown of the conversion events themselves — NOT an analysis of the user's prior journey, and NOT the dashboard's attribution calculation (first-touch / last-touch / multi-touch weighting is applied by the dashboard, not here). Use when the user asks \"what utm_sources are behind my N conversions?\" or \"where do these conversions come from?\". Only EventsNode and ActionsNode goals are explained at the event level; DataWarehouseNode goals short-circuit with a note.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Explain a conversion goal",
+        "title": "Explain a conversion goal",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-suggest-conversion-goals": {
+        "description": "Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag coverage, and uniqueness of users. Excludes autocapture / system events and events that are already configured as goals.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Suggest conversion goal candidates",
+        "title": "Suggest conversion goal candidates",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-suggest-utm-mappings": {
+        "description": "USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source mappings, custom_source_mappings, unmatched / non-integrated UTM values, or the question \"what utm_sources do I have and which ad platform do they belong to?\". Returns full_utm_source_catalogue (every utm_source value seen on events in the window, matched + unmatched, with event count and the integration it resolves to), source_suggestions (mapping recommendations where a value's token matches a known alias, e.g. raw facebook_paid → MetaAds), raw_unmatched_samples (every unmatched value, including likely-not-an-ad values like organic/newsletter/partner), and current_mappings (every alias already in effect — canonical + team_custom — so duplicates aren't suggested). Read-only — applying mappings is a separate write tool.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Suggest utm_source → integration mappings",
+        "title": "Suggest utm_source → integration mappings",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
+    },
+    "marketing-analytics-utm-audit": {
+        "description": "Audit the UTM tagging quality of recent events: campaigns with issues, mismatched utm_source vs configured integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events appear in 'non-integrated', or why UTMs are not matching the ad platform data.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Audit UTM tagging quality",
+        "title": "Audit UTM tagging quality",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-mcp"
     },
     "notebook-edit": {
         "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",

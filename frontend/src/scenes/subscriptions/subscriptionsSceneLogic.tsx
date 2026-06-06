@@ -1,14 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from '@posthog/lemon-ui'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
 import { toggleSubscriptionEnabled } from 'lib/components/Subscriptions/toggleSubscriptionEnabled'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -396,7 +395,7 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
         },
         setSubscriptionEnabledSuccess: () => actions.loadSubscriptions(),
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const syncUrl = (
             replace: boolean
         ): [string, Record<string, any>, Record<string, unknown> | undefined, { replace: boolean }] | undefined => {
@@ -425,7 +424,7 @@ export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
             setCurrentTab: () => syncUrl(false),
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.subscriptions()]: (_, searchParams) => {
             const parsed = parseSubscriptionsSearchParams(searchParams)
             const listState = {
