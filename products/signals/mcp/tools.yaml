@@ -179,22 +179,6 @@ tools:
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`. Enabling the
             session_analysis_cluster source requires the organization to have approved AI data processing.
-    signals-scout-config-list:
-        operation: signals_scout_config_list
-        enabled: true
-        scopes:
-            - signal_scout:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List scout configs
-        description: >
-            List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
-            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
-            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
-            them.
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -211,6 +195,22 @@ tools:
             the inbox), `run_interval_minutes` (10–43200), and `enabled` at authoring time, without waiting for the
             coordinator to materialize the row on its next tick. The skill must already exist on this project — author
             it first. Omitted posture fields keep their defaults on create and are left untouched when the row exists.
+    signals-scout-config-list:
+        operation: signals_scout_config_list
+        enabled: true
+        scopes:
+            - signal_scout:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List scout configs
+        description: >
+            List the per-scout configs for this project — one row per `signals-scout-*` skill, each with its schedule
+            (`run_interval_minutes`), `enabled` flag, and `emit` (dry-run) posture. Use this to see which scouts run,
+            how often, and whether they emit findings to the inbox. Pair with `signals-scout-config-update` to tune
+            them.
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
