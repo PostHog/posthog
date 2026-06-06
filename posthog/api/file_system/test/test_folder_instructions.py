@@ -174,32 +174,32 @@ class TestDesktopFolderInstructionsAPI(APIBaseTest):
         folder_id = self._create_desktop_folder()
         key = self.create_personal_api_key_with_scopes(["file_system:write"])
         self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
-        headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
         url = self._instructions_url(folder_id)
 
-        get = self.client.get(url, **headers)
+        get = self.client.get(url)
         self.assertEqual(get.status_code, status.HTTP_200_OK, get.json())
 
-        patch = self.client.patch(url, {"content": "hello"}, content_type="application/json", **headers)
+        patch = self.client.patch(url, {"content": "hello"}, content_type="application/json")
         self.assertEqual(patch.status_code, status.HTTP_200_OK, patch.json())
         self.assertEqual(patch.json()["content"], "hello")
 
-        versions = self.client.get(url + "versions/", **headers)
+        versions = self.client.get(url + "versions/")
         self.assertEqual(versions.status_code, status.HTTP_200_OK, versions.json())
 
     def test_personal_api_key_with_read_only_scope_cannot_publish(self):
         folder_id = self._create_desktop_folder()
         key = self.create_personal_api_key_with_scopes(["file_system:read"])
         self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
-        headers = {"HTTP_AUTHORIZATION": f"Bearer {key}"}
         url = self._instructions_url(folder_id)
 
-        get = self.client.get(url, **headers)
+        get = self.client.get(url)
         self.assertEqual(get.status_code, status.HTTP_200_OK, get.json())
 
-        patch = self.client.patch(url, {"content": "hello"}, content_type="application/json", **headers)
+        patch = self.client.patch(url, {"content": "hello"}, content_type="application/json")
         self.assertEqual(patch.status_code, status.HTTP_403_FORBIDDEN, patch.json())
 
     def test_web_surface_has_no_instructions_action(self):
