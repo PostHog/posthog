@@ -11,10 +11,9 @@ export const SDK_DEFAULTS_DATE = '2026-05-30'
 
 // Native "the network request never completed" messages. They mean the browser
 // could not reach the server at all (offline, DNS, CORS, ad-blocker, connection
-// reset) — there is no stack to act on and no bug to fix. We deliberately keep
-// "Failed to fetch dynamically imported module …" (a real, fixable stale-chunk
-// error) out of this list.
-const NON_ACTIONABLE_NETWORK_MESSAGES = new Set([
+// reset). We deliberately keep "Failed to fetch dynamically imported module …"
+// (a real, fixable stale-chunk error) out of this list.
+const NETWORK_FAILURE_MESSAGES = new Set([
     'Failed to fetch', // Chrome
     'TypeError: Failed to fetch',
     'Load failed', // Safari
@@ -22,16 +21,28 @@ const NON_ACTIONABLE_NETWORK_MESSAGES = new Set([
     'NetworkError when attempting to fetch resource.', // Firefox
 ])
 
+// posthog-js's own internal background traffic — sending session recordings,
+// tracing headers, network capture. A network failure whose stack sits here is
+// the SDK failing to reach us, surfaced only because we enable
+// `error_tracking.__capturePostHogExceptions`. Note this only matches reliably
+// for the lazily-loaded recorder script; the rest of the SDK is bundled into our
+// own chunks and is indistinguishable from app code until server-side
+// symbolication, so a broader sweep belongs in an Error Tracking suppression
+// rule, not here.
+const POSTHOG_SDK_FRAME_RE = /(posthog-recorder\.js|\/recorder\.js|surveys\.js|exception-autocapture)/
+
 /**
- * Drop `$exception` events whose only error is a bare network failure.
+ * Drop `$exception` events that are purely posthog-js's own network-send
+ * failures.
  *
- * Because we enable `error_tracking.__capturePostHogExceptions`, posthog-js also
- * reports its own internal send failures (session recorder, tracing headers,
- * network capture). A single tab left open on a flaky connection can emit
- * thousands of these "Failed to fetch" events, which drown out real, actionable
- * exceptions in Error Tracking without telling us anything we can fix.
+ * We intentionally do NOT drop network failures coming from our application code
+ * (e.g. `lib/api.ts`): a "Failed to fetch" originating in the app can be a real,
+ * our-fault regression — a CORS/CSP misconfig, a removed endpoint, a bad deploy —
+ * and we want those visible. We only drop a network failure when every entry in
+ * the chain is both a bare network message AND attributable to a posthog-js SDK
+ * script, which a flaky/stuck tab can otherwise emit by the thousand.
  */
-const dropNonActionableNetworkExceptions: BeforeSendFn = (event) => {
+const dropSdkNetworkExceptions: BeforeSendFn = (event) => {
     if (!event || event.event !== '$exception') {
         return event
     }
@@ -39,10 +50,18 @@ const dropNonActionableNetworkExceptions: BeforeSendFn = (event) => {
     if (!Array.isArray(exceptionList) || exceptionList.length === 0) {
         return event
     }
-    const everyExceptionIsNetworkNoise = exceptionList.every((exception) =>
-        NON_ACTIONABLE_NETWORK_MESSAGES.has(String(exception?.value ?? '').trim())
-    )
-    return everyExceptionIsNetworkNoise ? null : event
+    const everyExceptionIsSdkNetworkNoise = exceptionList.every((exception) => {
+        if (!NETWORK_FAILURE_MESSAGES.has(String(exception?.value ?? '').trim())) {
+            return false
+        }
+        const frames = exception?.stacktrace?.frames
+        if (!Array.isArray(frames) || frames.length === 0) {
+            // No stack to attribute it to → keep it, to stay on the safe side.
+            return false
+        }
+        return frames.some((frame) => POSTHOG_SDK_FRAME_RE.test(String(frame?.source ?? frame?.filename ?? '')))
+    })
+    return everyExceptionIsSdkNetworkNoise ? null : event
 }
 
 const shouldDefer = (): boolean => {
@@ -92,7 +111,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             before_send: [
-                dropNonActionableNetworkExceptions,
+                dropSdkNetworkExceptions,
                 ...(Array.isArray(options.beforeSend)
                     ? options.beforeSend
                     : options.beforeSend
