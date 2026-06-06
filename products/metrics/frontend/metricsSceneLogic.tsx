@@ -1,10 +1,9 @@
 import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -36,7 +35,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
     selectors({
         tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
     }),
-    tabAwareUrlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return

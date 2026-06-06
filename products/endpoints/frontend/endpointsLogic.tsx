@@ -1,8 +1,8 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -95,7 +95,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
         })
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         [urls.endpoints()]: (_, searchParams) => {
             if (searchParams.tab === 'usage') {
                 actions.setActiveTab('usage')
