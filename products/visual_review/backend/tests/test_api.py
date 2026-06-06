@@ -1,6 +1,6 @@
 """Unit tests for visual_review facade API."""
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import patch
@@ -234,6 +234,10 @@ class TestRunAPI:
 
         assert {s.identifier for s in result.snapshots} == expected_identifiers
         assert result.quarantined_count == 1
+
+    def test_get_run_snapshots_excluding_quarantined_requires_team_id(self):
+        with pytest.raises(ValueError):
+            api.get_run_snapshots(uuid4(), include_quarantined=False)
 
     @pytest.mark.parametrize(
         ("filters", "expected_commits"),

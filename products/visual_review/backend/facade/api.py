@@ -403,8 +403,10 @@ def get_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
 
 
 def get_run_snapshots(
-    run_id: UUID, team_id: int | None = None, include_quarantined: bool = False
+    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
 ) -> contracts.RunSnapshots:
+    if not include_quarantined and team_id is None:
+        raise ValueError("team_id is required to exclude quarantined snapshots")
     snapshots = logic.get_run_snapshots(run_id, team_id=team_id)
     if not snapshots:
         return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
