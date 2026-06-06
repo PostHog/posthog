@@ -3,7 +3,6 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -148,7 +147,6 @@ function parseSortParam(value: unknown): ScannersSorting | null {
 export const replayScannersLogic = kea<replayScannersLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'replayScannersLogic']),
     props({} as ReplayScannersLogicProps),
-    tabAwareScene(),
 
     actions({
         loadScanners: true,

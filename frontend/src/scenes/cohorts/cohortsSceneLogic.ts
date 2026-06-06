@@ -7,7 +7,6 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -41,7 +40,6 @@ const COHORTS_PER_PAGE = 100
 
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({
         actions: [exportsLogic, ['startExport']],
     })),
