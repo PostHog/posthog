@@ -1,6 +1,5 @@
 import { kea, path, selectors } from 'kea'
 
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -11,7 +10,6 @@ import type { sdkDoctorSceneLogicType } from './sdkDoctorSceneLogicType'
 
 export const sdkDoctorSceneLogic = kea<sdkDoctorSceneLogicType>([
     path(['scenes', 'onboarding', 'sdks', 'sdkDoctorSceneLogic']),
-    tabAwareScene(),
     selectors({
         breadcrumbs: [
             () => [],

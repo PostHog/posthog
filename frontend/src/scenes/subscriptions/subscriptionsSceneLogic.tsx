@@ -6,7 +6,6 @@ import { Sorting } from '@posthog/lemon-ui'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
 import { toggleSubscriptionEnabled } from 'lib/components/Subscriptions/toggleSubscriptionEnabled'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -194,7 +193,6 @@ function buildSubscriptionsListOrdering(sorting: Sorting | null): string {
 
 export const subscriptionsSceneLogic = kea<subscriptionsSceneLogicType>([
     path(['scenes', 'subscriptions', 'subscriptionsSceneLogic']),
-    tabAwareScene(),
     connect(() => ({ values: [userLogic, ['user']] })),
     actions({
         loadSubscriptions: true,
