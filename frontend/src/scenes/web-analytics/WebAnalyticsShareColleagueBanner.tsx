@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -7,6 +7,7 @@ import { shareNudgeLogic } from 'scenes/web-analytics/shareNudgeLogic'
 
 export function WebAnalyticsShareColleagueBanner(): JSX.Element | null {
     const { showBanner } = useValues(shareNudgeLogic)
+    const { dismissForSession } = useActions(shareNudgeLogic)
 
     if (!showBanner) {
         return null
@@ -21,6 +22,7 @@ export function WebAnalyticsShareColleagueBanner(): JSX.Element | null {
                 onClick: () => {
                     void copyToClipboard(window.location.href, 'link to share')
                     posthog.capture('web analytics share link copied', { source: 'banner' })
+                    dismissForSession()
                 },
             }}
         >
