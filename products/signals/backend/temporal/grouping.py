@@ -85,7 +85,7 @@ class GenerateEmbeddingOutput:
 async def get_embedding_activity(input: GenerateEmbeddingInput) -> GenerateEmbeddingOutput:
     """Generate embedding for signal content using the embedding worker API."""
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await database_sync_to_async(Team.objects.get, thread_sensitive=False)(pk=input.team_id)
         response = await async_generate_embedding(team, input.content, model=EMBEDDING_MODEL.value)
         logger.debug(
             f"Generated embedding for team {input.team_id}",
@@ -785,7 +785,9 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             do_assign_and_emit, thread_sensitive=False
         )()
 
-        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
+        team = await database_sync_to_async(
+            lambda: Team.objects.select_related("organization").get(pk=input.team_id), thread_sensitive=False
+        )()
 
         # If we matched a deleted report, soft-delete all its stale signals in ClickHouse.
         # This prevents data corruption where non-deleted signals for a deleted report
