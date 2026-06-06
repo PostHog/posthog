@@ -128,7 +128,9 @@ class AmazonAdsSourceConfig(config.Config):
 
 @config.config
 class AmplitudeSourceConfig(config.Config):
-    pass
+    api_key: str
+    secret_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -471,7 +473,8 @@ class IntercomSourceConfig(config.Config):
 
 @config.config
 class IterableSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
