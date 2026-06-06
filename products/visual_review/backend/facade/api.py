@@ -419,10 +419,15 @@ def get_run_snapshots(
     )
     user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
-    dtos = [_to_snapshot(s, repo_id, user_basic_infos) for s in snapshots]
-    quarantined_count = sum(1 for d in dtos if d.identifier in quarantined_identifiers)
-    if not include_quarantined:
-        dtos = [d for d in dtos if d.identifier not in quarantined_identifiers]
+    dtos: list[contracts.Snapshot] = []
+    quarantined_count = 0
+    for s in snapshots:
+        dto = _to_snapshot(s, repo_id, user_basic_infos)
+        if dto.identifier in quarantined_identifiers:
+            quarantined_count += 1
+            if not include_quarantined:
+                continue
+        dtos.append(dto)
     return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
 
 
