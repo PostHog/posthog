@@ -39,18 +39,28 @@ import {
     PopoverTrigger,
 } from '@posthog/quill'
 
+import { isDefinitionStale } from 'lib/utils/definitions'
+
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { EventDefinition } from '~/types'
 
 import { useTaxonomicFilterContext } from '../headless/context'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
 import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
-import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
+import { isQuickFilterItem, META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from '../types'
 import { filterPinnedForContext, filterRecentsForContext } from '../utils/suggestedContextFilters'
 import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { MenuFilterHogQLEditor } from './HogQLEditor'
 import { taxonomicTriggerWrapperClassName } from './triggerLayout'
-import { CommitFn, DrillCategory, MenuFilterEntry, MenuFilterState, TaxonomicFilterGroup } from './types'
+import {
+    CommitFn,
+    DrillCategory,
+    MenuFilterEntry,
+    MenuFilterState,
+    TAXONOMIC_FILTER_SURFACE,
+    TaxonomicFilterGroup,
+} from './types'
 
 export interface TaxonomicFilterMenuProps {
     /** Default trigger label when nothing is selected. */
@@ -112,6 +122,21 @@ type MenuOption = 'new' | 'recent' | 'pinned' | 'dwh' | 'hogql'
 let lastMenuClosedAtMs: number | null = null
 const QUICK_REOPEN_MS = 3000
 
+/** Mirrors legacy `taxonomicFilterLogic`: staleness only applies to event /
+ *  custom-event definitions that carry `last_seen_at`; `undefined` for every
+ *  other selection so the field reads identically across the A/B arms. */
+export function eventSelectionWasStale(
+    sourceGroupType: TaxonomicFilterGroupType,
+    item: TaxonomicDefinitionTypes
+): boolean | undefined {
+    const isEventSelection =
+        sourceGroupType === TaxonomicFilterGroupType.Events || sourceGroupType === TaxonomicFilterGroupType.CustomEvents
+    if (!isEventSelection || !item || typeof item !== 'object' || !('last_seen_at' in item)) {
+        return undefined
+    }
+    return isDefinitionStale(item as unknown as EventDefinition)
+}
+
 export function TaxonomicFilterMenu({
     triggerLabel,
     selected,
@@ -158,10 +183,20 @@ export function TaxonomicFilterMenu({
             })
         } else if (previous !== 'closed' && next === 'closed') {
             const closedAt = Date.now()
+            const dwellMs = openedAtRef.current ? closedAt - openedAtRef.current : null
             posthog.capture('taxonomic filter menu closed', {
-                dwellMs: openedAtRef.current ? closedAt - openedAtRef.current : null,
+                dwellMs,
                 hadCommit: hadCommitRef.current,
                 lastState: previous,
+            })
+            // Legacy `taxonomic filter *` contract — emitted alongside the
+            // menu-specific events so the rebuild is comparable to the
+            // control/pill variants by feature-flag value.
+            // Legacy's `groupType: activeTab` is omitted because the menu has no single active tab at close time.
+            posthog.capture('taxonomic filter closed', {
+                surface: TAXONOMIC_FILTER_SURFACE,
+                dwellMs,
+                hadSelection: hadCommitRef.current,
             })
             lastMenuClosedAtMs = closedAt
             openedAtRef.current = null
@@ -270,7 +305,7 @@ export function TaxonomicFilterMenu({
     // -- Commit -- routes through orchestrator's `selectItem` AND the
     // consumer's `onCommit` callback. Closes everything.
     const handleCommit = useCallback<CommitFn>(
-        (entry, extra) => {
+        (entry, extra, selection) => {
             const mergedItem = extra
                 ? ({ ...(entry.item as unknown as object), ...extra } as unknown as TaxonomicDefinitionTypes)
                 : entry.item
@@ -285,6 +320,33 @@ export function TaxonomicFilterMenu({
                 // Time-to-select — how long from opening the menu to
                 // committing this item.
                 msSinceOpen: openedAtRef.current ? Date.now() - openedAtRef.current : null,
+            })
+            // Legacy contract, fired from this final-commit funnel rather than on
+            // row click so it counts only committed selections — a DWH table pick
+            // that opens (and is then cancelled from) the config form never reaches
+            // here, while a config-form or HogQL commit does. `groupType` is the
+            // active scope (mirrors legacy `activeTab`); `sourceGroupType` is the
+            // row's origin group — they differ for a recent/pinned row on the All
+            // surface. `selection` is absent for non-row commits (DWH form, HogQL).
+            // `wasStale` mirrors legacy for event/custom-event selections; `wasQuickFilter`
+            // uses the same predicate as legacy, though the menu surfaces no quick-filter
+            // items so it is false in practice and the legacy quick-filter field spread
+            // never applies here.
+            // `position` is the rendered row index (same coordinate as legacy's
+            // `meta.position`): directly comparable on single-group scopes, and
+            // surface-relative on the merged "All" scope, which leads with the
+            // recents/pinned prefix and has no single-tab legacy equivalent.
+            posthog.capture('taxonomic filter item selected', {
+                surface: TAXONOMIC_FILTER_SURFACE,
+                groupType: selection?.groupType,
+                sourceGroupType: entry.group.type,
+                wasFromRecents: selection?.wasFromRecents ?? false,
+                wasFromPinnedList: selection?.wasFromPinnedList ?? false,
+                wasQuickFilter: isQuickFilterItem(entry.item),
+                hadSearchInput: !!searchQuery,
+                position: selection?.position,
+                query: searchQuery || undefined,
+                wasStale: eventSelectionWasStale(entry.group.type, entry.item),
             })
             selectItem(entry.group, itemValue, mergedItem)
             onCommit?.({ ...entry, item: mergedItem }, extra)
