@@ -2791,6 +2791,48 @@
             "readOnlyHint": true
         }
     },
+    "health-issues-get": {
+        "description": "Fetches a single health issue by id so you can drill into what's wrong AND explain how to fix it. Alongside the issue's kind, severity, status, and check-specific payload, the detail view adds a human-readable `title`, a one-line `summary` of the problem, a `link` to the relevant page in PostHog, and `remediation` — fix-it guidance with two fields: `remediation.human` (how to fix it in the PostHog UI) and `remediation.agent` (how you should investigate it — often via other tools like execute-sql or docs-search — and, when the fix lives in the user's codebase, how to apply it directly, e.g. bump a PostHog SDK dependency, change a posthog.init option, or add a reverse-proxy route).\n\nAct on `remediation.agent`. If the fix is in the user's codebase and you've been asked (or are clearly expected) to fix it, go ahead and make the change. If you'd rather confirm first, ask the user for permission — and when you do, relay `remediation.human` so they can fix it themselves, but also tell them you can just do it for them if they'd like, since `remediation.agent` gives you everything you need.",
+        "category": "Health",
+        "feature": "health",
+        "summary": "Get a health issue",
+        "title": "Get a health issue",
+        "required_scopes": ["health_issue:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "health-issues-list": {
+        "description": "Lists health issues detected across all of this project's PostHog health checks — outdated SDKs, data warehouse sync failures, missing web analytics events, ingestion warnings, reverse-proxy and web-vitals problems, and more. Each issue has a kind (which check found it), a severity (critical/warning/info), a status (active/resolved), and a check-specific payload with the detail. Filter by status, severity, kind, or dismissed state. Use when the user asks what's wrong with their PostHog setup, what alerts are firing, why data might be missing, or to drill into one category of problem.",
+        "category": "Health",
+        "feature": "health",
+        "summary": "List health issues",
+        "title": "List health issues",
+        "required_scopes": ["health_issue:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "health-issues-summary": {
+        "description": "Returns aggregated counts of active, non-dismissed health issues for the project, broken down by severity and by kind. Use for a quick overall health check before drilling into specifics with the list tool.",
+        "category": "Health",
+        "feature": "health",
+        "summary": "Summarize health issues",
+        "title": "Summarize health issues",
+        "required_scopes": ["health_issue:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "heatmaps-events": {
         "description": "Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you can open the session recordings that produced a hotspot.",
         "category": "Web analytics",
@@ -5160,20 +5202,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "sdk-health-get": {
-        "description": "Returns a pre-digested health report for the PostHog SDKs this project is using. Covers which SDKs are current vs outdated (smart-semver rules with grace periods and traffic-percentage thresholds), per-version breakdowns, and a human-readable reason for each assessment. Use when the user asks about PostHog SDK versions, outdated SDKs, SDK health, version upgrade recommendations, or why events may not be captured due to SDK issues.",
-        "category": "SDK Health",
-        "feature": "sdk_health",
-        "summary": "Get SDK health report",
-        "title": "Get SDK health report",
-        "required_scopes": ["project:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "session-recording-delete": {

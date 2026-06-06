@@ -18936,6 +18936,11 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Check-specific detail for this issue. The shape depends on `kind` — e.g. an `sdk_outdated` issue carries the affected SDK name, current/latest versions, and per-version usage, while a `external_data_failure` issue carries the failing source. Treat as a free-form object and read the fields relevant to the issue's kind.
+     */
+    export type HealthIssuePayload = { [key: string]: unknown };
+
+    /**
      * * `critical` - Critical
     * `warning` - Warning
     * `info` - Info
@@ -18962,16 +18967,112 @@ export namespace Schemas {
     } as const;
 
     export interface HealthIssue {
+      /** Unique identifier for the health issue. */
       readonly id: string;
+      /** Which health check produced this issue (e.g. 'sdk_outdated', 'external_data_failure', 'no_live_events', 'ingestion_warnings'). Stable string key — use it to filter issues by category. */
       readonly kind: string;
+      /** How serious the issue is: 'critical', 'warning', or 'info'.
+
+      * `critical` - Critical
+      * `warning` - Warning
+      * `info` - Info */
       readonly severity: HealthIssueSeverityEnum;
+      /** 'active' while the underlying problem is still detected; 'resolved' once a later check run no longer finds it.
+
+      * `active` - Active
+      * `resolved` - Resolved */
       readonly status: HealthIssueStatusEnum;
+      /** Whether a user has dismissed this issue from the Health UI. Dismissed issues stay in the list but are hidden by default. */
       dismissed?: boolean;
-      readonly payload: unknown;
+      /** Check-specific detail for this issue. The shape depends on `kind` — e.g. an `sdk_outdated` issue carries the affected SDK name, current/latest versions, and per-version usage, while a `external_data_failure` issue carries the failing source. Treat as a free-form object and read the fields relevant to the issue's kind. */
+      readonly payload: HealthIssuePayload;
+      /** When the issue was first detected (ISO 8601). */
       readonly created_at: string;
+      /** When the issue was last updated by a check run (ISO 8601). */
       readonly updated_at: string;
-      /** @nullable */
+      /**
+         * When the issue was resolved (ISO 8601), or null if still active.
+         * @nullable
+         */
       readonly resolved_at: string | null;
+    }
+
+    /**
+     * Check-specific detail for this issue. The shape depends on `kind` — e.g. an `sdk_outdated` issue carries the affected SDK name, current/latest versions, and per-version usage, while a `external_data_failure` issue carries the failing source. Treat as a free-form object and read the fields relevant to the issue's kind.
+     */
+    export type HealthIssueDetailPayload = { [key: string]: unknown };
+
+    export interface HealthIssueRemediation {
+      /** How to fix this kind of issue in the PostHog UI. Relay this to the user when explaining the fix. */
+      human: string;
+      /** How an agent should investigate this kind of issue (which tools to use) and, where the fix lives in the user's codebase, how to apply it directly. Act on this when asked to fix the issue. */
+      agent: string;
+    }
+
+    /**
+     * Single-issue view that adds the rendered, human-readable explanation.
+
+    `render_alert` produces the per-issue title/summary/link; `remediation` is
+    the static, kind-level fix-it guide (split into a human and an agent half).
+    Together they let the detail view explain what's wrong and how to fix it
+    without the caller having to interpret the raw payload.
+     */
+    export interface HealthIssueDetail {
+      /** Unique identifier for the health issue. */
+      readonly id: string;
+      /** Which health check produced this issue (e.g. 'sdk_outdated', 'external_data_failure', 'no_live_events', 'ingestion_warnings'). Stable string key — use it to filter issues by category. */
+      readonly kind: string;
+      /** How serious the issue is: 'critical', 'warning', or 'info'.
+
+      * `critical` - Critical
+      * `warning` - Warning
+      * `info` - Info */
+      readonly severity: HealthIssueSeverityEnum;
+      /** 'active' while the underlying problem is still detected; 'resolved' once a later check run no longer finds it.
+
+      * `active` - Active
+      * `resolved` - Resolved */
+      readonly status: HealthIssueStatusEnum;
+      /** Whether a user has dismissed this issue from the Health UI. Dismissed issues stay in the list but are hidden by default. */
+      dismissed?: boolean;
+      /** Check-specific detail for this issue. The shape depends on `kind` — e.g. an `sdk_outdated` issue carries the affected SDK name, current/latest versions, and per-version usage, while a `external_data_failure` issue carries the failing source. Treat as a free-form object and read the fields relevant to the issue's kind. */
+      readonly payload: HealthIssueDetailPayload;
+      /** When the issue was first detected (ISO 8601). */
+      readonly created_at: string;
+      /** When the issue was last updated by a check run (ISO 8601). */
+      readonly updated_at: string;
+      /**
+         * When the issue was resolved (ISO 8601), or null if still active.
+         * @nullable
+         */
+      readonly resolved_at: string | null;
+      /** Short human-readable headline for the issue. */
+      readonly title: string;
+      /** One-line description of what's wrong, naming the affected resource where possible. */
+      readonly summary: string;
+      /** Relative path (e.g. '/web/health') to the page in PostHog where the issue can be investigated. */
+      readonly link: string;
+      /** Guidance on fixing this kind of issue, split into `human` (how to fix it in the PostHog UI) and `agent` (how an agent should investigate and apply the fix). Null if the check provides no guidance. */
+      readonly remediation: HealthIssueRemediation;
+    }
+
+    /**
+     * Count of active, non-dismissed issues keyed by severity ('critical', 'warning', 'info').
+     */
+    export type HealthIssueSummaryBySeverity = {[key: string]: number};
+
+    /**
+     * Count of active, non-dismissed issues keyed by check kind (e.g. 'sdk_outdated').
+     */
+    export type HealthIssueSummaryByKind = {[key: string]: number};
+
+    export interface HealthIssueSummary {
+      /** Total number of active, non-dismissed health issues for the project. */
+      total: number;
+      /** Count of active, non-dismissed issues keyed by severity ('critical', 'warning', 'info'). */
+      by_severity: HealthIssueSummaryBySeverity;
+      /** Count of active, non-dismissed issues keyed by check kind (e.g. 'sdk_outdated'). */
+      by_kind: HealthIssueSummaryByKind;
     }
 
     export interface HeatmapEventItem {
@@ -29845,16 +29946,39 @@ export namespace Schemas {
       math_property?: string | null;
     }
 
+    /**
+     * Check-specific detail for this issue. The shape depends on `kind` — e.g. an `sdk_outdated` issue carries the affected SDK name, current/latest versions, and per-version usage, while a `external_data_failure` issue carries the failing source. Treat as a free-form object and read the fields relevant to the issue's kind.
+     */
+    export type PatchedHealthIssuePayload = { [key: string]: unknown };
+
     export interface PatchedHealthIssue {
+      /** Unique identifier for the health issue. */
       readonly id?: string;
+      /** Which health check produced this issue (e.g. 'sdk_outdated', 'external_data_failure', 'no_live_events', 'ingestion_warnings'). Stable string key — use it to filter issues by category. */
       readonly kind?: string;
+      /** How serious the issue is: 'critical', 'warning', or 'info'.
+
+      * `critical` - Critical
+      * `warning` - Warning
+      * `info` - Info */
       readonly severity?: HealthIssueSeverityEnum;
+      /** 'active' while the underlying problem is still detected; 'resolved' once a later check run no longer finds it.
+
+      * `active` - Active
+      * `resolved` - Resolved */
       readonly status?: HealthIssueStatusEnum;
+      /** Whether a user has dismissed this issue from the Health UI. Dismissed issues stay in the list but are hidden by default. */
       dismissed?: boolean;
-      readonly payload?: unknown;
+      /** Check-specific detail for this issue. The shape depends on `kind` — e.g. an `sdk_outdated` issue carries the affected SDK name, current/latest versions, and per-version usage, while a `external_data_failure` issue carries the failing source. Treat as a free-form object and read the fields relevant to the issue's kind. */
+      readonly payload?: PatchedHealthIssuePayload;
+      /** When the issue was first detected (ISO 8601). */
       readonly created_at?: string;
+      /** When the issue was last updated by a check run (ISO 8601). */
       readonly updated_at?: string;
-      /** @nullable */
+      /**
+         * When the issue was resolved (ISO 8601), or null if still active.
+         * @nullable
+         */
       readonly resolved_at?: string | null;
     }
 
@@ -43229,6 +43353,14 @@ export namespace Schemas {
 
     export type EnvironmentsHealthIssuesListParams = {
     /**
+     * Filter by dismissed state. Omit to include both dismissed and non-dismissed issues.
+     */
+    dismissed?: boolean;
+    /**
+     * Only return issues from this check kind (e.g. 'sdk_outdated').
+     */
+    kind?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -43236,6 +43368,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only return issues with this severity. One of: 'critical', 'warning', 'info'.
+     */
+    severity?: string;
+    /**
+     * Only return issues with this status. One of: 'active', 'resolved'.
+     */
+    status?: string;
     };
 
     export type EnvironmentsHeatmapScreenshotsContentRetrieveParams = {
@@ -48904,6 +49044,14 @@ export namespace Schemas {
 
     export type HealthIssuesListParams = {
     /**
+     * Filter by dismissed state. Omit to include both dismissed and non-dismissed issues.
+     */
+    dismissed?: boolean;
+    /**
+     * Only return issues from this check kind (e.g. 'sdk_outdated').
+     */
+    kind?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -48911,6 +49059,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only return issues with this severity. One of: 'critical', 'warning', 'info'.
+     */
+    severity?: string;
+    /**
+     * Only return issues with this status. One of: 'active', 'resolved'.
+     */
+    status?: string;
     };
 
     export type HeatmapScreenshotsContentRetrieveParams = {
