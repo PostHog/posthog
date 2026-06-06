@@ -1,4 +1,4 @@
-import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
+import { afterMount, connect, kea, listeners, path } from 'kea'
 import { router } from 'kea-router'
 
 import type { autofillReleaseLogicType } from './autofillReleaseLogicType'
@@ -23,6 +23,11 @@ const SINK_ID = 'autofill-release-sink'
  * next scene's own `autoFocus` (if any) then takes the reference over from
  * the sink. We blur the sink immediately so it never holds visible focus.
  *
+ * Ordering holds because `locationChanged` fires on the router action, before
+ * React renders the next scene, so the sink's focus/blur runs first and the
+ * incoming scene's mount-time `autoFocus` reclaims focus afterwards — we never
+ * yank focus out of the scene we're navigating to.
+ *
  * Sibling in spirit to `useCancelAnimationsOnUnmount`, which severs the
  * DocumentTimeline -> animation -> element retention on the same SPA
  * navigation boundary.
@@ -36,25 +41,31 @@ export const autofillReleaseLogic = kea<autofillReleaseLogicType>([
         actions: [router, ['locationChanged']],
     })),
     afterMount(({ cache }) => {
-        const sink = document.createElement('input')
-        sink.id = SINK_ID
-        sink.type = 'text'
-        sink.tabIndex = -1
-        sink.setAttribute('aria-hidden', 'true')
-        // off-screen rather than `display:none`/`sr-only` clip: the element
-        // must stay focusable and "visible enough" for the autofill agent to
-        // re-query it, which is what releases the previous element
-        sink.style.position = 'fixed'
-        sink.style.left = '-9999px'
-        sink.style.top = '0'
-        document.body.appendChild(sink)
-        cache.sink = sink
         cache.lastPathname = router.values.location.pathname
-    }),
-    beforeUnmount(({ cache }) => {
-        const sink = cache.sink as HTMLInputElement | undefined
-        sink?.remove()
-        cache.sink = undefined
+        // keep the sink for the whole app lifetime, including while the tab is
+        // hidden — pauseOnPageHidden would tear it down and recreate it on show
+        cache.disposables.add(
+            () => {
+                const sink = document.createElement('input')
+                sink.id = SINK_ID
+                sink.type = 'text'
+                sink.tabIndex = -1
+                sink.setAttribute('aria-hidden', 'true')
+                // off-screen rather than `display:none`/`sr-only` clip: the
+                // element must stay focusable and "visible enough" for the
+                // autofill agent to re-query it, which releases the previous one
+                sink.style.position = 'fixed'
+                sink.style.left = '-9999px'
+                document.body.appendChild(sink)
+                cache.sink = sink
+                return () => {
+                    sink.remove()
+                    cache.sink = undefined
+                }
+            },
+            'autofill-sink',
+            { pauseOnPageHidden: false }
+        )
     }),
     listeners(({ cache }) => ({
         locationChanged: ({ pathname }) => {
@@ -70,7 +81,9 @@ export const autofillReleaseLogic = kea<autofillReleaseLogicType>([
             if (!sink) {
                 return
             }
-            sink.focus()
+            // preventScroll: focusing must never scroll the (off-screen) sink
+            // into view
+            sink.focus({ preventScroll: true })
             sink.blur()
         },
     })),
