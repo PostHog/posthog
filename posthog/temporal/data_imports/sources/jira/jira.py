@@ -77,8 +77,11 @@ def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
 
 def _normalize_issue(issue: dict[str, Any]) -> dict[str, Any]:
     """Lift the stable/incremental timestamps out of the nested ``fields`` object so the
-    pipeline can read them as top-level columns for partitioning and the cursor watermark."""
-    fields = issue.get("fields") or {}
+    pipeline can read them as top-level columns for partitioning and the cursor watermark.
+
+    ``fields`` is always present when we request ``fields=*all``; access it directly so a
+    malformed response surfaces loudly rather than silently nulling the ``created`` partition key."""
+    fields = issue["fields"]
     issue["created"] = fields.get("created")
     issue["updated"] = fields.get("updated")
     return issue

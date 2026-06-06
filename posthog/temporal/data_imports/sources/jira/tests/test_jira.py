@@ -114,10 +114,11 @@ class TestNormalizeIssue:
         # Original nested object is preserved.
         assert normalized["fields"]["created"] == "2026-01-01T00:00:00.000+0000"
 
-    def test_missing_fields_yields_none(self) -> None:
-        normalized = _normalize_issue({"id": "1"})
-        assert normalized["created"] is None
-        assert normalized["updated"] is None
+    def test_missing_fields_surfaces_error(self) -> None:
+        # `fields` is always present with `fields=*all`; a malformed response should fail loudly
+        # rather than silently null the `created` partition key.
+        with pytest.raises(KeyError):
+            _normalize_issue({"id": "1"})
 
 
 class TestValidateCredentials:
