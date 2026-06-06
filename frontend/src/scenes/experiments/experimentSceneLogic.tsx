@@ -1,9 +1,9 @@
 import { BuiltLogic, actions, kea, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
 import { router } from 'kea-router'
 
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -210,7 +210,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             sharedListeners.ensureExperimentLogicMounted(payload, breakpoint, action, previousState)
         },
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const actionToUrl = ({
             experimentId = values.experimentId,
             formMode = values.formMode,

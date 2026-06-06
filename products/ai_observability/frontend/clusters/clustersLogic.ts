@@ -7,8 +7,8 @@ import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { urls } from 'scenes/urls'
 
 import { EventsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -916,7 +916,7 @@ export const clustersLogic = kea<clustersLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setSelectedRunId: () => {
             // Preserve any search params already on the URL — `setPropertyFilters` (in the
             // shared logic) writes `?filters=...` and `?filter_test_accounts=...`, and the

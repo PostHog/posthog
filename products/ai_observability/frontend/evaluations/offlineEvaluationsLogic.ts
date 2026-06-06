@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { dateStringToDayJs, isValidRelativeOrAbsoluteDate } from 'lib/utils'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { urls } from 'scenes/urls'
@@ -600,7 +600,7 @@ export const offlineEvaluationsLogic = kea<offlineEvaluationsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setOfflineDates: ({ dateFrom, dateTo }) => {
             if (!isOnOfflineEvaluationsRoute(router.values.location.pathname)) {
                 return undefined

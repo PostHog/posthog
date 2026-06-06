@@ -3,9 +3,9 @@ import { router } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
@@ -52,7 +52,7 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         }
         return { '*': urlToAction }
     }),
-    tabAwareActionToUrl(({ values, cache }) => {
+    trackedActionToUrl(({ values, cache }) => {
         const syncUrl = (): [string, Params, Record<string, any>, { replace: boolean }] => {
             cache.isSyncingUrl = true
             const result = syncSearchParams(router, (params: Params) => {

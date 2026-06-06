@@ -3,9 +3,9 @@ import { actions, afterMount, kea, listeners, path, props, reducers, selectors }
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -435,7 +435,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         ],
     }),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const buildUrl = (): [string, Record<string, string | undefined>, undefined, { replace: true }] => {
             const { filters } = values
             const sortParam =

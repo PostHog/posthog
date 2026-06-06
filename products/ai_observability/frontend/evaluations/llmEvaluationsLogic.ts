@@ -6,8 +6,8 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -345,7 +345,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }) => [
             urls.aiObservabilityEvaluations(),
             {
