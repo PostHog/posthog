@@ -408,6 +408,7 @@ jobs:
                   filters: |
                       changed:
                         - 'products/error_tracking/backend/temporal/**'
+                        - 'products/error_tracking/backend/recommendations/**'
                         - 'products/error_tracking/backend/models.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/temporal/schedule.py'
