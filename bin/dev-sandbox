@@ -58,6 +58,23 @@ collect_ancestors "$project"
 collect_ancestors "$mainrepo"
 ancestors+=("$HOME")
 
+# Ancestor paths are emitted below as SBPL string literals; a " or \ in any of
+# them would corrupt the profile. Bail to a loud fail-open rather than render a
+# malformed profile (which sandbox-exec could compile into the wrong rules).
+# ($project/$mainrepo/$HOME go in via -D, which is value-safe.)
+_dq='"'
+_bs=$'\\'
+for _a in "${ancestors[@]}"; do
+    # Quoted expansions match literally in case patterns, sidestepping glob/escape
+    # ambiguity for `"` and `\`.
+    case "$_a" in
+    *"$_dq"* | *"$_bs"*)
+        echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
+        run_unsandboxed
+        ;;
+    esac
+done
+
 # Effective profile = base + ancestor read-allows. Repo-keyed stable name so
 # repeated launches reuse one file. Write a unique temp first and rename it in:
 # phrocs launches many services concurrently against this shared path, and a
@@ -72,8 +89,15 @@ if {
     printf ')\n'
     # Deny the SSH agent socket (its path varies per agent: Secretive, 1Password,
     # launchd, gpg). Reaching it lets a dep use your keys without reading them.
+    # Canonicalize the socket's dir (Seatbelt matches the kernel's physical path,
+    # e.g. /tmp -> /private/tmp); fall back to the raw path if that fails.
     if [[ "${SSH_AUTH_SOCK:-}" == /* ]]; then
-        printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
+        _sock_dir="$(cd "$(dirname "$SSH_AUTH_SOCK")" 2>/dev/null && pwd -P || true)"
+        if [[ -n "$_sock_dir" ]]; then
+            printf '(deny network-outbound (literal "%s/%s"))\n' "$_sock_dir" "$(basename "$SSH_AUTH_SOCK")"
+        else
+            printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
+        fi
     fi
 } >"$rendered_tmp" 2>/dev/null && mv -f "$rendered_tmp" "$rendered"; then
     : # rendered atomically; sandbox below uses "$rendered"
@@ -90,9 +114,12 @@ if ! "${sandbox[@]}" /usr/bin/true >/dev/null 2>&1; then
     run_unsandboxed
 fi
 
-# Strip ambient personal tokens the dev stack doesn't need. The application's own
-# config env (DB URLs, object-storage keys, 1Password-injected API keys) is left
-# intact — only credentials that happen to live in the shell are removed.
+# Strip ambient personal tokens the dev stack doesn't need from the child env.
+# The application's own config env (DB URLs, OBJECT_STORAGE_* keys, 1Password-
+# injected API keys) is left intact — only credentials that happen to live in the
+# shell are removed. AWS_* is stripped because the dev stack reaches local object
+# storage via OBJECT_STORAGE_*, not the AWS chain; DOCKER_HOST is stripped so the
+# docker CLI can't be pointed at an endpoint the socket deny doesn't cover.
 exec env \
     -u GITHUB_TOKEN \
     -u GH_TOKEN \
@@ -100,4 +127,13 @@ exec env \
     -u NPM_AUTH_TOKEN \
     -u OP_SERVICE_ACCOUNT_TOKEN \
     -u SSH_AUTH_SOCK \
+    -u DOCKER_HOST \
+    -u AWS_ACCESS_KEY_ID \
+    -u AWS_SECRET_ACCESS_KEY \
+    -u AWS_SESSION_TOKEN \
+    -u VAULT_TOKEN \
+    -u GITLAB_TOKEN \
+    -u CARGO_REGISTRY_TOKEN \
+    -u HUGGING_FACE_HUB_TOKEN \
+    -u HF_TOKEN \
     "${sandbox[@]}" /bin/bash -c "$cmd"

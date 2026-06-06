@@ -309,7 +309,7 @@ _PHROCS_SKIP=0
 # sandbox, like the runtime path. See bin/dev-sandbox.
 _DEV_SANDBOX_INSTALLS=0
 if [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; then
-  if [[ "${POSTHOG_DEV_SANDBOX:-}" == "1" ]] || grep -qE '^[[:space:]]*POSTHOG_DEV_SANDBOX=1' "$FLOX_ENV_PROJECT/.env.local" 2>/dev/null; then
+  if [[ "${POSTHOG_DEV_SANDBOX:-}" == "1" ]] || grep -qE "^[[:space:]]*POSTHOG_DEV_SANDBOX=1[[:space:]]*$" "$FLOX_ENV_PROJECT/.env.local" 2>/dev/null; then
     _DEV_SANDBOX_INSTALLS=1
   fi
 fi

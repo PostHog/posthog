@@ -92,4 +92,5 @@
     (subpath (string-append (param "PROJECT") "/.git/hooks"))     ; git hooks run unsandboxed
     (subpath (string-append (param "MAINREPO") "/.git/hooks"))    ; worktree main-repo hooks
     (literal (string-append (param "HOME") "/.gitconfig"))        ; core.hooksPath / credential.helper = !cmd
+    (subpath (string-append (param "HOME") "/.config/git"))       ; XDG git config — same hooksPath/helper escape
     (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH
