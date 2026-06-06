@@ -44,74 +44,83 @@ if [[ -f "$gitfile" ]]; then
     esac
 fi
 
-# Ancestor dir chain ($HOME down to each repo root's parent) needed for traversal.
-declare -a ancestors=()
-collect_ancestors() {
-    local p
-    p="$(dirname "$1")"
-    while [[ "$p" != "$HOME" && "$p" != "/" && -n "$p" ]]; do
-        ancestors+=("$p")
-        p="$(dirname "$p")"
+# Effective-profile path, keyed on every input that affects its contents: the
+# base profile (via the mtime check below) and the ancestor chain + SSH socket
+# (via this hash). Any change yields a new path or fails the freshness check, so
+# a cache hit is never stale. Keying lets the ~13 services phrocs starts
+# concurrently reuse one render instead of each re-rendering identical bytes.
+cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" | /usr/bin/shasum -a256 | cut -c1-16)"
+rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$cache_key.sb"
+stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
+
+# Render = base profile + ancestor read-allows ($HOME down to each repo root, so
+# the OS/node/getcwd can lstat+readdir into the repo) + the SSH-agent socket deny.
+# Parameter expansion (no dirname forks) since this is on the per-service path.
+# Written to a unique temp and atomically renamed in (concurrent launches share
+# the path; a half-written profile would make sandbox-exec fail open).
+render_profile() {
+    local -a ancestors=()
+    local r p _a tmp sock_dir
+    local _dq='"' _bs=$'\\'
+    for r in "$project" "$mainrepo"; do
+        p="${r%/*}"
+        while [[ "$p" != "$HOME" && "$p" != "/" && -n "$p" ]]; do
+            ancestors+=("$p")
+            p="${p%/*}"
+        done
     done
-}
-collect_ancestors "$project"
-collect_ancestors "$mainrepo"
-ancestors+=("$HOME")
-
-# Ancestor paths are emitted below as SBPL string literals; a " or \ in any of
-# them would corrupt the profile. Bail to a loud fail-open rather than render a
-# malformed profile (which sandbox-exec could compile into the wrong rules).
-# ($project/$mainrepo/$HOME go in via -D, which is value-safe.)
-_dq='"'
-_bs=$'\\'
-for _a in "${ancestors[@]}"; do
-    # Quoted expansions match literally in case patterns, sidestepping glob/escape
-    # ambiguity for `"` and `\`.
-    case "$_a" in
-    *"$_dq"* | *"$_bs"*)
-        echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
-        run_unsandboxed
-        ;;
-    esac
-done
-
-# Effective profile = base + ancestor read-allows. Repo-keyed stable name so
-# repeated launches reuse one file. Write a unique temp first and rename it in:
-# phrocs launches many services concurrently against this shared path, and a
-# half-written profile would make sandbox-exec fail open. mktemp needs the X's
-# trailing (BSD/macOS only substitutes a trailing run); the extension is moot.
-rendered="${TMPDIR:-/tmp}/posthog-dev-sandbox-$(printf %s "$project" | /usr/bin/shasum -a256 | cut -c1-16).sb"
-rendered_tmp="$(mktemp "${TMPDIR:-/tmp}/posthog-dev-sandbox.XXXXXX")" || run_unsandboxed
-if {
-    cat "$base_profile"
-    printf '(allow file-read*'
-    printf ' (literal "%s")' "${ancestors[@]}"
-    printf ')\n'
-    # Deny the SSH agent socket (its path varies per agent: Secretive, 1Password,
-    # launchd, gpg). Reaching it lets a dep use your keys without reading them.
-    # Canonicalize the socket's dir (Seatbelt matches the kernel's physical path,
-    # e.g. /tmp -> /private/tmp); fall back to the raw path if that fails.
-    if [[ "${SSH_AUTH_SOCK:-}" == /* ]]; then
-        _sock_dir="$(cd "$(dirname "$SSH_AUTH_SOCK")" 2>/dev/null && pwd -P || true)"
-        if [[ -n "$_sock_dir" ]]; then
-            printf '(deny network-outbound (literal "%s/%s"))\n' "$_sock_dir" "$(basename "$SSH_AUTH_SOCK")"
-        else
-            printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
+    ancestors+=("$HOME")
+    # Paths are emitted as SBPL string literals; a " or \ would corrupt the
+    # profile (quoted expansions match literally, dodging glob/escape ambiguity).
+    for _a in "${ancestors[@]}"; do
+        case "$_a" in
+        *"$_dq"* | *"$_bs"*)
+            echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
+            return 1
+            ;;
+        esac
+    done
+    tmp="$(mktemp "${TMPDIR:-/tmp}/posthog-dev-sandbox.XXXXXX")" || return 1
+    if {
+        cat "$base_profile"
+        printf '(allow file-read*'
+        printf ' (literal "%s")' "${ancestors[@]}"
+        printf ')\n'
+        # Deny the SSH agent socket (path varies per agent: Secretive, 1Password,
+        # launchd, gpg). Canonicalize its dir — Seatbelt matches the kernel's
+        # physical path (e.g. /tmp -> /private/tmp); fall back to the raw path.
+        if [[ "${SSH_AUTH_SOCK:-}" == /* ]]; then
+            sock_dir="$(cd "${SSH_AUTH_SOCK%/*}" 2>/dev/null && pwd -P || true)"
+            if [[ -n "$sock_dir" ]]; then
+                printf '(deny network-outbound (literal "%s/%s"))\n' "$sock_dir" "${SSH_AUTH_SOCK##*/}"
+            else
+                printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
+            fi
         fi
+    } >"$tmp" 2>/dev/null && mv -f "$tmp" "$rendered"; then
+        rm -f "$stamp" # new contents: force a fresh init preflight
+        return 0
     fi
-} >"$rendered_tmp" 2>/dev/null && mv -f "$rendered_tmp" "$rendered"; then
-    : # rendered atomically; sandbox below uses "$rendered"
-else
-    rm -f "$rendered_tmp"
-    run_unsandboxed
+    rm -f "$tmp"
+    return 1
+}
+
+# Render only on a cache miss: no rendered file, or the base profile is newer.
+if [[ ! -f "$rendered" || "$base_profile" -nt "$rendered" ]]; then
+    render_profile || run_unsandboxed
 fi
 
 sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
 
-# Fail OPEN if the sandbox can't initialize (e.g. profile won't compile on this OS).
-if ! "${sandbox[@]}" /usr/bin/true >/dev/null 2>&1; then
-    echo "⚠️  dev sandbox failed to initialize — running WITHOUT sandbox. Set POSTHOG_DEV_SANDBOX=0 to silence." >&2
-    run_unsandboxed
+# Init preflight, once per rendered profile (the stamp records that it passed).
+# Fail OPEN if it can't initialize (e.g. the profile won't compile on this OS).
+if [[ "$rendered" -nt "$stamp" ]]; then
+    if "${sandbox[@]}" /usr/bin/true >/dev/null 2>&1; then
+        touch "$stamp" 2>/dev/null || true
+    else
+        echo "⚠️  dev sandbox failed to initialize — running WITHOUT sandbox. Set POSTHOG_DEV_SANDBOX=0 to silence." >&2
+        run_unsandboxed
+    fi
 fi
 
 # Strip ambient personal tokens the dev stack doesn't need from the child env.
