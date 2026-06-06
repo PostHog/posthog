@@ -38,6 +38,15 @@ class RemoveHiddenAliases(CloningVisitor):
             return self.visit(node.expr)
         return super().visit_alias(node)
 
+    def visit_jsonfield_access(self, node):
+        # Normalize the lowered `JSONFieldAccess(properties, [k...])` back to the logical `properties.k...` chain, so
+        # these structural assertions compare against the un-lowered `_expr(...)` form. Lowering of the extracted clause
+        # is correct and is covered by the printer tests; here we only care which predicate got pushed down.
+        inner = self.visit(node.expr)
+        if isinstance(inner, ast.Field):
+            return ast.Field(chain=[*inner.chain, *node.keys])
+        return super().visit_jsonfield_access(node)
+
 
 class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
     def prep_context(self):
