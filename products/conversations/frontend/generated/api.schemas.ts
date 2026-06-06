@@ -21,6 +21,31 @@ export const ConversationStatusApi = {
 } as const
 
 /**
+ * * `web_analytics` - Web analytics
+ * `product_analytics` - Product analytics
+ * `session_replay` - Session replay
+ * `surveys` - Surveys
+ * `feature_flags` - Feature flags
+ * `experiments` - Experiments
+ * `error_tracking` - Error tracking
+ * `data_warehouse` - Data warehouse
+ * `other` - Other
+ */
+export type TopicEnumApi = (typeof TopicEnumApi)[keyof typeof TopicEnumApi]
+
+export const TopicEnumApi = {
+    WebAnalytics: 'web_analytics',
+    ProductAnalytics: 'product_analytics',
+    SessionReplay: 'session_replay',
+    Surveys: 'surveys',
+    FeatureFlags: 'feature_flags',
+    Experiments: 'experiments',
+    ErrorTracking: 'error_tracking',
+    DataWarehouse: 'data_warehouse',
+    Other: 'other',
+} as const
+
+/**
  * * `engineering` - Engineering
  * `data` - Data
  * `product` - Product Management
@@ -98,6 +123,18 @@ export interface ConversationMinimalApi {
      * @nullable
      */
     readonly title: string | null
+    /** Product domain the conversation is about, classified from the first question.
+
+  * `web_analytics` - Web analytics
+  * `product_analytics` - Product analytics
+  * `session_replay` - Session replay
+  * `surveys` - Surveys
+  * `feature_flags` - Feature flags
+  * `experiments` - Experiments
+  * `error_tracking` - Error tracking
+  * `data_warehouse` - Data warehouse
+  * `other` - Other */
+    readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -195,6 +232,18 @@ export interface ConversationApi {
      * @nullable
      */
     readonly title: string | null
+    /** Product domain the conversation is about, classified from the first question.
+
+  * `web_analytics` - Web analytics
+  * `product_analytics` - Product analytics
+  * `session_replay` - Session replay
+  * `surveys` - Surveys
+  * `feature_flags` - Feature flags
+  * `experiments` - Experiments
+  * `error_tracking` - Error tracking
+  * `data_warehouse` - Data warehouse
+  * `other` - Other */
+    readonly topic: TopicEnumApi | null
     readonly user: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
@@ -248,6 +297,18 @@ export interface PatchedConversationApi {
      * @nullable
      */
     readonly title?: string | null
+    /** Product domain the conversation is about, classified from the first question.
+
+  * `web_analytics` - Web analytics
+  * `product_analytics` - Product analytics
+  * `session_replay` - Session replay
+  * `surveys` - Surveys
+  * `feature_flags` - Feature flags
+  * `experiments` - Experiments
+  * `error_tracking` - Error tracking
+  * `data_warehouse` - Data warehouse
+  * `other` - Other */
+    readonly topic?: TopicEnumApi | null
     readonly user?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null

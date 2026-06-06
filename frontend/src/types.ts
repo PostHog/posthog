@@ -7006,11 +7006,24 @@ export interface ConversationQueueResponse {
     max_queue_messages: number
 }
 
+export type ConversationTopic =
+    | 'web_analytics'
+    | 'product_analytics'
+    | 'session_replay'
+    | 'surveys'
+    | 'feature_flags'
+    | 'experiments'
+    | 'error_tracking'
+    | 'data_warehouse'
+    | 'other'
+
 export interface Conversation {
     id: string
     user: UserBasicType
     status: ConversationStatus
     title: string | null
+    /** Product domain classified from the first question; drives contextual nudges. */
+    topic?: ConversationTopic | null
     created_at: string | null
     updated_at: string | null
     type: ConversationType

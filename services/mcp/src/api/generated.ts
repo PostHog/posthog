@@ -11246,6 +11246,32 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `web_analytics` - Web analytics
+    * `product_analytics` - Product analytics
+    * `session_replay` - Session replay
+    * `surveys` - Surveys
+    * `feature_flags` - Feature flags
+    * `experiments` - Experiments
+    * `error_tracking` - Error tracking
+    * `data_warehouse` - Data warehouse
+    * `other` - Other
+     */
+    export type TopicEnum = typeof TopicEnum[keyof typeof TopicEnum];
+
+
+    export const TopicEnum = {
+      WebAnalytics: 'web_analytics',
+      ProductAnalytics: 'product_analytics',
+      SessionReplay: 'session_replay',
+      Surveys: 'surveys',
+      FeatureFlags: 'feature_flags',
+      Experiments: 'experiments',
+      ErrorTracking: 'error_tracking',
+      DataWarehouse: 'data_warehouse',
+      Other: 'other',
+    } as const;
+
+    /**
      * * `assistant` - Assistant
     * `tool_call` - Tool call
     * `deep_research` - Deep research
@@ -11269,6 +11295,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+
+      * `web_analytics` - Web analytics
+      * `product_analytics` - Product analytics
+      * `session_replay` - Session replay
+      * `surveys` - Surveys
+      * `feature_flags` - Feature flags
+      * `experiments` - Experiments
+      * `error_tracking` - Error tracking
+      * `data_warehouse` - Data warehouse
+      * `other` - Other */
+      readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -11310,6 +11348,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+
+      * `web_analytics` - Web analytics
+      * `product_analytics` - Product analytics
+      * `session_replay` - Session replay
+      * `surveys` - Surveys
+      * `feature_flags` - Feature flags
+      * `experiments` - Experiments
+      * `error_tracking` - Error tracking
+      * `data_warehouse` - Data warehouse
+      * `other` - Other */
+      readonly topic: TopicEnum | null;
       readonly user: UserBasic;
       /** @nullable */
       readonly created_at: string | null;
@@ -27388,6 +27438,18 @@ export namespace Schemas {
          * @nullable
          */
       readonly title?: string | null;
+      /** Product domain the conversation is about, classified from the first question.
+
+      * `web_analytics` - Web analytics
+      * `product_analytics` - Product analytics
+      * `session_replay` - Session replay
+      * `surveys` - Surveys
+      * `feature_flags` - Feature flags
+      * `experiments` - Experiments
+      * `error_tracking` - Error tracking
+      * `data_warehouse` - Data warehouse
+      * `other` - Other */
+      readonly topic?: TopicEnum | null;
       readonly user?: UserBasic;
       /** @nullable */
       readonly created_at?: string | null;
