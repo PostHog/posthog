@@ -20,12 +20,13 @@ cache perpetually warm, so user requests turn into pure reads.
 
 Audience
 --------
-The audience is the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` runtime
-setting (env-var default, overridable via instance settings). The
-runtime read-path gate (`is_precompute_enabled_for_team`) consults the
+The audience is the `WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS` env-var
+setting (defaults to the Cloud dogfooding team on Cloud, empty elsewhere).
+The runtime read-path gate (`is_precompute_enabled_for_team`) consults the
 *same* setting to bypass the org rollout flag, so warmer and reader read
-one source of truth and cannot drift. To enroll or remove a team, change
-the setting — no code change or redeploy required.
+one source of truth and cannot drift. Enrolling or removing a team is a
+deploy-time change to the env var (Django + Dagster pods), not
+runtime-overridable.
 
 The job is a no-op on self-hosted instances (`is_cloud()` returns False)
 since the lazy precompute infrastructure is Cloud-only.
