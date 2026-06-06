@@ -22,34 +22,25 @@ from rest_framework.exceptions import ParseError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import (
-    CachedTraceSpansQueryResponse,
-    CompareFilter,
-    DateRange,
-    ProductKey,
-    PropertyGroupFilter,
-    TraceSpansQuery,
-    TraceSpansQueryResponse,
-)
+from posthog.schema import CompareFilter, DateRange, ProductKey, PropertyGroupFilter, TraceSpansQuery
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..facade.api import run_count_query
-from ..has_spans_query_runner import team_has_spans
-from ..logic import (
-    TraceSpansQueryRunner,
+from ..facade.api import (
     run_aggregation_query,
     run_attribute_names_query,
     run_attribute_values_query,
+    run_count_query,
     run_service_names_query,
+    run_spans_query,
+    run_sparkline_query,
     run_tree_query,
+    team_has_spans,
 )
-from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 
 # Serializers below are used exclusively for OpenAPI spec generation via
 # drf-spectacular. They are NOT used for request validation — the existing
@@ -350,7 +341,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     @action(detail=False, methods=["GET"], url_path="has_spans", required_scopes=["tracing:read"])
     def has_spans(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        has_spans = team_has_spans(self.team)
+        has_spans = team_has_spans(team=self.team)
 
         report_user_action(
             request.user,
@@ -400,9 +391,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
-        runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        response = run_spans_query(team=self.team, query=spans_query)
         all_results = list(response.results)
 
         # Paginate at the trace level. The runner fetched up to requested_limit + 1 traces ordered
@@ -513,9 +502,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             filterGroup=filter_group,
         )
 
-        runner = TraceSpansSparklineQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        response = run_sparkline_query(team=self.team, query=spans_query)
 
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
@@ -650,9 +637,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             excludeAttributes=query_data.get("excludeAttributes", False),
         )
 
-        runner = TraceSpansQueryRunner(spans_query, self.team)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-        assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+        response = run_spans_query(team=self.team, query=spans_query)
 
         return Response(
             {"results": response.results},

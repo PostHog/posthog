@@ -766,3 +766,15 @@ def run_tree_query(
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
     assert isinstance(response, TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse)
     return response
+
+
+def run_spans_query(
+    *,
+    team: "Team",
+    query: TraceSpansQuery,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Facade-friendly entry point for running a trace spans query."""
+    runner = TraceSpansQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+    return response

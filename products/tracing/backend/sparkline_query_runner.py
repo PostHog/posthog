@@ -1,14 +1,19 @@
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
-from posthog.schema import TraceSpansQueryResponse
+from posthog.schema import CachedTraceSpansQueryResponse, TraceSpansQuery, TraceSpansQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.tracing.backend.logic import TraceSpansQueryRunner
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 
 class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
@@ -86,3 +91,15 @@ class TraceSpansSparklineQueryRunner(TraceSpansQueryRunner):
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+
+def run_sparkline_query(
+    *,
+    team: "Team",
+    query: TraceSpansQuery,
+) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
+    """Facade-friendly entry point for running a trace spans sparkline query."""
+    runner = TraceSpansSparklineQueryRunner(query, team)
+    response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+    assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
+    return response
