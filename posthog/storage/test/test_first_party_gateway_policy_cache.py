@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.api.oauth.test_dcr import generate_rsa_key
+from posthog.models.gateway import Gateway
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
@@ -47,15 +48,29 @@ class FirstPartyPolicyTestMixin(BaseTest):
         if self.user.current_team_id != self.team.id:
             self.user.current_team = self.team
             self.user.save()
+        # The credential's bound gateway is the source of truth for team + slug.
+        self.gateway = Gateway.all_teams.create(team=self.team, slug="posthog_code")
 
-    def _make_pak(self, scopes: list[str], token: str | None = None) -> tuple[PersonalAPIKey, str]:
+    def _make_pak(
+        self, scopes: list[str], token: str | None = None, gateway: Gateway | None = None
+    ) -> tuple[PersonalAPIKey, str]:
         token = token or generate_random_token_personal()
         key = PersonalAPIKey.objects.create(
-            label="test key", user=self.user, secure_value=hash_key_value(token), scopes=scopes
+            label="test key",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=scopes,
+            gateway=gateway or self.gateway,
         )
         return key, token
 
-    def _make_oauth(self, scope: str, expires_in_hours: float = 1, token: str | None = None) -> OAuthAccessToken:
+    def _make_oauth(
+        self,
+        scope: str,
+        expires_in_hours: float = 1,
+        token: str | None = None,
+        gateway: Gateway | None = None,
+    ) -> OAuthAccessToken:
         token = token or f"pha_{generate_random_token()}"
         app = OAuthApplication.objects.create(
             name="PostHog Code",
@@ -65,6 +80,7 @@ class FirstPartyPolicyTestMixin(BaseTest):
             algorithm="RS256",
             organization=self.organization,
             user=self.user,
+            gateway=gateway or self.gateway,
         )
         return OAuthAccessToken.objects.create(
             user=self.user,
@@ -123,14 +139,23 @@ class TestFirstPartyPolicyWireShape(FirstPartyPolicyTestMixin):
         self.assertNotIn(token, hypercache.get_cache_key(cache_hash))
 
     @parameterized.expand(["Posthog_Code", "slack app", "wizard/v2", "", "_leading"])
-    @patch("posthog.storage.first_party_gateway_policy_cache._derive_gateway_slug")
-    def test_malformed_gateway_slug_fails_closed(self, slug: str, mock_derive):
-        # A slug that isn't lowercase/URL-safe must not be projected — the gateway
-        # can't route it and it could escape the cache-key path segment.
-        mock_derive.return_value = slug
-        credential, _ = self._make_pak([GATEWAY_SCOPE])
-        project_first_party_policy(credential)
-        self.assertIsNone(self._read_blob(credential_hash(credential)))
+    def test_malformed_gateway_slug_fails_closed(self, slug: str):
+        # Gateway.save() rejects these, so force one into the DB via update() to
+        # exercise the projection's backstop: a slug the gateway can't route (or
+        # that escapes its cache-key path) must not be projected.
+        pak, _ = self._make_pak([GATEWAY_SCOPE])
+        Gateway.all_teams.filter(pk=self.gateway.pk).update(slug=slug)
+        fresh = PersonalAPIKey.objects.get(pk=pak.pk)  # reload so gateway.slug isn't cached
+        project_first_party_policy(fresh)
+        self.assertIsNone(self._read_blob(credential_hash(fresh)))
+
+    def test_unbound_credential_fails_closed(self):
+        # A scoped credential with no gateway binding can't resolve a team — fail closed.
+        pak, _ = self._make_pak([GATEWAY_SCOPE])
+        PersonalAPIKey.objects.filter(pk=pak.pk).update(gateway=None)
+        fresh = PersonalAPIKey.objects.get(pk=pak.pk)
+        project_first_party_policy(fresh)
+        self.assertIsNone(self._read_blob(credential_hash(fresh)))
 
 
 class TestFirstPartyPolicyScopeGating(FirstPartyPolicyTestMixin):
@@ -225,6 +250,7 @@ class TestFirstPartyPolicyFailClosed(FirstPartyPolicyTestMixin):
 
 class TestFirstPartyPolicyRefresh(FirstPartyPolicyTestMixin):
     def test_refresh_projects_eligible_credentials(self):
+        # Many keys can share one gateway; pak, oauth, and ignored all bind to self.gateway.
         pak, _ = self._make_pak([GATEWAY_SCOPE])
         oauth = self._make_oauth(GATEWAY_SCOPE)
         ignored, _ = self._make_pak(["feature_flag:read"])

@@ -44,9 +44,9 @@ from django.utils import timezone
 import structlog
 
 from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
+from posthog.models.gateway import GATEWAY_SLUG_PATTERN, Gateway
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, hash_key_value
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing, KeyType
 
@@ -58,15 +58,10 @@ FIRST_PARTY_REQUIRED_SCOPE = "llm_gateway:read"
 # does not enforce it yet. Open: whether it is ever non-internal.
 FIRST_PARTY_BILLING_MODE = "internal"
 
-# Until the Gateway model lands (one key per gateway, slug == $ai_gateway_slug),
-# every first-party credential projects this single default slug. Swap
-# _derive_gateway_slug for the model-backed lookup when it ships.
-DEFAULT_FIRST_PARTY_GATEWAY_SLUG = "posthog_code"
-
-# Gateway slugs must be lowercase and URL-safe so they can sit in a path segment
-# and match $ai_gateway_slug 1:1. Underscores and hyphens allowed (posthog_code,
-# slack_app); no leading/trailing separator.
-_GATEWAY_SLUG_RE = re.compile(r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
+# Backstop validation of gateway.slug before it lands in the blob. Gateway.save()
+# already enforces this on write; re-check here because the gateway does none of
+# its own and the slug flows straight onto the billing ledger.
+_GATEWAY_SLUG_RE = re.compile(GATEWAY_SLUG_PATTERN)
 
 FIRST_PARTY_POLICY_CACHE_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_TTL", str(60 * 60 * 24 * 7)))
 FIRST_PARTY_POLICY_CACHE_MISS_TTL = int(os.environ.get("FIRST_PARTY_POLICY_CACHE_MISS_TTL", str(60 * 60 * 24)))
@@ -113,10 +108,18 @@ def credential_has_gateway_scope(credential: Credential) -> bool:
     return FIRST_PARTY_REQUIRED_SCOPE in credential.scope.split()
 
 
-def _derive_gateway_slug(credential: Credential) -> str:
-    # Placeholder until the Gateway model lands (see the module constants above).
-    # One gateway per credential by design; not per-credential-configurable yet.
-    return DEFAULT_FIRST_PARTY_GATEWAY_SLUG
+def _gateway_for_credential(credential: Credential) -> Gateway | None:
+    """The one gateway this credential is bound to, or None if unbound.
+
+    A personal key binds directly; an OAuth token binds through its application
+    (the binding lives on the stable application, not the rotating token), so all
+    of an app's tokens resolve to the same gateway. Callers select_related the
+    join so this is a cached attribute access, not a query.
+    """
+    if isinstance(credential, PersonalAPIKey):
+        return credential.gateway
+    application = credential.application
+    return application.gateway if application is not None else None
 
 
 def _ttl_for_credential(credential: Credential) -> int | None:
@@ -132,14 +135,15 @@ def _ttl_for_credential(credential: Credential) -> int | None:
     return FIRST_PARTY_POLICY_PAK_CACHE_TTL
 
 
-def _policy_for_credential(
-    credential: Credential, teams_by_id: dict[int, dict[str, Any]] | None = None
-) -> dict[str, Any] | HyperCacheStoreMissing:
+def _policy_for_credential(credential: Credential) -> dict[str, Any] | HyperCacheStoreMissing:
     """Project a credential into the wire blob, or signal a clear.
 
-    Fails closed (returns HyperCacheStoreMissing) on anything that would make the
-    gateway reject the blob: missing scope, inactive/teamless user, an expired
-    OAuth token, or an unresolvable team/project_token. Never returns a partial blob.
+    The bound gateway is the source of truth for the billed team — not the user's
+    current team — so team_id is deterministic and can't drift with the key
+    owner's UI selection. Fails closed (returns HyperCacheStoreMissing) on anything
+    that would make the gateway reject the blob: missing scope, inactive user, an
+    expired OAuth token, an unbound credential, or a team with no project_token.
+    Never returns a partial blob.
     """
     if not credential_has_gateway_scope(credential):
         return HyperCacheStoreMissing()
@@ -154,47 +158,34 @@ def _policy_for_credential(
         if credential.expires <= timezone.now():
             return HyperCacheStoreMissing()
 
-    team_id = user.current_team_id
-    if not team_id or team_id <= 0:
+    gateway = _gateway_for_credential(credential)
+    if gateway is None:
         return HyperCacheStoreMissing()
 
-    # scoped_teams/scoped_organizations narrow a credential below the user's full
-    # membership. The gateway can't see them (not in the blob), so the projection
-    # is the only enforcement point — mirror permissions.py and fail closed when
-    # current_team is outside scope.
-    if credential.scoped_teams and team_id not in credential.scoped_teams:
-        return HyperCacheStoreMissing()
-
-    # teams_by_id is a prefetched batch (refresh path); a miss means the team is
-    # gone, same fail-closed outcome as DoesNotExist on the per-credential path.
-    if teams_by_id is not None:
-        team = teams_by_id.get(team_id)
-        if team is None:
-            return HyperCacheStoreMissing()
-    else:
-        try:
-            team = Team.objects.values("api_token", "organization_id").get(id=team_id)
-        except Team.DoesNotExist:
-            return HyperCacheStoreMissing()
-
-    project_token = team["api_token"]
+    # gateway.team is canonical (Gateway is project-scoped), so team_id matches how
+    # a project token resolves. Backstop the slug — the gateway validates none of it.
+    team = gateway.team
+    team_id = gateway.team_id
+    project_token = team.api_token
     if not project_token:
         return HyperCacheStoreMissing()
 
-    if credential.scoped_organizations and str(team["organization_id"]) not in credential.scoped_organizations:
+    if not _GATEWAY_SLUG_RE.match(gateway.slug):
         return HyperCacheStoreMissing()
 
-    # Fail closed on a malformed slug rather than write a blob the gateway can't
-    # route or that escapes its cache-key path segment.
-    gateway_slug = _derive_gateway_slug(credential)
-    if not _GATEWAY_SLUG_RE.match(gateway_slug):
+    # scoped_teams/scoped_organizations narrow a credential below the user's full
+    # membership. The gateway can't see them, so the projection is the only
+    # enforcement point — fail closed if the bound gateway's team is out of scope.
+    if credential.scoped_teams and team_id not in credential.scoped_teams:
+        return HyperCacheStoreMissing()
+    if credential.scoped_organizations and str(team.organization_id) not in credential.scoped_organizations:
         return HyperCacheStoreMissing()
 
     return {
         "team_id": team_id,
         "project_token": project_token,
         "scopes": [FIRST_PARTY_REQUIRED_SCOPE],
-        "gateway_slug": gateway_slug,
+        "gateway_slug": gateway.slug,
         "billing_mode": FIRST_PARTY_BILLING_MODE,
         "revoked_at": None,
     }
@@ -204,12 +195,16 @@ def _resolve_credential(hash_key: str) -> Credential | None:
     """Reverse a cache-key hash back to its credential (Django-side reads only;
     the gateway never calls Django). PAK.secure_value stores the prefixed hash
     directly; OAuth.token_checksum is the bare hex, so strip the prefix."""
-    pak = PersonalAPIKey.objects.select_related("user").filter(secure_value=hash_key).first()
+    pak = PersonalAPIKey.objects.select_related("user", "gateway__team").filter(secure_value=hash_key).first()
     if pak is not None:
         return pak
     if hash_key.startswith(SHA256_HASH_PREFIX):
         checksum = hash_key[len(SHA256_HASH_PREFIX) :]
-        return OAuthAccessToken.objects.select_related("user", "application").filter(token_checksum=checksum).first()
+        return (
+            OAuthAccessToken.objects.select_related("user", "application__gateway__team")
+            .filter(token_checksum=checksum)
+            .first()
+        )
     return None
 
 
@@ -240,17 +235,13 @@ first_party_gateway_policy_hypercache = HyperCache(
 )
 
 
-def project_first_party_policy(credential: Credential, teams_by_id: dict[int, dict[str, Any]] | None = None) -> None:
-    """Write (or clear) the credential's policy blob from current DB state.
-
-    teams_by_id lets the refresh path inject a prefetched team map to avoid an
-    N+1 Team lookup; single-credential callers leave it None.
-    """
+def project_first_party_policy(credential: Credential) -> None:
+    """Write (or clear) the credential's policy blob from current DB state."""
     cache_hash = credential_hash(credential)
     if not cache_hash:
         return
 
-    policy = _policy_for_credential(credential, teams_by_id=teams_by_id)
+    policy = _policy_for_credential(credential)
     if isinstance(policy, HyperCacheStoreMissing):
         first_party_gateway_policy_hypercache.delete_cache_entry(cache_hash, kinds=["redis"])
         return
@@ -279,17 +270,16 @@ def refresh_all_first_party_policies() -> int:
     reversed through a team pool the way the team-centric refresh does. Keeps
     entries warm; signal handlers and the per-OAuth-token TTL handle removal.
 
-    llm_gateway:read is privileged (admin-granted), so the credential set is
-    bounded — materialise it to batch the team fetch into one query rather than
-    an N+1 Team.get per credential. scope is a space-separated TextField;
+    select_related pulls each credential's bound gateway and its team in the same
+    query, so there's no N+1 lookup. scope is a space-separated TextField;
     whitespace-bounded so the literal doesn't substring-match a longer scope.
     """
     now = timezone.now()
     credentials: list[Credential] = [
-        *PersonalAPIKey.objects.select_related("user").filter(
+        *PersonalAPIKey.objects.select_related("user", "gateway__team").filter(
             scopes__contains=[FIRST_PARTY_REQUIRED_SCOPE], user__is_active=True
         ),
-        *OAuthAccessToken.objects.select_related("user", "application").filter(
+        *OAuthAccessToken.objects.select_related("user", "application__gateway__team").filter(
             scope__iregex=r"(^|\s)llm_gateway:read(\s|$)",
             user__is_active=True,
             application_id__isnull=False,
@@ -297,12 +287,7 @@ def refresh_all_first_party_policies() -> int:
         ),
     ]
 
-    team_ids = {c.user.current_team_id for c in credentials if c.user and c.user.current_team_id}
-    teams_by_id = {
-        team["id"]: team for team in Team.objects.filter(id__in=team_ids).values("id", "api_token", "organization_id")
-    }
-
     for credential in credentials:
-        project_first_party_policy(credential, teams_by_id=teams_by_id)
+        project_first_party_policy(credential)
 
     return len(credentials)
