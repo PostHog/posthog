@@ -69,6 +69,18 @@ class BrowserlessUnavailable(Exception):
     pass
 
 
+class ExportRenderPageError(Exception):
+    """Raised when the /exporter render page returns a non-2xx status during image export.
+
+    Chromium hard-fails the navigation with net::ERR_HTTP_RESPONSE_CODE_FAILURE in this case;
+    the most plausible cause is a 404 for an expired or otherwise unresolvable render token. This
+    is a user-actionable, fail-fast failure (re-triggering the export mints a fresh token), not a
+    PostHog bug — classified as a user error so it doesn't add error-tracking noise.
+    """
+
+    pass
+
+
 class ExcelColumnLimitExceeded(Exception):
     """Raised when export data exceeds openpyxl's 18,278 column limit (ZZZ)."""
 
@@ -113,6 +125,8 @@ USER_QUERY_ERRORS = (
     CHQueryErrorInvalidJoinOnExpression,
     CHQueryErrorUnknownTable,
     ExcelColumnLimitExceeded,
+    # Not a query error, but user-actionable and fail-fast: an expired/invalid render token.
+    ExportRenderPageError,
 )
 
 TIMEOUT_ERRORS = (

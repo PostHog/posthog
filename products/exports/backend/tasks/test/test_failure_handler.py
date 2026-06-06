@@ -60,6 +60,7 @@ class TestClassifyFailureType(TestCase):
             ("CHQueryErrorInvalidJoinOnExpression", FAILURE_TYPE_USER),
             ("CHQueryErrorUnknownTable", FAILURE_TYPE_USER),
             ("ExcelColumnLimitExceeded", FAILURE_TYPE_USER),
+            ("ExportRenderPageError", FAILURE_TYPE_USER),
             # System errors (from EXCEPTIONS_TO_RETRY)
             ("CHQueryErrorS3Error", FAILURE_TYPE_SYSTEM),
             ("CHQueryErrorTooManySimultaneousQueries", FAILURE_TYPE_SYSTEM),

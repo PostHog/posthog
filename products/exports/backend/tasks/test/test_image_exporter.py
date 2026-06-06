@@ -36,7 +36,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable
+from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, ExportRenderPageError
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
@@ -830,6 +830,74 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
+    @staticmethod
+    def _patched_browserless(page: MagicMock) -> Any:
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        browser.on = MagicMock()
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+        return patch(
+            "products.exports.backend.tasks.image_exporter.sync_playwright",
+            return_value=sync_playwright_cm,
+        )
+
+    def test_non_2xx_response_raises_render_page_error_without_capture(self) -> None:
+        # page.goto can resolve with a non-2xx response (rather than raising); we should classify
+        # it as a clean ExportRenderPageError and NOT create an error-tracking issue here.
+        page = MagicMock()
+        page.goto.return_value = SimpleNamespace(ok=False, status=404)
+
+        with (
+            self._patched_browserless(page),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+        ):
+            with self.assertRaises(ExportRenderPageError) as ctx:
+                image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+
+        assert "404" in str(ctx.exception)
+        mock_capture.assert_not_called()
+
+    def test_goto_http_response_code_failure_is_converted_without_capture(self) -> None:
+        # Chromium aborts navigation with net::ERR_HTTP_RESPONSE_CODE_FAILURE for a non-2xx
+        # render endpoint — convert it to ExportRenderPageError and don't capture here.
+        page = MagicMock()
+        page.goto.side_effect = PlaywrightError(
+            "Page.goto: net::ERR_HTTP_RESPONSE_CODE_FAILURE at https://us.posthog.com/exporter?token=abc"
+        )
+
+        with (
+            self._patched_browserless(page),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+        ):
+            with self.assertRaises(ExportRenderPageError):
+                image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+
+        mock_capture.assert_not_called()
+
+    def test_unexpected_playwright_error_still_propagates_without_local_capture(self) -> None:
+        # A genuine non-connection, non-status PlaywrightError should propagate so the Temporal
+        # wrapper reports it once — we no longer capture it here.
+        page = MagicMock()
+        page.goto.return_value = SimpleNamespace(ok=True, status=200)
+        page.wait_for_selector.side_effect = PlaywrightError("No node found for selector .ExportedInsight")
+
+        with (
+            self._patched_browserless(page),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+            patch("products.exports.backend.tasks.image_exporter.capture_exception") as mock_capture,
+        ):
+            with self.assertRaises(PlaywrightError):
+                image_exporter._screenshot_asset_browserless("p", "u", 800, ".ExportedInsight")
+
+        mock_capture.assert_not_called()
+
 
 class TestDimensionHelpers(SimpleTestCase):
     @parameterized.expand(
@@ -952,3 +1020,36 @@ class TestImageExportRenderMetrics(APIBaseTest):
         duration_after = self._sample("image_export_render_duration_seconds_count", duration_labels)
         assert failure_after - failure_before == 1
         assert duration_after - duration_before == 1
+
+    @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+    @patch("os.remove")
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    def test_export_image_does_not_capture_user_classified_failure(
+        self, mock_capture: Any, mock_screenshot_asset: Any, *args: Any
+    ) -> None:
+        # A classified, user-actionable failure (expired render token) must propagate to the
+        # Temporal wrapper without raising a duplicate error-tracking issue here.
+        mock_screenshot_asset.side_effect = ExportRenderPageError("Render page returned HTTP 404")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False, BROWSERLESS_CDP_URL=""):
+            with self.assertRaises(ExportRenderPageError):
+                image_exporter.export_image(self.exported_asset)
+
+        mock_capture.assert_not_called()
+
+    @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")
+    @patch("os.remove")
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset")
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    def test_export_image_still_captures_unclassified_failure(
+        self, mock_capture: Any, mock_screenshot_asset: Any, *args: Any
+    ) -> None:
+        # Genuine, unexpected failures are still reported to error tracking.
+        mock_screenshot_asset.side_effect = RuntimeError("something unexpected broke")
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False, BROWSERLESS_CDP_URL=""):
+            with self.assertRaises(RuntimeError):
+                image_exporter.export_image(self.exported_asset)
+
+        mock_capture.assert_called_once()

@@ -41,7 +41,12 @@ from posthog.utils import absolute_uri
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
-from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, classify_failure_type
+from products.exports.backend.tasks.failure_handler import (
+    USER_QUERY_ERRORS,
+    BrowserlessUnavailable,
+    ExportRenderPageError,
+    classify_failure_type,
+)
 from products.product_analytics.backend.api.insight_variable import map_stale_to_latest
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
@@ -552,6 +557,15 @@ def _is_browserless_connection_error(error: Exception) -> bool:
     return any(indicator in message for indicator in _BROWSERLESS_CONNECTION_ERROR_INDICATORS)
 
 
+# Chromium aborts navigation with this net error when the render endpoint replies with a
+# non-2xx status (most often a 404 for an expired/invalid render token).
+_RENDER_PAGE_STATUS_ERROR_INDICATOR = "err_http_response_code_failure"
+
+
+def _is_render_page_status_error(error: Exception) -> bool:
+    return _RENDER_PAGE_STATUS_ERROR_INDICATOR in str(error).lower()
+
+
 def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path: str) -> None:
     try:
         take_screenshot(image_path)
@@ -595,7 +609,11 @@ def _screenshot_asset_browserless(
             posthoganalytics.tag("url_to_render", url_to_render)
 
             try:
-                page.goto(url_to_render, wait_until="domcontentloaded", timeout=page_load_timeout * 1000)
+                response = page.goto(url_to_render, wait_until="domcontentloaded", timeout=page_load_timeout * 1000)
+                if response is not None and not response.ok:
+                    raise ExportRenderPageError(
+                        f"Render page returned HTTP {response.status} — the render token/asset is likely expired or invalid"
+                    )
                 page.wait_for_selector(wait_for_css_selector, state="attached", timeout=page_load_timeout * 1000)
             except PlaywrightTimeoutError as e:
                 with posthoganalytics.new_context():
@@ -604,6 +622,15 @@ def _screenshot_asset_browserless(
                     capture_exception(e)
 
                 raise PlaywrightTimeoutError("Timeout while waiting for the page to load") from e
+            except PlaywrightError as e:
+                # Chromium hard-fails navigation with net::ERR_HTTP_RESPONSE_CODE_FAILURE when the
+                # render endpoint returns a non-2xx status. Convert it to a clean, classified
+                # failure rather than leaking a raw PlaywrightError to the generic handler below.
+                if _is_render_page_status_error(e):
+                    raise ExportRenderPageError(
+                        f"Render page navigation failed with a non-2xx response: {_redact_browserless_token(str(e))}"
+                    ) from None
+                raise
 
             try:
                 page.wait_for_selector(".Spinner", state="detached", timeout=20000)
@@ -639,12 +666,9 @@ def _screenshot_asset_browserless(
             if disconnected[0] or _is_browserless_connection_error(e):
                 raise BrowserlessUnavailable(_redact_browserless_token(str(e))) from None
 
-            with posthoganalytics.new_context():
-                posthoganalytics.tag("url_to_render", url_to_render)
-                if page:
-                    _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
-            capture_exception(e)
-
+            # Don't capture here — the failure propagates to the Temporal export_asset_activity
+            # wrapper, which is the single error-tracking reporter for export failures. Capturing
+            # here too produced duplicate issues for one failed export.
             raise
         finally:
             if context:
@@ -777,6 +801,12 @@ def export_image(
                 )
         except Exception as e:
             team_id = str(exported_asset.team.id) if exported_asset else "unknown"
-            capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
-            logger.error("image_exporter.failed", exception=e, exc_info=True)
+            # User-actionable failures (bad query, expired render token) are not bugs. Log them as
+            # warnings without raising an error-tracking issue — the Temporal export_asset_activity
+            # wrapper is the single reporter, so capturing here too would duplicate the issue.
+            if isinstance(e, USER_QUERY_ERRORS):
+                logger.warning("image_exporter.user_error", error=str(e), team_id=team_id)
+            else:
+                capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
+                logger.error("image_exporter.failed", exception=e, exc_info=True)
             raise
