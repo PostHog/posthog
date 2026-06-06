@@ -9,9 +9,9 @@ such a node rewritten to the bare-column, skip-index-friendly shapes. A `JSONFie
 restricted property) is left untouched: the base ClickHouse printer renders it as the raw-blob `JSONExtractRaw` read,
 which for a restricted property is `JSONDropKeys`-wrapped (value collapses to `''`) exactly as on master.
 
-This is **ClickHouse-only** and runs nowhere in the pipeline yet (built + unit-tested in isolation this round, doc
-§12.3). It emits ClickHouse-specific AST (`nullIf` scrubbing, `Map` access, skip-index forms) — it must never run for the
-warehouse dialects (doc §8.12).
+This is **ClickHouse-only**: it runs after logical lowering in the ClickHouse print pipeline (see
+`prepare_ast_for_printing`). It emits ClickHouse-specific AST (`nullIf` scrubbing, `Map` access, skip-index forms) — it
+must never run for the warehouse dialects (doc §8.12).
 
 Two parts, mirroring the printer's two property surfaces on master:
 
@@ -41,6 +41,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, StringJSONDatabaseField
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+from posthog.hogql.printer.clickhouse import COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor
@@ -49,23 +50,14 @@ from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumn
 from posthog.clickhouse.property_groups import property_groups
 from posthog.models.property import PropertyName, TableColumn
 
-# In non-nullable materialized columns these stored strings are treated as NULL. Mirrors clickhouse.MAT_COL_NULL_SENTINELS.
+# In non-nullable materialized columns these stored strings are treated as NULL.
 MAT_COL_NULL_SENTINELS = ["", "null"]
 
-# Columns whose null handling the ClickHouse printer optimizes itself (the $ai_* bloom-filter columns). The comparison
-# rewrites must not intercept these — the printer's visit_compare_operation forces `not_nullable=True` for them. Mirrors
-# clickhouse.COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING.
-COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING = {
-    "mat_$ai_trace_id",
-    "mat_$ai_session_id",
-    "mat_$ai_is_error",
-    "$ai_trace_id",
-    "$ai_session_id",
-    "$ai_is_error",
-}
+# The comparison rewrites must not intercept the $ai_* bloom-filter columns: the printer's visit_compare_operation forces
+# `not_nullable=True` for them (`COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING`, imported above so the two stay in sync).
 
 # Properties whose materialized columns are read without the nullIf sentinel wrapping, so the bare column stays eligible
-# for skip indexes. Mirrors the special case in BasePrinter.visit_property_type.
+# for skip indexes (the printer applies the same special case when it renders these directly).
 AI_PROPERTIES_WITHOUT_NULLIF = {"$ai_trace_id", "$ai_session_id", "$ai_is_error"}
 
 _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
@@ -1013,7 +1005,7 @@ class ClickHousePhysicalPasses(CloningVisitor):
 def clickhouse_physical_passes(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Rewrite every materializable lowered `JSONFieldAccess` (and comparison over it) to its physical ClickHouse form.
 
-    ClickHouse-only. Expects a resolved, swapped, logically-lowered AST. Dormant: not wired into the print pipeline this
-    round (doc §12.3) — call it explicitly after `lower_property_access` to exercise the physical optimizations.
+    ClickHouse-only. Expects a resolved, swapped, logically-lowered AST. Runs in the ClickHouse print pipeline
+    immediately after `lower_property_access` (see `prepare_ast_for_printing`).
     """
     return cast(_T_AST, ClickHousePhysicalPasses(context).visit(node))

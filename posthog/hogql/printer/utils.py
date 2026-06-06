@@ -154,8 +154,8 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
-        # Lower JSON-blob property reads to dialect-neutral JSONFieldAccess nodes (strangler gate, off by default).
-        # The warehouse dialects have no materialized columns, so logical lowering is the whole story for them.
+        # Lower JSON-blob property reads to dialect-neutral JSONFieldAccess nodes. The warehouse dialects have no
+        # materialized columns, so logical lowering is the whole story for them (no ClickHouse physical pass).
         with context.timings.measure("lower_property_access"):
             node = lower_property_access(node, context)
 

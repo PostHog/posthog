@@ -1091,13 +1091,6 @@ class BasePrinter(Visitor[str]):
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
 
-    def _yield_property_group_columns(self, field_type, table_name: str, field_name: str, property_name: str):
-        """Yield printable property-group column accessors for this dialect.
-
-        Default yields nothing (property groups are a ClickHouse-only storage optimization).
-        """
-        yield from ()
-
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
             raise QueryError("You can not use placeholders here")
