@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -120,6 +121,50 @@ def create_test_registry() -> MockRegistry:
             "flag_evaluation": ["feature-flags"],
         }
     )
+
+
+class TestSandboxWrapper:
+    @staticmethod
+    def _wrap(proc: dict[str, Any]) -> dict[str, Any]:
+        return MprocsGenerator(MockRegistry({}))._add_sandbox_wrapper(proc)
+
+    def test_flag_off_leaves_command_unwrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("POSTHOG_DEV_SANDBOX", raising=False)
+        result = self._wrap({"shell": "./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "./bin/start-backend"
+        assert "sandbox" not in result  # registry-only selector must never leak to phrocs
+
+    def test_opted_in_proc_without_flag_not_wrapped(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "cargo run --bin x"})
+        assert result["shell"] == "cargo run --bin x"
+        assert "sandbox" not in result
+
+    def test_wraps_when_opted_in(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "./bin/start-frontend", "sandbox": True})
+        assert result["shell"] == "bin/dev-sandbox ./bin/start-frontend"
+        assert "sandbox" not in result
+
+    def test_docker_gate_runs_outside_sandbox(self, monkeypatch: Any) -> None:
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "bin/wait-for-docker && ./bin/start-backend", "sandbox": True})
+        assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox ./bin/start-backend"
+
+    def test_gate_hoisted_from_middle_of_chain(self, monkeypatch: Any) -> None:
+        # echo/uv-sync preambles are prepended before the gate, so it is never the
+        # leading segment; it must still be peeled out to run unsandboxed.
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "echo hi && bin/wait-for-docker && ./server", "sandbox": True})
+        assert result["shell"] == "bin/wait-for-docker && bin/dev-sandbox " + shlex.quote("echo hi && ./server")
+
+    def test_gates_only_command_not_wrapped(self, monkeypatch: Any) -> None:
+        # Nothing untrusted to sandbox -> must not emit `bin/dev-sandbox ''` (the
+        # wrapper's ${1:?} would reject the empty argument and the service would die).
+        monkeypatch.setenv("POSTHOG_DEV_SANDBOX", "1")
+        result = self._wrap({"shell": "bin/wait-for-docker && bin/wait-for-postgres-tables x", "sandbox": True})
+        assert "bin/dev-sandbox" not in result["shell"]
+        assert result["shell"] == "bin/wait-for-docker && bin/wait-for-postgres-tables x"
 
 
 class TestIntentResolver:

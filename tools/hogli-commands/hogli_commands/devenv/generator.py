@@ -377,21 +377,24 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
     def _add_sandbox_wrapper(self, proc_config: dict[str, Any]) -> dict[str, Any]:
         """Wrap a service command in bin/dev-sandbox (macOS Seatbelt) when opted in.
 
-        Opt in with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). Only Python and
-        Node/Frontend procs are wrapped — Rust/Docker/migrations are left alone.
-        The sandbox restricts filesystem reads to the repo + toolchain caches so a
-        malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
-        the docker socket so it can't escape via a container mount.
+        Opt in globally with POSTHOG_DEV_SANDBOX=1 (e.g. in .env.local). A proc is
+        wrapped only if it declares ``sandbox: true`` in the registry — an explicit,
+        reviewable per-proc boundary rather than one inferred from the cosmetic
+        ``groups.tech`` field (which is optional, so a forgotten annotation silently
+        dropped a service out of the sandbox). Rust/Docker/migration procs simply
+        omit the flag. The sandbox restricts reads to the repo + toolchain caches so
+        a malicious dependency can't read credentials (~/.ssh, ~/.aws, ...) and denies
+        the docker/agent sockets so it can't escape via a container mount.
 
         The docker-gate preamble (bin/wait-for-docker) is peeled out to run
         unsandboxed, since it needs the very socket the sandbox denies; the actual
         server (which reaches infra over TCP) is what gets sandboxed. bin/dev-sandbox
         is a no-op passthrough on non-macOS, so the generated config stays portable.
         """
-        if os.getenv("POSTHOG_DEV_SANDBOX") != "1":
-            return proc_config
-
-        if proc_config.get("groups", {}).get("tech") not in {"Python", "Node", "Frontend"}:
+        # `sandbox` is a registry-only selector; pop it so it never leaks into the
+        # emitted proc config (which phrocs/mprocs would otherwise see).
+        should_sandbox = bool(proc_config.pop("sandbox", False))
+        if os.getenv("POSTHOG_DEV_SANDBOX") != "1" or not should_sandbox:
             return proc_config
 
         shell = proc_config.get("shell", "")
@@ -420,7 +423,12 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             (gates if first_token in self._SANDBOX_DOCKER_GATES else rest).append(stripped)
 
         rest_cmd = " && ".join(rest)
-        if not gates:
+        if not rest_cmd:
+            # Command is only gate scripts (trusted, need the docker socket) — there
+            # is nothing to sandbox, so run them as-is. Avoids `bin/dev-sandbox ''`,
+            # which the wrapper rejects (its ${1:?} fires on an empty argument).
+            proc_config["shell"] = " && ".join(gates)
+        elif not gates:
             proc_config["shell"] = f"bin/dev-sandbox {shlex.quote(rest_cmd)}"
         else:
             proc_config["shell"] = f"{' && '.join(gates)} && bin/dev-sandbox {shlex.quote(rest_cmd)}"
