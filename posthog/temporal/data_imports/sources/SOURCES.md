@@ -45,6 +45,7 @@ the row lists both.
 | Source           | Comm method                 | Primary library                                                 | Tracked transport           |
 | ---------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | aircall          | HTTP                        | requests                                                        | ✅                          |
+| amplitude        | HTTP                        | requests                                                        | ✅                          |
 | asana            | HTTP                        | requests                                                        | ✅                          |
 | ashby            | HTTP                        | requests                                                        | ✅                          |
 | attio            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -83,6 +84,7 @@ the row lists both.
 | greenhouse       | HTTP                        | requests                                                        | ✅                          |
 | hubspot          | HTTP                        | requests                                                        | ✅                          |
 | intercom         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| iterable         | HTTP                        | requests                                                        | ✅                          |
 | klaviyo          | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly     | HTTP                        | requests                                                        | ✅                          |
 | linear           | HTTP                        | requests                                                        | ✅                          |
@@ -178,7 +180,6 @@ doesn't conflict with concurrent PRs.
 - adjust
 - airtable
 - amazon_ads
-- amplitude
 - apple_search_ads
 - appsflyer
 - auth0
@@ -199,7 +200,6 @@ doesn't conflict with concurrent PRs.
 - google_drive
 - helpscout
 - instagram
-- iterable
 - jira
 - kafka
 - lever
